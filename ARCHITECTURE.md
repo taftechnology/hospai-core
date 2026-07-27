@@ -1902,9 +1902,8 @@ housekeeping → night audit. Each depends on the previous.
 - Property-scoped RBAC
 - Audit log on money/inventory mutations
 - **Rebuild the prototype's screens against live APIs** (§16). The prototype is the functional
-  specification; none of its implementation carries over. Concretely: its ~50 `PMSContext`
-  actions are the draft command catalog, each needs a §4.6 degraded-mode class, and its 89
-  settings need classifying per §5.1 before the screens that edit them are rebuilt.
+  specification; none of its implementation carries over. Rebuild screens against the Phase 0
+  command catalog and classified config register (schema-freeze gate) — do not re-derive them.
 - ARI projection to KV, with the staleness SLA and reject-on-commit path (§7.1)
 - **Degraded mode end-to-end** (§4.6) — command classes, pending queue, replay, exception
   screen, SPA watermarks, fault-injection suite

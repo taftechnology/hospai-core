@@ -1,0 +1,23 @@
+import tsParser from '@typescript-eslint/parser';
+import hospai from 'eslint-plugin-hospai';
+
+export default [
+  {
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.wrangler/**', '**/coverage/**'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+      },
+    },
+    plugins: { hospai },
+    rules: {
+      'hospai/no-id-from-name-outside-tenant-router': 'error',
+      'hospai/no-domain-config-from-kv': 'error',
+      'hospai/no-entitlement-in-domain': 'error',
+      'hospai/no-reservation-scan-availability': 'error',
+    },
+  },
+];

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { ARCHIVE_BLOCKED, fingerprintPayload, OVERSELL, TIMEZONE_UNSET } from '@hospai/contracts';
+import { ARCHIVE_BLOCKED, fingerprintPayload, NOT_FOUND, OVERSELL, PROPERTY_ID_UNSET, TIMEZONE_UNSET } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
@@ -40,6 +40,48 @@ describe('PropertyDO inventory commands', () => {
     };
     const result = await stub.tryAddRoomType(input, await idemFor('add-no-tz', input));
     expect(result).toEqual({ ok: false, error: TIMEZONE_UNSET });
+  });
+
+  it('1b. timezone_unset is never cached: replaying the same idempotency key after provisioning the timezone succeeds', async () => {
+    const name = `inv-no-tz-replay-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await stub.ensureMetaPropertyId(name);
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const idem = await idemFor('add-no-tz-replay-fixed', input);
+
+    const first = await stub.tryAddRoomType(input, idem);
+    expect(first).toEqual({ ok: false, error: TIMEZONE_UNSET });
+
+    // Provision the timezone, then replay the *same* idempotency key.
+    const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
+    await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: `provision:timezone:${name}`, fingerprint });
+
+    const second = await stub.tryAddRoomType(input, idem);
+    expect(second.ok).toBe(true);
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
+  });
+
+  it('1c. add room type without a stored property_id rejects with property_id_unset, uncached', async () => {
+    const stub = propertyStub(`inv-no-pid-${crypto.randomUUID()}`);
+    const fingerprint = await fingerprintPayload({ propertyId: 'x', timeZone: 'Europe/Berlin' });
+    await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: 'provision:timezone:x', fingerprint });
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const result = await stub.tryAddRoomType(input, await idemFor('add-no-pid', input));
+    expect(result).toEqual({ ok: false, error: PROPERTY_ID_UNSET });
   });
 
   it('2. add room type under Europe/Berlin seeds exactly 365 rows, two events, ARI version 1', async () => {
@@ -242,6 +284,99 @@ describe('PropertyDO inventory commands', () => {
       'inventory.room_type_changed',
       'availability.changed',
     ]);
+  });
+
+  it('7b. archive with zero future ledger rows still emits room_type_changed but skips availability.changed and the ARI bump', async () => {
+    const name = `inv-archive-empty-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-empty', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    const ariBefore = await stub.readAriVersion();
+    // Drain the add's events so the assertion below only sees the archive's outbox writes.
+    await stub.flushOutbox();
+    // Simulate a room type with no future ledger rows left (e.g. fully expired horizon).
+    await stub.deleteAvailabilityDaysFrom('rt_king', added.fromDate);
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(0);
+
+    const deleteInput = { roomTypeId: 'rt_king' };
+    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-empty', deleteInput));
+    expect(result).toEqual({ ok: true, roomTypeId: 'rt_king', ariVersion: ariBefore });
+
+    expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
+    expect(await stub.readAriVersion()).toBe(ariBefore);
+    expect(await stub.listOutboxEventTypes()).toEqual(['inventory.room_type_changed']);
+  });
+
+  it('not_found is never cached: update on a missing room type, then retry the same idempotency key once it exists', async () => {
+    const name = `inv-not-found-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const updateInput = { roomTypeId: 'rt_ghost', roomCount: 5 };
+    const idem = await idemFor('update-not-found-fixed', updateInput);
+
+    const first = await stub.tryUpdateRoomType(updateInput, idem);
+    expect(first).toEqual({ ok: false, error: NOT_FOUND });
+
+    const addInput = {
+      roomTypeId: 'rt_ghost',
+      code: 'GHOST',
+      name: 'Ghost Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-ghost', addInput));
+    expect(added.ok).toBe(true);
+
+    const second = await stub.tryUpdateRoomType(updateInput, idem);
+    expect(second.ok).toBe(true);
+  });
+
+  it('oversell is never cached: after clearing the offending demand, retrying the same idempotency key succeeds', async () => {
+    const name = `inv-oversell-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-oversell-replay', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: added.fromDate,
+      physical: 10,
+      sold: 9,
+    });
+
+    const updateInput = { roomTypeId: 'rt_king', roomCount: 5 };
+    const idem = await idemFor('update-oversell-replay-fixed', updateInput);
+    const first = await stub.tryUpdateRoomType(updateInput, idem);
+    expect(first).toEqual({ ok: false, error: OVERSELL, dates: [added.fromDate] });
+
+    // Clear the demand that caused the oversell, then replay the same idempotency key.
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: added.fromDate,
+      physical: 10,
+      sold: 0,
+    });
+    const second = await stub.tryUpdateRoomType(updateInput, idem);
+    expect(second.ok).toBe(true);
   });
 
   it('8. archived code can be reused on a new active room type (partial unique index)', async () => {

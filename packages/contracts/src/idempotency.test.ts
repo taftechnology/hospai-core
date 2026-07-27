@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ARCHIVE_BLOCKED, fingerprintPayload, IDEM_KEY_REUSED, OVERSELL, TIMEZONE_UNSET } from './idempotency.js';
+import {
+  ARCHIVE_BLOCKED,
+  fingerprintPayload,
+  IDEM_KEY_REUSED,
+  NOT_FOUND,
+  OVERSELL,
+  PROPERTY_ID_UNSET,
+  TIMEZONE_UNSET,
+} from './idempotency.js';
 
 describe('fingerprintPayload', () => {
   it('is stable under key reordering', async () => {
@@ -23,6 +31,8 @@ describe('fingerprintPayload', () => {
     expect(TIMEZONE_UNSET).toBe('timezone_unset');
     expect(OVERSELL).toBe('oversell');
     expect(ARCHIVE_BLOCKED).toBe('archive_blocked');
+    expect(NOT_FOUND).toBe('not_found');
+    expect(PROPERTY_ID_UNSET).toBe('property_id_unset');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

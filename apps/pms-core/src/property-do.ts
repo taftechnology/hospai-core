@@ -4,7 +4,9 @@ import {
   domainConfigKeys,
   getConfigEntry,
   IDEM_KEY_REUSED,
+  NOT_FOUND,
   OVERSELL,
+  PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
   type IdempotencyKey,
 } from '@hospai/contracts';
@@ -23,6 +25,34 @@ import { archiveBlocked, enumerateHorizonDates, oversellDates, type InventoryRow
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
+
+/**
+ * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
+ * thrown *inside* a `runIdempotent` execute callback so the precondition
+ * failure rolls back the transaction instead of being cached under the
+ * idempotency key. Caught at the PropertyDO try* boundary and mapped to a
+ * wire code — never `instanceof`-checked across a DO stub.
+ */
+class RoomTypeNotFoundError extends Error {
+  constructor() {
+    super('Room type not found or not active');
+    this.name = 'RoomTypeNotFoundError';
+  }
+}
+
+class OversellError extends Error {
+  constructor(public readonly dates: string[]) {
+    super('Lowering room_count would oversell committed demand');
+    this.name = 'OversellError';
+  }
+}
+
+class ArchiveBlockedError extends Error {
+  constructor() {
+    super('Room type has committed future demand and cannot be archived');
+    this.name = 'ArchiveBlockedError';
+  }
+}
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   constructor(ctx: DurableObjectState, env: PmsEnv) {
@@ -354,12 +384,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; roomTypeId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: string }
   > {
+    // Preconditions are checked *before* entering runIdempotent: a precondition
+    // failure must never be cached under the idempotency key, or fixing the
+    // precondition (e.g. provisioning the timezone) and replaying the same key
+    // would keep returning the stale cached failure forever.
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          const timeZone = this.readStoredTimeZoneSync();
-          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
-
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO room_type (room_type_id, code, name, room_count, max_occupancy, max_adults, status, created_at, updated_at)
@@ -386,7 +422,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const ariVersion = this.bumpAriVersionSync();
-          const propertyId = this.getPropertyIdSync();
           const fromDate = dates[0]!;
           const toDate = dates[dates.length - 1]!;
 
@@ -430,12 +465,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof OVERSELL; dates: string[] }
     | { ok: false; error: string }
   > {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          const timeZone = this.readStoredTimeZoneSync();
-          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
-
           const existingRows = this.ctx.storage.sql
             .exec(
               `SELECT code, name, room_count, max_occupancy, max_adults, status FROM room_type WHERE room_type_id = ?`,
@@ -451,7 +488,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }>;
           const existing = existingRows[0];
           if (!existing || existing.status !== 'active') {
-            return { ok: false as const, error: 'not_found' };
+            // Thrown, not returned: a not-found/inactive room type is a precondition
+            // failure and must roll back without being cached under the idempotency key.
+            throw new RoomTypeNotFoundError();
           }
 
           const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
@@ -488,7 +527,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             }));
             const overDates = oversellDates(inventoryRows, nextRoomCount);
             if (overDates.length > 0) {
-              return { ok: false as const, error: OVERSELL, dates: overDates };
+              // Thrown for the same reason: oversell is a precondition failure on the
+              // *current* ledger state, and must be retryable with the same idempotency
+              // key once the underlying demand or requested roomCount changes.
+              throw new OversellError(overDates);
             }
 
             for (const row of futureRows) {
@@ -517,7 +559,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.roomTypeId,
           );
 
-          const propertyId = this.getPropertyIdSync();
           appendOutbox(this.ctx.storage.sql, {
             eventId: crypto.randomUUID(),
             eventType: 'inventory.room_type_changed',
@@ -539,6 +580,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof OversellError) return { ok: false, error: OVERSELL, dates: e.dates };
+      if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -556,17 +599,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ARCHIVE_BLOCKED }
     | { ok: false; error: string }
   > {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          const timeZone = this.readStoredTimeZoneSync();
-          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
-
           const existingRows = this.ctx.storage.sql
             .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
             .toArray() as Array<{ status: string }>;
           if (!existingRows[0] || existingRows[0].status !== 'active') {
-            return { ok: false as const, error: 'not_found' };
+            // Thrown, not returned — see tryUpdateRoomType for why.
+            throw new RoomTypeNotFoundError();
           }
 
           const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
@@ -595,7 +641,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             oversell: row.oversell,
           }));
           if (archiveBlocked(inventoryRows)) {
-            return { ok: false as const, error: ARCHIVE_BLOCKED };
+            throw new ArchiveBlockedError();
           }
 
           const now = Date.now();
@@ -604,33 +650,41 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.roomTypeId,
           );
-          this.ctx.storage.sql.exec(
-            `UPDATE availability_day SET physical = 0, version = version + 1 WHERE room_type_id = ? AND stay_date >= ?`,
-            input.roomTypeId,
-            today,
-          );
-
-          const ariVersion = this.bumpAriVersionSync();
-          const propertyId = this.getPropertyIdSync();
-          const fromDate = futureRows[0]?.stay_date;
-          const toDate = futureRows[futureRows.length - 1]?.stay_date;
 
           appendOutbox(this.ctx.storage.sql, {
             eventId: crypto.randomUUID(),
             eventType: 'inventory.room_type_changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, op: 'archive', at: now },
           });
-          appendOutbox(this.ctx.storage.sql, {
-            eventId: crypto.randomUUID(),
-            eventType: 'availability.changed',
-            payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
-          });
+
+          // Only touch the ledger / bump ARI / emit availability.changed when there were
+          // actually future rows to zero out — an archive with zero future rows still
+          // always emits inventory.room_type_changed above, but there is no availability
+          // range to report and no ARI-relevant write happened.
+          let ariVersion = this.readAriVersionSync();
+          if (futureRows.length > 0) {
+            this.ctx.storage.sql.exec(
+              `UPDATE availability_day SET physical = 0, version = version + 1 WHERE room_type_id = ? AND stay_date >= ?`,
+              input.roomTypeId,
+              today,
+            );
+            ariVersion = this.bumpAriVersionSync();
+            const fromDate = futureRows[0]!.stay_date;
+            const toDate = futureRows[futureRows.length - 1]!.stay_date;
+            appendOutbox(this.ctx.storage.sql, {
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+            });
+          }
 
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion };
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ArchiveBlockedError) return { ok: false, error: ARCHIVE_BLOCKED };
+      if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -657,6 +711,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT event_type FROM outbox WHERE acked = 0 ORDER BY seq`)
       .toArray() as Array<{ event_type: string }>;
     return rows.map((r) => r.event_type);
+  }
+
+  /** Test helper: remove all `availability_day` rows on/after `fromDate` — simulates a room type with no future ledger rows. */
+  async deleteAvailabilityDaysFrom(roomTypeId: string, fromDate: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `DELETE FROM availability_day WHERE room_type_id = ? AND stay_date >= ?`,
+      roomTypeId,
+      fromDate,
+    );
   }
 
   async upsertRestrictionDay(input: {

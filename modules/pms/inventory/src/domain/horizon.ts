@@ -31,16 +31,21 @@ export function enumerateHorizonDates(
     `${String(p.year).padStart(4, '0')}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
 
   const start = toParts(fromInstant);
-  // Anchor on a UTC noon timestamp for the calendar date, then step whole
-  // calendar days via Date.UTC — safe because we only ever re-derive the
-  // Y-M-D via the timezone formatter, never trust the UTC clock time itself.
-  let anchor = Date.UTC(start.year, start.month - 1, start.day, 12, 0, 0);
+  // Anchor at UTC midnight of the local calendar date determined above, then step
+  // whole calendar days via pure UTC arithmetic. We deliberately do NOT re-derive
+  // each subsequent date by reformatting through `timeZone`: for zones at UTC+13
+  // or UTC+14 (e.g. Pacific/Auckland during NZDT, Pacific/Kiritimati), any
+  // non-midnight UTC anchor (this used to be noon) falls on the *next* local
+  // calendar day once you add the offset, producing an off-by-one for every date
+  // in the horizon. Once the correct starting Y-M-D is known, calendar-day
+  // stepping is pure calendar math and needs no further timezone conversion.
+  let cursor = Date.UTC(start.year, start.month - 1, start.day);
 
   const dates: string[] = [];
   for (let i = 0; i < days; i++) {
-    const parts = toParts(new Date(anchor));
-    dates.push(toKey(parts));
-    anchor += 24 * 60 * 60 * 1000;
+    const d = new Date(cursor);
+    dates.push(toKey({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }));
+    cursor += 24 * 60 * 60 * 1000;
   }
   return dates;
 }

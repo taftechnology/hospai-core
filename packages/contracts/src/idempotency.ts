@@ -11,6 +11,8 @@ export type IdemKeyReusedCode = typeof IDEM_KEY_REUSED;
 export const TIMEZONE_UNSET = 'timezone_unset' as const;
 export const OVERSELL = 'oversell' as const;
 export const ARCHIVE_BLOCKED = 'archive_blocked' as const;
+export const NOT_FOUND = 'not_found' as const;
+export const PROPERTY_ID_UNSET = 'property_id_unset' as const;
 
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {

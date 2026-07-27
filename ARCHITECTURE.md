@@ -24,7 +24,7 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > the degraded-mode protocol (§4.6), PII erasure and the cross-store purge Workflow (§4.8),
 > time-boxed support elevation with dual control on writes (§4.9), ARI staleness SLA (§7.1),
 > multi-currency and the payments↔folio contract (§7.3), multi-property projections (§7.6),
-> regulatory scope (§7.7), the night-audit `BusinessDate` state machine (§8), and
+> regulatory scope (§7.9), the night-audit `BusinessDate` state machine (§8), and
 > idempotency × outbox (§10.1).
 >
 > **Revision 2026-07-27b.** Reconciled against the `hospai-pms-prototype` reference SPA, which
@@ -33,9 +33,19 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > availability-is-a-ledger rule and virtual room types (§7.1), `products` / `maintenance` /
 > `restrictions` / `reporting` modules and guest engagement as a module group (§11).
 >
+> **Revision 2026-07-27c.** Adds the Phase 0 **schema-freeze gate** (§14) — the four PropertyDO
+> tables that cannot change cheaply later. New: the `restriction_day` ledger (§7.2), folio
+> windows with routing and splitting (§7.3), OOO mapped into the availability ledger and the
+> `held` column reserved for future holds (§7.1), timezone effective-dating (§7.5), operational
+> read paths over hibernating WebSockets (§7.7), the OLTP/warehouse reporting split (§7.8), the
+> `config.changed` consumer matrix (§5.1), and merge-blocking lint rules (§11).
+>
+> **Decided:** `held` is reserved in schema now, hold *behaviour* deferred to Phase 3 (§7.6).
+> **Clerk is narrow** — authentication only; all authorization in OrgDO (§13).
+>
 > **Still owed:** FX rate sourcing and its refresh policy; the exception-queue operator UX;
-> per-country fiscalization design for the launch market; the classified config register
-> derived from the prototype's 89 settings (§16.3, step 1).
+> per-country fiscalization design for the launch market. The config register and command
+> catalog are now Phase 0 work items rather than open questions (§14).
 
 ---
 
@@ -218,8 +228,9 @@ Durable Objects dissolve the hardest PMS problem — **availability concurrency*
 
 Holds everything that must be consistent **within a property:**
 
-- `availability_day` ledger (physical / blocked / sold / oversell allowance)
-- restrictions ledger (MinLOS, MaxLOS, CTA, CTD, stop-sell)
+- `availability_day` ledger (physical / blocked / **held** / sold / oversell allowance)
+- restrictions ledger (MinLOS, MaxLOS, CTA, CTD, stop-sell) — §7.2
+- `DOMAIN`-class configuration for this property (§5.1)
 - reservations and their state machine
 - folios (append-only ledger) — **live stay folios only**
 - room status / housekeeping state
@@ -428,7 +439,10 @@ routing-bug failure mode with a friendlier disguise.
    Queue consumers, Workflows, migration sweepers, and the CS read path. There is exactly one
    function that does this and nothing else may call `idFromName`, enforced by lint.
 3. `locationHint` is derived independently, from the property's own timezone, and only ever
-   affects latency.
+   affects latency. **A later timezone change never migrates the object** — see §7.5. Hints are
+   best-effort anyway, and a property in a suboptimal colo costs tens of milliseconds, which
+   never justifies migrating live inventory. Validate the timezone *at provisioning* instead;
+   the realistic trigger for a change is an onboarding typo, not a relocation.
 4. **Self-check:** each DO asserts `ctx.id.jurisdiction` matches the jurisdiction recorded for
    its tenant on every cold start, and refuses to serve on mismatch. Failing closed on a
    blank object is vastly better than serving it.
@@ -581,7 +595,7 @@ pay rate, or that deletes employment records a labour authority requires be kept
 |---|---|---|---|
 | **Guest** | Name, contact, passport/ID, stay history, message content | Consent / contract | Right to erasure → crypto-shred on request |
 | **Staff** | Name, contact, **hourly rate, performance rating, skills, shift history** | Employment contract | **Not guest-erasure.** Statutory employment retention, often years, jurisdiction-specific |
-| **Financial** | Folio lines, invoices, settlement | Legal obligation | Survives erasure, pseudonymized (§7.7) |
+| **Financial** | Folio lines, invoices, settlement | Legal obligation | Survives erasure, pseudonymized (§7.9) |
 | **Operational** | Room status, task assignment, audit actor refs | Legitimate interest | Retained per policy; actor refs pseudonymized on staff exit |
 
 Staff data is the class most often missed, and the prototype makes the exposure concrete —
@@ -604,7 +618,7 @@ and archived folio referencing it becomes permanently undecodable, with no rewri
 immutable store.
 
 **What survives erasure, deliberately:** financial records required by tax and fiscalization
-law (§7.7), retained as pseudonymized ledger entries with the legal basis recorded. Erasure
+law (§7.9), retained as pseudonymized ledger entries with the legal basis recorded. Erasure
 policy is a `packages/contracts` concern and a Phase 0 decision, not a Phase 3 compliance task.
 
 #### Purge is a Workflow, because the data is in five places
@@ -641,7 +655,7 @@ audits; they are housekeeping, not the guarantee.
   assurances. It is append-only and itself never purged.
 - **Retention windows are enforced by the Workflow, not the caller.** `onPurge` cannot run
   early even if a module requests it; the window is checked in step 0 against Platform D1.
-- **Financial-record exemptions are applied per record class** (§7.7), not per subject. A purge
+- **Financial-record exemptions are applied per record class** (§7.9), not per subject. A purge
   that erases a fiscally-required invoice is as much a violation as one that misses a guest
   profile.
 
@@ -807,7 +821,22 @@ as mutations, not preferences:
    permission.
 4. **`DOMAIN` changes emit `config.changed`**, so projections, the ARI cache, and the channel
    manager can react. A change to `allow_overbooking` that does not invalidate the ARI
-   projection is a silent oversell.
+   projection is a silent oversell. Which consumers a key wakes is declared, not inferred:
+
+   | Key | Invalidates ARI | Reschedules night audit | Affects tax/money | Rematerializes rates |
+   |---|---|---|---|---|
+   | `allow_overbooking` | ✅ | — | — | — |
+   | `oversell_allowance` | ✅ | — | — | — |
+   | `time_zone` | ✅ | ✅ | — | ✅ |
+   | `audit_time` | — | ✅ | — | — |
+   | `auto_no_show` | ✅ | ✅ | — | — |
+   | `same_day_cutoff` | ✅ | — | — | — |
+   | `currency_code` | — | — | ✅ | ✅ |
+   | `tax_registry` | — | — | ✅ | — |
+   | `payment_alloc` | — | — | ✅ | — |
+   | `breakfast_rule` | — | ✅ | ✅ | ✅ |
+
+   A `DOMAIN` key with no declared consumers is suspect — it probably belongs in `OPERATIONAL`.
 5. **Effective-dated where the domain requires it.** Changing a tax rule must not retroactively
    alter closed folio lines (§7.3). Tax, currency, and rate-affecting config carry a validity
    window rather than overwriting.
@@ -1024,6 +1053,53 @@ Rules:
 > UI** — the screens look identical either way. Treat any code path that counts reservations to
 > answer "is there room" as a defect, and add a lint rule for it.
 
+#### The ledger shape
+
+```sql
+CREATE TABLE availability_day (
+  room_type_id  TEXT NOT NULL,
+  stay_date     TEXT NOT NULL,          -- StayDate, property timezone (§7.5)
+  physical      INTEGER NOT NULL,       -- sellable rooms of this type
+  blocked       INTEGER NOT NULL DEFAULT 0,   -- OOO / maintenance — see below
+  held          INTEGER NOT NULL DEFAULT 0,   -- reserved capacity, not yet sold
+  sold          INTEGER NOT NULL DEFAULT 0,
+  oversell      INTEGER NOT NULL DEFAULT 0,   -- DOMAIN config (§5.1)
+  version       INTEGER NOT NULL,             -- stamped onto the ARI projection (§7.1)
+  PRIMARY KEY (room_type_id, stay_date)
+);
+-- free = physical - blocked - held - sold + oversell
+```
+
+**`held` is reserved in the schema now and unused until central reservations ships (§7.6).**
+This is deliberate. The column is PropertyDO schema, so adding it later is a migration across
+every property in the fleet (§12); adding it now, always zero, costs nothing. The *behaviour* —
+TTL length, abandonment policy, whether the booking wizard also holds — is a Phase 3 decision.
+Until then `held` is always 0 and `free` is unaffected.
+
+When holds do land, three things become mandatory at the same time: a `hold-expiry` schedule on
+the `AlarmScheduler` (§4.4), held inventory reading as **unavailable** in the ARI projection
+(or the booking engine sells rooms an agent is holding), and monitoring for abandoned holds —
+a stuck hold is silently unsellable inventory.
+
+#### Out-of-order rooms decrement the ledger
+
+OOO is recorded per **room** with a date range; the ledger is per **room type**. Placing a room
+out of order therefore increments `blocked` for its room type across `[oooStartDate,
+returnDate)`, **in the same atomic write as the room status change**. A room marked OOO that
+still sells is the same class of defect as an oversell.
+
+Three rules that are easy to miss:
+
+1. **Editing an OOO range adjusts on the delta**, not by recompute — extending by two nights
+   increments two rows, it does not rewrite the range.
+2. **OOO on a room assigned to an in-house or arriving reservation fails closed.** Either the
+   reservation is reassigned first, or the command is rejected with the conflict. Never
+   silently strand a guest.
+3. **OOO emits an event that opens a `maintenance` work order** (§11), so the reason a room is
+   out of service is tracked rather than living in a free-text field.
+
+Stop-sell (§7.2) travels the same path and is applied in the same transaction.
+
 **Physical and virtual room types.** Inventory distinguishes room types that map to real rooms
 from *virtual* types — packages, combined units, and sales constructs that draw on the same
 physical rooms. The ledger tracks **physical** inventory; virtual types resolve to one or more
@@ -1072,7 +1148,44 @@ is a defect.
 Rate plans compose: `base rate → derived (−15% of BAR) → seasonal override → LOS discount → promo`.
 Model the **derivation graph**, not the materialized matrix.
 
-Restrictions (MinLOS, MaxLOS, CTA, CTD, stop-sell) are a **separate ledger** from prices.
+#### Restrictions are a separate ledger from prices
+
+Restrictions and prices change on different schedules, are edited by different people, and
+answer different questions — *may this stay be sold?* versus *what does it cost?* Collapsing
+them into one table means a revenue manager adjusting a rate silently clears a stop-sell.
+
+Like `availability_day`, this is **PropertyDO schema and therefore in the Phase 0 freeze
+window** (§14).
+
+```sql
+CREATE TABLE restriction_day (
+  room_type_id  TEXT NOT NULL,
+  rate_plan_id  TEXT,                   -- NULL = applies to every rate plan on this type
+  stay_date     TEXT NOT NULL,
+  min_los       INTEGER,                -- minimum length of stay
+  max_los       INTEGER,
+  cta           INTEGER NOT NULL DEFAULT 0,   -- closed to arrival
+  ctd           INTEGER NOT NULL DEFAULT 0,   -- closed to departure
+  stop_sell     INTEGER NOT NULL DEFAULT 0,
+  version       INTEGER NOT NULL,
+  PRIMARY KEY (room_type_id, rate_plan_id, stay_date)
+);
+```
+
+**Evaluation rules:**
+
+1. **Restrictions are evaluated in the same transaction as availability**, inside the DO. A
+   booking that passes availability but violates MinLOS must fail before anything is written.
+2. **The tightest constraint wins.** A rate-plan-specific row and a type-wide row both apply;
+   take the stricter. A virtual room type inherits the tightest constraint among its
+   constituent physical types (§7.1).
+3. **CTA/CTD are evaluated against the boundary nights only** — CTA against the arrival date,
+   CTD against the departure date — while MinLOS/MaxLOS are evaluated across the whole stay.
+   Getting this wrong is the most common restriction bug in the industry.
+4. **Stop-sell is not zero availability.** It suppresses sale while leaving inventory intact, so
+   lifting it restores the original position. Never implement stop-sell by zeroing `physical`.
+5. **Restrictions push to channels** alongside ARI. An OTA holding a stale MinLOS will keep
+   selling stays the property refuses, and those arrive as bookings you must honour or cancel.
 
 Rate plan *definitions* live in OrgDO (cross-property, rarely written). Materialized daily
 rates live in PropertyDO (per-property, frequently read). The projection from definition →
@@ -1095,6 +1208,49 @@ be able to stall check-ins.
   property takes cash — which is Phase 1, not later.
 - **City ledger / AR:** direct-bill corporate accounts, aging, statements, commission tracking.
   Structurally distinct from guest folios; do not model it as a folio variant.
+
+#### Folios have windows, and charges move between them
+
+A reservation does not have *a* folio. It has **windows** — typically a guest window, one or
+more company/third-party windows, and a master window for group masters. This is not an
+advanced feature; splitting a bill between guest and employer is a daily front-desk action, and
+the reference prototype already specifies routing rules and charge splitting (§16.1).
+
+Modelling one ledger per reservation and adding windows later means re-keying every folio line
+and every report that reads them.
+
+```sql
+CREATE TABLE folio_window (
+  folio_window_id TEXT PRIMARY KEY,
+  reservation_id  TEXT NOT NULL,
+  kind            TEXT NOT NULL,   -- GUEST | COMPANY | MASTER
+  billed_party    TEXT,            -- city-ledger account for COMPANY (§7.3)
+  status          TEXT NOT NULL,   -- OPEN | CLOSED
+  closed_at       INTEGER
+);
+-- folio_line.folio_window_id, not folio_line.reservation_id
+```
+
+**Routing rules** map charge-code ranges to a destination window (`transactionRange →
+destination`), and may transfer automatically at night audit. Three constraints:
+
+1. **Auto-transfer is a night-audit step and obeys §8.** It is idempotent against re-runs, keyed
+   by `(reservation_id, business_date, rule_id)`. A Workflow retry that moves charges twice is
+   a double-bill on a corporate account, which surfaces weeks later in a disputed invoice.
+2. **Transfers are postings, not updates.** Moving a charge writes a reversing line in the
+   source window and a new line in the destination. The original line is never re-pointed —
+   the folio stays append-only (Rule 5) and the transfer stays auditable.
+3. **A closed window rejects postings.** Late charges against a checked-out, closed window go to
+   the exception path, never silently reopen it.
+
+**Splitting a charge** follows the same rule and this is where the prototype diverges most
+sharply: its `splitFolioCharge(id, itemId, newAmount)` mutates the line in place. Here, a
+$100 charge split 60/40 is **one reversal plus two new postings**, all in one atomic write,
+all carrying a `split_of` reference to the original.
+
+- Splits must foot exactly. `packages/money` owns the allocation so remainder pennies land
+  deterministically rather than by rounding drift.
+- A split across windows is a split *and* a transfer, and is subject to both rule sets above.
 
 #### Multi-currency
 
@@ -1177,6 +1333,30 @@ Hospitality time ≠ wall-clock time. First-class types in `packages/temporal-ut
 
 A `Date` object crossing a module boundary is a bug waiting for a DST transition.
 
+#### Changing a property's timezone
+
+`time_zone` is `DOMAIN` config (§5.1) and it controls far more than placement: what a
+`StayDate` means as an instant, when the business date rolls, and when the night-audit alarm
+fires. So the question *"can a property change its timezone?"* is really a question about
+historical data, and it is answered by splitting the concept in two:
+
+| | Mutable? | Rule |
+|---|---|---|
+| The timezone used for **future** business-date math | **Yes** — effective-dated | Carries a validity window, exactly like tax rules (§5.1 rule 5) |
+| The timezone historical records were **written in** | **No** | Already stamped on each record; past `StayDate`s and `BusinessDate`s never shift |
+
+A stay date recorded under the old timezone keeps its meaning forever. Changing the setting
+changes what *tomorrow* means, never what last August meant. Any implementation that
+re-derives historical instants from the current timezone setting is wrong, and the failure is
+invisible until a year-end report disagrees with the filed night-audit packets.
+
+**Preconditions for a change:** no night audit in flight, business date not mid-rollover, the
+`night-audit` alarm recomputed on commit, and an audit record with the effective date. The
+PropertyDO is **not** migrated — see §4.5.
+
+The realistic trigger is an onboarding typo, not a relocation, so validate the timezone at
+provisioning and treat the change path as a rare correction rather than a routine setting.
+
 ### 7.6 Multi-property — *the thing we charge most for is what the model most resists*
 
 `pms.multi_property` is an Enterprise feature, and §2 states plainly that cross-property
@@ -1194,7 +1374,86 @@ rather than discovery during an Enterprise deal.
 Fan-out reads across N PropertyDOs are acceptable only for small N and only behind a Workflow.
 They are never on an interactive request path.
 
-### 7.7 Regulatory — the hidden second product
+#### Central reservations: optimistic commit now, holds when it ships
+
+The commit-side reject in §7.1 is correct for the **booking engine** — a guest sees "just sold
+out," picks another option, self-serves. It is a poor fit for a **phone agent** who has spent
+four minutes collecting a card and preferences and must now apologize, and it degrades badly
+for multi-room and travel-agent bookings where partial failure is the norm.
+
+The eventual answer is **TTL holds**: reserve inventory at the owning PropertyDO when the agent
+selects a property, complete the booking against guaranteed stock, release on abandonment. The
+`held` column exists in the ledger for exactly this (§7.1) and is unused until then.
+
+**Until holds ship, the reject path needs an operator UX that is more than an error:**
+
+- Re-query the group projection immediately and offer the next-best property in the group.
+- **Preserve the booking context** — guest details, dates, preferences survive the rejection.
+  Re-keying a four-minute call is the actual cost of a reject, not the rejection itself.
+- Distinguish *stale projection* from *genuine race* using the version stamp (§7.1), and
+  surface only the second as "just sold"; the first is our defect and should be logged as one.
+- Never present a group search result as confirmed availability. The projection is advisory and
+  the UI must say so, or agents will promise rooms the platform has not reserved.
+
+### 7.7 Operational read paths — the front desk is chattier than the booking engine
+
+The tape chart and front-desk board are the highest-frequency reads in the product: a grid of
+rooms × dates, open on several workstations, refreshed constantly through a shift. Naïve
+polling turns every workstation into sustained load on a single-threaded object, competing with
+the check-ins in the `INTERACTIVE` lane (§4.2).
+
+**A short-TTL projection is the wrong instrument here.** Unlike the booking engine, the front
+desk needs data fresh to the second — an agent checking a guest in cannot act on a 30-second-old
+room status. A TTL short enough to be safe is short enough to be nearly useless.
+
+**Use the Hibernation WebSocket API instead.** The PropertyDO holds connections from the
+property's workstations and pushes deltas on change. Clients stay connected while the object
+hibernates, and billable duration does not accrue while it sleeps — so idle overnight
+workstations cost nothing. It is the same channel §9 already uses for `entitlement.changed`.
+
+```
+initial load  →  projection read (one query, bounded window)
+thereafter    →  deltas pushed over the socket on every domain event
+reconnect     →  resync from version, not a full reload
+```
+
+Three implementation constraints:
+
+1. **The constructor re-runs on every hibernation wake.** PropertyDO's constructor calls
+   `blockConcurrencyWhile(() => this.migrate())` (§4.1). That must be a cheap version check, not
+   a schema scan, or every wake pays migration cost on the critical path.
+2. **Per-connection state uses `serializeAttachment()`**, since in-memory state is lost on
+   hibernation. Store the subscribed date window and the user's property scope there.
+3. **The tape chart needs a bounded query regardless of transport.** It is a range scan over
+   rooms × dates; serve only the visible window, and consider a materialized view in the DO
+   rather than assembling it per request.
+
+### 7.8 Reporting: what is OLTP and what is warehouse
+
+`reporting` (§11) is a module, but most reports are not its data. The dividing rule:
+
+> **If a report must tie out to *right now* or to a closed financial period, it is OLTP. If it
+> is a trend, it is warehouse.**
+
+| PropertyDO (OLTP) | Iceberg warehouse |
+|---|---|
+| Arrivals, departures, in-house list | ADR / RevPAR / occupancy trends |
+| Room status and housekeeping board | Pace and booking-window analysis |
+| Today's occupancy and forecast for the open date | Channel and source mix over time |
+| Cashier shift close | Guest cohort and lifetime-value analysis |
+| **Night-audit close-out reports** | Multi-property and chain rollups |
+| Folio and balance for an open stay | Year-over-year anything |
+
+**Night-audit close-out reports are snapshotted to R2 at generation.** Hoteliers print and file
+them, and in fiscalized markets they are submitted. A report re-derived later from a warehouse
+that has since been compacted, corrected, or partially purged will not match the filed copy.
+Generate once, store immutably, serve the stored artifact forever.
+
+Two consequences worth stating: no OLTP report may fan out across properties (§7.6), and no
+warehouse query may be on the path of an operator action — seconds-old data is fine for a
+dashboard and unacceptable for a check-in decision.
+
+### 7.9 Regulatory — the hidden second product
 
 None of this changes the architecture — each is an add-on module gated on
 `compliance.*` entitlements, exactly as designed. It does change the roadmap, and it is
@@ -1474,6 +1733,14 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 - idempotency: replay every mutating endpoint, assert one mutation **and one event** (§10.1)
 - jurisdiction: assert a tenant is unreachable through the non-jurisdictional namespace
 
+**Lint rules that block merge:**
+- No availability decision may be derived from a reservation scan (§7.1). Any `filter`/`count`
+  over reservations feeding a bookability check is a build failure.
+- `idFromName` is callable only from `tenant-router` (§4.5).
+- No `DOMAIN`-class config read from KV or a projection (§5.1).
+- No entitlement client import inside `domain/` (§5, Rule 3).
+- No module-boundary type that is not structured-cloneable (§3).
+
 ---
 
 ## 12. Where Cloudflare fights you
@@ -1499,9 +1766,54 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 
 ## 13. Cross-cutting concerns
 
-**Identity & access.** Clerk or custom auth with organizations. RBAC with property-scoped
-role assignments. Permissions contributed by module manifests. SAML/SCIM as an enterprise
-entitlement.
+**Identity & access — Clerk is narrow, and this is a decided question.**
+
+Clerk answers exactly one question: *is this really who they claim to be, and did they prove
+it?* Authentication, credentials, MFA, session issuance, and the OIDC/SAML handshake. Nothing
+else.
+
+**All authorization lives in OrgDO.** Organization membership, property-scoped and
+property-group-scoped role assignments, and permissions contributed by module manifests. None
+of it is in Clerk, and none of it is in the token.
+
+```
+session token claims:  user_id, org_id, entitlement_version, session_id
+                       ...and nothing about what the user may do
+```
+
+**Why not use Clerk's Organizations feature.** It would make Clerk the source of truth for
+membership while property roles stayed here — two partially-authoritative systems with no
+single answer to "what can this person do?" The concrete failure: a terminated employee's
+Clerk membership is revoked, but their property roles persist in OrgDO until a webhook
+arrives. Webhooks are delayed, retried, and occasionally dropped. In hospitality that window
+matters more than in most industries — high staff turnover, shared front-desk workstations, and
+the access in question covers guest PII, payment functions, and room keys.
+
+It also keeps §2's claim honest: the tenant→resource resolver is the most security-critical
+code in the system, and it must not depend on a third party's webhook freshness.
+
+**Consequences accepted:**
+
+- We build invitations, member management, organization switching, and the SCIM receiver.
+  This is real Phase 0 work and we own its security.
+- SCIM provisioning writes to **OrgDO**, not Clerk. Enterprise provisioning does not require
+  Clerk's org feature.
+- `sso.saml` remains an Enterprise entitlement (§6.7); Clerk performs the SAML handshake and
+  hands back an identity, and we map it to an OrgDO membership.
+
+**Consequences gained:**
+
+- Revoking access is **one write to OrgDO**, effective immediately. No sync, no drift, no race.
+- The role model is exactly what hotels need rather than a mapping onto someone else's
+  abstraction.
+- Clerk stays swappable. It is an OIDC provider; replacing it touches the login flow, not
+  tenancy.
+- Latency is already solved: §4.3 projects permissions to version-keyed KV alongside the
+  property registry and org settings.
+
+**Standing rule: property roles never live in Clerk.** Not as metadata, not as a convenience,
+not temporarily. This is the constraint that keeps authorization in one place, and it is the
+one most likely to erode under delivery pressure.
 
 **PCI DSS.** Card data never touches `pms-core`: hosted fields from the gateway, tokens only.
 `payments` Worker is separately deployed, minimal surface.
@@ -1545,9 +1857,28 @@ property, never the mean.
 
 ### Phase 0 — Foundation (the parts you cannot retrofit)
 
-- Monorepo + CI + boundary linting + serializable-contract enforcement
+> **The schema-freeze gate.** Four items below change PropertyDO schema, and changing them
+> later is a migration across every property in the fleet (§12). They block Phase 1, and
+> nothing that writes to a PropertyDO should start before they are settled:
+>
+> 1. **The `DOMAIN` config register** — the classified set of keys is *part of* the PropertyDO
+>    schema (§5.1). Note the gate is "every key classified, `DOMAIN` complete" — not "all 89
+>    settled." `OPERATIONAL` and `PRESENTATION` keys live in OrgDO/KV and can be added forever.
+> 2. **The `availability_day` ledger**, including `held` reserved for future holds (§7.1).
+> 3. **The `restriction_day` ledger** (§7.2).
+> 4. **Folio windows** — `folio_line` keys to a window, not a reservation (§7.3).
+>
+> The **command catalog** is a Phase 0 item too, but for a different reason: it is a *contract*
+> prerequisite, not a schema one. It determines the event surface in `packages/contracts` and
+> the lane/degraded-class/idempotency annotations, and it does not block schema work.
+
+- Monorepo + CI + boundary linting + serializable-contract enforcement + the §11 lint rules
 - `kernel` module contract + manifest schema
-- Auth with organizations (Clerk or custom)
+- **Config register** derived from the prototype's 89 settings (§16.3) — classified per §5.1,
+  with the `config.changed` consumer matrix. Precedes any settings screen.
+- **Command catalog** derived from the prototype's ~50 `PMSContext` actions — each with a lane
+  (§4.2), degraded class (§4.6), idempotency contract (§10.1), and emitted events
+- Auth: Clerk for authentication only; membership, roles and permissions in OrgDO (§13)
 - Platform D1 schema: orgs, plans, features, subscriptions, **tenant registry with jurisdiction**
 - Tenant-router: jurisdiction-aware resolution + `locationHint` policy (§4.5) — *the single
   most security-critical component; build it first and freeze it*
@@ -1580,7 +1911,7 @@ housekeeping → night audit. Each depends on the previous.
 - **Night-audit `BusinessDate` state machine** (§8) with the storage-level double-post guard
 - **Multi-currency folio + payments↔folio event contract** (§7.3) — both land early in real
   deployments, and neither retrofits cleanly
-- Launch-country tax model decided (constrains folio — see §7.7)
+- Launch-country tax model decided (constrains folio — see §7.9)
 - Cross-store purge Workflow (§4.8) — needed as soon as the first tenant churns
 
 ### Phase 2 — First add-on (mechanism proof)

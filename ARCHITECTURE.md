@@ -27,15 +27,25 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > regulatory scope (§7.7), the night-audit `BusinessDate` state machine (§8), and
 > idempotency × outbox (§10.1).
 >
+> **Revision 2026-07-27b.** Reconciled against the `hospai-pms-prototype` reference SPA, which
+> is hereby the functional specification for the PMS (§16). Added in consequence: the
+> configuration plane (§1, §5.1), staff data as a distinct PII class (§4.8), the
+> availability-is-a-ledger rule and virtual room types (§7.1), `products` / `maintenance` /
+> `restrictions` / `reporting` modules and guest engagement as a module group (§11).
+>
 > **Still owed:** FX rate sourcing and its refresh policy; the exception-queue operator UX;
-> per-country fiscalization design for the launch market.
+> per-country fiscalization design for the launch market; the classified config register
+> derived from the prototype's 89 settings (§16.3, step 1).
 
 ---
 
-## 1. The three planes
+## 1. The planes
 
 The single most important structural decision. Most teams conflate these and end up with an
 unmaintainable `if (customer.plan === 'pro')` mess scattered through the domain.
+
+Three planes gate whether a capability runs at all. A fourth — configuration — decides how it
+behaves once it does.
 
 | Plane | Question it answers | Owner | Changes | Storage |
 |---|---|---|---|---|
@@ -55,6 +65,13 @@ permission. Three systems, three lifecycles, three audiences.
 **Fourth signal, deliberately separate: the operational kill-switch.** It is not an
 entitlement, it has a different latency requirement, and it must never be cached behind a
 version key. See §6.4.
+
+**And a fourth *plane*, orthogonal to all of the above: configuration.** Once a tenant is
+entitled, a user permitted, and the flag on, there is still the question *how does this hotel
+want it to work?* Configuration answers that, it is owned by the tenant rather than by us, and
+a meaningful share of it changes domain math rather than presentation. It has its own storage
+rules — some settings must be read inside the PropertyDO transaction or they reintroduce the
+races this architecture exists to prevent. See §5.1.
 
 ---
 
@@ -556,6 +573,32 @@ fact is the single most expensive mistake available here.
 **Rule: domain events carry no raw guest PII.** They carry a `guest_ref` plus a
 `pii_key_id`. Guest PII lives in OrgDO, encrypted under a per-guest data key.
 
+**There is more than one class of personal data, and they have different rules.** Treating
+"PII" as one bucket produces a system that erases a guest correctly and leaks a housekeeper's
+pay rate, or that deletes employment records a labour authority requires be kept:
+
+| Class | Examples | Legal basis | Erasure |
+|---|---|---|---|
+| **Guest** | Name, contact, passport/ID, stay history, message content | Consent / contract | Right to erasure → crypto-shred on request |
+| **Staff** | Name, contact, **hourly rate, performance rating, skills, shift history** | Employment contract | **Not guest-erasure.** Statutory employment retention, often years, jurisdiction-specific |
+| **Financial** | Folio lines, invoices, settlement | Legal obligation | Survives erasure, pseudonymized (§7.7) |
+| **Operational** | Room status, task assignment, audit actor refs | Legitimate interest | Retained per policy; actor refs pseudonymized on staff exit |
+
+Staff data is the class most often missed, and the prototype makes the exposure concrete —
+`hourlyRate`, `rating`, and `skills` sit on the housekeeper record next to their name. That is
+compensation and performance data, and it is visible to anyone who can open the housekeeping
+roster.
+
+Three rules follow:
+
+- **Separate key scopes.** Staff records encrypt under a per-staff key, not the tenant's guest
+  key. Shredding a guest must not touch staff data and vice versa.
+- **Compensation and performance fields are permission-gated separately** from the roster
+  itself. Assigning a room to a housekeeper does not require seeing their pay rate.
+- **Staff exit is not staff deletion.** Audit records must keep an actor reference for their
+  full retention period. On exit, the identity is pseudonymized and the employment record
+  follows statutory retention — never the guest-erasure path.
+
 **Erasure = crypto-shredding.** Destroy the per-guest key. Every event, export, warehouse row,
 and archived folio referencing it becomes permanently undecodable, with no rewrite of any
 immutable store.
@@ -679,6 +722,97 @@ modules/pms/reservations/
 ├── migrations/               # namespaced (e.g. res_reservation, res_assignment)
 └── tests/
 ```
+
+### 5.1 The configuration plane
+
+§1 defines three planes — entitlements, permissions, flags. There is a fourth axis they do not
+cover: **tenant-chosen behaviour**. *We sold it, you may use it, the code is live — now, how
+does this hotel want it to work?*
+
+This is not a minor surface. The reference prototype (§16) carries **89 distinct settings**,
+and a large fraction of them change domain math rather than presentation:
+
+| Setting | What it actually controls |
+|---|---|
+| `allow_overbooking` | The oversell allowance in the `availability_day` ledger |
+| `auto_no_show`, `audit_time` | Night-audit behaviour and its schedule → `AlarmScheduler` (§4.4) |
+| `time_zone` | `StayDate` resolution, business-date rollover, **and `locationHint` at provisioning** (§4.5) |
+| `payment_alloc`, `tax_registry` | How money is allocated across folio lines and how it is taxed |
+| `currency_code` | The property's ledger currency (§7.3) |
+| `same_day_cutoff`, `breakfast_rule` | Bookability and automatic posting rules |
+
+Config was the largest under-modelled subsystem in the first revision of this document, where it
+appeared only as `settingsPanels: string[]` in the manifest.
+
+#### Declaration
+
+Config is declared by the module that consumes it, with a schema, a scope, and a class. An
+undeclared setting cannot be written — this is what stops the 89-key `localStorage` bag from
+reappearing as an 89-column table nobody can reason about.
+
+```ts
+defineConfig({
+  key: 'pms.availability.allow_overbooking',
+  scope: 'property',
+  class: 'DOMAIN',                       // ← see the table below
+  schema: z.boolean(),
+  default: false,
+  permission: 'inventory:configure',     // who may change it
+  audited: true,
+  entitlement: 'pms.oversell',           // optional: gate the setting itself
+});
+```
+
+#### Classes, and where each lives
+
+**The class determines the storage, and the storage is not a preference — it is a correctness
+requirement.**
+
+| Class | Meaning | Lives in | Read path |
+|---|---|---|---|
+| `DOMAIN` | Participates in a domain decision | **PropertyDO**, beside the data it governs | Read **inside the DO, in the same atomic write** as the decision |
+| `OPERATIONAL` | Changes behaviour but not an invariant (nav defaults, list columns, ETA display) | OrgDO | KV projection, version-keyed |
+| `PRESENTATION` | Pure UI (date format, week start, compact mode) | OrgDO or user-scoped | KV projection; stale is harmless |
+| `SECRET` | Gateway credentials, API tokens, terminal keys | **Never in config** — see below | Not readable by `pms-core` at all |
+
+**The `DOMAIN` rule is the one that matters.** `allow_overbooking` cannot be read from KV while
+the availability decision happens inside the PropertyDO. A stale or racing read of an oversell
+allowance reintroduces exactly the race the entire storage design exists to eliminate. Any
+setting that an invariant depends on lives in the PropertyDO and is read in the same
+transaction — no exceptions, and CI checks the class of every setting read from domain code.
+
+#### Secrets are not settings
+
+The prototype keeps gateway credentials alongside display preferences — PayPal client IDs,
+bank routing and SWIFT numbers, terminal registrations. That grouping is natural in a demo and
+unacceptable here: it would place payment credentials inside OrgDO, readable by every module
+that can read org config, which drags `pms-core` into PCI scope and defeats §13.
+
+- Credentials live in the **`payments` Worker's secret store**, never in OrgDO or KV.
+- `pms-core` may read a **non-secret reference** (`gateway: 'stripe'`, `terminal_id`), never a
+  credential.
+- The config API **rejects a `SECRET`-classed write** and returns a pointer to the payments
+  admin flow. There is no "just this once" path.
+- Rotation is a `payments` concern with its own audit trail.
+
+#### Change management
+
+Config edits are how a well-meaning operator breaks a property at 2 a.m., so they are treated
+as mutations, not preferences:
+
+1. **Versioned and audited.** Every write records actor, before, after, and reason. Config is
+   in the audit log (§13) with the same weight as a money mutation.
+2. **Validated against the declared schema** at the boundary, then re-validated in the DO.
+3. **Permission-gated per setting**, not per settings *screen*. "Can open Settings" is not a
+   permission.
+4. **`DOMAIN` changes emit `config.changed`**, so projections, the ARI cache, and the channel
+   manager can react. A change to `allow_overbooking` that does not invalidate the ARI
+   projection is a silent oversell.
+5. **Effective-dated where the domain requires it.** Changing a tax rule must not retroactively
+   alter closed folio lines (§7.3). Tax, currency, and rate-affecting config carry a validity
+   window rather than overwriting.
+6. **Defaults live in code, not in the tenant row.** A tenant row stores only overrides, so
+   changing a platform default does not require touching every property.
 
 **Terminology, because this bites.** "Domain" in this document means the `domain/` folder:
 pure business rules, no I/O, no platform imports, no commercial concepts. When §6 talks about
@@ -875,6 +1009,33 @@ Rules:
 - **Room-type level, not room level.** Assignment happens at check-in.
 - A separate denormalized **ARI projection** (KV) serves the booking engine and channel pushes.
   Stale reads there are fine; the DO is the arbiter.
+- **The oversell allowance is `DOMAIN`-class config** (§5.1), read inside the DO transaction.
+
+> **Availability is a ledger. It is never derived by scanning reservations.**
+>
+> The reference prototype (§16) computes availability by filtering the reservation list for
+> date overlaps and comparing the count to the room total. That is correct for an in-memory
+> demo and unusable here: it is a read-then-decide across an unbounded set, it degrades as the
+> property accumulates history, and it reintroduces precisely the race the PropertyDO exists to
+> eliminate. The `availability_day` ledger is the system of record; reservations are a
+> consequence of it, never the source for it.
+>
+> This is the single most important thing not to carry across, and it is **invisible in the
+> UI** — the screens look identical either way. Treat any code path that counts reservations to
+> answer "is there room" as a defect, and add a lint rule for it.
+
+**Physical and virtual room types.** Inventory distinguishes room types that map to real rooms
+from *virtual* types — packages, combined units, and sales constructs that draw on the same
+physical rooms. The ledger tracks **physical** inventory; virtual types resolve to one or more
+physical types through a declared mapping, and a virtual sale decrements the underlying
+physical rows in the same atomic write.
+
+Two consequences that are easy to miss:
+
+- **A virtual type has no independent `physical` count.** Modelling it as its own row is how
+  properties oversell — two types selling the same bed, each believing it has stock.
+- **Restrictions and oversell allowances attach to the physical type**, and a virtual type
+  inherits the tightest constraint among its constituents.
 
 **ARI staleness is a contract, not a hope.** "Stale reads are fine" is only true with a stated
 bound, an invalidation path, and a defined behaviour when the projection and the DO disagree.
@@ -1259,10 +1420,12 @@ hospai-pms/
 │   └── web-admin/                   internal console (behind Cloudflare Access)
 │
 ├── modules/
-│   ├── core/{tenancy, identity, entitlements, notifications, audit}
-│   ├── pms/{inventory, availability, rates, reservations, folio, cashiering, guests,
-│   │        frontdesk, housekeeping, nightaudit, groups, city-ledger}
-│   └── addons/{channel-manager, booking-engine, revenue-management, pos, guest-engagement,
+│   ├── core/{tenancy, identity, entitlements, configuration, notifications, audit}
+│   ├── pms/{inventory, availability, rates, restrictions, reservations, folio, cashiering,
+│   │        products, guests, frontdesk, housekeeping, maintenance, nightaudit,
+│   │        groups, city-ledger, reporting}
+│   └── addons/{channel-manager, booking-engine, revenue-management, pos,
+│               guest-engagement/{inbox, automations, campaigns, tasks, upsell},
 │               compliance-fiscalization, compliance-guest-registration, ...}
 │
 ├── packages/
@@ -1407,7 +1570,10 @@ housekeeping → night audit. Each depends on the previous.
 
 - Property-scoped RBAC
 - Audit log on money/inventory mutations
-- Migrate prototype screens onto live APIs
+- **Rebuild the prototype's screens against live APIs** (§16). The prototype is the functional
+  specification; none of its implementation carries over. Concretely: its ~50 `PMSContext`
+  actions are the draft command catalog, each needs a §4.6 degraded-mode class, and its 89
+  settings need classifying per §5.1 before the screens that edit them are rebuilt.
 - ARI projection to KV, with the staleness SLA and reject-on-commit path (§7.1)
 - **Degraded mode end-to-end** (§4.6) — command classes, pending queue, replay, exception
   screen, SPA watermarks, fault-injection suite
@@ -1464,3 +1630,82 @@ hack, fix the mechanism, not the module.
 13. **Events carry PII by reference, never by value.** Erasure is key destruction, not history rewriting.
 14. **Degraded mode never creates an obligation the property cannot honour.** Reads degrade, writes queue, inventory fails closed.
 15. **Never `BEGIN`/`COMMIT` in `sql.exec()`, never `blockConcurrencyWhile()` on a request path.** Atomicity comes from not awaiting mid-sequence.
+16. **The prototype is a specification, not a starting point.** Copy what it *does*. Copy
+    nothing of how it does it. See §16.
+
+---
+
+## 16. The reference prototype
+
+`hospai-pms-prototype` — a Vite/React SPA of roughly 33,500 lines over a single in-memory
+reducer, built from a stakeholder meeting transcript.
+
+**Its status: the functional specification for the PMS.** It is not a codebase to extend, and
+no part of its implementation carries into the platform. Its own design specs state the
+boundary plainly — *no database, no real payments, no OTA APIs, no SMS*, with backend, auth,
+and Cloudflare explicitly out of scope. The design, the code structure, and the data model are
+all being replaced.
+
+That does not diminish it. A validated, clicked-through model of how hoteliers expect this
+product to behave is expensive to acquire and easy to underestimate — it encodes domain
+vocabulary and workflow detail that would otherwise take months of discovery. **Treat it as
+the requirements artifact of record**, and treat disagreement between it and a written spec as
+a question for the product owner rather than a defect in either.
+
+### 16.1 What it establishes
+
+| Area | Surfaces the prototype specifies |
+|---|---|
+| Front office | Dashboard, reservations directory, booking wizard, front-desk board, tape chart, available-rooms search |
+| Inventory | Room types incl. **virtual** types, rooms, floors, OOO with date ranges, amenities |
+| Rates | Rate plans with modifiers, bulk rate updates by date range and day-of-week |
+| Folio | Ledger and settlement, **transaction-range routing with auto-transfer at night audit**, charge splitting, damage deposits, promo codes, manual discounts with reason, no-post flag |
+| Housekeeping | Housekeeper roster with shifts/skills/capacity, task assignment, inventory, manager priorities |
+| Maintenance | Work-order tickets, task types, checklists |
+| Products | Sellable item catalog — categories, items, add-ons (the charge catalog folio postings reference) |
+| Guests | CRM, tags, VIP, stay history, lifetime value |
+| Distribution | Channel manager with sync logs, booking engine + live preview, distribution settings |
+| Finance config | Gateways, terminals, AVS rules, card-brand matrix, channel routings, invoice numbering and templates |
+| Guest engagement | Whistle — inbox, automations, contacts, tasks, upsell, analytics, profile (a module *group*, not a single add-on) |
+| Night audit | Business-date rollover, room-charge posting, no-show processing |
+| Cross-cutting | Multi-property switcher, role-based nav, audit log, 89 configuration settings |
+
+Several of these were absent from earlier revisions of this document and were added because
+the prototype surfaced them: the configuration plane (§5.1), `products` and `maintenance` as
+modules (§11), virtual room types (§7.1), staff data as a distinct PII class (§4.8), and guest
+engagement as a module group rather than a one-line add-on.
+
+### 16.2 What does not carry over
+
+Every row below is a deliberate difference, not a gap to be fixed in the prototype. Each maps
+to a rule already stated in this document.
+
+| Prototype | Platform | Rule |
+|---|---|---|
+| `amount: number` (float), no currency | Integer minor units + explicit currency, FX frozen at posting | §7.3, Rule 6 |
+| `Reservation.guest: Guest` embedded | `guest_ref` + `pii_key_id`; profiles in OrgDO | §4.8 |
+| Availability derived by scanning reservations | `availability_day` ledger, decremented in the booking transaction | §7.1 |
+| `RoomType.baseRate` single value; bulk update collapses the date range | Rate derivation graph + materialized daily rates | §7.2 |
+| `balanceDue` stored; `splitFolioCharge` mutates in place | Append-only folio; balance derived; corrections are reversing entries | §7.3 |
+| `FolioItem.amount` negative means payment | Separate `payment.*` events from the PCI-isolated `payments` Worker | §7.3, §13 |
+| No restrictions | Restrictions ledger, separate from prices | §7.2 |
+| Flat 4-value `UserRole`, no property scoping | Property-scoped RBAC + entitlements + flags, independently evaluated | §1, §6 |
+| No `orgId` anywhere | Tenancy threaded through every command; jurisdiction-aware routing | §2, §4.5 |
+| 89 `localStorage` keys, credentials among them | Classified config plane; secrets in the payments store only | §5.1 |
+| In-memory reducer, synchronous dispatch | RPC commands with idempotency keys, in DO transactions | §10.1 |
+| No events | Transactional outbox → Queues → consumers | §8 |
+| Single monolithic SPA (`Settings.tsx` alone is ~5,000 lines) | Modules contribute UI through the manifest; shell composes by entitlement | §9 |
+
+### 16.3 How it is consumed
+
+1. **Extract the config inventory first.** The 89 settings become a classified register
+   (§5.1) — key, scope, class, schema, default, permission. Do this before building any
+   settings screen; the classification determines storage, and storage determines correctness.
+2. **Derive the command catalog.** The ~50 `PMSContext` actions are the draft list of platform
+   commands. Each needs a lane (§4.2), a degraded-mode class (§4.6), an idempotency contract
+   (§10.1), and its emitted events (§8).
+3. **Rebuild screens against live APIs**, module by module, following Phase 1 order (§14).
+   Preserve the interaction design; discard the state layer entirely.
+4. **Keep the prototype runnable** as the behavioural reference for as long as Phase 1 lasts.
+   When platform behaviour and prototype behaviour diverge, that is a product decision to
+   record — in this document or the module's spec — not a bug to be silently resolved.

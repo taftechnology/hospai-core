@@ -12,6 +12,13 @@ enforce boundaries at the platform level — microservice isolation at monolith 
 Distribution is structural from day one on Cloudflare, but keep the Worker count small
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
+> **Revision 2026-07-26.** Platform limits in §3 verified against Cloudflare docs on this date.
+> Material changes from the previous revision: per-organization storage moved from D1 to
+> **OrgDO** (§4.2 — D1 bindings cannot be selected at runtime); transaction handling in
+> PropertyDO corrected (§4.1); kill-switch split out of the entitlement snapshot (§6);
+> availability/degraded-mode (§4.4), PII erasure (§4.6), multi-property projections (§7.6),
+> and regulatory compliance (§7.7) added.
+
 ---
 
 ## 1. The three planes
@@ -22,7 +29,7 @@ unmaintainable `if (customer.plan === 'pro')` mess scattered through the domain.
 | Plane | Question it answers | Owner | Changes | Storage |
 |---|---|---|---|---|
 | **Entitlements** | *Has this tenant bought it?* | Billing / Revenue | On contract change | Platform D1, audited, billing-linked |
-| **Permissions (RBAC/ABAC)** | *May this user do it?* | Security | On role change | Org D1, per user+property |
+| **Permissions (RBAC/ABAC)** | *May this user do it?* | Security | On role change | OrgDO, per user+property |
 | **Feature flags** | *Is this code path live?* | Engineering | Continuously, per deploy | KV, ephemeral |
 
 A gated feature must pass **all three** independently:
@@ -33,6 +40,10 @@ tenant is entitled  AND  user is permitted  AND  release flag is on
 
 Never let a release flag substitute for an entitlement, and never let an entitlement grant
 permission. Three systems, three lifecycles, three audiences.
+
+**Fourth signal, deliberately separate: the operational kill-switch.** It is not an
+entitlement, it has a different latency requirement, and it must never be cached behind a
+version key. See §6.4.
 
 ---
 
@@ -49,12 +60,13 @@ Users ─ belong to Organization, hold roles scoped to (org | property | propert
 
 | Layer | Storage | Isolation |
 |---|---|---|
-| Property operational data | PropertyDO (SQLite, 1 per property) | Physically separate — no cross-property query possible |
-| Organization data | Org D1 (1 per org) | Separate database per customer |
+| Property operational data | PropertyDO (SQLite, 1 per property) | Physically separate object — no cross-property query possible |
+| Organization data | OrgDO (SQLite, 1 per org) | Physically separate object — no cross-org query possible |
 | Platform control plane | Platform D1 (single, global) | Shared, small, read-heavy |
 
-Same codebase for all tiers. Tier is a provisioning concern (jurisdiction, location hint),
-resolved by the **tenant-router** package.
+Both tenant-scoped tiers use the *same* addressing mechanism — `getByName(id)` on a Durable
+Object namespace. One routing model, one migration model, one backup model. Tier is a
+provisioning concern (jurisdiction, location hint), resolved by the **tenant-router** package.
 
 **The inverted failure mode:** With RLS, a routing bug leaks a row. Here, a routing bug hands
 over an entire tenant's database. The tenant→resource resolver must be **small, audited,
@@ -68,8 +80,8 @@ system.
 ```
                     ┌─────────────────────────────────────────────┐
    Internet ───────▶│  edge Worker  (routes, authn, tenant         │
-                    │  resolution, entitlement gate, rate limit,   │
-                    │  idempotency)                                │
+                    │  resolution, entitlement gate, kill-switch,  │
+                    │  rate limit, idempotency)                    │
                     └────────────────┬────────────────────────────┘
                                      │ Service Bindings (RPC, same-machine)
               ┌──────────────────────┼──────────────────────┐
@@ -80,8 +92,8 @@ system.
               │ DO stubs / D1 / KV / R2 / Queues / Workflows
               ▼
    ┌──────────────────┐  ┌───────────────┐  ┌──────────────┐
-   │ PropertyDO       │  │ Org D1        │  │ Platform D1  │
-   │ (SQLite, 1/hotel)│  │ (1/org)       │  │ (control)    │
+   │ PropertyDO       │  │ OrgDO         │  │ Platform D1  │
+   │ (SQLite, 1/hotel)│  │ (SQLite,1/org)│  │ (control)    │
    └──────────────────┘  └───────────────┘  └──────────────┘
 ```
 
@@ -118,24 +130,45 @@ const ari = await this.env.AVAILABILITY.getARI(propertyId, range);
 Service bindings enforce boundaries at the platform level — a Worker physically cannot reach
 into another Worker's internals. Same-machine RPC means no network latency penalty.
 
+### Extraction is only free if the contracts are RPC-shaped from day one
+
+"In-process today, service-binding RPC when extracted, consumer code unchanged" is true
+**only** if the in-process contract already obeys RPC serialization rules. Once a call crosses
+a service binding:
+
+- class instances lose their prototypes (unless they extend `RpcTarget`)
+- shared mutable state disappears — the callee gets a copy
+- thrown error types flatten; `instanceof` checks on the caller side stop working
+- anything non-structured-cloneable fails at runtime, not compile time
+
+Since the whole phased-Worker strategy in this section depends on extraction being cheap,
+this is a **CI-enforced rule, not a convention**: every type crossing a module boundary must
+be plain serializable data, declared in `packages/contracts`. Otherwise "extract when a named
+force demands it" turns into "extract during an incident, discover it is a two-week refactor."
+
 ### Compute limits that bind
+
+*Verified against Cloudflare docs 2026-07-26. Re-verify before relying on any of these.*
 
 | Limit | Value (Paid) | Architectural consequence |
 |---|---|---|
 | Worker size | 10 MB gzipped | Forcing function for splitting fat Workers |
 | Memory | 128 MB | No in-memory report building; stream or offload |
-| CPU time | 5 min max | Fine for OLTP; PDFs/exports go to Containers or Workers AI |
+| CPU time | 5 min max (30 s default) | Fine for OLTP; PDFs/exports go to Containers or Workers AI |
 | Subrequests | 10,000/request (up to 10M) | Generous; channel fan-out is fine |
 | Simultaneous outgoing connections | 6 waiting for headers | Batch channel-manager fan-out through Queues |
 | DO alarm wall time | 15 minutes | Night audit alarm starts a Workflow, never runs inline |
 | Workflow step wall time | Unlimited (CPU-limited) | Correct home for night audit, reconciliation, dunning |
 | Cron triggers | 250/account | Not enough for per-property scheduling — use DO alarms |
+| D1 databases | 50,000/account | Platform D1 only — see §4.2 for why tenants are not D1 |
+| D1 storage | 10 GB/db, 1 TB/account | The account cap binds long before the database count does |
+| DO SQLite storage | 10 GB/object, unlimited objects | The reason tenant storage lives in DOs |
 
 ---
 
 ## 4. Storage topology
 
-### PropertyDO — SQLite, one per property — *the transactional system of record*
+### 4.1 PropertyDO — SQLite, one per property — *the transactional system of record*
 
 Durable Objects dissolve the hardest PMS problem — **availability concurrency** — structurally:
 
@@ -157,28 +190,35 @@ Holds everything that must be consistent **within a property:**
 ```ts
 export class PropertyDO extends DurableObject<Env> {
   sql: SqlStorage;
+  private scheduler: AlarmScheduler;   // packages/do-runtime — see §4.3
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    this.scheduler = new AlarmScheduler(ctx);
     ctx.blockConcurrencyWhile(async () => this.migrate());
   }
 
   async book(cmd: BookCommand): Promise<Reservation> {
     const nights = enumerateNights(cmd.arrival, cmd.departure);
 
-    // All reads + writes are synchronous within the DO — no race possible.
-    for (const night of nights) {
-      const row = this.sql.exec(
-        `SELECT physical - blocked - sold + oversell AS free
-           FROM availability_day WHERE room_type_id=? AND stay_date=?`,
-        cmd.roomTypeId, night,
-      ).one();
-      if (row.free < cmd.units) throw new NoAvailability(night);
-    }
+    // One query, not N. Returns the first night that cannot absorb the request.
+    const shortfall = this.sql.exec(
+      `SELECT stay_date FROM availability_day
+         WHERE room_type_id = ?
+           AND stay_date IN (${ph(nights)})
+           AND physical - blocked - sold + oversell < ?
+         LIMIT 1`,
+      cmd.roomTypeId, ...nights, cmd.units,
+    ).toArray();
+    if (shortfall.length > 0) throw new NoAvailability(shortfall[0].stay_date);
 
-    // Availability, reservation, folio seed, and outbox — one atomic write.
-    this.sql.exec('BEGIN');
+    // NO `await` between the read above and the writes below. The runtime submits
+    // this whole sequence atomically — reads followed by writes with no intervening
+    // I/O behave transactionally. Explicit BEGIN/COMMIT is NOT permitted:
+    // sql.exec() rejects transaction-control statements. Use ctx.storage
+    // .transactionSync() only when you need an explicit rollback boundary, and
+    // never blockConcurrencyWhile() on a request path (~200 req/s ceiling).
     this.sql.exec(
       `UPDATE availability_day SET sold = sold + ?
        WHERE room_type_id=? AND stay_date IN (${ph(nights)})`,
@@ -186,26 +226,34 @@ export class PropertyDO extends DurableObject<Env> {
     );
     const res = this.insertReservation(cmd);
     this.appendOutbox(ReservationCreated.from(res));
-    this.sql.exec('COMMIT');
 
     this.ctx.waitUntil(this.flushOutbox());
-    return res;
+    return res;   // output gate holds this until the writes are durable
   }
 
-  // Durable outbox sweeper — alarm-driven, runs every 30s if rows remain unacked.
-  async alarm() {
-    const pending = this.sql.exec(
-      `SELECT * FROM outbox WHERE acked = 0 ORDER BY seq LIMIT 100`
+  private async flushOutbox(): Promise<void> {
+    // Queues caps a batch at 100 messages AND 1 MB total. Reservation payloads
+    // make the byte ceiling bind first — bound by bytes, not row count.
+    const candidates = this.sql.exec(
+      `SELECT seq, payload FROM outbox WHERE acked = 0 ORDER BY seq LIMIT 100`,
     ).toArray();
-    if (pending.length > 0) {
-      await this.env.EVENTS_QUEUE.sendBatch(pending.map(toMessage));
-      this.sql.exec(
-        `UPDATE outbox SET acked = 1 WHERE seq IN (${pending.map(r => r.seq).join(',')})`,
-      );
-    }
-    // Re-arm if more pending, or if night-audit is due.
-    const nextAlarm = this.computeNextAlarm();
-    if (nextAlarm) await this.ctx.storage.setAlarm(nextAlarm);
+    const batch = takeWhileUnderLimit(candidates, { maxMessages: 100, maxBytes: 1_000_000 });
+    if (batch.length === 0) return;
+
+    await this.env.EVENTS_QUEUE.sendBatch(batch.map(toMessage));
+
+    // This ack lands in a NEW I/O gate. If the object is evicted between the send
+    // and the ack, the next sweep re-delivers. Delivery is at-least-once by design;
+    // consumers dedupe on event_id. `batch` is an ordered prefix of `candidates`,
+    // so a range ack is exact.
+    this.sql.exec(`UPDATE outbox SET acked = 1 WHERE seq <= ?`, batch.at(-1)!.seq);
+  }
+
+  async alarm() {
+    await this.scheduler.run({
+      'outbox':      () => this.flushOutbox(),
+      'night-audit': () => this.env.NIGHT_AUDIT_WORKFLOW.create({ params: { propertyId: this.id } }),
+    });
   }
 }
 ```
@@ -217,31 +265,120 @@ the low hundreds of MB/year. The 10GB ceiling is years away.
 and checked-out reservations to R2/Iceberg. The PropertyDO holds only the current year + open
 stays. This keeps the DO fast and the warehouse queryable.
 
-### D1 — relational, read-heavy, cross-property
+**Write-burst rule.** A single-threaded object means any long write burst blocks bookings and
+check-ins. The known offender is rate materialization (§7.2): 365 days × room types × rate
+plans on every rate-plan change. Materialization must arrive **chunked, yielding between
+chunks, and de-prioritized behind interactive commands** — never as one fan-out write.
 
-**Org D1 (one per organization):** users, role assignments, guest profiles, rate plan
-*definitions*, property registry, org settings, audit log. Read constantly, written rarely.
-Use **Sessions API** with bookmarks for sequential consistency.
+### 4.2 OrgDO — SQLite, one per organization
 
-**Platform D1 (single, global):** organizations, plans, features, add-ons, subscriptions,
+Holds: users, role assignments, guest profiles, rate plan *definitions*, property registry,
+org settings, audit log. Read constantly, written rarely.
+
+Addressed exactly like PropertyDO: `env.ORG_DO.getByName(orgId)`.
+
+**Why not one D1 per organization.** This was the previous design and it does not work:
+
+- **D1 bindings are static.** They are declared in `wrangler.jsonc` as
+  `{binding, database_name, database_id}` and resolved at deploy time. There is no runtime API
+  to obtain a D1 handle by name — no equivalent of `getByName`. A Worker therefore cannot
+  reach "the D1 for org X" at all.
+- The workaround is the **D1 REST API with an account-scoped token**, which puts a credential
+  with access to *every* tenant database on the hot request path. That directly contradicts
+  the threat model in §2, and it forfeits the Sessions API and bookmarks.
+- **Account caps bind early.** 50,000 databases/account, but only **1 TB of D1 storage per
+  account**. At ~200 MB/org that is ~5,000 organizations for the entire platform.
+
+DO SQLite has none of these problems: dynamic addressing by name, 10 GB per object, no
+documented cap on object count, and PITR per object.
+
+**What is given up, and the mitigation.** D1 offers read replication via the Sessions API;
+a DO is one instance in one place. Org data is read-heavy, so:
+
+- hot, cacheable reads (permissions, property registry, org settings) are projected to KV,
+  version-keyed exactly like entitlement snapshots (§6.3)
+- OrgDO keeps an in-memory read cache, valid for the lifetime of the instance
+- anything needing a genuine cross-org scan goes to the Iceberg warehouse, never to OrgDO
+
+**Platform D1 (single, global) stays on D1** — it is one small shared database, read-heavy,
+with no per-tenant addressing problem: organizations, plans, features, add-ons, subscriptions,
 entitlement overrides, tenant→resource routing map.
 
-### KV, R2, and the analytics tier
+### 4.3 The single alarm slot
+
+A Durable Object has **exactly one alarm**. PropertyDO needs at least two schedules on it —
+a ~30 s outbox sweep and a nightly business-date rollover — and add-ons will want more.
+
+Multiplexing these with ad-hoc arithmetic in each DO is a reliable source of bugs (a busy
+outbox silently starving the night audit, a failed handler retrying the whole alarm and
+re-firing unrelated work). `packages/do-runtime` provides an **`AlarmScheduler`**: named
+schedules, persisted next-run times, per-schedule failure isolation, and one computed
+`setAlarm()`. No DO calls `ctx.storage.setAlarm()` directly.
+
+### 4.4 Placement and availability — *the operational risk in this design*
+
+A Durable Object is a single instance in a single location. Two consequences, both of which
+are hotel-visible:
+
+**Placement is decided at creation and permanent.** A Sydney property whose DO is first
+instantiated by a European OTA request will live in Europe forever. `tenant-router` must
+pass an explicit `locationHint` derived from the property's own timezone/jurisdiction at
+provisioning time. This is a hard rule, not an optimization — it is unfixable after the fact
+without a full object migration.
+
+**A PropertyDO outage is a total front-desk outage.** No check-in, no check-out, no folio
+posting, for that hotel. This is materially worse than for a typical DO workload; hotels
+treat the PMS as life-support software and enterprise contracts will have SLA language about
+it. The booking engine survives on the KV ARI projection (revenue is protected), but the
+operator SPA currently has nothing.
+
+**Required degraded mode** (design owed before Phase 1 ships):
+
+| Capability | Degraded behaviour |
+|---|---|
+| Arrivals/departures list, room status | Read from the last KV snapshot, watermarked stale |
+| Check-in / check-out | Queue locally in the client, replay on recovery, flag as provisional |
+| Folio posting | Queue; never accept a payment authorization against a stale folio |
+| New bookings | Refuse. Do not risk an oversell to keep a screen alive. |
+
+The rule that decides every case: **degraded mode may never create an obligation the property
+cannot honour.** Reads degrade, non-conflicting writes queue, inventory-consuming writes fail
+closed.
+
+### 4.5 KV, R2, and the analytics tier
 
 | Store | Use | Why |
 |---|---|---|
-| **KV** | Entitlement snapshots (version-keyed), JWKS, ARI cache, static config | Read-optimized, globally distributed |
+| **KV** | Entitlement snapshots (version-keyed), org read projections, JWKS, ARI cache, static config | Read-optimized, globally distributed |
 | **R2** | Invoices, exports, ID documents, property images, **durable event log** | Zero egress; replay source |
 | **Pipelines → R2 Data Catalog (Iceberg)** | Warehouse — every domain event, queryable by R2 SQL / DuckDB | Replaces Debezium→BigQuery |
 | **Analytics Engine** | Soft meters, per-tenant usage telemetry | Write-heavy, tenant-tagged time series |
 | **Hyperdrive → external Postgres** | **Escape hatch only** — enterprise contracts demanding own DB | Never load-bearing for core PMS |
 
-### Admin & support read access
+### 4.6 PII, the immutable log, and right-to-erasure
 
-Cross-tenant queries are impossible against DOs/D1s directly. Two paths:
+"Every mutation is an event," events are retained durably in R2/Iceberg for replay, and the
+folio is an append-only ledger. Guests have an unconditional right to erasure. These collide,
+and the collision is **not retrofittable** — rewriting history in an immutable log after the
+fact is the single most expensive mistake available here.
+
+**Rule: domain events carry no raw guest PII.** They carry a `guest_ref` plus a
+`pii_key_id`. Guest PII lives in OrgDO, encrypted under a per-guest data key.
+
+**Erasure = crypto-shredding.** Destroy the per-guest key. Every event, export, warehouse row,
+and archived folio referencing it becomes permanently undecodable, with no rewrite of any
+immutable store.
+
+**What survives erasure, deliberately:** financial records required by tax and fiscalization
+law (§7.7), retained as pseudonymized ledger entries with the legal basis recorded. Erasure
+policy is a `packages/contracts` concern and a Phase 0 decision, not a Phase 3 compliance task.
+
+### 4.7 Admin & support read access
+
+Cross-tenant queries are impossible against DOs directly. Two paths:
 
 1. **Iceberg warehouse** — for fleet analytics, cohort reports, ops dashboards (seconds-old).
-2. **Privileged direct DO/D1 read path** — for CS resolving a specific tenant's issue in real
+2. **Privileged direct DO read path** — for CS resolving a specific tenant's issue in real
    time. Audited, rate-limited, accessible only via internal admin console behind Cloudflare
    Access. Never exposed to customer-facing APIs.
 
@@ -256,7 +393,7 @@ modules/pms/reservations/
 ├── module.manifest.ts        # declarative contract
 ├── src/
 │   ├── domain/               # entities, value objects, invariants. Zero I/O, zero platform imports.
-│   ├── application/          # use cases (commands/queries), ports (interfaces it needs)
+│   ├── application/          # use cases (commands/queries), ports, ENTITLEMENT CHECKS
 │   ├── infrastructure/       # repositories, adapters implementing ports (DO/D1/KV calls here)
 │   ├── api/                  # RPC entrypoints, DTOs
 │   ├── events/               # published/ + subscribed/
@@ -266,6 +403,12 @@ modules/pms/reservations/
 ├── migrations/               # namespaced (e.g. res_reservation, res_assignment)
 └── tests/
 ```
+
+**Terminology, because this bites.** "Domain" in this document means the `domain/` folder:
+pure business rules, no I/O, no platform imports, no commercial concepts. When §6 talks about
+enforcing entitlements "deep in the stack," that means **`application/`** — the use-case layer
+— and code running inside a DO, alarm, Queue consumer, or Workflow. It never means `domain/`.
+An aggregate invariant and a billing gate are different things and do not share a layer.
 
 ### The module manifest
 
@@ -311,20 +454,21 @@ back. Deletion happens only via `onPurge`, driven by retention policy.
 ### How modules talk
 
 **Synchronous — port/adapter against the public interface.** In-process today, service-binding
-RPC when extracted. The consumer's code does not change.
+RPC when extracted — subject to the serializable-contract rule in §3.
 
 **Asynchronous — domain events via transactional outbox.** Every mutation writes to the outbox
-in the same SQLite transaction. The DO alarm sweeper delivers to Queues. Consumers are
-idempotent by `event_id`.
+in the same atomic write as the domain mutation. The DO alarm sweeper delivers to Queues.
+Consumers are idempotent by `event_id`.
 
 Event payloads are **versioned contracts in `packages/contracts`**. Adding a field is safe;
-removing or retyping requires a new version in parallel until consumers migrate.
+removing or retyping requires a new version in parallel until consumers migrate. Payloads
+carry references to PII, never PII itself (§4.6).
 
 ---
 
 ## 6. The entitlement plane
 
-### Data model (Platform D1)
+### 6.1 Data model (Platform D1)
 
 ```
 feature            (key, name, type: BOOLEAN|LIMIT|CONFIG, module_id)
@@ -341,15 +485,14 @@ usage_counter      (org_id, meter_key, period, value)
 Features are **keys, not columns.** Adding a gated capability is a data change + a module,
 never a schema migration.
 
-### Resolution
+### 6.2 Resolution
 
 ```
 1. Plan features                  (base grant)
 2. + Add-on features              (union; for LIMIT type take MAX)
 3. + Trial grants                 (time-boxed, auto-expire)
 4. + Tenant overrides             (sales concessions — always audited)
-5. − Global kill-switch           (ops override for incidents)
-6. − Delinquency policy           (past-due → read-only, not blackout)
+5. − Delinquency policy           (past-due → read-only, not blackout)
 ```
 
 ```ts
@@ -362,7 +505,7 @@ type EntitlementSnapshot = {
 };
 ```
 
-### Distribution — version-keyed KV
+### 6.3 Distribution — version-keyed KV
 
 ```ts
 const key = `ent:${orgId}:v${version}`;          // version from the signed session token
@@ -376,7 +519,29 @@ if (!snap) {
 Version in the key eliminates KV's eventual consistency hazard. A plan upgrade bumps the
 version → new key → cache miss → instant resolution from the authoritative DO.
 
-### Enforcement — four layers
+**Know the revocation latency this buys.** The version comes from the signed session token, so
+a *reduction* in entitlement does not take effect until the token is re-minted. Upgrades land
+immediately (§9 pushes `entitlement.changed` over WebSocket and the client refreshes).
+Downgrades and delinquency transitions are stale for up to the token TTL — acceptable, because
+they are commercial states, not safety states. Keep the token TTL short enough that the
+finance team accepts the window, and enforce `hard` limits at the OrgEntitlementDO counter,
+which is never stale.
+
+### 6.4 The kill-switch is not an entitlement
+
+An operational kill-switch that takes a token refresh to land is not a kill-switch. It is
+therefore **not** part of the resolution chain above and **not** in the versioned snapshot.
+
+```ts
+// edge Worker, before entitlement resolution
+const killed = await env.KV.get(`kill:${featureKey}`, { cacheTtl: 10 });
+if (killed) return new Response(null, { status: 503 });
+```
+
+Separate key space, low TTL, no version, checked at the edge on every request. Different
+lifecycle, different audience, different latency requirement — same argument as §1.
+
+### 6.5 Enforcement — four layers
 
 ```ts
 // 1. Edge Worker — route table carries required entitlement; 402 before any module runs.
@@ -389,12 +554,13 @@ class ChannelService extends WorkerEntrypoint<Env> {
   }
 }
 
-// 3. Domain — inside the DO, for alarms, Queue consumers, Workflows.
+// 3. Application layer — inside DOs, alarms, Queue consumers, Workflows.
+//    NOT domain/ — see the terminology note in §5.
 
 // 4. UI — UX only. Entitled-but-unbought → disabled with upgrade CTA. Irrelevant → hidden.
 ```
 
-### Limits and metering
+### 6.6 Limits and metering
 
 | Behavior | Use case | Enforcement |
 |---|---|---|
@@ -402,7 +568,7 @@ class ChannelService extends WorkerEntrypoint<Env> {
 | `soft` | Emails, API calls | Analytics Engine → billing rollup |
 | `grace` | Unit count after expansion | Allow overage + notify; never block a booking |
 
-### Package composition example
+### 6.7 Package composition example
 
 | Feature key | Starter | Growth | Enterprise | Add-on |
 |---|---|---|---|---|
@@ -418,6 +584,7 @@ class ChannelService extends WorkerEntrypoint<Env> {
 | `pos.enabled` | — | — | — | ✅ |
 | `api.public_access` | — | ✅ | ✅ | — |
 | `sso.saml` | — | — | ✅ | ✅ |
+| `compliance.fiscalization` | — | — | ✅ | ✅ |
 
 ---
 
@@ -428,7 +595,7 @@ class ChannelService extends WorkerEntrypoint<Env> {
 The highest-contention resource. PropertyDO serialization eliminates races structurally.
 
 Rules:
-- Availability decrements in the **same transaction** as the reservation write.
+- Availability decrements in the **same atomic write** as the reservation.
 - **Room-type level, not room level.** Assignment happens at check-in.
 - A separate denormalized **ARI projection** (KV) serves the booking engine and channel pushes.
   Stale reads there are fine; the DO is the arbiter.
@@ -440,9 +607,11 @@ Model the **derivation graph**, not the materialized matrix.
 
 Restrictions (MinLOS, MaxLOS, CTA, CTD, stop-sell) are a **separate ledger** from prices.
 
-Rate plan *definitions* live in Org D1 (cross-property, rarely written). Materialized daily
+Rate plan *definitions* live in OrgDO (cross-property, rarely written). Materialized daily
 rates live in PropertyDO (per-property, frequently read). The projection from definition →
-materialized rates is triggered by `rate_plan.changed` events and runs as a Workflow step.
+materialized rates is triggered by `rate_plan.changed` events and runs as a Workflow step —
+**chunked and yielding**, per the write-burst rule in §4.1. A chain-wide rate change must never
+be able to stall check-ins.
 
 ### 7.3 Money, folio, and the night audit
 
@@ -452,6 +621,10 @@ materialized rates is triggered by `rate_plan.changed` events and runs as a Work
 - **Tax engine** is its own concern behind an interface. Rules are political and change without notice.
 - **Folio archival:** live stay + current fiscal year in PropertyDO. Closed years projected to
   R2/Iceberg for reporting and long-term retrieval.
+- **Cashiering:** shift open/close, drawer counts, per-cashier audit. Required before any
+  property takes cash — which is Phase 1, not later.
+- **City ledger / AR:** direct-bill corporate accounts, aging, statements, commission tracking.
+  Structurally distinct from guest folios; do not model it as a folio variant.
 
 ### 7.4 Reservation lifecycle
 
@@ -463,6 +636,11 @@ INQUIRY → PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT
 Every transition emits a domain event and writes an audit record. Reservations are long-lived,
 high-value, and constantly disputed.
 
+**Group blocks and allotments** are a separate aggregate, not a reservation with a flag: block
+inventory, rooming lists, cutoff dates, wash, and pickup tracking. Bolting this onto individual
+reservations later is a rewrite — model it as its own thing from the start even if it ships in
+Phase 2.
+
 ### 7.5 Time
 
 Hospitality time ≠ wall-clock time. First-class types in `packages/temporal-utils`:
@@ -472,36 +650,60 @@ Hospitality time ≠ wall-clock time. First-class types in `packages/temporal-ut
 
 A `Date` object crossing a module boundary is a bug waiting for a DST transition.
 
+### 7.6 Multi-property — *the thing we charge most for is what the model most resists*
+
+`pms.multi_property` is an Enterprise feature, and §2 states plainly that cross-property
+queries are impossible by construction. That tension is real and needs an explicit design
+rather than discovery during an Enterprise deal.
+
+| Need | Mechanism |
+|---|---|
+| Group availability search ("any room in the group") | **GroupAvailabilityDO** — a projection fed by `availability.changed`, per property-group. Advisory only; the PropertyDO still arbitrates the booking. |
+| Central reservations (book into any property) | Two-phase: read the projection, then commit against the owning PropertyDO. Handle rejection — the projection is stale by design. |
+| Chain-level reporting | Iceberg warehouse. Never fan-out reads across PropertyDOs. |
+| Shared guest profile across properties | Already correct — profiles live in OrgDO. |
+| Cross-property rate/restriction push | Chunked Workflow fan-out, per the write-burst rule. |
+
+Fan-out reads across N PropertyDOs are acceptable only for small N and only behind a Workflow.
+They are never on an interactive request path.
+
+### 7.7 Regulatory — the hidden second product
+
+None of this changes the architecture — each is an add-on module gated on
+`compliance.*` entitlements, exactly as designed. It does change the roadmap, and it is
+absent from most PMS build plans until a deal depends on it.
+
+| Obligation | Where | Note |
+|---|---|---|
+| **Fiscalization / e-invoicing** | IT, PT, ES (TicketBAI/Verifactu), GR (myDATA), PL, DE (KassenSichV) | Certified, audited, per-country. Effectively a second product. |
+| **Guest registration reporting** | ES (SES Hospedajes), IT (Alloggiati), PT (SEF) | Legally mandatory, per-country, per-property credentials. |
+| **Tourist/city tax** | Most EU municipalities | Rules vary *below* national level. Belongs to the tax engine interface (§7.3). |
+
+Sequencing consequence: **EU market entry requires at least one fiscalization implementation.**
+Pick the launch country before Phase 1 ends, because it constrains the folio and tax model.
+
 ---
 
 ## 8. Events, scheduling, and workflows
 
 ### Night audit: DO alarm → Workflow
 
-Each PropertyDO schedules its own alarm for its next business-date rollover:
-
-```ts
-// Inside PropertyDO alarm handler
-async alarm() {
-  await this.flushOutbox();  // always attempt outbox drain first
-  if (this.isNightAuditDue()) {
-    await this.env.NIGHT_AUDIT_WORKFLOW.create({ params: { propertyId: this.id } });
-  }
-  await this.ctx.storage.setAlarm(this.nextAlarmAt());
-}
-```
+Each PropertyDO registers a `night-audit` schedule with its `AlarmScheduler` (§4.3) for its
+next business-date rollover. The handler starts a Workflow and returns immediately — the
+15-minute alarm wall time is never the constraint.
 
 The Workflow does the real work — post room charges, no-show processing, roll business date,
 close-out reports — with durable execution and resumability.
 
 ### Events: outbox → Queues → consumers, with R2 as the log
 
-- **Outbox** lives in PropertyDO SQLite. Written atomically with domain mutations.
-- **DO alarm sweeper** flushes unacked outbox rows to Queues (at-least-once).
+- **Outbox** lives in PropertyDO SQLite. Written in the same atomic write as domain mutations.
+- **DO alarm sweeper** flushes unacked outbox rows to Queues (at-least-once, byte-bounded).
 - **Queues** delivers to consumers with batching, retries, and DLQ.
 - **Pipelines → R2/Iceberg** stores every event durably for replay and analytics.
 - Consumers are **idempotent by `event_id`**. Set `max_concurrency` on consumers writing back
   to DOs to prevent stampeding a single property.
+- Events carry PII by reference only (§4.6).
 
 ---
 
@@ -527,6 +729,9 @@ const nav = useNavRegistry();
 Entitlement snapshot arrives with the session and refreshes on `entitlement.changed` via
 WebSocket — a plan upgrade lights up the UI without a reload.
 
+The shell also owns **degraded mode** (§4.4): a stale-data watermark, a queued-mutation
+indicator, and hard refusal of inventory-consuming actions when the PropertyDO is unreachable.
+
 ---
 
 ## 10. Public API and marketplace
@@ -534,13 +739,17 @@ WebSocket — a plan upgrade lights up the UI without a reload.
 - **REST + OpenAPI 3.1**, generated from `packages/contracts`.
 - **Date-based versioning** (`2026-07-26`) pinned per API key.
 - **Webhooks:** signed (HMAC + timestamp), retried, replayable from a dead-letter UI.
-- **Idempotency keys** required on every mutating endpoint.
+- **Idempotency keys** required on every mutating endpoint. Keys are stored in the target
+  PropertyDO/OrgDO alongside the mutation, so the dedupe check is in the same consistency
+  domain as the write. An edge-only idempotency cache cannot be correct.
 - **Rate limits** are an entitlement (`api.rate_limit_rpm`), enforced at the edge.
 - **OAuth2 apps** with granular scopes, installed per property, revocable.
 
-**Workers for Platforms (Phase 3+):** third-party developers deploy sandboxed code that runs
-inside the platform. Dispatch namespace, outbound controls, per-app bindings. This is a
-category-defining feature — but ship OAuth + public API first. WfP is the moat, not the MVP.
+**Third-party code execution (Phase 3+):** partners deploy sandboxed code that runs inside the
+platform. Evaluate **Workers for Platforms** (dispatch namespaces, outbound controls, per-app
+bindings) against the newer **dynamic Worker loader** (`WorkerLoader`), which supports
+per-tenant bindings computed at load time and may be a lighter path to the same capability.
+Either way: ship OAuth + public API first. This is the moat, not the MVP.
 
 ---
 
@@ -549,8 +758,8 @@ category-defining feature — but ship OAuth + public API first. WfP is the moat
 ```
 hospai-pms/
 ├── apps/
-│   ├── edge/                        wrangler.jsonc — routes, authn, tenant resolution
-│   ├── pms-core/                    PropertyDO + OrgEntitlementDO + core PMS modules
+│   ├── edge/                        wrangler.jsonc — routes, authn, tenant resolution, kill-switch
+│   ├── pms-core/                    PropertyDO + OrgDO + OrgEntitlementDO + core PMS modules
 │   ├── payments/                    isolated bindings → PCI scope containment
 │   ├── booking-engine/              Workers + Static Assets, SSR
 │   ├── workflows/                   night audit, activation, reconciliation, dunning
@@ -559,16 +768,19 @@ hospai-pms/
 │
 ├── modules/
 │   ├── core/{tenancy, identity, entitlements, notifications, audit}
-│   ├── pms/{inventory, availability, rates, reservations, folio, guests, frontdesk, housekeeping, nightaudit}
-│   └── addons/{channel-manager, booking-engine, revenue-management, pos, guest-engagement, ...}
+│   ├── pms/{inventory, availability, rates, reservations, folio, cashiering, guests,
+│   │        frontdesk, housekeeping, nightaudit, groups, city-ledger}
+│   └── addons/{channel-manager, booking-engine, revenue-management, pos, guest-engagement,
+│               compliance-fiscalization, compliance-guest-registration, ...}
 │
 ├── packages/
 │   ├── kernel/                      module contract, registry, RPC entrypoint base
 │   ├── contracts/                   versioned event + API schemas (zod → OpenAPI)
-│   ├── do-runtime/                  DO base class, SQLite migration runner, outbox
-│   ├── d1-runtime/                  Sessions API + bookmarks, migration runner
-│   ├── tenant-router/               ★ tenant → DO id / D1 binding / jurisdiction
-│   ├── entitlement-client/          version-keyed KV snapshot, guards, meters
+│   ├── do-runtime/                  DO base class, SQLite migration runner, outbox, AlarmScheduler
+│   ├── d1-runtime/                  Platform D1 only — Sessions API, migration runner
+│   ├── tenant-router/               ★ tenant → DO id / jurisdiction / locationHint
+│   ├── entitlement-client/          version-keyed KV snapshot, guards, meters, kill-switch
+│   ├── crypto-shredding/            per-guest data keys, envelope encryption, erasure
 │   ├── money/                       currency, rounding, allocation, tax primitives
 │   ├── temporal-utils/              StayDate, BusinessDate, Nights, timezone math
 │   ├── observability/               tracing, structured logs, tenant-tagged metrics
@@ -576,7 +788,7 @@ hospai-pms/
 │   ├── ui-shell/                    nav registry, slot system, entitlement-aware routing
 │   └── sdk/                         generated public API client (TypeScript)
 │
-├── migrations/{do, d1-org, d1-platform}/
+├── migrations/{do-property, do-org, d1-platform}/
 ├── tools/
 │   ├── migrate-orchestrator/        ★ fan-out migration runner — build this early
 │   └── module-scaffolder/           codegen for new module skeleton
@@ -588,10 +800,17 @@ hospai-pms/
 - `modules/pms/*` may not import `modules/addons/*` — core never depends on add-ons.
 - `modules/addons/*` may import `modules/pms/*` public API only.
 - `domain/` imports nothing but `packages/money`, `packages/temporal-utils`, and stdlib.
-  No platform imports (Cloudflare APIs) in domain code.
+  No platform imports (Cloudflare APIs) and no entitlement client in domain code.
+- Every type crossing a module boundary must be structured-cloneable and declared in
+  `packages/contracts` (§3).
 
 **Local dev:** `wrangler dev` with `remote: true` bindings. `@cloudflare/vitest-pool-workers`
 for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
+
+**Test obligations that are not optional:**
+- property-based tests on the availability ledger (the money is here)
+- a replay test: rebuild every projection from the R2 event log and assert equivalence
+- contract tests on every module boundary, asserting structured-cloneability
 
 ---
 
@@ -599,11 +818,14 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 
 | Challenge | Mitigation |
 |---|---|
-| **Migration fan-out** — thousands of DOs, hundreds of D1s, each with own schema | Lazy migration in DO constructor + Workflow sweeper. Expand/contract mandatory. Budget this as real work. |
+| **Migration fan-out** — thousands of DOs, each with own schema | Lazy migration in DO constructor + Workflow sweeper. Expand/contract mandatory. Budget this as real work. |
+| **DOs cannot be enumerated** | There is no API to list instances in a namespace. The property/org registry in Platform D1 *is* the fan-out source of truth. If it drifts, a tenant becomes invisible and un-migratable. Registry writes are part of provisioning, never best-effort. |
+| **D1 bindings are static** | Tenant storage is DO-based (§4.2). D1 is reserved for the single Platform database. |
 | **Cross-tenant queries impossible** | Iceberg warehouse for fleet ops + privileged direct read path for CS |
-| **D1 jurisdiction immutable** | Decide at provisioning time. Default conservatively. Changing = full tenant migration. |
+| **DO placement is permanent** | `locationHint` at creation, derived from property jurisdiction. Changing = full object migration. |
+| **A DO outage is a full property outage** | Degraded mode (§4.4). Reads from KV projection, writes queue or fail closed. |
 | **Routing bug = full tenant exposure** | Tenant-router is small, audited, exhaustively tested, rarely changed |
-| **Per-tenant backup/restore** | DO has PITR, D1 has Time Travel — but product-level restore tooling is yours to build |
+| **Per-tenant backup/restore** | DO has PITR — but product-level restore tooling is yours to build |
 | **128 MB memory** | PDFs, large exports, ML → Containers or Workers AI |
 | **SDK compatibility** | Verify payment gateways + legacy hospitality connectors per-integration before committing |
 | **Static egress IP** | Some OTAs need IP allowlisting — Cloudflare Tunnel'd proxy on static IP for those partners |
@@ -620,8 +842,11 @@ entitlement.
 **PCI DSS.** Card data never touches `pms-core`: hosted fields from the gateway, tokens only.
 `payments` Worker is separately deployed, minimal surface.
 
+**Data protection.** PII encrypted per-guest, events carry references only, erasure by
+crypto-shredding (§4.6). Retention policy per data class, expressed as an entitlement.
+
 **Audit log.** Append-only, tenant-partitioned, retention as an entitlement. Written from the
-domain layer via events.
+application layer via events.
 
 **Observability.** Every span, log, and metric tagged with `org_id`, `property_id`, `module_id`.
 OpenTelemetry → Baselime/Axiom.
@@ -630,14 +855,21 @@ OpenTelemetry → Baselime/Axiom.
 
 ## 14. Build order
 
+> **Scope reality.** These phases are not comparable in size. Phase 0 is months; **Phase 1 is
+> a complete PMS and is the multi-year item**; Phases 2–3 add four further products (channel
+> manager, booking engine, revenue management, marketplace) plus fiscalization, which is a
+> product in its own right. Read this as a dependency order, never as four equal quarters.
+
 ### Phase 0 — Foundation (the parts you cannot retrofit)
 
-- Monorepo + CI + boundary linting
+- Monorepo + CI + boundary linting + serializable-contract enforcement
 - `kernel` module contract + manifest schema
 - Auth with organizations (Clerk or custom)
-- Platform D1 schema: orgs, plans, features, subscriptions
-- Tenant-router + PropertyDO skeleton + Org D1 skeleton
-- Entitlement plane end-to-end (even with two hardcoded plans)
+- Platform D1 schema: orgs, plans, features, subscriptions, **tenant registry**
+- Tenant-router (with `locationHint` policy) + PropertyDO skeleton + OrgDO skeleton
+- `AlarmScheduler` in `do-runtime`
+- Entitlement plane end-to-end (even with two hardcoded plans) + separate kill-switch
+- **PII/erasure model decided and encoded in `packages/contracts`**
 - Outbox + Queues event bus
 - Migration orchestrator (Workflow)
 - Observability (tenant-tagged from day one)
@@ -646,13 +878,15 @@ Ship `pms.inventory` through the whole stack to prove the contract.
 
 ### Phase 1 — Core PMS (sellable)
 
-Inventory → availability → rates → reservations → folio → front desk → housekeeping → night audit.
-Each depends on the previous.
+Inventory → availability → rates → reservations → folio → cashiering → front desk →
+housekeeping → night audit. Each depends on the previous.
 
 - Property-scoped RBAC
 - Audit log on money/inventory mutations
 - Migrate prototype screens onto live APIs
 - ARI projection to KV for the booking engine
+- **Degraded mode in the operator SPA** (§4.4)
+- Launch-country tax model decided (constrains folio — see §7.7)
 
 ### Phase 2 — First add-on (mechanism proof)
 
@@ -662,15 +896,18 @@ hack, fix the mechanism, not the module.
 - Outbox consumers + Queue workers
 - OTA integration (start with 2–3 channels)
 - Booking engine with direct booking
+- Group blocks and allotments
 
 ### Phase 3 — Commercial scale
 
 - Self-serve plan changes + Stripe billing
 - Usage billing for metered add-ons
 - Marketplace OAuth + webhooks + public API
+- Multi-property projections (§7.6)
+- Fiscalization for the launch market
 - Revenue management
 - Guest engagement / messaging
-- Workers for Platforms (partner sandbox)
+- Partner sandbox (Workers for Platforms or dynamic Worker loader)
 
 ---
 
@@ -678,7 +915,8 @@ hack, fix the mechanism, not the module.
 
 1. **A module's public surface is its `index.ts`.** Enforced by lint, in CI, blocking merge.
 2. **Core never imports add-ons.** One-directional dependency, always.
-3. **Entitlement checks live in the domain layer.** The edge is an optimization.
+3. **Entitlement checks live in the application layer.** Not `domain/` — an aggregate invariant
+   and a billing gate are different things. The edge is an optimization, never the only check.
 4. **Deactivation never destroys data.** Only retention-driven purge does.
 5. **Every mutation is an event.** Audit, integrations, and reporting derive from that stream.
 6. **Money is integers; time is typed.** No floats, no naked `Date` across boundaries.
@@ -688,3 +926,6 @@ hack, fix the mechanism, not the module.
 10. **Adding a new gated feature = a module + a data row.** If it needs a schema migration to sell, the gating plane is wrong.
 11. **Domain code has zero platform imports.** Cloudflare-specific code lives in `infrastructure/` only.
 12. **The tenant-router is the most security-critical code.** Treat it accordingly.
+13. **Events carry PII by reference, never by value.** Erasure is key destruction, not history rewriting.
+14. **Degraded mode never creates an obligation the property cannot honour.** Reads degrade, writes queue, inventory fails closed.
+15. **Never `BEGIN`/`COMMIT` in `sql.exec()`, never `blockConcurrencyWhile()` on a request path.** Atomicity comes from not awaiting mid-sequence.

@@ -20,8 +20,9 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > corrected (§4.1); kill-switch split out of the entitlement snapshot (§6.4); entitlement
 > checks moved from `domain/` to `application/` (§5); Rule 9 split by transport (§15).
 >
-> Added: priority lanes (§4.2), jurisdiction vs. residency (§4.5), the degraded-mode protocol
-> (§4.6), PII erasure and the cross-store purge Workflow (§4.8), ARI staleness SLA (§7.1),
+> Added: priority lanes (§4.2), jurisdiction vs. residency vs. request-path residency (§4.5),
+> the degraded-mode protocol (§4.6), PII erasure and the cross-store purge Workflow (§4.8),
+> time-boxed support elevation with dual control on writes (§4.9), ARI staleness SLA (§7.1),
 > multi-currency and the payments↔folio contract (§7.3), multi-property projections (§7.6),
 > regulatory scope (§7.7), the night-audit `BusinessDate` state machine (§8), and
 > idempotency × outbox (§10.1).
@@ -415,6 +416,21 @@ routing-bug failure mode with a friendlier disguise.
    its tenant on every cold start, and refuses to serve on mismatch. Failing closed on a
    blank object is vastly better than serving it.
 
+**A jurisdictioned DO does not give you a jurisdictioned request path.** The docs are explicit:
+Workers may access a jurisdiction-restricted Durable Object *from anywhere in the world*, and
+the constraint governs only where the object runs and persists data. So:
+
+| What the contract constrains | What actually delivers it |
+|---|---|
+| Where data is **stored** | `jurisdiction('eu')` on the DO namespace |
+| Where the **Worker executes** | Smart Placement / edge placement controls — the edge Worker still runs at the nearest PoP by default |
+| Which regions **terminate TLS and respond** | [Regional Services](https://developers.cloudflare.com/data-localization/regional-services/) |
+| Where **logs and traces** land | Observability pipeline configuration — and note that a `DurableObjectId` is logged outside the jurisdiction for billing and debugging |
+
+An EU data-residency commitment that only sets the DO jurisdiction is **incomplete**. Treat the
+four rows above as a checklist per regulated deal, and price Regional Services into the
+Enterprise tier rather than discovering it during a DPA review.
+
 ### 4.6 Degraded mode — the protocol
 
 A PropertyDO outage is a **total front-desk outage**: no check-in, no check-out, no folio
@@ -586,14 +602,61 @@ audits; they are housekeeping, not the guarantee.
   that erases a fiscally-required invoice is as much a violation as one that misses a guest
   profile.
 
-### 4.9 Admin & support read access
+### 4.9 Admin & support access
 
 Cross-tenant queries are impossible against DOs directly. Two paths:
 
 1. **Iceberg warehouse** — for fleet analytics, cohort reports, ops dashboards (seconds-old).
-2. **Privileged direct DO read path** — for CS resolving a specific tenant's issue in real
-   time. Audited, rate-limited, accessible only via internal admin console behind Cloudflare
-   Access. Never exposed to customer-facing APIs.
+   No tenant PII, no elevation required.
+2. **Privileged direct DO path** — for CS resolving a specific tenant's issue in real time.
+
+The second path is a standing cross-tenant capability held by employees. It is the most likely
+source of an insider incident and the first thing an enterprise security review asks about, so
+it gets specified rather than left as "audited and behind Access."
+
+**Nobody holds tenant access at rest.** Support staff have *the ability to request* access, not
+access. Every session is an explicit, expiring grant.
+
+```ts
+type ElevationGrant = {
+  grantId: string;
+  subject: { orgId: string; propertyId?: string };   // narrowest scope that resolves the case
+  mode: 'READ' | 'WRITE';
+  reason: string;              // free text, required
+  ticketRef: string;           // required, validated against the helpdesk system
+  requestedBy: string;
+  approvedBy?: string;         // REQUIRED for WRITE — never equal to requestedBy
+  expiresAt: string;           // READ ≤ 60 min, WRITE ≤ 15 min. No renewal — re-request.
+};
+```
+
+| Control | `READ` | `WRITE` |
+|---|---|---|
+| Approval | Self-service with reason + ticket | **Dual control** — a second authorized human approves, and the approver may not be the requester |
+| Max duration | 60 minutes | 15 minutes |
+| Scope | One org, narrowed to one property where possible | One property, one named operation |
+| Mechanism | Read-only RPC surface; no raw SQL | **The same domain commands a customer would use** — never raw SQL, never direct row edits |
+| Expiry | Hard. No renewal — request again, with a fresh reason. | Hard |
+
+**Rules that make this hold:**
+
+1. **Writes go through the domain.** A support write emits the same events, writes the same
+   audit records, and respects the same invariants as a customer action. Raw SQL against a
+   tenant DO has exactly one legitimate use — recovering a corrupted object — and it is a
+   separate break-glass credential that **automatically opens an incident record**.
+2. **The tenant sees it.** Support access appears in the customer's own audit log with the
+   actor, timestamp, scope, and ticket reference. This is a trust feature, not a liability;
+   enterprise buyers increasingly require it, and the alternative is a support team the
+   customer cannot audit.
+3. **Elevation is not an entitlement.** It is internal RBAC, stored in Platform D1, on its own
+   lifecycle. It is never resolved from the tenant's entitlement snapshot.
+4. **Global revocation exists.** The kill-switch (§6.4) can void every outstanding grant
+   platform-wide in one write, for the incident where credentials are suspected compromised.
+5. **Elevations are a reviewed metric.** Grant volume per operator, `WRITE` grants without a
+   linked ticket resolution, and repeat elevations against the same tenant go to a weekly
+   review. An access-control system nobody reads is theatre.
+6. **The admin console is a separate Worker** behind Cloudflare Access with hardware-key
+   enforcement, bound to nothing a customer-facing Worker can reach.
 
 ---
 
@@ -1258,7 +1321,9 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 | **DOs cannot be enumerated** | There is no API to list instances in a namespace. The property/org registry in Platform D1 *is* the fan-out source of truth. If it drifts, a tenant becomes invisible and un-migratable. Registry writes are part of provisioning, never best-effort. |
 | **D1 bindings are static** | Tenant storage is DO-based (§4.3). D1 is reserved for the single Platform database. |
 | **Cross-tenant queries impossible** | Iceberg warehouse for fleet ops + privileged direct read path for CS |
-| **DO placement is permanent** | `locationHint` at creation, derived from property jurisdiction. Changing = full object migration. |
+| **DO placement is permanent** | `locationHint` at creation, derived from the property's **timezone** — a latency concern only, and best-effort (§4.5). Changing = full object migration. |
+| **Jurisdiction is part of the object's identity** | `jurisdiction('eu')` yields a *different ID for the same name*. Recorded immutably on the tenant registry; every resolution path derives the ID through it, or it silently opens a blank object (§4.5). |
+| **DO residency ≠ request-path residency** | A jurisdictioned DO is still reachable from any Cloudflare location, and the Worker in front of it may execute anywhere. Add Regional Services / edge placement controls for contracts that constrain *processing* location, not just storage (§4.5). |
 | **A DO outage is a full property outage** | Degraded mode (§4.6). Reads from KV projection, writes queue or fail closed. |
 | **Routing bug = full tenant exposure** | Tenant-router is small, audited, exhaustively tested, rarely changed |
 | **Per-tenant backup/restore** | DO has PITR — but product-level restore tooling is yours to build |

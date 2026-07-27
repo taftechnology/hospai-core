@@ -326,7 +326,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['inventory.room_type_changed'],
+    events: ['inventory.room_type_changed', 'availability.changed'],
   },
   {
     id: 'staff.add',

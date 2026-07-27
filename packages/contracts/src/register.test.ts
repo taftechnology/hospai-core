@@ -186,6 +186,11 @@ describe('command catalog', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).toContain('availability.book');
     expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(6);
   });
+
+  it('inventory.delete_room_type emits availability.changed', () => {
+    const c = COMMAND_CATALOG.find((x) => x.id === 'inventory.delete_room_type');
+    expect(c?.events).toEqual(['inventory.room_type_changed', 'availability.changed']);
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

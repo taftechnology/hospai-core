@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fingerprintPayload, IDEM_KEY_REUSED } from './idempotency.js';
+import { ARCHIVE_BLOCKED, fingerprintPayload, IDEM_KEY_REUSED, OVERSELL, TIMEZONE_UNSET } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
   it('is stable under key reordering', async () => {
@@ -17,6 +17,12 @@ describe('fingerprintPayload', () => {
 
   it('exports the wire error code', () => {
     expect(IDEM_KEY_REUSED).toBe('idempotency_key_reused');
+  });
+
+  it('exports inventory wire codes', () => {
+    expect(TIMEZONE_UNSET).toBe('timezone_unset');
+    expect(OVERSELL).toBe('oversell');
+    expect(ARCHIVE_BLOCKED).toBe('archive_blocked');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

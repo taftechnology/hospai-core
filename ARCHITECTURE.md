@@ -12,12 +12,22 @@ enforce boundaries at the platform level — microservice isolation at monolith 
 Distribution is structural from day one on Cloudflare, but keep the Worker count small
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
-> **Revision 2026-07-26.** Platform limits in §3 verified against Cloudflare docs on this date.
-> Material changes from the previous revision: per-organization storage moved from D1 to
-> **OrgDO** (§4.2 — D1 bindings cannot be selected at runtime); transaction handling in
-> PropertyDO corrected (§4.1); kill-switch split out of the entitlement snapshot (§6);
-> availability/degraded-mode (§4.4), PII erasure (§4.6), multi-property projections (§7.6),
-> and regulatory compliance (§7.7) added.
+> **Revision 2026-07-27.** Platform limits (§3) and the jurisdiction/`locationHint` semantics
+> (§4.5) verified against Cloudflare docs on this date.
+>
+> Changed since the first revision: per-organization storage moved from D1 to **OrgDO**
+> (§4.3 — D1 bindings cannot be selected at runtime); PropertyDO transaction handling
+> corrected (§4.1); kill-switch split out of the entitlement snapshot (§6.4); entitlement
+> checks moved from `domain/` to `application/` (§5); Rule 9 split by transport (§15).
+>
+> Added: priority lanes (§4.2), jurisdiction vs. residency (§4.5), the degraded-mode protocol
+> (§4.6), PII erasure and the cross-store purge Workflow (§4.8), ARI staleness SLA (§7.1),
+> multi-currency and the payments↔folio contract (§7.3), multi-property projections (§7.6),
+> regulatory scope (§7.7), the night-audit `BusinessDate` state machine (§8), and
+> idempotency × outbox (§10.1).
+>
+> **Still owed:** FX rate sourcing and its refresh policy; the exception-queue operator UX;
+> per-country fiscalization design for the launch market.
 
 ---
 
@@ -91,11 +101,22 @@ system.
               │
               │ DO stubs / D1 / KV / R2 / Queues / Workflows
               ▼
-   ┌──────────────────┐  ┌───────────────┐  ┌──────────────┐
-   │ PropertyDO       │  │ OrgDO         │  │ Platform D1  │
-   │ (SQLite, 1/hotel)│  │ (SQLite,1/org)│  │ (control)    │
-   └──────────────────┘  └───────────────┘  └──────────────┘
+   ┌──────────────────┐ ┌───────────────┐ ┌──────────────────┐ ┌──────────────┐
+   │ PropertyDO       │ │ OrgDO         │ │ OrgEntitlementDO │ │ Platform D1  │
+   │ (SQLite, 1/hotel)│ │ (SQLite,1/org)│ │ (1 per org)      │ │ (control)    │
+   │ ARI, reservations│ │ users, roles, │ │ ★ authoritative  │ │ plans,       │
+   │ folios, outbox   │ │ guest profiles│ │ hard-limit       │ │ features,    │
+   │ business date    │ │ rate defs     │ │ counters; never  │ │ subscriptions│
+   │                  │ │ audit log     │ │ served stale     │ │ routing map  │
+   └──────────────────┘ └───────────────┘ └──────────────────┘ └──────────────┘
 ```
+
+**OrgEntitlementDO is a distinct object from OrgDO on purpose.** It resolves entitlement
+snapshots (§6.3) and owns `hard` meter counters (§6.6). Those counters are the one place in
+the entitlement plane where a stale read is a commercial incident — selling a 6th OTA
+connection on a 5-connection plan — so they are read through the DO, never through KV. Keeping
+it separate from OrgDO also keeps a hot billing-write path off the object that serves every
+permission check.
 
 ### Phased Worker deployment
 
@@ -160,7 +181,7 @@ force demands it" turns into "extract during an incident, discover it is a two-w
 | DO alarm wall time | 15 minutes | Night audit alarm starts a Workflow, never runs inline |
 | Workflow step wall time | Unlimited (CPU-limited) | Correct home for night audit, reconciliation, dunning |
 | Cron triggers | 250/account | Not enough for per-property scheduling — use DO alarms |
-| D1 databases | 50,000/account | Platform D1 only — see §4.2 for why tenants are not D1 |
+| D1 databases | 50,000/account | Platform D1 only — see §4.3 for why tenants are not D1 |
 | D1 storage | 10 GB/db, 1 TB/account | The account cap binds long before the database count does |
 | DO SQLite storage | 10 GB/object, unlimited objects | The reason tenant storage lives in DOs |
 
@@ -190,7 +211,7 @@ Holds everything that must be consistent **within a property:**
 ```ts
 export class PropertyDO extends DurableObject<Env> {
   sql: SqlStorage;
-  private scheduler: AlarmScheduler;   // packages/do-runtime — see §4.3
+  private scheduler: AlarmScheduler;   // packages/do-runtime — see §4.4
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -265,12 +286,53 @@ the low hundreds of MB/year. The 10GB ceiling is years away.
 and checked-out reservations to R2/Iceberg. The PropertyDO holds only the current year + open
 stays. This keeps the DO fast and the warehouse queryable.
 
-**Write-burst rule.** A single-threaded object means any long write burst blocks bookings and
-check-ins. The known offender is rate materialization (§7.2): 365 days × room types × rate
-plans on every rate-plan change. Materialization must arrive **chunked, yielding between
-chunks, and de-prioritized behind interactive commands** — never as one fan-out write.
+### 4.2 Priority lanes — *the cost of single-threading*
 
-### 4.2 OrgDO — SQLite, one per organization
+Single-threading is what makes availability correct. It is also what makes a rate push able to
+stall a check-in. A property under channel load takes ARI pulls, rate materialization, and OTA
+bulk writes into the *same* object that the front desk is using. Without admission control the
+front desk loses, and the front desk is the thing with a queue of humans in front of it.
+
+**Durable Objects have no preemption.** Once a method starts executing it runs to its next
+`await`. Lanes are therefore **cooperative and enforced at admission**, not by a scheduler.
+
+| Lane | Contains | Admission rule |
+|---|---|---|
+| `INTERACTIVE` | book, check-in, check-out, folio post, room status, ARI read | Never deferred, never chunked, never rate-limited. Target < 50 ms of DO time. |
+| `BACKGROUND` | outbox sweep, projection refresh, housekeeping recompute | Runs when no interactive command has arrived in `quietMs` (default 250 ms). Yields every chunk. |
+| `BULK` | rate materialization, OTA bulk ARI, imports, archival | Continuation-token chunks, hard-capped at `maxChunkMs` (default 50 ms) of DO time per entry. Re-armed via `AlarmScheduler`, never looped. |
+
+```ts
+// packages/do-runtime — lane is declared on the method, not decided by the caller.
+class PropertyDO extends DurableObject<Env> {
+  @lane('INTERACTIVE')
+  async book(cmd: BookCommand) { /* ... */ }
+
+  @lane('BULK')
+  async materializeRates(cursor: Cursor): Promise<Cursor | null> {
+    const deadline = Date.now() + this.lanes.maxChunkMs;
+    while (cursor && Date.now() < deadline) cursor = this.materializeOneDay(cursor);
+    return cursor;   // non-null → LaneGuard re-arms via alarm, yielding the object
+  }
+}
+```
+
+`LaneGuard` tracks `lastInteractiveAt` in memory and refuses to admit a `BULK` entry inside
+the quiet window, returning the unconsumed continuation token. Three rules make this hold:
+
+1. **The lane is a property of the method, not the caller.** A channel manager cannot promote
+   its bulk push by calling a different entrypoint.
+2. **`BULK` methods must be resumable.** They take a cursor and return one. A `BULK` method
+   that cannot yield is a bug, and CI rejects one whose signature has no cursor.
+3. **Queue consumers writing to a property set `max_concurrency: 1`.** Lanes govern work
+   *inside* the object; concurrency caps stop the stampede from forming outside it.
+
+**Starvation is the accepted failure mode.** Under sustained interactive load, `BULK` work
+falls further behind and that is correct — a rate push arriving late is a commercial
+annoyance, a check-in arriving late is a queue in the lobby. `BULK` lag is an alerting signal
+(§13), never a reason to preempt `INTERACTIVE`.
+
+### 4.3 OrgDO — SQLite, one per organization
 
 Holds: users, role assignments, guest profiles, rate plan *definitions*, property registry,
 org settings, audit log. Read constantly, written rarely.
@@ -304,7 +366,7 @@ a DO is one instance in one place. Org data is read-heavy, so:
 with no per-tenant addressing problem: organizations, plans, features, add-ons, subscriptions,
 entitlement overrides, tenant→resource routing map.
 
-### 4.3 The single alarm slot
+### 4.4 The single alarm slot
 
 A Durable Object has **exactly one alarm**. PropertyDO needs at least two schedules on it —
 a ~30 s outbox sweep and a nightly business-date rollover — and add-ons will want more.
@@ -315,37 +377,150 @@ re-firing unrelated work). `packages/do-runtime` provides an **`AlarmScheduler`*
 schedules, persisted next-run times, per-schedule failure isolation, and one computed
 `setAlarm()`. No DO calls `ctx.storage.setAlarm()` directly.
 
-### 4.4 Placement and availability — *the operational risk in this design*
+### 4.5 Placement, jurisdiction, and residency — *three different things*
 
-A Durable Object is a single instance in a single location. Two consequences, both of which
-are hotel-visible:
+These get conflated, and an EU enterprise deal is exactly where that becomes expensive.
+Cloudflare exposes them as **two unrelated mechanisms with opposite guarantees**:
 
-**Placement is decided at creation and permanent.** A Sydney property whose DO is first
-instantiated by a European OTA request will live in Europe forever. `tenant-router` must
-pass an explicit `locationHint` derived from the property's own timezone/jurisdiction at
-provisioning time. This is a hard rule, not an optimization — it is unfixable after the fact
-without a full object migration.
+| Concern | Mechanism | Guarantee | Set at |
+|---|---|---|---|
+| **Latency** — put the object near the hotel | `get(id, { locationHint: 'oc' })` | **Best-effort. No guarantee.** Docs are explicit: the object is placed to minimize latency *from* the hint, not necessarily *at* it. Honoured only on the first `get()`. | First instantiation |
+| **Residency** — data must not leave a region | `env.PROPERTY_DO.jurisdiction('eu')` | **Hard constraint.** Compute and storage stay in-region. `eu`, `us`, `fedramp`. | Namespace, before ID derivation |
 
-**A PropertyDO outage is a total front-desk outage.** No check-in, no check-out, no folio
-posting, for that hotel. This is materially worse than for a typical DO workload; hotels
-treat the PMS as life-support software and enterprise contracts will have SLA language about
-it. The booking engine survives on the KV ARI projection (revenue is protected), but the
-operator SPA currently has nothing.
+**Never answer a residency question with a location hint.** A `locationHint` in a DPA is a
+misrepresentation — it is advisory and Cloudflare documents it as such.
 
-**Required degraded mode** (design owed before Phase 1 ships):
+**The correctness trap.** A jurisdiction is part of the *identity*, not a routing option:
 
-| Capability | Degraded behaviour |
-|---|---|
-| Arrivals/departures list, room status | Read from the last KV snapshot, watermarked stale |
-| Check-in / check-out | Queue locally in the client, replay on recovery, flag as provisional |
-| Folio posting | Queue; never accept a payment authorization against a stale folio |
-| New bookings | Refuse. Do not risk an oversell to keep a screen alive. |
+```ts
+env.PROPERTY_DO.idFromName('prop_123')                      // ID  A
+env.PROPERTY_DO.jurisdiction('eu').idFromName('prop_123')   // ID  B  — different object!
+```
 
-The rule that decides every case: **degraded mode may never create an obligation the property
-cannot honour.** Reads degrade, non-conflicting writes queue, inventory-consuming writes fail
-closed.
+Same name, different object, and the non-jurisdictional one is **empty**. A property
+provisioned under `eu` that is later resolved without the subnamespace does not error — it
+silently opens a blank PropertyDO with no reservations and no folios. That is the §2
+routing-bug failure mode with a friendlier disguise.
 
-### 4.5 KV, R2, and the analytics tier
+**Rules for `tenant-router`:**
+
+1. Jurisdiction is stored on the tenant registry row at provisioning and is **immutable**.
+   Changing it is a full object migration, priced and scheduled as one.
+2. Every resolution derives the ID through the recorded jurisdiction — including alarms,
+   Queue consumers, Workflows, migration sweepers, and the CS read path. There is exactly one
+   function that does this and nothing else may call `idFromName`, enforced by lint.
+3. `locationHint` is derived independently, from the property's own timezone, and only ever
+   affects latency.
+4. **Self-check:** each DO asserts `ctx.id.jurisdiction` matches the jurisdiction recorded for
+   its tenant on every cold start, and refuses to serve on mismatch. Failing closed on a
+   blank object is vastly better than serving it.
+
+### 4.6 Degraded mode — the protocol
+
+A PropertyDO outage is a **total front-desk outage**: no check-in, no check-out, no folio
+posting for that hotel. Hotels treat the PMS as life-support software and enterprise contracts
+carry SLA language about it. The booking engine survives on the ARI projection, so revenue is
+protected; the operator SPA needs the following.
+
+**The rule that decides every case:** *degraded mode may never create an obligation the
+property cannot honour.*
+
+#### Command classes
+
+Every command in every module declares exactly one class in its manifest. Unclassified
+commands fail closed — an omission cannot silently become a queued write.
+
+| Class | Meaning | Commands |
+|---|---|---|
+| `READ_STALE` | Serve last projection, watermark the age | Arrivals/departures, in-house list, room status, rate display, guest lookup |
+| `QUEUE_PROVISIONAL` | Accept, durably queue, apply on recovery | Check-in, check-out, room-status change, housekeeping updates, non-payment folio postings, notes |
+| `FAIL_CLOSED` | Refuse with an explicit reason | New bookings, date/room-type changes, cancellations with penalty, **any payment authorization or capture**, night audit, rate/restriction edits |
+
+**The `QUEUE_PROVISIONAL` admission test is not "is it important" — it is
+"is it commutative or idempotent with respect to every other queued command?"** Check-ins for
+different reservations commute. Folio postings are append-only and sum-commutative. Room status
+is last-writer-wins on a single key. Anything that reads-then-decides on shared state — which
+is every inventory-consuming command — is `FAIL_CLOSED` by construction.
+
+This is what lets the protocol ignore ordering, which matters because **Queues do not
+guarantee it.** Correctness must not depend on replay order, and it does not.
+
+#### Where the queue lives
+
+Two tiers, in order of preference:
+
+1. **Edge-side (primary).** The PropertyDO is unreachable but the edge Worker is fine — the
+   common case. The edge writes the command to a per-property pending-commands Queue.
+   Durable, survives the browser closing, survives the operator going home.
+2. **Client-side (fallback).** The client cannot reach the edge at all. Buffer in IndexedDB,
+   flush on reconnect. Explicitly weaker: a closed laptop loses the buffer, and the SPA must
+   say so rather than implying durability it does not have.
+
+A client-side buffered command is replayed *through* tier 1, so both paths converge on one
+replay implementation.
+
+#### Command envelope
+
+```ts
+type ProvisionalCommand = {
+  idempotencyKey: string;      // client-generated, stable across retries
+  propertyId: string;
+  issuedAt: string;            // ISO instant — the ONLY authority for business-date attribution
+  businessDate: StayDate;      // the business date the operator believed was open
+  actor: { userId: string; roleAt: string };
+  command: { type: string; payload: Json };
+};
+```
+
+`issuedAt` is captured when the operator acted, never when the command replayed. A check-in
+performed at 23:58 that replays at 00:04 belongs to the **previous** business date. Using
+replay time here silently corrupts occupancy statistics and room-revenue postings.
+
+#### Replay rules
+
+On recovery, a Queue consumer (`max_concurrency: 1` per property, per §4.2) drains the pending
+queue **in the `BACKGROUND` lane** — replay must not itself starve the front desk that just
+came back online.
+
+1. **Dedupe first.** `idempotencyKey` hits the same store as live idempotency (§10.1). An
+   already-applied command is acknowledged, not re-applied.
+2. **Business-date guard.** If `cmd.businessDate` is already closed by night audit, the command
+   does **not** apply. It goes to the **exception queue** for a human. Silently posting into a
+   closed fiscal period is worse than the outage was.
+3. **Re-validate invariants.** Provisional acceptance was never a promise of success. A
+   check-in whose room was reassigned during the outage fails validation and lands in the
+   exception queue.
+4. **Emit real domain events**, stamped with `issuedAt` and `replayed_at`, so downstream
+   consumers and the audit log show both when it happened and when it landed.
+5. **Nothing auto-resolves into money.** Any replay failure touching a folio is an exception,
+   never a best-effort guess.
+
+The exception queue is a **first-class operator screen**, not a dead-letter table someone finds
+later. Its depth is a paged alert.
+
+#### SPA watermarks
+
+The shell (§9) owns three states, and the operator must never have to guess which one they are
+in:
+
+| State | Presentation | Interaction |
+|---|---|---|
+| `LIVE` | Normal | Everything enabled |
+| `DEGRADED` | Persistent banner: *"Offline — showing data from HH:MM. Changes will be applied when the connection returns."* Every stale figure carries an inline age chip. | `FAIL_CLOSED` commands visibly disabled with the reason. `QUEUE_PROVISIONAL` actions marked *Pending* with a count. |
+| `RECOVERING` | *"Reconnected — applying N pending changes."* | Read-only until the queue drains, then diff-highlight anything the replay changed |
+
+Two hard UI rules:
+
+- **Never show a provisional write as confirmed.** A queued check-in is *Pending*, in a
+  visually distinct state, until its domain event returns.
+- **Never print a folio or issue an invoice in `DEGRADED`.** It is a document the property
+  cannot honour, which is the top-level rule restated.
+
+**Degraded mode is tested, not hoped for.** CI runs a fault-injection suite that blackholes the
+PropertyDO mid-session and asserts: no oversell, no double-posted folio line, no command lost,
+every unresolvable command in the exception queue.
+
+### 4.7 KV, R2, and the analytics tier
 
 | Store | Use | Why |
 |---|---|---|
@@ -355,7 +530,7 @@ closed.
 | **Analytics Engine** | Soft meters, per-tenant usage telemetry | Write-heavy, tenant-tagged time series |
 | **Hyperdrive → external Postgres** | **Escape hatch only** — enterprise contracts demanding own DB | Never load-bearing for core PMS |
 
-### 4.6 PII, the immutable log, and right-to-erasure
+### 4.8 PII, the immutable log, and right-to-erasure
 
 "Every mutation is an event," events are retained durably in R2/Iceberg for replay, and the
 folio is an append-only ledger. Guests have an unconditional right to erasure. These collide,
@@ -373,7 +548,45 @@ immutable store.
 law (§7.7), retained as pseudonymized ledger entries with the legal basis recorded. Erasure
 policy is a `packages/contracts` concern and a Phase 0 decision, not a Phase 3 compliance task.
 
-### 4.7 Admin & support read access
+#### Purge is a Workflow, because the data is in five places
+
+Both triggers — a module's `onPurge` after its retention window (§5) and a guest erasure
+request — must reach **PropertyDO, OrgDO, R2, the Iceberg warehouse, and the key store**.
+Four of those five cannot participate in a shared transaction, and R2/Iceberg deletion is
+slow and partial-failure-prone. A single RPC cannot do this correctly; it is a durable
+Workflow with per-store steps.
+
+**Key destruction goes first.** This inverts the intuitive ordering and it is the whole point:
+
+```
+1. SHRED_KEYS        destroy per-guest / per-module data keys      ← erasure is effective HERE
+2. PURGE_PROPERTY_DO delete rows, per property, BULK lane, chunked
+3. PURGE_ORG_DO      delete rows in the owning OrgDO
+4. PURGE_R2          delete objects by prefix (documents, exports, event-log segments)
+5. PURGE_ICEBERG     row-level delete / partition rewrite in the catalog
+6. VERIFY            re-scan every store; any residue → HALTED, never silent success
+7. CERTIFY           append a purge certificate (subject, scope, timestamps, operator)
+```
+
+After step 1 the data is **already unrecoverable everywhere**, including in stores the Workflow
+has not reached yet and in backups, PITR windows, and R2 lifecycle-pending objects that a
+delete-first design could never catch. Steps 2–5 reclaim space and satisfy "the row is gone"
+audits; they are housekeeping, not the guarantee.
+
+**Properties this design has to have:**
+
+- **Every step is idempotent and resumable.** Deleting an already-deleted object is success.
+- **`VERIFY` is mandatory and can fail the run.** A purge that reports success without
+  re-scanning is the compliance equivalent of an untested backup.
+- **The certificate is the deliverable.** Regulators and enterprise DPAs ask for evidence, not
+  assurances. It is append-only and itself never purged.
+- **Retention windows are enforced by the Workflow, not the caller.** `onPurge` cannot run
+  early even if a module requests it; the window is checked in step 0 against Platform D1.
+- **Financial-record exemptions are applied per record class** (§7.7), not per subject. A purge
+  that erases a fiscally-required invoice is as much a violation as one that misses a guest
+  profile.
+
+### 4.9 Admin & support read access
 
 Cross-tenant queries are impossible against DOs directly. Two paths:
 
@@ -462,7 +675,7 @@ Consumers are idempotent by `event_id`.
 
 Event payloads are **versioned contracts in `packages/contracts`**. Adding a field is safe;
 removing or retyping requires a new version in parallel until consumers migrate. Payloads
-carry references to PII, never PII itself (§4.6).
+carry references to PII, never PII itself (§4.8).
 
 ---
 
@@ -600,6 +813,36 @@ Rules:
 - A separate denormalized **ARI projection** (KV) serves the booking engine and channel pushes.
   Stale reads there are fine; the DO is the arbiter.
 
+**ARI staleness is a contract, not a hope.** "Stale reads are fine" is only true with a stated
+bound, an invalidation path, and a defined behaviour when the projection and the DO disagree.
+
+| Property | Value | Consequence of breach |
+|---|---|---|
+| Projection lag (p99) | ≤ 5 s from `availability.changed` | Page ops; oversell risk rises with lag |
+| Hard TTL on a projection entry | 60 s | Past this the entry is *unusable*, not merely stale |
+| Booking-engine quote | Refuses to quote on an entry past hard TTL | Falls back to a live DO read; slower, still correct |
+| OTA push freshness | ≤ 2 min | OTA contracts specify this; breach is a partner-facing SLA event |
+
+**Invalidation is push, not expiry.** Every availability mutation emits `availability.changed`
+carrying `(property, room_type, dates, version)`. The projection writer applies it and stamps
+the entry with the DO's version. Expiry is the backstop for a missed event, never the
+mechanism.
+
+**Reject-on-commit.** The projection is advisory. Every booking commits against the PropertyDO,
+which re-checks and may reject with `NoAvailability` even though the projection showed
+inventory. This is a **normal, expected outcome**, not an error path:
+
+- the booking engine handles it as a first-class UX state ("just sold out — here are
+  alternatives"), never a 500
+- the channel manager translates it to the OTA's own rejection semantics
+- a rejection increments `ari.reject_on_commit`, tagged by property. A rising rate means the
+  projection is lagging, and it is the earliest available signal of that
+
+**Versioned entries make disagreement detectable.** Because each projection entry carries the
+DO version it was derived from, a rejection can be classified as *stale projection* (version
+behind) versus *genuine race* (version current, inventory sold in the interim). Only the first
+is a defect.
+
 ### 7.2 Rates
 
 Rate plans compose: `base rate → derived (−15% of BAR) → seasonal override → LOS discount → promo`.
@@ -610,13 +853,16 @@ Restrictions (MinLOS, MaxLOS, CTA, CTD, stop-sell) are a **separate ledger** fro
 Rate plan *definitions* live in OrgDO (cross-property, rarely written). Materialized daily
 rates live in PropertyDO (per-property, frequently read). The projection from definition →
 materialized rates is triggered by `rate_plan.changed` events and runs as a Workflow step —
-**chunked and yielding**, per the write-burst rule in §4.1. A chain-wide rate change must never
+**chunked and yielding**, per the BULK lane rule in §4.2. A chain-wide rate change must never
 be able to stall check-ins.
 
 ### 7.3 Money, folio, and the night audit
 
 - **Never floats.** Integer minor units + explicit currency. `packages/money` owns rounding.
 - The folio is an **append-only ledger.** Corrections are reversing entries, not updates.
+- **Multi-currency is Phase 1, not later.** Any property taking an international card hits it
+  in week one, and retrofitting a currency onto a single-amount ledger touches every posting,
+  report, and tax calculation ever written. See below.
 - **Night audit** is a per-property Workflow (DO alarm triggers it). Idempotent, resumable.
 - **Tax engine** is its own concern behind an interface. Rules are political and change without notice.
 - **Folio archival:** live stay + current fiscal year in PropertyDO. Closed years projected to
@@ -625,6 +871,63 @@ be able to stall check-ins.
   property takes cash — which is Phase 1, not later.
 - **City ledger / AR:** direct-bill corporate accounts, aging, statements, commission tracking.
   Structurally distinct from guest folios; do not model it as a folio variant.
+
+#### Multi-currency
+
+Three currencies coexist and must never be collapsed into one column:
+
+| Currency | Meaning | Where it is authoritative |
+|---|---|---|
+| **Transaction** | What the line was actually denominated in | The folio line |
+| **Property (ledger)** | What the property's books are kept in | The folio balance, night audit, local tax |
+| **Reporting** | What the chain consolidates in | Warehouse only — never stored in the DO |
+
+```sql
+CREATE TABLE folio_line (
+  -- ...
+  amount_minor            INTEGER NOT NULL,   -- in txn_currency
+  txn_currency            TEXT    NOT NULL,
+  ledger_amount_minor     INTEGER NOT NULL,   -- in property currency
+  fx_rate                 TEXT    NOT NULL,   -- decimal string, never a float
+  fx_rate_at              INTEGER NOT NULL    -- frozen at posting; NEVER recomputed
+);
+```
+
+**The rate is frozen at posting time and is part of the record.** Re-deriving a historical rate
+at read time makes yesterday's invoice change value overnight — which fails audit, fails
+fiscalization, and generates guest disputes that cannot be resolved from the data.
+
+Settlement in a currency other than the ledger currency produces a **residual FX gain/loss
+line** of its own type. It is never absorbed into the guest's charge, because then the folio
+would not foot.
+
+#### Payments ↔ folio is an event contract, not a shared write
+
+The `payments` Worker is PCI-isolated (§13), which means it **cannot** write folio rows and the
+folio **cannot** call the gateway. The seam between them is the event bus, and it needs
+specifying in Phase 1 because everything about check-out depends on it.
+
+| Event | Emitted by | Folio effect |
+|---|---|---|
+| `payment.authorized` | payments | Record hold. **No ledger entry** — an auth is not money. |
+| `payment.captured` | payments | Post payment line, ledger + txn currency |
+| `payment.refunded` | payments | Post reversing line, never mutate the original |
+| `payment.failed` | payments | Release hold, flag balance at risk |
+| `payment.chargeback_received` | payments | Post reversal + fee line, open a dispute record |
+| `folio.balance_due` | folio | Payments may auto-capture at check-out |
+
+Three rules that fall out of at-least-once delivery (§10.1):
+
+1. **Idempotent by `(event_id, gateway_reference)`.** A redelivered capture must not post twice.
+2. **Tolerate out-of-order arrival.** A capture can land before its authorization. The folio
+   reconstructs from whichever arrives first and back-fills; it must never require an auth row
+   to exist before accepting a capture.
+3. **Money moves on the gateway's word, not the folio's.** The folio records what the gateway
+   reports. It never authorizes a capture from a balance it read locally, because that read may
+   be stale — and in degraded mode (§4.6) payment commands are `FAIL_CLOSED` for this reason.
+
+**Nightly settlement reconciliation** compares the gateway settlement file against folio payment
+lines. Mismatches go to the exception queue, never to an auto-correction.
 
 ### 7.4 Reservation lifecycle
 
@@ -662,7 +965,7 @@ rather than discovery during an Enterprise deal.
 | Central reservations (book into any property) | Two-phase: read the projection, then commit against the owning PropertyDO. Handle rejection — the projection is stale by design. |
 | Chain-level reporting | Iceberg warehouse. Never fan-out reads across PropertyDOs. |
 | Shared guest profile across properties | Already correct — profiles live in OrgDO. |
-| Cross-property rate/restriction push | Chunked Workflow fan-out, per the write-burst rule. |
+| Cross-property rate/restriction push | Chunked Workflow fan-out in the `BULK` lane (§4.2). |
 
 Fan-out reads across N PropertyDOs are acceptable only for small N and only behind a Workflow.
 They are never on an interactive request path.
@@ -688,12 +991,78 @@ Pick the launch country before Phase 1 ends, because it constrains the folio and
 
 ### Night audit: DO alarm → Workflow
 
-Each PropertyDO registers a `night-audit` schedule with its `AlarmScheduler` (§4.3) for its
+Each PropertyDO registers a `night-audit` schedule with its `AlarmScheduler` (§4.4) for its
 next business-date rollover. The handler starts a Workflow and returns immediately — the
 15-minute alarm wall time is never the constraint.
 
 The Workflow does the real work — post room charges, no-show processing, roll business date,
 close-out reports — with durable execution and resumability.
+
+### The BusinessDate state machine
+
+Night audit is the one process that both **mutates money** and **is guaranteed to be retried**
+(Workflow steps retry on any transient failure). Resumability without a state machine means
+double-posted room charges, which is a refund, an apology, and in a fiscalized market a
+correction filing.
+
+```
+IDLE ──▶ PRE_CHECK ──▶ POST_ROOM_CHARGES ──▶ PROCESS_NO_SHOWS ──▶ CLOSE_CASHIER_SHIFTS
+                                                                        │
+       ┌────────────────────────────────────────────────────────────────┘
+       ▼
+  SNAPSHOT_REPORTS ──▶ ROLL_BUSINESS_DATE ──▶ ARCHIVE ──▶ IDLE
+       │
+       └─▶ HALTED  (any step fails after its retry budget — operator intervention)
+```
+
+State lives in the PropertyDO, not the Workflow:
+
+```sql
+CREATE TABLE night_audit_run (
+  business_date TEXT NOT NULL,
+  step          TEXT NOT NULL,
+  status        TEXT NOT NULL,      -- PENDING | RUNNING | COMPLETED | FAILED
+  attempt       INTEGER NOT NULL DEFAULT 0,
+  started_at    INTEGER, completed_at INTEGER, error TEXT,
+  PRIMARY KEY (business_date, step)
+);
+```
+
+Each Workflow step calls `propertyDO.runAuditStep(businessDate, step)`, which **returns
+immediately if that row is already `COMPLETED`**. Workflow retries are therefore free: the
+Workflow provides durability and backoff, the DO provides the idempotence.
+
+**Double-posting is prevented at the storage layer, not in logic.** Step-level guards are
+necessary but not sufficient — a partial commit inside a step could still re-post. The actual
+guarantee:
+
+```sql
+CREATE UNIQUE INDEX folio_line_audit_uniq
+  ON folio_line (reservation_id, business_date, charge_code)
+  WHERE source = 'NIGHT_AUDIT';
+```
+
+A second room charge for the same reservation on the same business date **cannot be inserted**,
+whatever the control flow does. Every automated posting carries the business date in its
+uniqueness key. This is the invariant to defend; the state machine is an optimization over it.
+
+**Rules:**
+
+1. **`ROLL_BUSINESS_DATE` is last but one**, and advances the date exactly once, guarded by its
+   own `COMPLETED` row. Reports snapshot *before* the roll, archival happens *after*.
+2. **The business date never moves backward.** No operational path exists to un-roll it;
+   corrections are reversing entries in the new date (§7.3).
+3. **`HALTED` is a real state with a real screen.** The property stays on the old business date,
+   the front desk keeps working, and an operator sees exactly which step failed and why. Never
+   auto-skip a failed step — a skipped `POST_ROOM_CHARGES` is unbilled revenue that nobody
+   notices until checkout.
+4. **One run per property per business date.** Enforced by the primary key plus DO
+   single-threading. A second Workflow instance for the same date finds every step `COMPLETED`
+   and exits clean.
+5. **Steps run in the `BACKGROUND` lane** (§4.2). A night audit must not block a 2 a.m. walk-in.
+6. **Provisional commands gate the run.** If the pending-command queue (§4.6) is non-empty for
+   this property, `PRE_CHECK` drains it first, and halts rather than auditing over an outage's
+   unapplied writes.
 
 ### Events: outbox → Queues → consumers, with R2 as the log
 
@@ -703,7 +1072,7 @@ close-out reports — with durable execution and resumability.
 - **Pipelines → R2/Iceberg** stores every event durably for replay and analytics.
 - Consumers are **idempotent by `event_id`**. Set `max_concurrency` on consumers writing back
   to DOs to prevent stampeding a single property.
-- Events carry PII by reference only (§4.6).
+- Events carry PII by reference only (§4.8).
 
 ---
 
@@ -729,7 +1098,7 @@ const nav = useNavRegistry();
 Entitlement snapshot arrives with the session and refreshes on `entitlement.changed` via
 WebSocket — a plan upgrade lights up the UI without a reload.
 
-The shell also owns **degraded mode** (§4.4): a stale-data watermark, a queued-mutation
+The shell also owns **degraded mode** (§4.6): a stale-data watermark, a queued-mutation
 indicator, and hard refusal of inventory-consuming actions when the PropertyDO is unreachable.
 
 ---
@@ -739,11 +1108,70 @@ indicator, and hard refusal of inventory-consuming actions when the PropertyDO i
 - **REST + OpenAPI 3.1**, generated from `packages/contracts`.
 - **Date-based versioning** (`2026-07-26`) pinned per API key.
 - **Webhooks:** signed (HMAC + timestamp), retried, replayable from a dead-letter UI.
-- **Idempotency keys** required on every mutating endpoint. Keys are stored in the target
-  PropertyDO/OrgDO alongside the mutation, so the dedupe check is in the same consistency
-  domain as the write. An edge-only idempotency cache cannot be correct.
+- **Idempotency keys** required on every mutating endpoint. See §10.1 — the interaction with
+  the outbox is subtle and getting it wrong double-books.
 - **Rate limits** are an entitlement (`api.rate_limit_rpm`), enforced at the edge.
 - **OAuth2 apps** with granular scopes, installed per property, revocable.
+
+### 10.1 Idempotency × the outbox
+
+These two mechanisms are usually specified separately and then quietly contradict each other.
+A retried `POST /reservations` must not create a second reservation **and must not emit a
+second `reservation.created`** — a duplicated event double-pushes to every OTA, double-fires
+the confirmation email, and double-counts revenue in the warehouse. Deduping the write while
+re-emitting the event is the failure mode to design against, and it is the default outcome if
+the idempotency check sits at the edge.
+
+**The rule: the idempotency record, the domain mutation, and the outbox row are one atomic
+write, inside the owning DO.**
+
+```ts
+@lane('INTERACTIVE')
+async book(cmd: BookCommand, idem: IdempotencyKey): Promise<Reservation> {
+  const prior = this.sql.exec(
+    `SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key,
+  ).toArray();
+
+  if (prior.length > 0) {
+    // Same key, different body → the client has a bug. Never silently serve the old result.
+    if (prior[0].request_fingerprint !== idem.fingerprint) throw new IdempotencyKeyReused();
+    return JSON.parse(prior[0].response);   // NO mutation, NO outbox append, NO event.
+  }
+
+  const res = this.applyBooking(cmd);          // availability + reservation
+  this.appendOutbox(ReservationCreated.from(res));
+  this.sql.exec(
+    `INSERT INTO idempotency (key, request_fingerprint, response, created_at) VALUES (?,?,?,?)`,
+    idem.key, idem.fingerprint, JSON.stringify(res), Date.now(),
+  );
+  // No await anywhere above → all four effects commit together or none do.
+  return res;
+}
+```
+
+**Why this must live in the DO and not at the edge.** An edge-side cache can dedupe the
+*response* but cannot participate in the transaction that appends the outbox row. Any edge
+implementation has a window where the mutation committed and the idempotency record did not,
+or vice versa. Inside the DO that window does not exist.
+
+**Concurrent retries are free.** Two simultaneous requests with the same key serialize in the
+DO by construction. The second observes the first's committed record. No lock, no in-flight
+state, no leased-key protocol — this is one of the concrete payoffs of §4.1.
+
+**Two different guarantees, and they must not be confused:**
+
+| Boundary | Guarantee | Mechanism |
+|---|---|---|
+| Client → platform | **Effectively exactly-once.** One reservation, one event, per key. | Idempotency key in the DO transaction |
+| Outbox → Queues → consumers | **At-least-once.** The same event may arrive twice. | Consumers dedupe on `event_id` |
+
+The idempotency key does not make delivery exactly-once and is not a substitute for consumer
+dedupe. It guarantees the event is *produced* once; the bus may still *deliver* it twice.
+
+**Scope and retention.** Keys are scoped `(property_id, key)`. Retention is 7 days — long
+enough to cover OTA connectors that retry for days, and swept in the `BULK` lane (§4.2).
+Provisional commands replayed out of degraded mode (§4.6) use this same store, which is what
+makes replay and live retry converge on one dedupe path rather than two.
 
 **Third-party code execution (Phase 3+):** partners deploy sandboxed code that runs inside the
 platform. Evaluate **Workers for Platforms** (dispatch namespaces, outbound controls, per-app
@@ -762,7 +1190,8 @@ hospai-pms/
 │   ├── pms-core/                    PropertyDO + OrgDO + OrgEntitlementDO + core PMS modules
 │   ├── payments/                    isolated bindings → PCI scope containment
 │   ├── booking-engine/              Workers + Static Assets, SSR
-│   ├── workflows/                   night audit, activation, reconciliation, dunning
+│   ├── workflows/                   night audit, activation, reconciliation, dunning,
+│   │                                cross-store purge, settlement reconciliation
 │   ├── web-pms/                     operator SPA (React + Vite)
 │   └── web-admin/                   internal console (behind Cloudflare Access)
 │
@@ -776,9 +1205,12 @@ hospai-pms/
 ├── packages/
 │   ├── kernel/                      module contract, registry, RPC entrypoint base
 │   ├── contracts/                   versioned event + API schemas (zod → OpenAPI)
-│   ├── do-runtime/                  DO base class, SQLite migration runner, outbox, AlarmScheduler
+│   ├── do-runtime/                  DO base class, migrations, outbox, AlarmScheduler,
+│   │                                LaneGuard, idempotency store
 │   ├── d1-runtime/                  Platform D1 only — Sessions API, migration runner
 │   ├── tenant-router/               ★ tenant → DO id / jurisdiction / locationHint
+│   │                                the ONLY caller of idFromName — lint-enforced
+│   ├── degraded-client/             command classification, pending queue, replay, watermarks
 │   ├── entitlement-client/          version-keyed KV snapshot, guards, meters, kill-switch
 │   ├── crypto-shredding/            per-guest data keys, envelope encryption, erasure
 │   ├── money/                       currency, rounding, allocation, tax primitives
@@ -811,6 +1243,10 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 - property-based tests on the availability ledger (the money is here)
 - a replay test: rebuild every projection from the R2 event log and assert equivalence
 - contract tests on every module boundary, asserting structured-cloneability
+- fault injection: blackhole a PropertyDO mid-session, assert the §4.6 guarantees hold
+- night-audit resumability: kill the Workflow at every step boundary, assert no double posting
+- idempotency: replay every mutating endpoint, assert one mutation **and one event** (§10.1)
+- jurisdiction: assert a tenant is unreachable through the non-jurisdictional namespace
 
 ---
 
@@ -820,10 +1256,10 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 |---|---|
 | **Migration fan-out** — thousands of DOs, each with own schema | Lazy migration in DO constructor + Workflow sweeper. Expand/contract mandatory. Budget this as real work. |
 | **DOs cannot be enumerated** | There is no API to list instances in a namespace. The property/org registry in Platform D1 *is* the fan-out source of truth. If it drifts, a tenant becomes invisible and un-migratable. Registry writes are part of provisioning, never best-effort. |
-| **D1 bindings are static** | Tenant storage is DO-based (§4.2). D1 is reserved for the single Platform database. |
+| **D1 bindings are static** | Tenant storage is DO-based (§4.3). D1 is reserved for the single Platform database. |
 | **Cross-tenant queries impossible** | Iceberg warehouse for fleet ops + privileged direct read path for CS |
 | **DO placement is permanent** | `locationHint` at creation, derived from property jurisdiction. Changing = full object migration. |
-| **A DO outage is a full property outage** | Degraded mode (§4.4). Reads from KV projection, writes queue or fail closed. |
+| **A DO outage is a full property outage** | Degraded mode (§4.6). Reads from KV projection, writes queue or fail closed. |
 | **Routing bug = full tenant exposure** | Tenant-router is small, audited, exhaustively tested, rarely changed |
 | **Per-tenant backup/restore** | DO has PITR — but product-level restore tooling is yours to build |
 | **128 MB memory** | PDFs, large exports, ML → Containers or Workers AI |
@@ -843,13 +1279,32 @@ entitlement.
 `payments` Worker is separately deployed, minimal surface.
 
 **Data protection.** PII encrypted per-guest, events carry references only, erasure by
-crypto-shredding (§4.6). Retention policy per data class, expressed as an entitlement.
+crypto-shredding (§4.8). Retention policy per data class, expressed as an entitlement.
 
 **Audit log.** Append-only, tenant-partitioned, retention as an entitlement. Written from the
 application layer via events.
 
 **Observability.** Every span, log, and metric tagged with `org_id`, `property_id`, `module_id`.
 OpenTelemetry → Baselime/Axiom.
+
+**The signals that actually predict incidents.** Generic infrastructure metrics will not catch
+the failure modes this architecture has. These are per-property and paged:
+
+| Signal | Why it matters | Threshold |
+|---|---|---|
+| `ari.projection_lag` p99 | Leading indicator of oversell | > 5 s (§7.1) |
+| `ari.reject_on_commit` rate | Projection drifting from the DO | Rising trend, not absolute |
+| `do.interactive_latency` p99 | Front desk is slow → lobby queue | > 250 ms |
+| `do.bulk_lag` | `BULK` starvation is expected; unbounded starvation is not | Backlog age > 1 h |
+| `degraded.pending_commands` | Operators are working blind right now | > 0 warns, age > 15 min pages |
+| `degraded.exception_queue_depth` | Writes that need a human | > 0 pages |
+| `night_audit.state` = `HALTED` | Unbilled revenue accruing silently | Any occurrence |
+| `outbox.unacked_age` | Events not reaching consumers or OTAs | > 60 s |
+| `purge.verify_failed` | Compliance exposure with a paper trail | Any occurrence |
+
+**Per-property, not per-fleet.** A fleet-level average hides the single hotel whose DO is
+wedged — and that hotel is the one on the phone. Every threshold above alerts on the worst
+property, never the mean.
 
 ---
 
@@ -865,11 +1320,15 @@ OpenTelemetry → Baselime/Axiom.
 - Monorepo + CI + boundary linting + serializable-contract enforcement
 - `kernel` module contract + manifest schema
 - Auth with organizations (Clerk or custom)
-- Platform D1 schema: orgs, plans, features, subscriptions, **tenant registry**
-- Tenant-router (with `locationHint` policy) + PropertyDO skeleton + OrgDO skeleton
-- `AlarmScheduler` in `do-runtime`
+- Platform D1 schema: orgs, plans, features, subscriptions, **tenant registry with jurisdiction**
+- Tenant-router: jurisdiction-aware resolution + `locationHint` policy (§4.5) — *the single
+  most security-critical component; build it first and freeze it*
+- PropertyDO skeleton + OrgDO skeleton + OrgEntitlementDO
+- `AlarmScheduler` and `LaneGuard` in `do-runtime` (§4.2, §4.4)
+- Idempotency store inside the DO, with the outbox interaction (§10.1) proven by test
 - Entitlement plane end-to-end (even with two hardcoded plans) + separate kill-switch
 - **PII/erasure model decided and encoded in `packages/contracts`**
+- **Multi-currency in `packages/money`** — the ledger shape, not the FX sourcing
 - Outbox + Queues event bus
 - Migration orchestrator (Workflow)
 - Observability (tenant-tagged from day one)
@@ -884,9 +1343,14 @@ housekeeping → night audit. Each depends on the previous.
 - Property-scoped RBAC
 - Audit log on money/inventory mutations
 - Migrate prototype screens onto live APIs
-- ARI projection to KV for the booking engine
-- **Degraded mode in the operator SPA** (§4.4)
+- ARI projection to KV, with the staleness SLA and reject-on-commit path (§7.1)
+- **Degraded mode end-to-end** (§4.6) — command classes, pending queue, replay, exception
+  screen, SPA watermarks, fault-injection suite
+- **Night-audit `BusinessDate` state machine** (§8) with the storage-level double-post guard
+- **Multi-currency folio + payments↔folio event contract** (§7.3) — both land early in real
+  deployments, and neither retrofits cleanly
 - Launch-country tax model decided (constrains folio — see §7.7)
+- Cross-store purge Workflow (§4.8) — needed as soon as the first tenant churns
 
 ### Phase 2 — First add-on (mechanism proof)
 
@@ -922,7 +1386,13 @@ hack, fix the mechanism, not the module.
 6. **Money is integers; time is typed.** No floats, no naked `Date` across boundaries.
 7. **Inventory is transactional.** PropertyDO serialization guarantees this structurally.
 8. **Tenant-tag every telemetry signal.** Per-customer health, or you are debugging blind.
-9. **Your add-ons use the public API.** No private backdoors for first-party code.
+9. **No private backdoors — but "the public API" means two different things.**
+    First-party modules call other modules over **service-binding RPC against the module's
+    published interface** (`index.ts` + `packages/contracts`). Third parties call the
+    **public HTTP API**. Both are gated, versioned, and entitlement-checked; neither may
+    touch another module's internals. Forcing first-party code through HTTP would buy no
+    isolation the binding does not already give and would cost a network hop on every
+    front-desk action. The invariant is *no privileged access*, not *one transport*.
 10. **Adding a new gated feature = a module + a data row.** If it needs a schema migration to sell, the gating plane is wrong.
 11. **Domain code has zero platform imports.** Cloudflare-specific code lives in `infrastructure/` only.
 12. **The tenant-router is the most security-critical code.** Treat it accordingly.

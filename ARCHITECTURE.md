@@ -12,6 +12,12 @@ enforce boundaries at the platform level — microservice isolation at monolith 
 Distribution is structural from day one on Cloudflare, but keep the Worker count small
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
+> **Revision 2026-07-27d.** Phase 0 verification follow-ups: tenant-router fails closed on
+> missing jurisdiction; freeze DDL uniqueness/CHECK fixes; command catalog splits payment and
+> inventory paths; check-in/check-out remain `QUEUE_PROVISIONAL` per §4.6 (cancel/no-show are
+> `FAIL_CLOSED`). §7.1 availability enforcement documented as a **module boundary + ledger
+> property tests**, not an AST scan lint. CI runs `typecheck` and a DDL drift check.
+
 > **Revision 2026-07-27.** Platform limits (§3) and the jurisdiction/`locationHint` semantics
 > (§4.5) verified against Cloudflare docs on this date.
 >
@@ -1051,7 +1057,16 @@ Rules:
 >
 > This is the single most important thing not to carry across, and it is **invisible in the
 > UI** — the screens look identical either way. Treat any code path that counts reservations to
-> answer "is there room" as a defect, and add a lint rule for it.
+> answer "is there room" as a defect.
+>
+> **Enforcement is structural, not a syntactic lint.** Reservation-scan shapes (temp variables,
+> loops, renamed helpers) cannot be matched reliably by AST rules — and Phase 1 will port
+> prototype code that uses exactly those shapes. What CI enforces:
+>
+> 1. **Boundary rule** — bookability / ARI / channel paths may not import reservation
+>    list/query modules; capacity is read only from the availability module (§11).
+> 2. **Property-based tests** on the `availability_day` ledger (§11 test obligations) — these
+>    catch the *behaviour* regardless of how a mistaken scan would be written.
 
 #### The ledger shape
 
@@ -1734,11 +1749,15 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 - jurisdiction: assert a tenant is unreachable through the non-jurisdictional namespace
 
 **Lint rules that block merge:**
-- No availability decision may be derived from a reservation scan (§7.1). Any `filter`/`count`
-  over reservations feeding a bookability check is a build failure.
-- `idFromName` is callable only from `tenant-router` (§4.5).
+- Bookability / ARI / channel code may not import reservation list/query modules (§7.1).
+  Capacity comes from the availability module only. (Do not rely on an AST pattern match for
+  reservation scans — those shapes are not reliably lintable; the ledger property tests are
+  the behavioural backstop.)
+- `idFromName` / `getByName` are callable only from `tenant-router` (§4.5).
 - No `DOMAIN`-class config read from KV or a projection (§5.1).
 - No entitlement client import inside `domain/` (§5, Rule 3).
+- No platform imports (`cloudflare:*`, DO runtime) inside `domain/` (Rule 11).
+- `modules/pms/*` may not import `modules/addons/*`.
 - No module-boundary type that is not structured-cloneable (§3).
 
 ---

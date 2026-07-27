@@ -149,22 +149,26 @@ describe('command catalog', () => {
     expect(covered).toEqual([...PROTOTYPE_ACTIONS].sort());
   });
 
-  it('encodes FAIL_CLOSED for payment and inventory status paths — not prose notes', () => {
+  it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge_payment')?.degraded).toBe(
       'FAIL_CLOSED',
     );
+    // Check-in/out commute → QUEUE_PROVISIONAL per §4.6 table
     expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_in')?.degraded).toBe(
-      'FAIL_CLOSED',
+      'QUEUE_PROVISIONAL',
     );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_out')?.degraded).toBe(
+      'QUEUE_PROVISIONAL',
+    );
+    // Inventory-affecting status paths fail closed
     expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.cancel')?.degraded).toBe(
       'FAIL_CLOSED',
     );
     expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.no_show')?.degraded).toBe(
       'FAIL_CLOSED',
     );
-    // Soft class remains only for non-payment / non-inventory siblings
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.add_item')?.degraded).toBe(
       'QUEUE_PROVISIONAL',
     );

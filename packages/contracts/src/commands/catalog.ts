@@ -41,17 +41,19 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'reservations.check_in',
     prototypeAction: 'UPDATE_RESERVATION_STATUS',
     lane: 'INTERACTIVE',
-    degraded: 'FAIL_CLOSED',
+    degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.status_changed'],
+    notes: '§4.6 QUEUE_PROVISIONAL — check-ins commute; room conflicts → exception queue on replay.',
   },
   {
     id: 'reservations.check_out',
     prototypeAction: null,
     lane: 'INTERACTIVE',
-    degraded: 'FAIL_CLOSED',
+    degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.status_changed'],
+    notes: '§4.6 QUEUE_PROVISIONAL — same admission class as check-in.',
   },
   {
     id: 'reservations.cancel',
@@ -60,6 +62,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
+    notes: 'Inventory-affecting — must not invent stock during outage.',
   },
   {
     id: 'reservations.no_show',
@@ -68,6 +71,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
+    notes: 'Inventory-affecting — must not invent stock during outage.',
   },
   {
     id: 'reservations.update_status',

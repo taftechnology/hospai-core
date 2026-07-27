@@ -30,33 +30,7 @@ type CallNode = {
   }>;
 };
 
-type BinaryNode = {
-  operator: string;
-  left: {
-    type: string;
-    property?: { name?: string };
-    object?: { name?: string; type?: string };
-  };
-  right: {
-    type: string;
-    property?: { name?: string };
-    object?: {
-      type: string;
-      callee?: {
-        type: string;
-        property?: { name?: string };
-        object?: { name?: string };
-      };
-    };
-  };
-};
-
 type ImportNode = { source: { value: string } };
-
-type FunctionNode = {
-  id?: { name?: string; type?: string } | null;
-  init?: { type?: string };
-};
 
 /**
  * DOMAIN key prefixes — must cover every key from domainConfigKeys() in @hospai/contracts.
@@ -231,72 +205,84 @@ const noPmsImportingAddons = {
   },
 };
 
-function looksLikeReservationScan(node: BinaryNode): boolean {
-  // rooms.length - reservations.filter(...).length
-  if (node.operator !== '-') return false;
-  if (node.left.type !== 'MemberExpression') return false;
-  if (node.left.property?.name !== 'length' && node.left.property?.name !== 'size') return false;
-  if (node.right.type !== 'MemberExpression') return false;
-  if (node.right.property?.name !== 'length' && node.right.property?.name !== 'size') return false;
-  const call = node.right.object;
-  if (!call || call.type !== 'CallExpression') return false;
-  if (call.callee?.type !== 'MemberExpression') return false;
-  if (call.callee.property?.name !== 'filter') return false;
-  return true;
+function isBookabilityPath(file: string): boolean {
+  return /\/(booking|booking-engine|ari|channels?|channel-manager)(\/|$)/i.test(file);
 }
 
-const AVAILABILITY_FN = /^(calculate|compute|derive|get)Availability$/i;
+function isReservationsModulePath(file: string): boolean {
+  return (
+    /\/(modules|packages)\/[^/]*reservations(\/|$)/i.test(file) ||
+    /\/reservations\/(domain|application|infrastructure)\//i.test(file)
+  );
+}
 
-const noReservationScanAvailability = {
+function isAvailabilityModulePath(file: string): boolean {
+  return (
+    /\/(modules|packages)\/[^/]*availability(\/|$)/i.test(file) ||
+    /\/availability\/(domain|application|infrastructure)\//i.test(file)
+  );
+}
+
+function isReservationModuleImport(source: string): boolean {
+  if (source.startsWith('@hospai/reservations') || source.startsWith('@hospai/pms-reservations')) {
+    return true;
+  }
+  if (/\/reservations(\/|$)/.test(source) && !/\/reservations\/types(\/|$)/.test(source)) {
+    return true;
+  }
+  if (/(^|\/)reservations(\/|$)/.test(source) && !source.includes('/availability/')) {
+    return (
+      /reservations\/(queries|repo|repository|store|list|scan)/.test(source) ||
+      /\/reservations$/.test(source)
+    );
+  }
+  return false;
+}
+
+/**
+ * §7.1 enforcement is structural, not an AST pattern match.
+ * Bookability / ARI / channel code must not import reservation list/query modules —
+ * capacity comes only from the availability module. Property-based ledger tests catch
+ * behavioural regressions regardless of how a scan would be written.
+ */
+const noReservationsImportInBookability = {
   meta: {
     type: 'problem' as const,
-    docs: { description: 'Availability must not be derived by scanning reservations' },
+    docs: {
+      description:
+        'Bookability paths must not import reservation modules; use the availability ledger (§7.1)',
+    },
     schema: [],
     messages: {
       forbidden:
-        'Do not derive availability as rooms.length - reservations.filter(...).length (ARCHITECTURE §7.1).',
-      named: 'Function "{{name}}" must not implement reservation-scan availability (§7.1).',
-      call: 'Do not call {{name}} — reservation-scan availability is forbidden (§7.1).',
+        'Bookability/ARI/channel code must not import "{{source}}". Read capacity from the availability module only (ARCHITECTURE §7.1). Reservation-scan patterns cannot be reliably linted; this boundary is the enforcement.',
     },
   },
   create(context: RuleContext) {
+    const file = context.filename.replace(/\\/g, '/');
+    if (!isBookabilityPath(file)) return {};
+    if (isReservationsModulePath(file) || isAvailabilityModulePath(file)) return {};
     return {
-      BinaryExpression(node: BinaryNode) {
-        if (looksLikeReservationScan(node)) {
-          context.report({ node, messageId: 'forbidden' });
-        }
-      },
-      FunctionDeclaration(node: FunctionNode) {
-        const name = node.id?.name;
-        if (name && AVAILABILITY_FN.test(name)) {
-          context.report({ node: node.id, messageId: 'named', data: { name } });
-        }
-      },
-      VariableDeclarator(node: FunctionNode & { id?: { name?: string } }) {
-        const name = node.id?.name;
-        if (!name || !AVAILABILITY_FN.test(name)) return;
-        if (node.init?.type === 'ArrowFunctionExpression' || node.init?.type === 'FunctionExpression') {
-          context.report({ node: node.id, messageId: 'named', data: { name } });
-        }
-      },
-      CallExpression(node: CallNode) {
-        const name =
-          node.callee.type === 'Identifier'
-            ? node.callee.name
-            : node.callee.property?.name;
-        if (name === 'getOccupancyForDate' || (name && AVAILABILITY_FN.test(name))) {
-          context.report({ node, messageId: 'call', data: { name } });
+      ImportDeclaration(node: ImportNode & { importKind?: string }) {
+        if (node.importKind === 'type') return;
+        const source = node.source.value;
+        if (isReservationModuleImport(source)) {
+          context.report({ node, messageId: 'forbidden', data: { source } });
         }
       },
     };
   },
 };
 
+/** @deprecated Alias kept so existing CI configs keep working; same as boundary rule. */
+const noReservationScanAvailability = noReservationsImportInBookability;
+
 export const rules = {
   'no-id-from-name-outside-tenant-router': noIdFromName,
   'no-domain-config-from-kv': noDomainFromKv,
   'no-entitlement-in-domain': noEntitlementInDomain,
   'no-reservation-scan-availability': noReservationScanAvailability,
+  'no-reservations-import-in-bookability': noReservationsImportInBookability,
   'no-platform-import-in-domain': noPlatformImportInDomain,
   'no-pms-importing-addons': noPmsImportingAddons,
 };
@@ -311,7 +297,7 @@ const plugin = {
         'hospai/no-id-from-name-outside-tenant-router': 'error',
         'hospai/no-domain-config-from-kv': 'error',
         'hospai/no-entitlement-in-domain': 'error',
-        'hospai/no-reservation-scan-availability': 'error',
+        'hospai/no-reservations-import-in-bookability': 'error',
         'hospai/no-platform-import-in-domain': 'error',
         'hospai/no-pms-importing-addons': 'error',
       },

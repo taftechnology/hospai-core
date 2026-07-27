@@ -10,7 +10,9 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "eslint . && turbo run lint",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "generate:ddl": "pnpm --filter @hospai/do-runtime build && node scripts/property-ddl.mjs --write",
+    "check:ddl": "node scripts/property-ddl.mjs --check"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.26.0",

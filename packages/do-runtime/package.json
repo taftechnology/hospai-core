@@ -16,6 +16,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo ok"
   },
+  "dependencies": {
+    "@hospai/contracts": "workspace:*"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250726.0",
     "typescript": "^5.8.2",

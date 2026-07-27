@@ -77,3 +77,10 @@ export {
   PLATFORM_REGISTRY_STATEMENTS,
   PLATFORM_REGISTRY_SQL,
 } from './platform-migrations.js';
+
+export {
+  appendOutbox,
+  drainOutbox,
+  ackOutboxThrough,
+  type OutboxRow,
+} from './outbox.js';

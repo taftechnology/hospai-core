@@ -1,6 +1,16 @@
 import { DurableObject } from 'cloudflare:workers';
-import { domainConfigKeys, getConfigEntry } from '@hospai/contracts';
-import { PROPERTY_MIGRATIONS, freeAvailability, migrateSql } from '@hospai/do-runtime';
+import { domainConfigKeys, getConfigEntry, IDEM_KEY_REUSED, type IdempotencyKey } from '@hospai/contracts';
+import {
+  PROPERTY_MIGRATIONS,
+  appendOutbox,
+  ackOutboxThrough as ackOutboxThroughSql,
+  drainOutbox,
+  freeAvailability,
+  migrateSql,
+  runIdempotent,
+  IdempotencyKeyReused,
+  type OutboxRow,
+} from '@hospai/do-runtime';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
@@ -57,12 +67,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       actor: 'system',
       reason: 'unspecified',
     },
+    idem: IdempotencyKey,
   ): Promise<{ key: string; version: number }> {
-    const result = await this.tryPutDomainConfig(key, value, meta);
+    const result = await this.tryPutDomainConfig(key, value, meta, idem);
     if (!result.ok) throw new Error(result.error);
     return { key: result.key, version: result.version };
   }
 
+  /**
+   * DOMAIN config write. Caller must pass IdempotencyKey whose fingerprint is
+   * fingerprintPayload({ key, value, actor: meta.actor, reason: meta.reason }).
+   * `effectiveFrom` is excluded from the fingerprint.
+   */
   async tryPutDomainConfig(
     key: string,
     value: unknown,
@@ -70,6 +86,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       actor: 'system',
       reason: 'unspecified',
     },
+    idem: IdempotencyKey,
   ): Promise<
     | { ok: true; key: string; version: number; events: string[] }
     | { ok: false; error: string }
@@ -80,57 +97,59 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
     }
     try {
-      const parsed = validateConfigWrite(key, value);
-      const existing = this.ctx.storage.sql
-        .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
-        .toArray() as Array<{ version: number; value_json: string }>;
-      const previous = existing[0]?.value_json ?? null;
-      const version = (existing[0]?.version ?? 0) + 1;
-      this.ctx.storage.sql.exec(
-        `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET
-           value_json = excluded.value_json,
-           version = excluded.version,
-           effective_from = excluded.effective_from,
-           updated_at = excluded.updated_at,
-           updated_by = excluded.updated_by,
-           reason = excluded.reason,
-           previous_json = excluded.previous_json`,
-        key,
-        JSON.stringify(parsed),
-        version,
-        meta.effectiveFrom ?? null,
-        Date.now(),
-        meta.actor,
-        meta.reason,
-        previous,
-      );
-      this.ctx.storage.sql.exec(
-        `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        key,
-        meta.actor,
-        meta.reason,
-        previous,
-        JSON.stringify(parsed),
-        Date.now(),
-      );
-      const eventId = crypto.randomUUID();
-      this.ctx.storage.sql.exec(
-        `INSERT INTO outbox (event_id, event_type, payload, acked, created_at)
-         VALUES (?, 'config.changed', ?, 0, ?)`,
-        eventId,
-        JSON.stringify({
+      return runIdempotent(this.ctx.storage.sql, idem, () => {
+        const parsed = validateConfigWrite(key, value);
+        const existing = this.ctx.storage.sql
+          .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
+          .toArray() as Array<{ version: number; value_json: string }>;
+        const previous = existing[0]?.value_json ?? null;
+        const version = (existing[0]?.version ?? 0) + 1;
+        this.ctx.storage.sql.exec(
+          `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value_json = excluded.value_json,
+             version = excluded.version,
+             effective_from = excluded.effective_from,
+             updated_at = excluded.updated_at,
+             updated_by = excluded.updated_by,
+             reason = excluded.reason,
+             previous_json = excluded.previous_json`,
           key,
+          JSON.stringify(parsed),
           version,
-          consumers: entry.consumers,
-          actor: meta.actor,
-        }),
-        Date.now(),
-      );
-      return { ok: true, key, version, events: ['config.changed'] };
+          meta.effectiveFrom ?? null,
+          Date.now(),
+          meta.actor,
+          meta.reason,
+          previous,
+        );
+        this.ctx.storage.sql.exec(
+          `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          key,
+          meta.actor,
+          meta.reason,
+          previous,
+          JSON.stringify(parsed),
+          Date.now(),
+        );
+        appendOutbox(this.ctx.storage.sql, {
+          eventId: crypto.randomUUID(),
+          eventType: 'config.changed',
+          payload: {
+            key,
+            version,
+            consumers: entry.consumers,
+            actor: meta.actor,
+          },
+        });
+        return { ok: true as const, key, version, events: ['config.changed'] };
+      });
     } catch (e) {
+      if (e instanceof IdempotencyKeyReused) {
+        return { ok: false, error: IDEM_KEY_REUSED };
+      }
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -331,5 +350,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
       .toArray() as Array<{ c: number }>;
     return Number(rows[0]?.c ?? 0);
+  }
+
+  async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {
+    return drainOutbox(this.ctx.storage.sql, opts);
+  }
+
+  async ackOutboxThrough(seq: number): Promise<void> {
+    ackOutboxThroughSql(this.ctx.storage.sql, seq);
+  }
+
+  async flushOutbox(
+    deliver?: (batch: OutboxRow[]) => Promise<void>,
+  ): Promise<{ flushed: number }> {
+    const batch = drainOutbox(this.ctx.storage.sql);
+    if (batch.length === 0) return { flushed: 0 };
+    if (deliver) await deliver(batch);
+    ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);
+    return { flushed: batch.length };
   }
 }

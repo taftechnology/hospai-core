@@ -4,7 +4,7 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze gate is done. Current foundation work: **tenancy spine** (Platform D1 registry + OrgDO + PropertyDO provisioning).
+Schema-freeze gate is done. Current foundation work: **tenancy spine** (Platform D1 registry + OrgDO + PropertyDO provisioning). Idempotency × outbox wiring is done: `PropertyDO.tryPutDomainConfig` runs through `runIdempotent` with caller-supplied fingerprints, and `flushOutbox`/`drainOutboxBatch`/`ackOutboxThrough` expose outbox delivery for consumers.
 
 ```bash
 pnpm install

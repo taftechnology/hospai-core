@@ -84,3 +84,5 @@ export {
   ackOutboxThrough,
   type OutboxRow,
 } from './outbox.js';
+
+export { IdempotencyKeyReused, runIdempotent } from './idempotency.js';

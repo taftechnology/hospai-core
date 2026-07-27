@@ -1,0 +1,277 @@
+import { env } from 'cloudflare:test';
+import { describe, expect, it } from 'vitest';
+import { ARCHIVE_BLOCKED, fingerprintPayload, OVERSELL, TIMEZONE_UNSET } from '@hospai/contracts';
+import { resolvePropertyStub } from '@hospai/tenant-router';
+import type { PropertyDO } from '../src/property-do';
+
+function propertyStub(name: string) {
+  return resolvePropertyStub(env.PROPERTY_DO, {
+    orgId: 'org_test',
+    propertyId: name,
+    jurisdiction: null,
+  }) as DurableObjectStub<PropertyDO>;
+}
+
+/** Provision a fresh PropertyDO stub with `__meta.property_id` + stored timezone. */
+async function provisionedStub(name: string, timeZone: string): Promise<DurableObjectStub<PropertyDO>> {
+  const stub = propertyStub(name);
+  await stub.ensureMetaPropertyId(name);
+  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
+  await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
+  // Drain the provisioning `config.changed` event so outbox assertions below start clean.
+  await stub.flushOutbox();
+  return stub;
+}
+
+async function idemFor(key: string, payload: unknown) {
+  return { key, fingerprint: await fingerprintPayload(payload) };
+}
+
+describe('PropertyDO inventory commands', () => {
+  it('1. add room type without a stored timezone rejects with timezone_unset', async () => {
+    const stub = propertyStub(`inv-no-tz-${crypto.randomUUID()}`);
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const result = await stub.tryAddRoomType(input, await idemFor('add-no-tz', input));
+    expect(result).toEqual({ ok: false, error: TIMEZONE_UNSET });
+  });
+
+  it('2. add room type under Europe/Berlin seeds exactly 365 rows, two events, ARI version 1', async () => {
+    const name = `inv-berlin-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const result = await stub.tryAddRoomType(input, await idemFor('add-berlin', input));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ariVersion).toBe(1);
+
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
+    expect(await stub.readAriVersion()).toBe(1);
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'inventory.room_type_changed',
+      'availability.changed',
+    ]);
+
+    const first = await stub.readAvailabilityDay('rt_king', result.fromDate);
+    expect(first?.physical).toBe(10);
+    expect(first?.free).toBe(10);
+  });
+
+  it('3. replay of the same idempotency key does not double-seed or double-emit', async () => {
+    const name = `inv-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const idem = await idemFor('add-replay-fixed', input);
+
+    const first = await stub.tryAddRoomType(input, idem);
+    expect(first.ok).toBe(true);
+    const second = await stub.tryAddRoomType(input, idem);
+    expect(second).toEqual(first);
+
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'inventory.room_type_changed',
+      'availability.changed',
+    ]);
+  });
+
+  it('4. update lowering room_count below sold returns oversell with offending dates', async () => {
+    const name = `inv-oversell-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-oversell', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    // Manually push demand on the first horizon date so lowering room_count oversells it.
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: added.fromDate,
+      physical: 10,
+      sold: 9,
+    });
+
+    const updateInput = { roomTypeId: 'rt_king', roomCount: 5 };
+    const updated = await stub.tryUpdateRoomType(updateInput, await idemFor('update-oversell', updateInput));
+    expect(updated).toEqual({ ok: false, error: OVERSELL, dates: [added.fromDate] });
+
+    // Ledger row must be unchanged (still physical = 10).
+    const row = await stub.readAvailabilityDay('rt_king', added.fromDate);
+    expect(row?.physical).toBe(10);
+  });
+
+  it('5. update ok changes existing future rows only; never inserts dates; past rows untouched', async () => {
+    const name = `inv-update-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-update-ok', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    // Seed a past date row manually — updateRoomType must never touch it.
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: '2000-01-01',
+      physical: 10,
+    });
+
+    const beforeCount = await stub.countAvailabilityDays('rt_king');
+
+    const updateInput = { roomTypeId: 'rt_king', roomCount: 7 };
+    const updated = await stub.tryUpdateRoomType(updateInput, await idemFor('update-ok', updateInput));
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.fromDate).toBe(added.fromDate);
+    expect(updated.toDate).toBe(added.toDate);
+
+    // No new dates inserted.
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(beforeCount);
+
+    const futureRow = await stub.readAvailabilityDay('rt_king', added.fromDate);
+    expect(futureRow?.physical).toBe(7);
+
+    const pastRow = await stub.readAvailabilityDay('rt_king', '2000-01-01');
+    expect(pastRow?.physical).toBe(10);
+
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'inventory.room_type_changed',
+      'availability.changed',
+      'inventory.room_type_changed',
+      'availability.changed',
+    ]);
+  });
+
+  it('6. archive with future committed demand returns archive_blocked', async () => {
+    const name = `inv-archive-blocked-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-blocked', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: added.fromDate,
+      physical: 10,
+      sold: 1,
+    });
+
+    const deleteInput = { roomTypeId: 'rt_king' };
+    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-blocked', deleteInput));
+    expect(result).toEqual({ ok: false, error: ARCHIVE_BLOCKED });
+    expect(await stub.getRoomTypeStatus('rt_king')).toBe('active');
+  });
+
+  it('7. archive clean sets status archived, zeroes future physical, leaves past untouched, both events', async () => {
+    const name = `inv-archive-clean-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-clean', addInput));
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: '2000-01-01',
+      physical: 10,
+    });
+
+    const deleteInput = { roomTypeId: 'rt_king' };
+    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-clean', deleteInput));
+    expect(result.ok).toBe(true);
+
+    expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
+
+    const futureRow = await stub.readAvailabilityDay('rt_king', added.fromDate);
+    expect(futureRow?.physical).toBe(0);
+
+    const pastRow = await stub.readAvailabilityDay('rt_king', '2000-01-01');
+    expect(pastRow?.physical).toBe(10);
+
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'inventory.room_type_changed',
+      'availability.changed',
+      'inventory.room_type_changed',
+      'availability.changed',
+    ]);
+  });
+
+  it('8. archived code can be reused on a new active room type (partial unique index)', async () => {
+    const name = `inv-code-reuse-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const addInput = {
+      roomTypeId: 'rt_king_1',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const added = await stub.tryAddRoomType(addInput, await idemFor('add-reuse-1', addInput));
+    expect(added.ok).toBe(true);
+
+    const deleteInput = { roomTypeId: 'rt_king_1' };
+    const archived = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-reuse', deleteInput));
+    expect(archived.ok).toBe(true);
+
+    const secondInput = {
+      roomTypeId: 'rt_king_2',
+      code: 'KING',
+      name: 'King Deluxe',
+      roomCount: 6,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const second = await stub.tryAddRoomType(secondInput, await idemFor('add-reuse-2', secondInput));
+    expect(second.ok).toBe(true);
+    expect(await stub.getRoomTypeStatus('rt_king_2')).toBe('active');
+  });
+});

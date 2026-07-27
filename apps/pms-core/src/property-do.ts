@@ -1,5 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
-import { domainConfigKeys, getConfigEntry, IDEM_KEY_REUSED, type IdempotencyKey } from '@hospai/contracts';
+import {
+  ARCHIVE_BLOCKED,
+  domainConfigKeys,
+  getConfigEntry,
+  IDEM_KEY_REUSED,
+  OVERSELL,
+  TIMEZONE_UNSET,
+  type IdempotencyKey,
+} from '@hospai/contracts';
 import {
   PROPERTY_MIGRATIONS,
   appendOutbox,
@@ -11,6 +19,7 @@ import {
   IdempotencyKeyReused,
   type OutboxRow,
 } from '@hospai/do-runtime';
+import { archiveBlocked, enumerateHorizonDates, oversellDates, type InventoryRow } from '@hospai/pms-inventory';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
@@ -65,6 +74,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async getPropertyId(): Promise<string | null> {
+    return this.getPropertyIdSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private getPropertyIdSync(): string | null {
     const rows = this.ctx.storage.sql
       .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.property_id')
       .toArray() as Array<{ value_json: string }>;
@@ -74,6 +88,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /** Read the stored `pms.time.time_zone` DOMAIN row directly — never falls back to the register default. */
   async readStoredTimeZone(): Promise<string | null> {
+    return this.readStoredTimeZoneSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private readStoredTimeZoneSync(): string | null {
     const rows = this.ctx.storage.sql
       .exec(`SELECT value_json FROM property_config WHERE key = ?`, 'pms.time.time_zone')
       .toArray() as Array<{ value_json: string }>;
@@ -101,6 +120,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /** Raw-SQL monotonic counter for `__meta.ari_version`. Never routed through `tryPutDomainConfig` (undeclared key). */
   async readAriVersion(): Promise<number> {
+    return this.readAriVersionSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private readAriVersionSync(): number {
     const rows = this.ctx.storage.sql
       .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.ari_version')
       .toArray() as Array<{ value_json: string }>;
@@ -109,7 +133,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async bumpAriVersion(): Promise<number> {
-    const next = (await this.readAriVersion()) + 1;
+    return this.bumpAriVersionSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private bumpAriVersionSync(): number {
+    const next = this.readAriVersionSync() + 1;
     this.ctx.storage.sql.exec(
       `INSERT INTO property_config (key, value_json, version, updated_at)
        VALUES ('__meta.ari_version', ?, 1, ?)
@@ -304,6 +333,330 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const row = rows[0];
     if (!row) return null;
     return { ...row, free: freeAvailability(row) };
+  }
+
+  /**
+   * Insert an active `room_type` row and seed the horizon (365 days from "today" in
+   * the property's stored timezone) with `availability_day` rows at `physical = roomCount`.
+   * Fingerprint allowlist: `{ roomTypeId, code, name, roomCount, maxOccupancy, maxAdults }`.
+   */
+  async tryAddRoomType(
+    input: {
+      roomTypeId: string;
+      code: string;
+      name: string;
+      roomCount: number;
+      maxOccupancy: number;
+      maxAdults: number;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomTypeId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: string }
+  > {
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const timeZone = this.readStoredTimeZoneSync();
+          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO room_type (room_type_id, code, name, room_count, max_occupancy, max_adults, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+            input.roomTypeId,
+            input.code,
+            input.name,
+            input.roomCount,
+            input.maxOccupancy,
+            input.maxAdults,
+            now,
+            now,
+          );
+
+          const dates = enumerateHorizonDates(timeZone);
+          for (const stayDate of dates) {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
+               VALUES (?, ?, ?, 0, 0, 0, 0, 1)`,
+              input.roomTypeId,
+              stayDate,
+              input.roomCount,
+            );
+          }
+
+          const ariVersion = this.bumpAriVersionSync();
+          const propertyId = this.getPropertyIdSync();
+          const fromDate = dates[0]!;
+          const toDate = dates[dates.length - 1]!;
+
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'inventory.room_type_changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, op: 'add', at: now },
+          });
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+          });
+
+          return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update an active `room_type`'s columns. Never inserts `availability_day` rows —
+   * only updates existing rows from "today" forward when `roomCount` changes.
+   * Fingerprint allowlist: `{ roomTypeId, code?, name?, roomCount?, maxOccupancy?, maxAdults? }`.
+   */
+  async tryUpdateRoomType(
+    input: {
+      roomTypeId: string;
+      code?: string;
+      name?: string;
+      roomCount?: number;
+      maxOccupancy?: number;
+      maxAdults?: number;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomTypeId: string; ariVersion: number; fromDate?: string; toDate?: string }
+    | { ok: false; error: typeof OVERSELL; dates: string[] }
+    | { ok: false; error: string }
+  > {
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const timeZone = this.readStoredTimeZoneSync();
+          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
+
+          const existingRows = this.ctx.storage.sql
+            .exec(
+              `SELECT code, name, room_count, max_occupancy, max_adults, status FROM room_type WHERE room_type_id = ?`,
+              input.roomTypeId,
+            )
+            .toArray() as Array<{
+            code: string;
+            name: string;
+            room_count: number;
+            max_occupancy: number;
+            max_adults: number;
+            status: string;
+          }>;
+          const existing = existingRows[0];
+          if (!existing || existing.status !== 'active') {
+            return { ok: false as const, error: 'not_found' };
+          }
+
+          const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+          const nextRoomCount = input.roomCount ?? existing.room_count;
+          const roomCountChanged = input.roomCount !== undefined && input.roomCount !== existing.room_count;
+
+          let fromDate: string | undefined;
+          let toDate: string | undefined;
+
+          if (roomCountChanged) {
+            const futureRows = this.ctx.storage.sql
+              .exec(
+                `SELECT stay_date, physical, blocked, held, sold, oversell FROM availability_day
+                 WHERE room_type_id = ? AND stay_date >= ? ORDER BY stay_date`,
+                input.roomTypeId,
+                today,
+              )
+              .toArray() as Array<{
+              stay_date: string;
+              physical: number;
+              blocked: number;
+              held: number;
+              sold: number;
+              oversell: number;
+            }>;
+
+            const inventoryRows: InventoryRow[] = futureRows.map((row) => ({
+              stayDate: row.stay_date,
+              physical: row.physical,
+              blocked: row.blocked,
+              held: row.held,
+              sold: row.sold,
+              oversell: row.oversell,
+            }));
+            const overDates = oversellDates(inventoryRows, nextRoomCount);
+            if (overDates.length > 0) {
+              return { ok: false as const, error: OVERSELL, dates: overDates };
+            }
+
+            for (const row of futureRows) {
+              this.ctx.storage.sql.exec(
+                `UPDATE availability_day SET physical = ?, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+                nextRoomCount,
+                input.roomTypeId,
+                row.stay_date,
+              );
+            }
+            if (futureRows.length > 0) {
+              fromDate = futureRows[0]!.stay_date;
+              toDate = futureRows[futureRows.length - 1]!.stay_date;
+            }
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE room_type SET code = ?, name = ?, room_count = ?, max_occupancy = ?, max_adults = ?, updated_at = ? WHERE room_type_id = ?`,
+            input.code ?? existing.code,
+            input.name ?? existing.name,
+            nextRoomCount,
+            input.maxOccupancy ?? existing.max_occupancy,
+            input.maxAdults ?? existing.max_adults,
+            now,
+            input.roomTypeId,
+          );
+
+          const propertyId = this.getPropertyIdSync();
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'inventory.room_type_changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, op: 'update', at: now },
+          });
+
+          // Only writes touched availability_day rows bump the property ARI counter.
+          const ariVersion = roomCountChanged ? this.bumpAriVersionSync() : this.readAriVersionSync();
+          if (fromDate && toDate) {
+            appendOutbox(this.ctx.storage.sql, {
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+            });
+          }
+
+          return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Archive an active `room_type`: guard on committed future demand, then set
+   * `status = 'archived'` and zero `physical` on all rows from "today" forward.
+   * Fingerprint allowlist: `{ roomTypeId }`.
+   */
+  async tryDeleteRoomType(
+    input: { roomTypeId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomTypeId: string; ariVersion: number }
+    | { ok: false; error: typeof ARCHIVE_BLOCKED }
+    | { ok: false; error: string }
+  > {
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const timeZone = this.readStoredTimeZoneSync();
+          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
+
+          const existingRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
+            .toArray() as Array<{ status: string }>;
+          if (!existingRows[0] || existingRows[0].status !== 'active') {
+            return { ok: false as const, error: 'not_found' };
+          }
+
+          const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+          const futureRows = this.ctx.storage.sql
+            .exec(
+              `SELECT stay_date, physical, blocked, held, sold, oversell FROM availability_day
+               WHERE room_type_id = ? AND stay_date >= ? ORDER BY stay_date`,
+              input.roomTypeId,
+              today,
+            )
+            .toArray() as Array<{
+            stay_date: string;
+            physical: number;
+            blocked: number;
+            held: number;
+            sold: number;
+            oversell: number;
+          }>;
+
+          const inventoryRows: InventoryRow[] = futureRows.map((row) => ({
+            stayDate: row.stay_date,
+            physical: row.physical,
+            blocked: row.blocked,
+            held: row.held,
+            sold: row.sold,
+            oversell: row.oversell,
+          }));
+          if (archiveBlocked(inventoryRows)) {
+            return { ok: false as const, error: ARCHIVE_BLOCKED };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE room_type SET status = 'archived', updated_at = ? WHERE room_type_id = ?`,
+            now,
+            input.roomTypeId,
+          );
+          this.ctx.storage.sql.exec(
+            `UPDATE availability_day SET physical = 0, version = version + 1 WHERE room_type_id = ? AND stay_date >= ?`,
+            input.roomTypeId,
+            today,
+          );
+
+          const ariVersion = this.bumpAriVersionSync();
+          const propertyId = this.getPropertyIdSync();
+          const fromDate = futureRows[0]?.stay_date;
+          const toDate = futureRows[futureRows.length - 1]?.stay_date;
+
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'inventory.room_type_changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, op: 'archive', at: now },
+          });
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+          });
+
+          return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Test helper: count `availability_day` rows for a room type. */
+  async countAvailabilityDays(roomTypeId: string): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM availability_day WHERE room_type_id = ?`, roomTypeId)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  /** Test helper: read `room_type` status, or null if it does not exist. */
+  async getRoomTypeStatus(roomTypeId: string): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, roomTypeId)
+      .toArray() as Array<{ status: string }>;
+    return rows[0]?.status ?? null;
+  }
+
+  /** Test helper: list outbox `event_type`s in append order (unacked only). */
+  async listOutboxEventTypes(): Promise<string[]> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT event_type FROM outbox WHERE acked = 0 ORDER BY seq`)
+      .toArray() as Array<{ event_type: string }>;
+    return rows.map((r) => r.event_type);
   }
 
   async upsertRestrictionDay(input: {

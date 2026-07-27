@@ -4,7 +4,7 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze gate is done. Current foundation work: **tenancy spine** (Platform D1 registry + OrgDO + PropertyDO provisioning). Idempotency × outbox wiring is done: `PropertyDO.tryPutDomainConfig` runs through `runIdempotent` with caller-supplied fingerprints, and `flushOutbox`/`drainOutboxBatch`/`ackOutboxThrough` expose outbox delivery for consumers.
+Schema-freeze gate is done. Current foundation work: **tenancy spine** (Platform D1 registry + OrgDO + PropertyDO provisioning) plus a first vertical slice through **`pms.inventory`**: `@hospai/pms-inventory` (horizon + oversell/archive guards) and `PropertyDO.tryAddRoomType` / `tryUpdateRoomType` / `tryDeleteRoomType` (archive), all wired through `runIdempotent` + `transactionSync` with `inventory.room_type_changed` / `availability.changed` outbox events. Idempotency × outbox wiring is done: `PropertyDO.tryPutDomainConfig` runs through `runIdempotent` with caller-supplied fingerprints, and `flushOutbox`/`drainOutboxBatch`/`ackOutboxThrough` expose outbox delivery for consumers.
 
 ```bash
 pnpm install

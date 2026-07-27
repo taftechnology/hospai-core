@@ -1,5 +1,8 @@
 import type { SqlStorageLike } from './index.js';
 
+/** Queues caps are UTF-8 bytes — never use JS string `.length` (UTF-16 undercount for CJK). */
+const utf8 = new TextEncoder();
+
 export type OutboxRow = {
   seq: number;
   eventId: string;
@@ -43,7 +46,8 @@ export function drainOutbox(
   const batch: OutboxRow[] = [];
   let bytes = 0;
   for (const row of candidates) {
-    const size = row.payload.length;
+    const size = utf8.encode(row.payload).length;
+    // Always emit at least one row so an oversized payload cannot permanently stall the queue.
     if (batch.length > 0 && bytes + size > maxBytes) break;
     batch.push({
       seq: Number(row.seq),

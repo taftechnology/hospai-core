@@ -12,8 +12,8 @@ Prove that the idempotency record, domain mutation, and outbox row are **one ato
 
 **In**
 
-- Pure SQL helpers in `@hospai/do-runtime`: `appendOutbox`, `runIdempotent`, `drainOutbox`, `ackOutboxThrough`
-- Wire types / codes in `@hospai/contracts`: `IdempotencyKey`, `fingerprintPayload` (client/edge only), `IDEM_KEY_REUSED` code
+- Wire types / codes in `@hospai/contracts`: `IdempotencyKey`, `fingerprintPayload` (edge-computed), `IDEM_KEY_REUSED` code
+- Pure SQL helpers in `@hospai/do-runtime`: `appendOutbox`, `runIdempotent`, `drainOutbox` (UTF-8 byte cap), `ackOutboxThrough`
 - Retrofit `PropertyDO.tryPutDomainConfig` to require an idempotency key and go through `runIdempotent`
 - `PropertyDO.flushOutbox(deliver?)` — drain → optional deliver → prefix ack
 - Tests proving §10.1 + mid-flight drain-without-ack
@@ -29,7 +29,7 @@ Prove that the idempotency record, domain mutation, and outbox row are **one ato
 ## Invariants
 
 1. **Atomic write.** On a cache miss, mutation + outbox append + idempotency insert must share one Durable Object I/O gate — **no `await` inside `runIdempotent` or its `execute` callback**.
-2. **No hashing in the DO.** `fingerprintPayload` (SHA-256 via `crypto.subtle`) runs client- or edge-side only. The DO stores and compares hex strings. Never call `crypto.subtle` from a PropertyDO command path.
+2. **No hashing in the DO.** `fingerprintPayload` (SHA-256 via `crypto.subtle`) runs on the **edge** from the validated request body — never from a client-supplied fingerprint header, and never inside a PropertyDO command path. The DO stores and compares hex strings only.
 3. **Replay is inert.** Same key + same fingerprint → return stored response; no mutation; no outbox append.
 4. **Fingerprint conflict fails closed.** Same key + different fingerprint → error; no mutation.
 5. **Outbox → consumers is at-least-once.** Drain and ack are separate I/O gates when `deliver` awaits. Consumers will dedupe on `event_id` (Queues slice). Prefix ack (`seq <= ?`) is exact because drain returns an ordered prefix.
@@ -44,11 +44,11 @@ export type IdempotencyKey = { key: string; fingerprint: string };
 /** Wire / HTTP mapping code — not an Error class for stub catching. */
 export const IDEM_KEY_REUSED = 'idempotency_key_reused' as const;
 
-/** Client/edge only. Sorted-key canonical JSON → SHA-256 hex. Never call from a DO command path. */
+/** Edge only. Sorted-key canonical JSON → SHA-256 hex. Never call from a DO command path. */
 export function fingerprintPayload(input: unknown): Promise<string>;
 ```
 
-Callers must `await fingerprintPayload(...)` **before** entering the DO method.
+The edge must `await fingerprintPayload(...)` from the **validated request body** before entering the DO method. Only the idempotency *key* may originate from the client.
 
 ### `@hospai/do-runtime`
 
@@ -67,6 +67,8 @@ export function drainOutbox(sql, opts?: { maxMessages?: number; maxBytes?: numbe
 export function ackOutboxThrough(sql, seq: number): void;
 ```
 
+- `drainOutbox` measures payload size with UTF-8 (`TextEncoder`), matching the Queues 1 MB byte cap — not JS string `.length`.
+- Always emits at least one row so an oversized payload cannot permanently stall the queue.
 - `runIdempotent` validates **both** `key` and `fingerprint` are non-empty before SELECT.
 - On hit + matching fingerprint: `JSON.parse(response)` and return (typed via caller).
 - On hit + mismatch: throw `IdempotencyKeyReused` (caught **inside** the same isolate, e.g. by `tryPutDomainConfig`).
@@ -78,7 +80,7 @@ export function ackOutboxThrough(sql, seq: number): void;
 
 **`tryPutDomainConfig(key, value, meta, idem)`** — `idem` required.
 
-Fingerprint allowlist (client builds `fingerprintPayload` of exactly this shape):
+Fingerprint allowlist (edge builds `fingerprintPayload` of exactly this shape):
 
 ```ts
 { key, value, actor: meta.actor, reason: meta.reason }
@@ -86,7 +88,7 @@ Fingerprint allowlist (client builds `fingerprintPayload` of exactly this shape)
 
 `effectiveFrom` is **excluded** from the fingerprint (optional / may be omitted on retry). Document this in the method JSDoc.
 
-**Trust boundary.** The edge must compute `fingerprintPayload` server-side from the validated request body — only the idempotency *key* may originate from the client.
+**Trust boundary.** The edge must compute `fingerprintPayload` server-side from the validated request body — only the idempotency *key* may originate from the client. A client-supplied fingerprint would allow replaying a stored response against a different body.
 
 Inside `execute` (sync): config upsert + audit + `appendOutbox(config.changed)` + return `{ ok: true, key, version, events }`.
 

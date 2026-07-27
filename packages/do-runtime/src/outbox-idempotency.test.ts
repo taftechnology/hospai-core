@@ -107,6 +107,21 @@ describe('outbox helpers', () => {
     expect(drainOutbox(sql, { maxMessages: 1 })).toHaveLength(1);
   });
 
+  it('drain maxBytes uses UTF-8 size (CJK undercounts with string.length)', () => {
+    const sql = new OutboxMemorySql();
+    // Each payload is JSON `"ゲスト名"` — multi-byte UTF-8; `.length` undercounts vs bytes.
+    const cjk = { name: 'ゲスト名' };
+    appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: cjk });
+    appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: cjk });
+    const payloadUtf8 = new TextEncoder().encode(JSON.stringify(cjk)).length;
+    expect(payloadUtf8).toBeGreaterThan(JSON.stringify(cjk).length);
+
+    // Cap just under two UTF-8 payloads → only first row.
+    const batch = drainOutbox(sql, { maxBytes: payloadUtf8 * 2 - 1 });
+    expect(batch).toHaveLength(1);
+    expect(batch[0]!.eventId).toBe('e1');
+  });
+
   it('partial ack leaves the remaining suffix unacked', () => {
     const sql = new OutboxMemorySql();
     appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: {} });

@@ -35,6 +35,9 @@ importers:
       '@hospai/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@hospai/pms-inventory':
+        specifier: workspace:*
+        version: link:../../modules/pms/inventory
       '@hospai/tenant-router':
         specifier: workspace:*
         version: link:../../packages/tenant-router
@@ -54,6 +57,19 @@ importers:
       wrangler:
         specifier: ^4.26.0
         version: 4.114.0(@cloudflare/workers-types@4.20260702.1)
+
+  modules/pms/inventory:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
 
   packages/contracts:
     dependencies:

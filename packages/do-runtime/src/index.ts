@@ -72,3 +72,8 @@ export {
   ORG_SPINE_SQL,
   ORG_SPINE_STATEMENTS,
 } from './org-migrations.js';
+
+export {
+  PLATFORM_REGISTRY_STATEMENTS,
+  PLATFORM_REGISTRY_SQL,
+} from './platform-migrations.js';

@@ -16,7 +16,7 @@ Make every PropertyDO reachable only through a Platform D1 tenant registry row (
 
 ## Invariants (§4.5)
 
-1. Jurisdiction is stored on the registry row at provisioning and is **immutable**.
+1. Jurisdiction is stored on the registry row at provisioning and is **immutable** (D1 trigger `property_jurisdiction_immutable` + provision-path 409).
 2. Every PropertyDO resolution loads jurisdiction from D1 — callers never supply it.
 3. First open of a PropertyDO records expected jurisdiction via `setRecordedJurisdiction`.
 4. Changing jurisdiction after insert returns **409** and leaves the row unchanged.
@@ -45,11 +45,14 @@ Make every PropertyDO reachable only through a Platform D1 tenant registry row (
 
 ## Dev auth
 
-Mutating HTTP routes require `X-Dev-Actor: user_…`. Temporary until the Clerk identity milestone.
+Mutating and read `/v1/*` routes require `X-Dev-Actor` **only when** both `HOSPAI_UNSAFE_LOCAL=1` and `HOSPAI_ALLOW_DEV_ACTOR=1` are set (via `.dev.vars`, never top-level wrangler `vars`). Absent those flags, the Worker returns 401. Misconfigured `simulate` / `ALLOW_DEV_ACTOR` without `UNSAFE_LOCAL` returns 500 on every request.
 
 ## Success tests
 
 - EU provision → resolve uses jurisdictional path; recorded jurisdiction set
 - Conflicting re-provision → 409; row unchanged
+- Direct `UPDATE property SET jurisdiction` aborted by trigger
 - Null-jurisdiction property works on default namespace
 - OrgDO lists `property_ref` after provision
+- Worker returns 500 if `simulate` set without `HOSPAI_UNSAFE_LOCAL`
+- All `/v1/*` routes require gated `X-Dev-Actor`

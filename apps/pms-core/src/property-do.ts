@@ -3,7 +3,7 @@ import { domainConfigKeys, getConfigEntry } from '@hospai/contracts';
 import { PROPERTY_MIGRATIONS, freeAvailability, migrateSql } from '@hospai/do-runtime';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
-import type { PmsEnv } from './env.js';
+import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   constructor(ctx: DurableObjectState, env: PmsEnv) {
@@ -17,8 +17,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (rows[0]) {
         const expected = JSON.parse(rows[0].value_json) as Jurisdiction | null;
         const actual = (ctx.id as { jurisdiction?: string | null }).jurisdiction ?? null;
-        // Local workerd has no DO jurisdiction on ids — skip mismatch when simulating.
-        if (!(env.HOSPAI_JURISDICTION_MODE === 'simulate' && expected !== null && actual === null)) {
+        // Local workerd has no DO jurisdiction on ids — skip only under explicit unsafe+simulate.
+        if (!(isJurisdictionSimulate(env) && expected !== null && actual === null)) {
           assertJurisdictionMatch(actual, expected);
         }
       }

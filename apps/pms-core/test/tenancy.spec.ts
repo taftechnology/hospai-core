@@ -1,13 +1,22 @@
 import { env } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { resolvePropertyFromRegistry, provisionProperty } from '../src/provision';
-import { resetPlatformSchemaGate } from '../src/registry';
+import {
+  ensurePlatformSchema,
+  resetPlatformSchemaGate,
+  tryUpdatePropertyJurisdiction,
+} from '../src/registry';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
+import type { PmsEnv } from '../src/env';
 
 describe('tenancy spine', () => {
-  it('provisions EU property, records jurisdiction, mirrors in OrgDO', async () => {
+  beforeEach(async () => {
     resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+  });
+
+  it('provisions EU property, records jurisdiction, mirrors in OrgDO', async () => {
     const propertyId = `prop_eu_${crypto.randomUUID()}`;
     const orgId = `org_${crypto.randomUUID()}`;
     const result = await provisionProperty(env, {
@@ -36,7 +45,6 @@ describe('tenancy spine', () => {
   });
 
   it('rejects jurisdiction conflict with 409 semantics', async () => {
-    resetPlatformSchemaGate();
     const propertyId = `prop_conflict_${crypto.randomUUID()}`;
     const orgId = `org_${crypto.randomUUID()}`;
     const first = await provisionProperty(env, {
@@ -66,8 +74,28 @@ describe('tenancy spine', () => {
     expect(resolved!.property.jurisdiction).toBe('eu');
   });
 
+  it('storage trigger aborts jurisdiction UPDATE', async () => {
+    const propertyId = `prop_trig_${crypto.randomUUID()}`;
+    const orgId = `org_${crypto.randomUUID()}`;
+    const first = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      actorUserId: 'user_a',
+    });
+    expect(first.ok).toBe(true);
+
+    const upd = await tryUpdatePropertyJurisdiction(env, propertyId, 'us');
+    expect(upd.ok).toBe(false);
+    expect(upd.ok === false && /immutable/i.test(upd.error)).toBe(true);
+
+    const row = await resolvePropertyFromRegistry(env, propertyId);
+    expect(row!.property.jurisdiction).toBe('eu');
+  });
+
   it('provisions null-jurisdiction property on default namespace', async () => {
-    resetPlatformSchemaGate();
     const propertyId = `prop_null_${crypto.randomUUID()}`;
     const orgId = `org_${crypto.randomUUID()}`;
     const result = await provisionProperty(env, {
@@ -87,8 +115,21 @@ describe('tenancy spine', () => {
     expect(await resolved!.stub.getRecordedJurisdiction()).toBeNull();
   });
 
-  it('HTTP provision requires X-Dev-Actor and resolves via GET', async () => {
-    resetPlatformSchemaGate();
+  it('HTTP refuses simulate without HOSPAI_UNSAFE_LOCAL', async () => {
+    const { default: worker } = await import('../src/index');
+    const badEnv = {
+      ...env,
+      HOSPAI_JURISDICTION_MODE: 'simulate',
+      HOSPAI_UNSAFE_LOCAL: undefined,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+    } as PmsEnv;
+    const res = await worker.fetch(new Request('http://localhost/'), badEnv);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('misconfigured');
+  });
+
+  it('HTTP provision requires gated X-Dev-Actor on all /v1 routes', async () => {
     const propertyId = `prop_http_${crypto.randomUUID()}`;
     const orgId = `org_${crypto.randomUUID()}`;
     const { default: worker } = await import('../src/index');
@@ -126,8 +167,16 @@ describe('tenancy spine', () => {
     );
     expect(created.status).toBe(201);
 
-    const got = await worker.fetch(
+    const gotDenied = await worker.fetch(
       new Request('http://localhost/v1/properties/' + propertyId),
+      env,
+    );
+    expect(gotDenied.status).toBe(401);
+
+    const got = await worker.fetch(
+      new Request('http://localhost/v1/properties/' + propertyId, {
+        headers: { 'x-dev-actor': 'user_http' },
+      }),
       env,
     );
     expect(got.status).toBe(200);

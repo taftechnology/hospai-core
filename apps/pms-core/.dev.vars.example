@@ -1,0 +1,9 @@
+# Local-only secrets/flags for wrangler dev (gitignored as .dev.vars).
+# Copy to apps/pms-core/.dev.vars — never put these in wrangler.jsonc top-level vars.
+#
+# HOSPAI_UNSAFE_LOCAL=1 is required before any of the dangerous flags take effect.
+# The Worker refuses to serve if simulate / ALLOW_DEV_ACTOR is set without this marker.
+
+HOSPAI_UNSAFE_LOCAL=1
+HOSPAI_JURISDICTION_MODE=simulate
+HOSPAI_ALLOW_DEV_ACTOR=1

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import { FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -67,6 +67,24 @@ describe('freeze DDL single source', () => {
       .join('\n')
       .trim();
     expect(body).toBe(ORG_SPINE_SQL.trim());
+  });
+
+  it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PLATFORM_REGISTRY_SQL.trim());
+  });
+
+  it('platform registry statements include jurisdiction immutability trigger', () => {
+    expect(PLATFORM_REGISTRY_STATEMENTS.some((s) => s.includes('property_jurisdiction_immutable'))).toBe(
+      true,
+    );
   });
 
   it('applies org spine migrations', () => {

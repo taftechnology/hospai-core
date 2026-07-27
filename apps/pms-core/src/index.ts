@@ -1,10 +1,14 @@
 import type { Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
-import type { PmsEnv } from './env.js';
+import { resolveOrgStub } from '@hospai/tenant-router';
+import {
+  assertEnvSafeForRequest,
+  isDevActorAllowed,
+  type PmsEnv,
+} from './env.js';
 import { OrgDO } from './org-do.js';
 import { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import { getProperty } from './registry.js';
-import { resolveOrgStub } from '@hospai/tenant-router';
+import { getProperty, upsertOrg } from './registry.js';
 
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
@@ -13,11 +17,21 @@ export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
 const DEV_ACTOR_HEADER = 'x-dev-actor';
 
-function requireDevActor(request: Request): string | Response {
+function requireDevActor(request: Request, env: PmsEnv): string | Response {
+  if (!isDevActorAllowed(env)) {
+    return Response.json(
+      {
+        error: 'auth_unavailable',
+        message:
+          'Dev actor auth is disabled. Set HOSPAI_UNSAFE_LOCAL=1 and HOSPAI_ALLOW_DEV_ACTOR=1 in .dev.vars for local only.',
+      },
+      { status: 401 },
+    );
+  }
   const actor = request.headers.get(DEV_ACTOR_HEADER);
   if (!actor || !actor.startsWith('user_')) {
     return Response.json(
-      { error: 'missing_actor', message: `Mutating routes require ${DEV_ACTOR_HEADER}: user_…` },
+      { error: 'missing_actor', message: `Routes require ${DEV_ACTOR_HEADER}: user_…` },
       { status: 401 },
     );
   }
@@ -30,6 +44,9 @@ function json(data: unknown, status = 200): Response {
 
 export default {
   async fetch(request: Request, env: PmsEnv): Promise<Response> {
+    const misconfigured = assertEnvSafeForRequest(env);
+    if (misconfigured) return misconfigured;
+
     const url = new URL(request.url);
     const { pathname } = url;
 
@@ -37,82 +54,82 @@ export default {
       return new Response('hospai-pms-core', { status: 200 });
     }
 
-    if (request.method === 'POST' && pathname === '/v1/orgs') {
-      const actor = requireDevActor(request);
+    // All tenancy HTTP surface requires actor while Clerk is unwired.
+    if (pathname.startsWith('/v1/')) {
+      const actor = requireDevActor(request, env);
       if (actor instanceof Response) return actor;
-      const body = (await request.json()) as { orgId: string; name: string };
-      if (!body.orgId || !body.name) return json({ error: 'invalid_body' }, 400);
-      const { upsertOrg } = await import('./registry.js');
-      await upsertOrg(env, body.orgId, body.name);
-      const org = resolveOrgStub(env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
-      await org.ensureMember(actor, 'owner');
-      return json({ orgId: body.orgId, name: body.name }, 201);
-    }
 
-    const propertyCreate = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
-    if (request.method === 'POST' && propertyCreate) {
-      const actor = requireDevActor(request);
-      if (actor instanceof Response) return actor;
-      const orgId = decodeURIComponent(propertyCreate[1]!);
-      const body = (await request.json()) as {
-        propertyId: string;
-        name: string;
-        jurisdiction?: Jurisdiction | null;
-        timeZone: string;
-        orgName?: string;
-      };
-      if (!body.propertyId || !body.name || !body.timeZone) {
-        return json({ error: 'invalid_body' }, 400);
+      if (request.method === 'POST' && pathname === '/v1/orgs') {
+        const body = (await request.json()) as { orgId: string; name: string };
+        if (!body.orgId || !body.name) return json({ error: 'invalid_body' }, 400);
+        await upsertOrg(env, body.orgId, body.name);
+        const org = resolveOrgStub(env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
+        await org.ensureMember(actor, 'owner');
+        return json({ orgId: body.orgId, name: body.name }, 201);
       }
-      const input: ProvisionPropertyInput = {
-        orgId,
-        orgName: body.orgName,
-        propertyId: body.propertyId,
-        name: body.name,
-        jurisdiction: body.jurisdiction === undefined ? null : body.jurisdiction,
-        timeZone: body.timeZone,
-        actorUserId: actor,
-      };
-      const result = await provisionProperty(env, input);
-      if (!result.ok) {
-        if (result.error === 'jurisdiction_conflict') {
-          return json({ error: result.error, existing: result.existing }, 409);
+
+      const propertyCreate = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
+      if (request.method === 'POST' && propertyCreate) {
+        const orgId = decodeURIComponent(propertyCreate[1]!);
+        const body = (await request.json()) as {
+          propertyId: string;
+          name: string;
+          jurisdiction?: Jurisdiction | null;
+          timeZone: string;
+          orgName?: string;
+        };
+        if (!body.propertyId || !body.name || !body.timeZone) {
+          return json({ error: 'invalid_body' }, 400);
         }
-        if (result.error === 'invalid_timezone') {
+        const input: ProvisionPropertyInput = {
+          orgId,
+          orgName: body.orgName,
+          propertyId: body.propertyId,
+          name: body.name,
+          jurisdiction: body.jurisdiction === undefined ? null : body.jurisdiction,
+          timeZone: body.timeZone,
+          actorUserId: actor,
+        };
+        const result = await provisionProperty(env, input);
+        if (!result.ok) {
+          if (result.error === 'jurisdiction_conflict') {
+            return json({ error: result.error, existing: result.existing }, 409);
+          }
+          if (result.error === 'invalid_timezone') {
+            return json({ error: result.error }, 400);
+          }
           return json({ error: result.error }, 400);
         }
-        return json({ error: result.error }, 400);
+        return json(result, 201);
       }
-      return json(result, 201);
-    }
 
-    const propertyGet = pathname.match(/^\/v1\/properties\/([^/]+)$/);
-    if (request.method === 'GET' && propertyGet) {
-      const propertyId = decodeURIComponent(propertyGet[1]!);
-      const resolved = await resolvePropertyFromRegistry(env, propertyId);
-      if (!resolved) return json({ error: 'not_found' }, 404);
-      const recorded = await resolved.stub.getRecordedJurisdiction();
-      return json({
-        property: resolved.property,
-        locationHint: resolved.locationHint,
-        recordedJurisdiction: recorded ?? null,
-        schemaVersion: await resolved.stub.getSchemaVersion(),
-      });
-    }
+      const propertyGet = pathname.match(/^\/v1\/properties\/([^/]+)$/);
+      if (request.method === 'GET' && propertyGet) {
+        const propertyId = decodeURIComponent(propertyGet[1]!);
+        const resolved = await resolvePropertyFromRegistry(env, propertyId);
+        if (!resolved) return json({ error: 'not_found' }, 404);
+        const recorded = await resolved.stub.getRecordedJurisdiction();
+        return json({
+          property: resolved.property,
+          locationHint: resolved.locationHint,
+          recordedJurisdiction: recorded ?? null,
+          schemaVersion: await resolved.stub.getSchemaVersion(),
+        });
+      }
 
-    const orgProperties = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
-    if (request.method === 'GET' && orgProperties) {
-      const orgId = decodeURIComponent(orgProperties[1]!);
-      const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
-      return json({ orgId, properties: await org.listPropertyRefs() });
-    }
+      const orgProperties = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
+      if (request.method === 'GET' && orgProperties) {
+        const orgId = decodeURIComponent(orgProperties[1]!);
+        const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+        return json({ orgId, properties: await org.listPropertyRefs() });
+      }
 
-    // Registry lookup without opening DO
-    if (request.method === 'GET' && pathname.startsWith('/v1/registry/properties/')) {
-      const propertyId = decodeURIComponent(pathname.slice('/v1/registry/properties/'.length));
-      const property = await getProperty(env, propertyId);
-      if (!property) return json({ error: 'not_found' }, 404);
-      return json({ property });
+      if (request.method === 'GET' && pathname.startsWith('/v1/registry/properties/')) {
+        const propertyId = decodeURIComponent(pathname.slice('/v1/registry/properties/'.length));
+        const property = await getProperty(env, propertyId);
+        if (!property) return json({ error: 'not_found' }, 404);
+        return json({ property });
+      }
     }
 
     return json({ error: 'not_found' }, 404);

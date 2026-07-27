@@ -5,7 +5,7 @@ import {
   resolveOrgStub,
   resolvePropertyStub,
 } from '@hospai/tenant-router';
-import type { PmsEnv } from './env.js';
+import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { getProperty, insertProperty, upsertOrg } from './registry.js';
@@ -29,7 +29,6 @@ export async function provisionProperty(
     if (existing.jurisdiction !== input.jurisdiction) {
       return { ok: false, error: 'jurisdiction_conflict', existing };
     }
-    // Idempotent re-provision with same jurisdiction — refresh OrgDO mirror + DO meta.
     await syncOrgAndPropertyDo(env, existing, locationHint, input.actorUserId);
     return { ok: true, property: existing, locationHint };
   }
@@ -71,7 +70,7 @@ async function syncOrgAndPropertyDo(
       jurisdiction: property.jurisdiction,
       locationHint,
     },
-    { simulateJurisdiction: env.HOSPAI_JURISDICTION_MODE === 'simulate' },
+    { simulateJurisdiction: isJurisdictionSimulate(env) },
   ) as DurableObjectStub<PropertyDO>;
   await prop.setRecordedJurisdiction(property.jurisdiction);
 }
@@ -92,7 +91,7 @@ export async function resolvePropertyFromRegistry(
       jurisdiction: property.jurisdiction,
       locationHint,
     },
-    { simulateJurisdiction: env.HOSPAI_JURISDICTION_MODE === 'simulate' },
+    { simulateJurisdiction: isJurisdictionSimulate(env) },
   ) as DurableObjectStub<PropertyDO>;
   return { stub, property, locationHint };
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate or check DO DDL SQL files against @hospai/do-runtime sources.
+ * Generate or check DDL SQL files against @hospai/do-runtime sources.
  *
  *   node scripts/property-ddl.mjs --write
  *   node scripts/property-ddl.mjs --check
@@ -21,8 +21,9 @@ if (!mode) {
 
 let FREEZE_GATE_SQL;
 let ORG_SPINE_SQL;
+let PLATFORM_REGISTRY_SQL;
 try {
-  ({ FREEZE_GATE_SQL, ORG_SPINE_SQL } = await import(modPath));
+  ({ FREEZE_GATE_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
 } catch (e) {
   console.error(
     'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
@@ -49,6 +50,16 @@ const targets = [
 
 `,
     sql: ORG_SPINE_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),
+    header: `-- Platform D1 tenant registry (§4.5) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Jurisdiction is immutable after insert (trigger enforced).
+
+`,
+    sql: PLATFORM_REGISTRY_SQL,
   },
 ];
 

@@ -6,6 +6,13 @@ export default defineWorkersConfig({
       workers: {
         wrangler: { configPath: './wrangler.jsonc' },
         isolatedStorage: false,
+        miniflare: {
+          bindings: {
+            HOSPAI_UNSAFE_LOCAL: '1',
+            HOSPAI_JURISDICTION_MODE: 'simulate',
+            HOSPAI_ALLOW_DEV_ACTOR: '1',
+          },
+        },
       },
     },
   },

@@ -1,40 +1,24 @@
 import type { PropertyRecord } from '@hospai/contracts';
+import { PLATFORM_REGISTRY_STATEMENTS } from '@hospai/do-runtime';
 import type { Jurisdiction } from '@hospai/tenant-router';
 import type { PmsEnv } from './env.js';
 
-const D1_SCHEMA = `
-CREATE TABLE IF NOT EXISTS org (
-  org_id      TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'active',
-  created_at  INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS property (
-  property_id   TEXT PRIMARY KEY,
-  org_id        TEXT NOT NULL REFERENCES org(org_id),
-  name          TEXT NOT NULL,
-  jurisdiction  TEXT,
-  time_zone     TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'active',
-  created_at    INTEGER NOT NULL,
-  CHECK (jurisdiction IS NULL OR jurisdiction IN ('eu', 'us', 'fedramp'))
-);
-CREATE INDEX IF NOT EXISTS property_org_idx ON property (org_id);
-`;
-
 let schemaReady: Promise<void> | null = null;
 
-/** Apply Platform D1 registry DDL (idempotent). Vitest / local may not auto-migrate. */
+/**
+ * Apply Platform D1 registry DDL via discrete statements (safe for triggers).
+ * Call from write paths / test setup only — not on every read.
+ */
 export async function ensurePlatformSchema(db: D1Database): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
-      // D1 exec may not run multiple statements; split carefully.
-      for (const stmt of D1_SCHEMA.split(';')
-        .map((s) => s.trim())
-        .filter(Boolean)) {
+      for (const stmt of PLATFORM_REGISTRY_STATEMENTS) {
         await db.prepare(stmt).run();
       }
-    })();
+    })().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
   }
   await schemaReady;
 }
@@ -60,7 +44,7 @@ export async function getProperty(
   env: PmsEnv,
   propertyId: string,
 ): Promise<PropertyRecord | null> {
-  await ensurePlatformSchema(env.PLATFORM_DB);
+  // Reads assume migrations already applied (deploy / ensurePlatformSchema on writes).
   const row = await env.PLATFORM_DB.prepare(`SELECT * FROM property WHERE property_id = ?`)
     .bind(propertyId)
     .first();
@@ -115,4 +99,20 @@ export async function insertProperty(
     status,
     createdAt,
   };
+}
+
+/** Test helper: attempt to mutate jurisdiction (must abort when trigger is present). */
+export async function tryUpdatePropertyJurisdiction(
+  env: PmsEnv,
+  propertyId: string,
+  jurisdiction: Jurisdiction | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await env.PLATFORM_DB.prepare(`UPDATE property SET jurisdiction = ? WHERE property_id = ?`)
+      .bind(jurisdiction, propertyId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

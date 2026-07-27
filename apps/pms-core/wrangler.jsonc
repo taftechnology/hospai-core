@@ -32,8 +32,5 @@
       "database_id": "00000000-0000-0000-0000-000000000001",
       "migrations_dir": "../../migrations/d1-platform"
     }
-  ],
-  "vars": {
-    "HOSPAI_JURISDICTION_MODE": "simulate"
-  }
+  ]
 }

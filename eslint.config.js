@@ -18,6 +18,8 @@ export default [
       'hospai/no-domain-config-from-kv': 'error',
       'hospai/no-entitlement-in-domain': 'error',
       'hospai/no-reservation-scan-availability': 'error',
+      'hospai/no-platform-import-in-domain': 'error',
+      'hospai/no-pms-importing-addons': 'error',
     },
   },
 ];

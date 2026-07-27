@@ -139,11 +139,35 @@ describe('config register', () => {
 });
 
 describe('command catalog', () => {
-  it('covers all 35 prototype actions', () => {
-    expect(COMMAND_CATALOG).toHaveLength(35);
+  it('covers all 35 prototype actions (splits may share or null the action)', () => {
     expect(PROTOTYPE_ACTIONS).toHaveLength(35);
-    const actions = COMMAND_CATALOG.map((c) => c.prototypeAction).sort();
-    expect(actions).toEqual([...PROTOTYPE_ACTIONS].sort());
+    const covered = [
+      ...new Set(
+        COMMAND_CATALOG.map((c) => c.prototypeAction).filter((a): a is string => a !== null),
+      ),
+    ].sort();
+    expect(covered).toEqual([...PROTOTYPE_ACTIONS].sort());
+  });
+
+  it('encodes FAIL_CLOSED for payment and inventory status paths — not prose notes', () => {
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge_payment')?.degraded).toBe(
+      'FAIL_CLOSED',
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_in')?.degraded).toBe(
+      'FAIL_CLOSED',
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.cancel')?.degraded).toBe(
+      'FAIL_CLOSED',
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.no_show')?.degraded).toBe(
+      'FAIL_CLOSED',
+    );
+    // Soft class remains only for non-payment / non-inventory siblings
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.add_item')?.degraded).toBe(
+      'QUEUE_PROVISIONAL',
+    );
   });
 
   it('mutating non-shell commands are idempotent', () => {
@@ -157,5 +181,25 @@ describe('command catalog', () => {
   it('documents platform gaps', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).toContain('availability.book');
     expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('DOMAIN keys vs eslint prefixes', () => {
+  it('every DOMAIN key matches an eslint-plugin-hospai DOMAIN_KEY_PREFIX', () => {
+    // Keep in sync with tooling/eslint-plugin-hospai/src/index.ts DOMAIN_KEY_PREFIXES
+    const prefixes = [
+      'pms.availability',
+      'pms.time',
+      'pms.night_audit',
+      'pms.booking',
+      'pms.money',
+      'pms.folio',
+    ];
+    for (const e of domainConfigKeys()) {
+      expect(
+        prefixes.some((p) => e.key === p || e.key.startsWith(`${p}.`)),
+        `${e.key} missing from eslint DOMAIN_KEY_PREFIXES`,
+      ).toBe(true);
+    }
   });
 });

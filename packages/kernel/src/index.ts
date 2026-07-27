@@ -23,14 +23,12 @@ export class UndeclaredConfigError extends Error {
 }
 
 export function defineConfig(entry: ConfigEntry): ConfigEntry {
-  const existing = getConfigEntry(entry.key);
-  if (existing && existing !== entry) {
-    // Allow re-export of register entries; reject conflicting duplicates at register build time.
-  }
   const dupes = CONFIG_REGISTER.filter((e) => e.key === entry.key);
   if (dupes.length > 1) {
     throw new Error(`Duplicate config key in register: ${entry.key}`);
   }
+  // Re-export of the same register entry is fine; conflicting duplicates are caught above.
+  void getConfigEntry(entry.key);
   return entry;
 }
 

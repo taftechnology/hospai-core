@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { domainConfigKeys, getConfigEntry } from '@hospai/contracts';
 import { PROPERTY_MIGRATIONS, freeAvailability, migrateSql } from '@hospai/do-runtime';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
+import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 
 export type Env = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
@@ -13,7 +14,27 @@ export class PropertyDO extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...PROPERTY_MIGRATIONS]);
       ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
+      // Persist expected jurisdiction at provision time via setRecordedJurisdiction.
+      const rows = ctx.storage.sql
+        .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.jurisdiction')
+        .toArray() as Array<{ value_json: string }>;
+      if (rows[0]) {
+        const expected = JSON.parse(rows[0].value_json) as Jurisdiction | null;
+        const actual = (ctx.id as { jurisdiction?: string | null }).jurisdiction ?? null;
+        assertJurisdictionMatch(actual, expected);
+      }
     });
+  }
+
+  /** Record the registry jurisdiction for cold-start self-check (§4.5 rule 4). */
+  async setRecordedJurisdiction(jurisdiction: Jurisdiction | null): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.jurisdiction', ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      JSON.stringify(jurisdiction),
+      Date.now(),
+    );
   }
 
   async getSchemaVersion(): Promise<number> {
@@ -23,8 +44,15 @@ export class PropertyDO extends DurableObject<Env> {
     return Number(rows[0]?.v ?? 0);
   }
 
-  async putDomainConfig(key: string, value: unknown): Promise<{ key: string; version: number }> {
-    const result = await this.tryPutDomainConfig(key, value);
+  async putDomainConfig(
+    key: string,
+    value: unknown,
+    meta: { actor: string; reason: string; effectiveFrom?: string } = {
+      actor: 'system',
+      reason: 'unspecified',
+    },
+  ): Promise<{ key: string; version: number }> {
+    const result = await this.tryPutDomainConfig(key, value, meta);
     if (!result.ok) throw new Error(result.error);
     return { key: result.key, version: result.version };
   }
@@ -32,7 +60,14 @@ export class PropertyDO extends DurableObject<Env> {
   async tryPutDomainConfig(
     key: string,
     value: unknown,
-  ): Promise<{ ok: true; key: string; version: number } | { ok: false; error: string }> {
+    meta: { actor: string; reason: string; effectiveFrom?: string } = {
+      actor: 'system',
+      reason: 'unspecified',
+    },
+  ): Promise<
+    | { ok: true; key: string; version: number; events: string[] }
+    | { ok: false; error: string }
+  > {
     const entry = getConfigEntry(key);
     if (!entry) return { ok: false, error: `undeclared:${key}` };
     if (entry.class !== 'DOMAIN') {
@@ -41,19 +76,55 @@ export class PropertyDO extends DurableObject<Env> {
     try {
       const parsed = validateConfigWrite(key, value);
       const existing = this.ctx.storage.sql
-        .exec(`SELECT version FROM property_config WHERE key = ?`, key)
-        .toArray() as Array<{ version: number }>;
+        .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
+        .toArray() as Array<{ version: number; value_json: string }>;
+      const previous = existing[0]?.value_json ?? null;
       const version = (existing[0]?.version ?? 0) + 1;
       this.ctx.storage.sql.exec(
-        `INSERT INTO property_config (key, value_json, version, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, version = excluded.version, updated_at = excluded.updated_at`,
+        `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value_json = excluded.value_json,
+           version = excluded.version,
+           effective_from = excluded.effective_from,
+           updated_at = excluded.updated_at,
+           updated_by = excluded.updated_by,
+           reason = excluded.reason,
+           previous_json = excluded.previous_json`,
         key,
         JSON.stringify(parsed),
         version,
+        meta.effectiveFrom ?? null,
+        Date.now(),
+        meta.actor,
+        meta.reason,
+        previous,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        key,
+        meta.actor,
+        meta.reason,
+        previous,
+        JSON.stringify(parsed),
         Date.now(),
       );
-      return { ok: true, key, version };
+      // Emit config.changed into outbox so consumers can react (§5.1 rule 4).
+      const eventId = crypto.randomUUID();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO outbox (event_id, event_type, payload, acked, created_at)
+         VALUES (?, 'config.changed', ?, 0, ?)`,
+        eventId,
+        JSON.stringify({
+          key,
+          version,
+          consumers: entry.consumers,
+          actor: meta.actor,
+        }),
+        Date.now(),
+      );
+      return { ok: true, key, version, events: ['config.changed'] };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -77,11 +148,26 @@ export class PropertyDO extends DurableObject<Env> {
     held?: number;
     sold?: number;
     oversell?: number;
-  }): Promise<void> {
+  }): Promise<number> {
+    const existing = this.ctx.storage.sql
+      .exec(
+        `SELECT version FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+        row.roomTypeId,
+        row.stayDate,
+      )
+      .toArray() as Array<{ version: number }>;
+    const version = (existing[0]?.version ?? 0) + 1;
     this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO availability_day
+      `INSERT INTO availability_day
         (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(room_type_id, stay_date) DO UPDATE SET
+         physical = excluded.physical,
+         blocked = excluded.blocked,
+         held = excluded.held,
+         sold = excluded.sold,
+         oversell = excluded.oversell,
+         version = excluded.version`,
       row.roomTypeId,
       row.stayDate,
       row.physical,
@@ -89,7 +175,9 @@ export class PropertyDO extends DurableObject<Env> {
       row.held ?? 0,
       row.sold ?? 0,
       row.oversell ?? 0,
+      version,
     );
+    return version;
   }
 
   async readAvailabilityDay(
@@ -103,11 +191,12 @@ export class PropertyDO extends DurableObject<Env> {
     held: number;
     sold: number;
     oversell: number;
+    version: number;
     free: number;
   } | null> {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT room_type_id, stay_date, physical, blocked, held, sold, oversell
+        `SELECT room_type_id, stay_date, physical, blocked, held, sold, oversell, version
          FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
         roomTypeId,
         stayDate,
@@ -120,10 +209,42 @@ export class PropertyDO extends DurableObject<Env> {
       held: number;
       sold: number;
       oversell: number;
+      version: number;
     }>;
     const row = rows[0];
     if (!row) return null;
     return { ...row, free: freeAvailability(row) };
+  }
+
+  async upsertRestrictionDay(input: {
+    roomTypeId: string;
+    ratePlanId?: string;
+    stayDate: string;
+    minLos?: number | null;
+  }): Promise<void> {
+    const ratePlanId = input.ratePlanId ?? '*';
+    this.ctx.storage.sql.exec(
+      `INSERT INTO restriction_day (room_type_id, rate_plan_id, stay_date, min_los, version)
+       VALUES (?, ?, ?, ?, 1)
+       ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+         min_los = excluded.min_los,
+         version = restriction_day.version + 1`,
+      input.roomTypeId,
+      ratePlanId,
+      input.stayDate,
+      input.minLos ?? null,
+    );
+  }
+
+  async countRestrictionDays(roomTypeId: string, stayDate: string): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS c FROM restriction_day WHERE room_type_id = ? AND stay_date = ? AND rate_plan_id = '*'`,
+        roomTypeId,
+        stayDate,
+      )
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
   }
 
   async createFolioWindow(input: {
@@ -149,6 +270,9 @@ export class PropertyDO extends DurableObject<Env> {
     txnCurrency: string;
     ledgerAmountMinor: number;
     fxRate: string;
+    fxRateAt?: number;
+    source?: string;
+    businessDate?: string;
   }): Promise<void> {
     const result = await this.tryAddFolioLine(input);
     if (!result.ok) throw new Error(result.error);
@@ -163,13 +287,17 @@ export class PropertyDO extends DurableObject<Env> {
     txnCurrency: string;
     ledgerAmountMinor: number;
     fxRate: string;
+    fxRateAt?: number;
+    source?: string;
+    businessDate?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
       this.ctx.storage.sql.exec(
         `INSERT INTO folio_line (
            folio_line_id, folio_window_id, reservation_id, charge_code,
-           amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+           source, business_date, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         input.folioLineId,
         input.folioWindowId,
         input.reservationId,
@@ -178,7 +306,9 @@ export class PropertyDO extends DurableObject<Env> {
         input.txnCurrency,
         input.ledgerAmountMinor,
         input.fxRate,
-        Date.now(),
+        input.fxRateAt ?? Date.now(),
+        input.source ?? null,
+        input.businessDate ?? null,
         Date.now(),
       );
       return { ok: true };
@@ -190,11 +320,17 @@ export class PropertyDO extends DurableObject<Env> {
   async listDomainKeys(): Promise<string[]> {
     return domainConfigKeys().map((e) => e.key);
   }
+
+  async outboxUnackedCount(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
 }
 
 export default {
   async fetch(_request: Request, _env: Env): Promise<Response> {
-    // Tenant resolution belongs in edge + @hospai/tenant-router — not here.
     return new Response('hospai-pms-core', { status: 200 });
   },
 };

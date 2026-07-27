@@ -3,7 +3,11 @@ export type DegradedClass = 'READ_STALE' | 'QUEUE_PROVISIONAL' | 'FAIL_CLOSED' |
 
 export type CommandEntry = {
   id: string;
-  prototypeAction: string;
+  /**
+   * Prototype action this command implements, or null for platform-only splits
+   * of a compound prototype action (the primary split keeps the prototypeAction).
+   */
+  prototypeAction: string | null;
   lane: Lane;
   degraded: DegradedClass;
   idempotent: boolean;
@@ -16,6 +20,11 @@ export type PlatformGap = {
   reason: string;
 };
 
+/**
+ * Each entry has ONE degraded class. Compound prototype actions that mixed
+ * FAIL_CLOSED with softer classes are split so an omission cannot silently
+ * become a queued write (§4.6).
+ */
 export const COMMAND_CATALOG: CommandEntry[] = [
   { id: 'shell.set_role', prototypeAction: 'SET_ROLE', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [] },
   { id: 'shell.set_property', prototypeAction: 'SET_PROPERTY', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [] },
@@ -27,14 +36,47 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.created', 'availability.changed'],
   },
+  // UPDATE_RESERVATION_STATUS split — inventory/legal transitions fail closed
+  {
+    id: 'reservations.check_in',
+    prototypeAction: 'UPDATE_RESERVATION_STATUS',
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.status_changed'],
+  },
+  {
+    id: 'reservations.check_out',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.status_changed'],
+  },
+  {
+    id: 'reservations.cancel',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.status_changed', 'availability.changed'],
+  },
+  {
+    id: 'reservations.no_show',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.status_changed', 'availability.changed'],
+  },
   {
     id: 'reservations.update_status',
-    prototypeAction: 'UPDATE_RESERVATION_STATUS',
+    prototypeAction: null,
     lane: 'INTERACTIVE',
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.status_changed'],
-    notes: 'Inventory-affecting cancels are FAIL_CLOSED in platform split',
+    notes: 'Non-inventory status notes only (e.g. VIP flag). Check-in/out/cancel/no-show are separate.',
   },
   {
     id: 'reservations.cancel_check_in',
@@ -84,6 +126,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['housekeeping.assigned'],
   },
+  // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
     id: 'folio.add_item',
     prototypeAction: 'ADD_FOLIO_ITEM',
@@ -91,8 +134,27 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['folio.line_posted'],
-    notes: 'Payment auth/capture always FAIL_CLOSED',
+    notes: 'Non-payment folio lines only.',
   },
+  {
+    id: 'folio.authorize',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.payment_authorized'],
+    notes: 'Payment authorization — never queue during outage (§4.6).',
+  },
+  {
+    id: 'folio.capture',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.payment_captured'],
+    notes: 'Payment capture — never queue during outage (§4.6).',
+  },
+  // SPLIT_FOLIO_CHARGE split
   {
     id: 'folio.split_charge',
     prototypeAction: 'SPLIT_FOLIO_CHARGE',
@@ -100,7 +162,15 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['folio.line_posted'],
-    notes: 'Platform uses reverse+two posts; see folio.split_charge_v2 gap',
+    notes: 'Non-payment splits. Payment-bearing splits use folio.split_charge_payment.',
+  },
+  {
+    id: 'folio.split_charge_payment',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.line_posted'],
   },
   {
     id: 'night_audit.run',
@@ -334,3 +404,18 @@ export const PROTOTYPE_ACTIONS = [
   'DELETE_STAFF',
   'UPDATE_RESERVATION_EXTRAS',
 ] as const;
+
+export function getCommand(id: string): CommandEntry {
+  const entry = COMMAND_CATALOG.find((c) => c.id === id);
+  if (!entry) throw new Error(`Unknown command: ${id}`);
+  return entry;
+}
+
+/** Prototype actions covered by at least one catalog entry. */
+export function coveredPrototypeActions(): string[] {
+  return [
+    ...new Set(
+      COMMAND_CATALOG.map((c) => c.prototypeAction).filter((a): a is string => a !== null),
+    ),
+  ].sort();
+}

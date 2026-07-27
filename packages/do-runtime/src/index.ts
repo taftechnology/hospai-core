@@ -7,12 +7,15 @@ export type SqlStorageLike = {
 export type Migration = {
   version: number;
   name: string;
-  sql: string;
+  /** Prefer discrete statements — avoids `;` splitting hazards. */
+  statements?: readonly string[];
+  /** @deprecated Prefer `statements`. Kept for ad-hoc tests. */
+  sql?: string;
 };
 
 /**
  * Apply pending SQL migrations. Version check is cheap — runs on every DO wake.
- * Statements are split on semicolons; empty chunks skipped.
+ * Prefer Migration.statements over sql strings so triggers / string literals are safe.
  */
 export function migrateSql(sql: SqlStorageLike, migrations: Migration[]): number {
   sql.exec(`
@@ -30,10 +33,16 @@ export function migrateSql(sql: SqlStorageLike, migrations: Migration[]): number
 
   const pending = migrations.filter((m) => m.version > current).sort((a, b) => a.version - b.version);
   for (const m of pending) {
-    for (const stmt of m.sql.split(';')) {
-      const trimmed = stmt.trim();
-      if (trimmed.length === 0) continue;
-      sql.exec(trimmed);
+    const stmts =
+      m.statements ??
+      (m.sql
+        ? m.sql
+            .split(';')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : []);
+    for (const stmt of stmts) {
+      sql.exec(stmt);
     }
     sql.exec(`INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)`, m.version, m.name, Date.now());
     current = m.version;
@@ -51,4 +60,9 @@ export function freeAvailability(row: {
   return row.physical - row.blocked - row.held - row.sold + row.oversell;
 }
 
-export { PROPERTY_MIGRATIONS, FREEZE_GATE_SQL } from './property-migrations.js';
+export {
+  PROPERTY_MIGRATIONS,
+  FREEZE_GATE_SQL,
+  FREEZE_GATE_STATEMENTS,
+  TYPE_WIDE_RATE_PLAN,
+} from './property-migrations.js';

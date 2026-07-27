@@ -10,13 +10,24 @@ export type Nights = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isValidCalendarDate(value: string): boolean {
+  if (!DATE_RE.test(value)) return false;
+  const [ys, ms, ds] = value.split('-') as [string, string, string];
+  const y = Number(ys);
+  const m = Number(ms);
+  const d = Number(ds);
+  if (m < 1 || m > 12 || d < 1) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 export function stayDate(value: string): StayDate {
-  if (!DATE_RE.test(value)) throw new Error(`Invalid StayDate: ${value}`);
+  if (!isValidCalendarDate(value)) throw new Error(`Invalid StayDate: ${value}`);
   return value as StayDate;
 }
 
 export function businessDate(value: string): BusinessDate {
-  if (!DATE_RE.test(value)) throw new Error(`Invalid BusinessDate: ${value}`);
+  if (!isValidCalendarDate(value)) throw new Error(`Invalid BusinessDate: ${value}`);
   return value as BusinessDate;
 }
 

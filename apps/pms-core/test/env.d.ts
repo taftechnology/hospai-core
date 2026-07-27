@@ -1,5 +1,5 @@
-import type { Env } from '../src/index';
+import type { PmsEnv } from '../src/env';
 
 declare module 'cloudflare:test' {
-  interface ProvidedEnv extends Env {}
+  interface ProvidedEnv extends PmsEnv {}
 }

@@ -1,24 +1,16 @@
 #!/usr/bin/env node
 /**
- * Generate or check migrations/do-property/0001_freeze_gate.sql
- * against packages/do-runtime FREEZE_GATE_SQL (single source of truth).
+ * Generate or check DO DDL SQL files against @hospai/do-runtime sources.
  *
- *   node scripts/property-ddl.mjs --write   # regenerate the SQL file
- *   node scripts/property-ddl.mjs --check   # exit 1 on drift (CI)
+ *   node scripts/property-ddl.mjs --write
+ *   node scripts/property-ddl.mjs --check
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const sqlPath = join(root, 'migrations/do-property/0001_freeze_gate.sql');
-const modPath = join(root, 'packages/do-runtime/dist/property-migrations.js');
-
-const HEADER = `-- Phase 0 schema-freeze gate (§14) — generated from @hospai/do-runtime
--- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
--- Regenerate: pnpm generate:ddl
-
-`;
+const modPath = join(root, 'packages/do-runtime/dist/index.js');
 
 const args = new Set(process.argv.slice(2));
 const mode = args.has('--write') ? 'write' : args.has('--check') ? 'check' : null;
@@ -28,8 +20,9 @@ if (!mode) {
 }
 
 let FREEZE_GATE_SQL;
+let ORG_SPINE_SQL;
 try {
-  ({ FREEZE_GATE_SQL } = await import(modPath));
+  ({ FREEZE_GATE_SQL, ORG_SPINE_SQL } = await import(modPath));
 } catch (e) {
   console.error(
     'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
@@ -38,21 +31,53 @@ try {
   process.exit(1);
 }
 
-const expected = HEADER + FREEZE_GATE_SQL;
-if (!expected.endsWith('\n')) {
-  // FREEZE_GATE_SQL already ends with ;\n
+const targets = [
+  {
+    path: join(root, 'migrations/do-property/0001_freeze_gate.sql'),
+    header: `-- Phase 0 schema-freeze gate (§14) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: FREEZE_GATE_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0001_org_spine.sql'),
+    header: `-- OrgDO spine — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_SPINE_SQL,
+  },
+];
+
+let failed = false;
+for (const t of targets) {
+  const expected = t.header + t.sql;
+  if (mode === 'write') {
+    mkdirSync(dirname(t.path), { recursive: true });
+    writeFileSync(t.path, expected);
+    console.log(`Wrote ${t.path}`);
+  } else {
+    let onDisk;
+    try {
+      onDisk = readFileSync(t.path, 'utf8');
+    } catch {
+      console.error(`Missing ${t.path}`);
+      failed = true;
+      continue;
+    }
+    if (onDisk !== expected) {
+      console.error(`DDL drift: ${t.path}`);
+      failed = true;
+    } else {
+      console.log(`OK ${t.path}`);
+    }
+  }
 }
 
-if (mode === 'write') {
-  writeFileSync(sqlPath, expected);
-  console.log(`Wrote ${sqlPath}`);
-  process.exit(0);
-}
-
-const onDisk = readFileSync(sqlPath, 'utf8');
-if (onDisk !== expected) {
-  console.error('DDL drift: migrations/do-property/0001_freeze_gate.sql does not match FREEZE_GATE_SQL.');
+if (mode === 'check' && failed) {
   console.error('Run: pnpm generate:ddl');
   process.exit(1);
 }
-console.log('DDL in sync with packages/do-runtime FREEZE_GATE_SQL');

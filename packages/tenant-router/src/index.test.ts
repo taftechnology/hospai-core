@@ -3,6 +3,9 @@ import {
   JurisdictionUnavailableError,
   assertJurisdictionMatch,
   JurisdictionMismatchError,
+  locationHintFromTimeZone,
+  InvalidTimeZoneError,
+  resolveOrgStub,
   resolvePropertyStub,
   TENANT_ROUTER_PACKAGE,
 } from './index.js';
@@ -10,6 +13,29 @@ import {
 describe('tenant-router', () => {
   it('exports package sentinel', () => {
     expect(TENANT_ROUTER_PACKAGE).toBe('@hospai/tenant-router');
+  });
+
+  it('maps time zones to location hints', () => {
+    expect(locationHintFromTimeZone('Europe/Berlin')).toBe('weur');
+    expect(locationHintFromTimeZone('America/New_York')).toBe('enam');
+    expect(locationHintFromTimeZone('America/Los_Angeles')).toBe('wnam');
+    expect(locationHintFromTimeZone('Asia/Tokyo')).toBe('apac');
+    expect(locationHintFromTimeZone('Australia/Sydney')).toBe('oc');
+    expect(() => locationHintFromTimeZone('Not/AZone')).toThrow(InvalidTimeZoneError);
+  });
+
+  it('resolves org stubs via idFromName', () => {
+    const stub = { kind: 'org' };
+    const ns = {
+      idFromName(name: string) {
+        expect(name).toBe('org_1');
+        return { id: name };
+      },
+      get() {
+        return stub;
+      },
+    };
+    expect(resolveOrgStub(ns, { orgId: 'org_1' })).toBe(stub);
   });
 
   it('resolves via idFromName on the namespace when jurisdiction is null', () => {
@@ -79,18 +105,40 @@ describe('tenant-router', () => {
     expect(() => assertJurisdictionMatch(null, undefined)).not.toThrow();
   });
 
-  it('§11: jurisdictional tenant is unreachable via the non-jurisdictional namespace', () => {
+  it('simulates jurisdiction locally by prefixing the object name', () => {
+    const opened: string[] = [];
     const ns = {
       idFromName(name: string) {
-        return { id: `DEFAULT-NAMESPACE::${name}` };
+        opened.push(name);
+        return { id: name };
+      },
+      jurisdiction() {
+        throw new Error('Jurisdiction restrictions are not implemented in workerd.');
       },
       get(id: unknown) {
-        return { opened: id };
+        return { stub: id };
       },
-      // deliberately no jurisdiction()
+    };
+    resolvePropertyStub(ns, { orgId: 'o1', propertyId: 'prop_123', jurisdiction: 'eu' }, {
+      simulateJurisdiction: true,
+    });
+    expect(opened).toEqual(['eu::prop_123']);
+  });
+
+  it('still fails closed when jurisdiction() is unimplemented and simulation is off', () => {
+    const ns = {
+      idFromName(name: string) {
+        return { id: name };
+      },
+      jurisdiction() {
+        throw new Error('Jurisdiction restrictions are not implemented in workerd.');
+      },
+      get() {
+        return {};
+      },
     };
     expect(() =>
       resolvePropertyStub(ns, { orgId: 'o1', propertyId: 'prop_123', jurisdiction: 'eu' }),
-    ).toThrow(/Refusing to open the default namespace/);
+    ).toThrow(JurisdictionUnavailableError);
   });
 });

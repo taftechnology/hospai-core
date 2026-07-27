@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { resolvePropertyStub } from '@hospai/tenant-router';
-import type { PropertyDO } from '../src/index';
+import type { PropertyDO } from '../src/property-do';
 
 function propertyStub(name: string) {
   return resolvePropertyStub(env.PROPERTY_DO, {

@@ -66,3 +66,9 @@ export {
   FREEZE_GATE_STATEMENTS,
   TYPE_WIDE_RATE_PLAN,
 } from './property-migrations.js';
+
+export {
+  ORG_MIGRATIONS,
+  ORG_SPINE_SQL,
+  ORG_SPINE_STATEMENTS,
+} from './org-migrations.js';

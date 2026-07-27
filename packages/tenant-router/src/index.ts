@@ -18,6 +18,11 @@ export type TenantRoute = {
   recordedJurisdiction?: Jurisdiction | null;
 };
 
+export type OrgRoute = {
+  orgId: string;
+  locationHint?: string;
+};
+
 export type DurableObjectNamespaceLike = {
   idFromName(name: string): unknown;
   getByName?(name: string): unknown;
@@ -49,23 +54,108 @@ export class JurisdictionMismatchError extends Error {
   }
 }
 
+export class InvalidTimeZoneError extends Error {
+  constructor(public readonly timeZone: string) {
+    super(`Invalid IANA time zone: ${timeZone}`);
+    this.name = 'InvalidTimeZoneError';
+  }
+}
+
+/**
+ * Best-effort Cloudflare locationHint from an IANA timezone (§4.5).
+ * Latency only — never used for residency.
+ */
+export function locationHintFromTimeZone(timeZone: string): string {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone });
+  } catch {
+    throw new InvalidTimeZoneError(timeZone);
+  }
+
+  const area = timeZone.split('/')[0] ?? '';
+  const rest = timeZone.slice(area.length + 1);
+
+  switch (area) {
+    case 'America':
+      // Rough split: eastern Canada/US/Caribbean → enam; rest of Americas → wnam
+      if (
+        /^(New_York|Toronto|Montreal|Detroit|Indiana|Kentucky|Louisville|Iqaluit|Nipigon|Thunder_Bay|Pangnirtung|Glace_Bay|Goose_Bay|Halifax|Moncton|Blanc-Sablon|St_Johns|Puerto_Rico|Antigua|Barbados|Dominica|Grenada|Guadeloupe|Martinique|St_Kitts|St_Lucia|St_Thomas|St_Vincent|Tortola|Port_of_Spain|Curacao|Aruba|Cayman|Jamaica|Nassau|Havana|Santo_Domingo|Port-au-Prince)/.test(
+          rest,
+        )
+      ) {
+        return 'enam';
+      }
+      return 'wnam';
+    case 'Europe':
+      if (/^(Moscow|Istanbul|Helsinki|Kyiv|Riga|Tallinn|Vilnius|Minsk|Bucharest|Sofia|Athens|Nicosia)/.test(rest)) {
+        return 'eeur';
+      }
+      return 'weur';
+    case 'Asia':
+      return 'apac';
+    case 'Australia':
+    case 'Pacific':
+      return 'oc';
+    case 'Africa':
+      return 'weur';
+    case 'Atlantic':
+      return rest.startsWith('Cape_Verde') || rest.startsWith('Azores') ? 'weur' : 'enam';
+    case 'Indian':
+      return 'apac';
+    default:
+      return 'wnam';
+  }
+}
+
 /**
  * Resolve a PropertyDO stub. Fails closed when the route demands a jurisdiction
  * the namespace cannot apply — never silently opens the default namespace.
+ *
+ * Local workerd does not implement `namespace.jurisdiction()` (throws). Pass
+ * `simulateJurisdiction: true` (via env HOSPAI_JURISDICTION_MODE=simulate) to
+ * encode jurisdiction into the object name so EU/default storage never collide.
+ * Production must leave simulation off.
  */
 export function resolvePropertyStub(
   ns: DurableObjectNamespaceLike,
   route: TenantRoute,
+  options?: { simulateJurisdiction?: boolean },
 ): unknown {
   let scoped = ns;
   if (route.jurisdiction !== null) {
     if (typeof ns.jurisdiction !== 'function') {
       throw new JurisdictionUnavailableError(route.jurisdiction, route.propertyId);
     }
-    scoped = ns.jurisdiction(route.jurisdiction);
+    try {
+      scoped = ns.jurisdiction(route.jurisdiction);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (options?.simulateJurisdiction && /not implemented/i.test(msg)) {
+        const j = route.jurisdiction;
+        const base = ns;
+        scoped = {
+          idFromName(name: string) {
+            return base.idFromName(`${j}::${name}`);
+          },
+          get(id: unknown, opts?: { locationHint?: string }) {
+            return base.get(id, opts);
+          },
+        };
+      } else if (/not implemented/i.test(msg)) {
+        throw new JurisdictionUnavailableError(route.jurisdiction, route.propertyId);
+      } else {
+        throw e;
+      }
+    }
   }
   const id = scoped.idFromName(route.propertyId);
   return scoped.get(id, route.locationHint ? { locationHint: route.locationHint } : undefined);
+}
+
+/** Resolve an OrgDO stub (orgs are not jurisdiction-scoped in this spine). */
+export function resolveOrgStub(ns: DurableObjectNamespaceLike, route: OrgRoute): unknown {
+  const id = ns.idFromName(route.orgId);
+  return ns.get(id, route.locationHint ? { locationHint: route.locationHint } : undefined);
 }
 
 /** Assert DO instance jurisdiction matches the registry. Call on cold start. */

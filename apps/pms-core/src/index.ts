@@ -1,336 +1,120 @@
-import { DurableObject } from 'cloudflare:workers';
-import { domainConfigKeys, getConfigEntry } from '@hospai/contracts';
-import { PROPERTY_MIGRATIONS, freeAvailability, migrateSql } from '@hospai/do-runtime';
-import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
-import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
+import type { Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import type { PmsEnv } from './env.js';
+import { OrgDO } from './org-do.js';
+import { PropertyDO } from './property-do.js';
+import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
+import { getProperty } from './registry.js';
+import { resolveOrgStub } from '@hospai/tenant-router';
 
-export type Env = {
-  PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
-};
+export type { PmsEnv } from './env.js';
+export { PropertyDO } from './property-do.js';
+export { OrgDO } from './org-do.js';
+export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
-export class PropertyDO extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    ctx.blockConcurrencyWhile(async () => {
-      migrateSql(ctx.storage.sql, [...PROPERTY_MIGRATIONS]);
-      ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
-      // Persist expected jurisdiction at provision time via setRecordedJurisdiction.
-      const rows = ctx.storage.sql
-        .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.jurisdiction')
-        .toArray() as Array<{ value_json: string }>;
-      if (rows[0]) {
-        const expected = JSON.parse(rows[0].value_json) as Jurisdiction | null;
-        const actual = (ctx.id as { jurisdiction?: string | null }).jurisdiction ?? null;
-        assertJurisdictionMatch(actual, expected);
-      }
-    });
-  }
+const DEV_ACTOR_HEADER = 'x-dev-actor';
 
-  /** Record the registry jurisdiction for cold-start self-check (§4.5 rule 4). */
-  async setRecordedJurisdiction(jurisdiction: Jurisdiction | null): Promise<void> {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO property_config (key, value_json, version, updated_at)
-       VALUES ('__meta.jurisdiction', ?, 1, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
-      JSON.stringify(jurisdiction),
-      Date.now(),
+function requireDevActor(request: Request): string | Response {
+  const actor = request.headers.get(DEV_ACTOR_HEADER);
+  if (!actor || !actor.startsWith('user_')) {
+    return Response.json(
+      { error: 'missing_actor', message: `Mutating routes require ${DEV_ACTOR_HEADER}: user_…` },
+      { status: 401 },
     );
   }
+  return actor;
+}
 
-  async getSchemaVersion(): Promise<number> {
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
-      .toArray() as Array<{ v: number }>;
-    return Number(rows[0]?.v ?? 0);
-  }
-
-  async putDomainConfig(
-    key: string,
-    value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string } = {
-      actor: 'system',
-      reason: 'unspecified',
-    },
-  ): Promise<{ key: string; version: number }> {
-    const result = await this.tryPutDomainConfig(key, value, meta);
-    if (!result.ok) throw new Error(result.error);
-    return { key: result.key, version: result.version };
-  }
-
-  async tryPutDomainConfig(
-    key: string,
-    value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string } = {
-      actor: 'system',
-      reason: 'unspecified',
-    },
-  ): Promise<
-    | { ok: true; key: string; version: number; events: string[] }
-    | { ok: false; error: string }
-  > {
-    const entry = getConfigEntry(key);
-    if (!entry) return { ok: false, error: `undeclared:${key}` };
-    if (entry.class !== 'DOMAIN') {
-      return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
-    }
-    try {
-      const parsed = validateConfigWrite(key, value);
-      const existing = this.ctx.storage.sql
-        .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
-        .toArray() as Array<{ version: number; value_json: string }>;
-      const previous = existing[0]?.value_json ?? null;
-      const version = (existing[0]?.version ?? 0) + 1;
-      this.ctx.storage.sql.exec(
-        `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET
-           value_json = excluded.value_json,
-           version = excluded.version,
-           effective_from = excluded.effective_from,
-           updated_at = excluded.updated_at,
-           updated_by = excluded.updated_by,
-           reason = excluded.reason,
-           previous_json = excluded.previous_json`,
-        key,
-        JSON.stringify(parsed),
-        version,
-        meta.effectiveFrom ?? null,
-        Date.now(),
-        meta.actor,
-        meta.reason,
-        previous,
-      );
-      this.ctx.storage.sql.exec(
-        `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        key,
-        meta.actor,
-        meta.reason,
-        previous,
-        JSON.stringify(parsed),
-        Date.now(),
-      );
-      // Emit config.changed into outbox so consumers can react (§5.1 rule 4).
-      const eventId = crypto.randomUUID();
-      this.ctx.storage.sql.exec(
-        `INSERT INTO outbox (event_id, event_type, payload, acked, created_at)
-         VALUES (?, 'config.changed', ?, 0, ?)`,
-        eventId,
-        JSON.stringify({
-          key,
-          version,
-          consumers: entry.consumers,
-          actor: meta.actor,
-        }),
-        Date.now(),
-      );
-      return { ok: true, key, version, events: ['config.changed'] };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
-  async readConfig(key: string): Promise<unknown> {
-    const entry = getConfigEntry(key);
-    if (!entry) throw new UndeclaredConfigError(key);
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT value_json FROM property_config WHERE key = ?`, key)
-      .toArray() as Array<{ value_json: string }>;
-    if (rows.length === 0) return entry.default;
-    return JSON.parse(rows[0]!.value_json);
-  }
-
-  async seedAvailabilityDay(row: {
-    roomTypeId: string;
-    stayDate: string;
-    physical: number;
-    blocked?: number;
-    held?: number;
-    sold?: number;
-    oversell?: number;
-  }): Promise<number> {
-    const existing = this.ctx.storage.sql
-      .exec(
-        `SELECT version FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-        row.roomTypeId,
-        row.stayDate,
-      )
-      .toArray() as Array<{ version: number }>;
-    const version = (existing[0]?.version ?? 0) + 1;
-    this.ctx.storage.sql.exec(
-      `INSERT INTO availability_day
-        (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(room_type_id, stay_date) DO UPDATE SET
-         physical = excluded.physical,
-         blocked = excluded.blocked,
-         held = excluded.held,
-         sold = excluded.sold,
-         oversell = excluded.oversell,
-         version = excluded.version`,
-      row.roomTypeId,
-      row.stayDate,
-      row.physical,
-      row.blocked ?? 0,
-      row.held ?? 0,
-      row.sold ?? 0,
-      row.oversell ?? 0,
-      version,
-    );
-    return version;
-  }
-
-  async readAvailabilityDay(
-    roomTypeId: string,
-    stayDate: string,
-  ): Promise<{
-    room_type_id: string;
-    stay_date: string;
-    physical: number;
-    blocked: number;
-    held: number;
-    sold: number;
-    oversell: number;
-    version: number;
-    free: number;
-  } | null> {
-    const rows = this.ctx.storage.sql
-      .exec(
-        `SELECT room_type_id, stay_date, physical, blocked, held, sold, oversell, version
-         FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-        roomTypeId,
-        stayDate,
-      )
-      .toArray() as Array<{
-      room_type_id: string;
-      stay_date: string;
-      physical: number;
-      blocked: number;
-      held: number;
-      sold: number;
-      oversell: number;
-      version: number;
-    }>;
-    const row = rows[0];
-    if (!row) return null;
-    return { ...row, free: freeAvailability(row) };
-  }
-
-  async upsertRestrictionDay(input: {
-    roomTypeId: string;
-    ratePlanId?: string;
-    stayDate: string;
-    minLos?: number | null;
-  }): Promise<void> {
-    const ratePlanId = input.ratePlanId ?? '*';
-    this.ctx.storage.sql.exec(
-      `INSERT INTO restriction_day (room_type_id, rate_plan_id, stay_date, min_los, version)
-       VALUES (?, ?, ?, ?, 1)
-       ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
-         min_los = excluded.min_los,
-         version = restriction_day.version + 1`,
-      input.roomTypeId,
-      ratePlanId,
-      input.stayDate,
-      input.minLos ?? null,
-    );
-  }
-
-  async countRestrictionDays(roomTypeId: string, stayDate: string): Promise<number> {
-    const rows = this.ctx.storage.sql
-      .exec(
-        `SELECT COUNT(*) AS c FROM restriction_day WHERE room_type_id = ? AND stay_date = ? AND rate_plan_id = '*'`,
-        roomTypeId,
-        stayDate,
-      )
-      .toArray() as Array<{ c: number }>;
-    return Number(rows[0]?.c ?? 0);
-  }
-
-  async createFolioWindow(input: {
-    folioWindowId: string;
-    reservationId: string;
-    kind: 'GUEST' | 'COMPANY' | 'MASTER';
-  }): Promise<void> {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO folio_window (folio_window_id, reservation_id, kind, status)
-       VALUES (?, ?, ?, 'OPEN')`,
-      input.folioWindowId,
-      input.reservationId,
-      input.kind,
-    );
-  }
-
-  async addFolioLine(input: {
-    folioLineId: string;
-    folioWindowId: string;
-    reservationId: string;
-    chargeCode: string;
-    amountMinor: number;
-    txnCurrency: string;
-    ledgerAmountMinor: number;
-    fxRate: string;
-    fxRateAt?: number;
-    source?: string;
-    businessDate?: string;
-  }): Promise<void> {
-    const result = await this.tryAddFolioLine(input);
-    if (!result.ok) throw new Error(result.error);
-  }
-
-  async tryAddFolioLine(input: {
-    folioLineId: string;
-    folioWindowId: string;
-    reservationId: string;
-    chargeCode: string;
-    amountMinor: number;
-    txnCurrency: string;
-    ledgerAmountMinor: number;
-    fxRate: string;
-    fxRateAt?: number;
-    source?: string;
-    businessDate?: string;
-  }): Promise<{ ok: true } | { ok: false; error: string }> {
-    try {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO folio_line (
-           folio_line_id, folio_window_id, reservation_id, charge_code,
-           amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-           source, business_date, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        input.folioLineId,
-        input.folioWindowId,
-        input.reservationId,
-        input.chargeCode,
-        input.amountMinor,
-        input.txnCurrency,
-        input.ledgerAmountMinor,
-        input.fxRate,
-        input.fxRateAt ?? Date.now(),
-        input.source ?? null,
-        input.businessDate ?? null,
-        Date.now(),
-      );
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
-  async listDomainKeys(): Promise<string[]> {
-    return domainConfigKeys().map((e) => e.key);
-  }
-
-  async outboxUnackedCount(): Promise<number> {
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
-      .toArray() as Array<{ c: number }>;
-    return Number(rows[0]?.c ?? 0);
-  }
+function json(data: unknown, status = 200): Response {
+  return Response.json(data, { status });
 }
 
 export default {
-  async fetch(_request: Request, _env: Env): Promise<Response> {
-    return new Response('hospai-pms-core', { status: 200 });
+  async fetch(request: Request, env: PmsEnv): Promise<Response> {
+    const url = new URL(request.url);
+    const { pathname } = url;
+
+    if (request.method === 'GET' && pathname === '/') {
+      return new Response('hospai-pms-core', { status: 200 });
+    }
+
+    if (request.method === 'POST' && pathname === '/v1/orgs') {
+      const actor = requireDevActor(request);
+      if (actor instanceof Response) return actor;
+      const body = (await request.json()) as { orgId: string; name: string };
+      if (!body.orgId || !body.name) return json({ error: 'invalid_body' }, 400);
+      const { upsertOrg } = await import('./registry.js');
+      await upsertOrg(env, body.orgId, body.name);
+      const org = resolveOrgStub(env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
+      await org.ensureMember(actor, 'owner');
+      return json({ orgId: body.orgId, name: body.name }, 201);
+    }
+
+    const propertyCreate = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
+    if (request.method === 'POST' && propertyCreate) {
+      const actor = requireDevActor(request);
+      if (actor instanceof Response) return actor;
+      const orgId = decodeURIComponent(propertyCreate[1]!);
+      const body = (await request.json()) as {
+        propertyId: string;
+        name: string;
+        jurisdiction?: Jurisdiction | null;
+        timeZone: string;
+        orgName?: string;
+      };
+      if (!body.propertyId || !body.name || !body.timeZone) {
+        return json({ error: 'invalid_body' }, 400);
+      }
+      const input: ProvisionPropertyInput = {
+        orgId,
+        orgName: body.orgName,
+        propertyId: body.propertyId,
+        name: body.name,
+        jurisdiction: body.jurisdiction === undefined ? null : body.jurisdiction,
+        timeZone: body.timeZone,
+        actorUserId: actor,
+      };
+      const result = await provisionProperty(env, input);
+      if (!result.ok) {
+        if (result.error === 'jurisdiction_conflict') {
+          return json({ error: result.error, existing: result.existing }, 409);
+        }
+        if (result.error === 'invalid_timezone') {
+          return json({ error: result.error }, 400);
+        }
+        return json({ error: result.error }, 400);
+      }
+      return json(result, 201);
+    }
+
+    const propertyGet = pathname.match(/^\/v1\/properties\/([^/]+)$/);
+    if (request.method === 'GET' && propertyGet) {
+      const propertyId = decodeURIComponent(propertyGet[1]!);
+      const resolved = await resolvePropertyFromRegistry(env, propertyId);
+      if (!resolved) return json({ error: 'not_found' }, 404);
+      const recorded = await resolved.stub.getRecordedJurisdiction();
+      return json({
+        property: resolved.property,
+        locationHint: resolved.locationHint,
+        recordedJurisdiction: recorded ?? null,
+        schemaVersion: await resolved.stub.getSchemaVersion(),
+      });
+    }
+
+    const orgProperties = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
+    if (request.method === 'GET' && orgProperties) {
+      const orgId = decodeURIComponent(orgProperties[1]!);
+      const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+      return json({ orgId, properties: await org.listPropertyRefs() });
+    }
+
+    // Registry lookup without opening DO
+    if (request.method === 'GET' && pathname.startsWith('/v1/registry/properties/')) {
+      const propertyId = decodeURIComponent(pathname.slice('/v1/registry/properties/'.length));
+      const property = await getProperty(env, propertyId);
+      if (!property) return json({ error: 'not_found' }, 404);
+      return json({ property });
+    }
+
+    return json({ error: 'not_found' }, 404);
   },
 };

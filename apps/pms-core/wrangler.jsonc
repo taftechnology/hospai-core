@@ -8,6 +8,10 @@
       {
         "name": "PROPERTY_DO",
         "class_name": "PropertyDO"
+      },
+      {
+        "name": "ORG_DO",
+        "class_name": "OrgDO"
       }
     ]
   },
@@ -15,6 +19,21 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["PropertyDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["OrgDO"]
     }
-  ]
+  ],
+  "d1_databases": [
+    {
+      "binding": "PLATFORM_DB",
+      "database_name": "hospai-platform",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "../../migrations/d1-platform"
+    }
+  ],
+  "vars": {
+    "HOSPAI_JURISDICTION_MODE": "simulate"
+  }
 }

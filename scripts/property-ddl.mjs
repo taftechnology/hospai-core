@@ -20,10 +20,11 @@ if (!mode) {
 }
 
 let FREEZE_GATE_SQL;
+let ROOM_TYPE_SQL;
 let ORG_SPINE_SQL;
 let PLATFORM_REGISTRY_SQL;
 try {
-  ({ FREEZE_GATE_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
+  ({ FREEZE_GATE_SQL, ROOM_TYPE_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
 } catch (e) {
   console.error(
     'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
@@ -32,7 +33,7 @@ try {
   process.exit(1);
 }
 
-const targets = [
+const doPropertyTargets = [
   {
     path: join(root, 'migrations/do-property/0001_freeze_gate.sql'),
     header: `-- Phase 0 schema-freeze gate (§14) — generated from @hospai/do-runtime
@@ -42,6 +43,19 @@ const targets = [
 `,
     sql: FREEZE_GATE_SQL,
   },
+  {
+    path: join(root, 'migrations/do-property/0002_room_type.sql'),
+    header: `-- PropertyDO room_type catalog — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ROOM_TYPE_SQL,
+  },
+];
+
+const targets = [
+  ...doPropertyTargets,
   {
     path: join(root, 'migrations/do-org/0001_org_spine.sql'),
     header: `-- OrgDO spine — generated from @hospai/do-runtime

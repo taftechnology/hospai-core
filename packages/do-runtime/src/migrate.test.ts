@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import { FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -33,14 +33,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies freeze gate once via statements', () => {
+  it('applies property migrations through version 2', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(1);
+    expect(v1).toBe(2);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(1);
-    expect(sql.schemaVersion).toHaveLength(1);
-    expect(sql.tables.size).toBeGreaterThanOrEqual(8);
+    expect(v2).toBe(2);
+    expect(sql.schemaVersion).toHaveLength(2);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2]);
+    expect(sql.tables.size).toBeGreaterThanOrEqual(9);
   });
 });
 
@@ -55,6 +56,18 @@ describe('freeze DDL single source', () => {
       .join('\n')
       .trim();
     expect(body).toBe(FREEZE_GATE_SQL.trim());
+  });
+
+  it('migrations/do-property/0002_room_type.sql matches ROOM_TYPE_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0002_room_type.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ROOM_TYPE_SQL.trim());
   });
 
   it('migrations/do-org/0001_org_spine.sql matches ORG_SPINE_SQL', () => {

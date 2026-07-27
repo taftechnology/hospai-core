@@ -16,7 +16,9 @@ function canonicalJson(value: unknown): string {
     return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
   }
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
 }
 

@@ -63,10 +63,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async putDomainConfig(
     key: string,
     value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string } = {
-      actor: 'system',
-      reason: 'unspecified',
-    },
+    meta: { actor: string; reason: string; effectiveFrom?: string },
     idem: IdempotencyKey,
   ): Promise<{ key: string; version: number }> {
     const result = await this.tryPutDomainConfig(key, value, meta, idem);
@@ -78,14 +75,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * DOMAIN config write. Caller must pass IdempotencyKey whose fingerprint is
    * fingerprintPayload({ key, value, actor: meta.actor, reason: meta.reason }).
    * `effectiveFrom` is excluded from the fingerprint.
+   *
+   * Trust boundary: the edge must compute `fingerprintPayload` server-side from the
+   * validated request body — only the idempotency *key* may originate from the client.
    */
   async tryPutDomainConfig(
     key: string,
     value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string } = {
-      actor: 'system',
-      reason: 'unspecified',
-    },
+    meta: { actor: string; reason: string; effectiveFrom?: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; key: string; version: number; events: string[] }
@@ -97,55 +94,57 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
     }
     try {
-      return runIdempotent(this.ctx.storage.sql, idem, () => {
-        const parsed = validateConfigWrite(key, value);
-        const existing = this.ctx.storage.sql
-          .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
-          .toArray() as Array<{ version: number; value_json: string }>;
-        const previous = existing[0]?.value_json ?? null;
-        const version = (existing[0]?.version ?? 0) + 1;
-        this.ctx.storage.sql.exec(
-          `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET
-             value_json = excluded.value_json,
-             version = excluded.version,
-             effective_from = excluded.effective_from,
-             updated_at = excluded.updated_at,
-             updated_by = excluded.updated_by,
-             reason = excluded.reason,
-             previous_json = excluded.previous_json`,
-          key,
-          JSON.stringify(parsed),
-          version,
-          meta.effectiveFrom ?? null,
-          Date.now(),
-          meta.actor,
-          meta.reason,
-          previous,
-        );
-        this.ctx.storage.sql.exec(
-          `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          key,
-          meta.actor,
-          meta.reason,
-          previous,
-          JSON.stringify(parsed),
-          Date.now(),
-        );
-        appendOutbox(this.ctx.storage.sql, {
-          eventId: crypto.randomUUID(),
-          eventType: 'config.changed',
-          payload: {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const parsed = validateConfigWrite(key, value);
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
+            .toArray() as Array<{ version: number; value_json: string }>;
+          const previous = existing[0]?.value_json ?? null;
+          const version = (existing[0]?.version ?? 0) + 1;
+          this.ctx.storage.sql.exec(
+            `INSERT INTO property_config (key, value_json, version, effective_from, updated_at, updated_by, reason, previous_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET
+               value_json = excluded.value_json,
+               version = excluded.version,
+               effective_from = excluded.effective_from,
+               updated_at = excluded.updated_at,
+               updated_by = excluded.updated_by,
+               reason = excluded.reason,
+               previous_json = excluded.previous_json`,
             key,
+            JSON.stringify(parsed),
             version,
-            consumers: entry.consumers,
-            actor: meta.actor,
-          },
-        });
-        return { ok: true as const, key, version, events: ['config.changed'] };
-      });
+            meta.effectiveFrom ?? null,
+            Date.now(),
+            meta.actor,
+            meta.reason,
+            previous,
+          );
+          this.ctx.storage.sql.exec(
+            `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            key,
+            meta.actor,
+            meta.reason,
+            previous,
+            JSON.stringify(parsed),
+            Date.now(),
+          );
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'config.changed',
+            payload: {
+              key,
+              version,
+              consumers: entry.consumers,
+              actor: meta.actor,
+            },
+          });
+          return { ok: true as const, key, version, events: ['config.changed'] };
+        }),
+      );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) {
         return { ok: false, error: IDEM_KEY_REUSED };

@@ -18,4 +18,10 @@ describe('fingerprintPayload', () => {
   it('exports the wire error code', () => {
     expect(IDEM_KEY_REUSED).toBe('idempotency_key_reused');
   });
+
+  it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {
+    const a = await fingerprintPayload({ a: 1, b: undefined });
+    const b = await fingerprintPayload({ a: 1 });
+    expect(a).toBe(b);
+  });
 });

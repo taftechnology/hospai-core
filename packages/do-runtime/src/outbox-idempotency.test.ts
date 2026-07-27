@@ -106,6 +106,19 @@ describe('outbox helpers', () => {
     appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: {} });
     expect(drainOutbox(sql, { maxMessages: 1 })).toHaveLength(1);
   });
+
+  it('partial ack leaves the remaining suffix unacked', () => {
+    const sql = new OutboxMemorySql();
+    appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: {} });
+    appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: {} });
+    appendOutbox(sql, { eventId: 'e3', eventType: 't', payload: {} });
+    const batch = drainOutbox(sql);
+    expect(batch).toHaveLength(3);
+    ackOutboxThrough(sql, batch[0]!.seq);
+    const remaining = drainOutbox(sql);
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((r) => r.eventId)).toEqual(['e2', 'e3']);
+  });
 });
 
 describe('runIdempotent', () => {

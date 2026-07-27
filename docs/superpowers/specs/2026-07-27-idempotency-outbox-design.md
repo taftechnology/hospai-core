@@ -86,6 +86,8 @@ Fingerprint allowlist (client builds `fingerprintPayload` of exactly this shape)
 
 `effectiveFrom` is **excluded** from the fingerprint (optional / may be omitted on retry). Document this in the method JSDoc.
 
+**Trust boundary.** The edge must compute `fingerprintPayload` server-side from the validated request body — only the idempotency *key* may originate from the client.
+
 Inside `execute` (sync): config upsert + audit + `appendOutbox(config.changed)` + return `{ ok: true, key, version, events }`.
 
 Catch `IdempotencyKeyReused` locally → `{ ok: false, error: IDEM_KEY_REUSED }`.

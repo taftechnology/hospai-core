@@ -1,4 +1,5 @@
 import type { ProvisionPropertyInput, ProvisionPropertyResult, PropertyRecord } from '@hospai/contracts';
+import { fingerprintPayload } from '@hospai/contracts';
 import {
   InvalidTimeZoneError,
   locationHintFromTimeZone,
@@ -73,6 +74,15 @@ async function syncOrgAndPropertyDo(
     { simulateJurisdiction: isJurisdictionSimulate(env) },
   ) as DurableObjectStub<PropertyDO>;
   await prop.setRecordedJurisdiction(property.jurisdiction);
+  await prop.ensureMetaPropertyId(property.propertyId);
+  const fingerprint = await fingerprintPayload({
+    propertyId: property.propertyId,
+    timeZone: property.timeZone,
+  });
+  await prop.ensureTimeZoneIfAbsent(property.timeZone, {
+    key: `provision:timezone:${property.propertyId}`,
+    fingerprint,
+  });
 }
 
 /** Resolve a PropertyDO stub using only the D1 registry (callers never pass jurisdiction). */

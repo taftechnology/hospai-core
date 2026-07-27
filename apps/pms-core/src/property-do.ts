@@ -53,6 +53,73 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return JSON.parse(rows[0].value_json) as Jurisdiction | null;
   }
 
+  /** Raw-SQL insert of `__meta.property_id` if absent. Never overwrites an existing value. */
+  async ensureMetaPropertyId(propertyId: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.property_id', ?, 1, ?)
+       ON CONFLICT(key) DO NOTHING`,
+      JSON.stringify(propertyId),
+      Date.now(),
+    );
+  }
+
+  async getPropertyId(): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.property_id')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return null;
+    return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /** Read the stored `pms.time.time_zone` DOMAIN row directly — never falls back to the register default. */
+  async readStoredTimeZone(): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, 'pms.time.time_zone')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return null;
+    return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /** DOMAIN put of the first-write timezone. No-op if a row already exists — re-provisioning never overwrites. */
+  async ensureTimeZoneIfAbsent(
+    timeZone: string,
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true; version: number } | { ok: false; error: string } | { ok: true; skipped: true }> {
+    if ((await this.readStoredTimeZone()) !== null) {
+      return { ok: true, skipped: true };
+    }
+    const result = await this.tryPutDomainConfig(
+      'pms.time.time_zone',
+      timeZone,
+      { actor: 'system:provision', reason: 'provision:first-write-timezone' },
+      idem,
+    );
+    if (!result.ok) return result;
+    return { ok: true, version: result.version };
+  }
+
+  /** Raw-SQL monotonic counter for `__meta.ari_version`. Never routed through `tryPutDomainConfig` (undeclared key). */
+  async readAriVersion(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.ari_version')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return 0;
+    return JSON.parse(rows[0].value_json) as number;
+  }
+
+  async bumpAriVersion(): Promise<number> {
+    const next = (await this.readAriVersion()) + 1;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.ari_version', ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      JSON.stringify(next),
+      Date.now(),
+    );
+    return next;
+  }
+
   async getSchemaVersion(): Promise<number> {
     const rows = this.ctx.storage.sql
       .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)

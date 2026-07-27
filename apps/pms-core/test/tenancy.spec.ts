@@ -6,8 +6,9 @@ import {
   resetPlatformSchemaGate,
   tryUpdatePropertyJurisdiction,
 } from '../src/registry';
-import { resolveOrgStub } from '@hospai/tenant-router';
+import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
+import type { PropertyDO } from '../src/property-do';
 import type { PmsEnv } from '../src/env';
 
 describe('tenancy spine', () => {
@@ -113,6 +114,48 @@ describe('tenancy spine', () => {
     const resolved = await resolvePropertyFromRegistry(env, propertyId);
     expect(resolved!.property.jurisdiction).toBeNull();
     expect(await resolved!.stub.getRecordedJurisdiction()).toBeNull();
+  });
+
+  it('provision writes __meta.property_id and timezone into PropertyDO on first write only', async () => {
+    const propertyId = `prop_tz_${crypto.randomUUID()}`;
+    const orgId = `org_${crypto.randomUUID()}`;
+    const result = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'TZ Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      actorUserId: 'user_owner',
+    });
+    expect(result.ok).toBe(true);
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    expect(resolved).not.toBeNull();
+    expect(await resolved!.stub.getPropertyId()).toBe(propertyId);
+    expect(await resolved!.stub.readStoredTimeZone()).toBe('Europe/Berlin');
+
+    // Re-provision with a different timezone must not overwrite the stored one.
+    await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'TZ Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'America/Chicago',
+      actorUserId: 'user_owner',
+    });
+    expect(await resolved!.stub.readStoredTimeZone()).toBe('Europe/Berlin');
+  });
+
+  it('readStoredTimeZone returns null for a PropertyDO that was never provisioned', async () => {
+    const propertyId = `prop_unprovisioned_${crypto.randomUUID()}`;
+    const stub = resolvePropertyStub(env.PROPERTY_DO, {
+      orgId: `org_${crypto.randomUUID()}`,
+      propertyId,
+      jurisdiction: null,
+      locationHint: 'enam',
+    }) as DurableObjectStub<PropertyDO>;
+    expect(await stub.readStoredTimeZone()).toBeNull();
+    expect(await stub.getPropertyId()).toBeNull();
   });
 
   it('HTTP refuses simulate without HOSPAI_UNSAFE_LOCAL', async () => {

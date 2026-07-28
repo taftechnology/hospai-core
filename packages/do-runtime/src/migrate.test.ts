@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_GUEST_PII_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RESERVATION_V7_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -31,10 +31,16 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO reservation_v5')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('INSERT INTO reservation_v7')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('DROP TABLE reservation')) {
       return { toArray: () => [] };
     }
     if (q.startsWith('ALTER TABLE reservation_v5 RENAME TO reservation')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE reservation_v7 RENAME TO reservation')) {
       return { toArray: () => [] };
     }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
@@ -42,14 +48,14 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 6', () => {
+  it('applies property migrations through version 7', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(6);
+    expect(v1).toBe(7);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(6);
-    expect(sql.schemaVersion).toHaveLength(6);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(v2).toBe(7);
+    expect(sql.schemaVersion).toHaveLength(7);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(10);
   });
 });
@@ -127,6 +133,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(RATE_DAY_SQL.trim());
   });
 
+  it('migrations/do-property/0007_reservation_guest_ref.sql matches RESERVATION_V7_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0007_reservation_guest_ref.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(RESERVATION_V7_SQL.trim());
+  });
+
   it('migrations/do-org/0001_org_spine.sql matches ORG_SPINE_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-org/0001_org_spine.sql');
@@ -137,6 +155,18 @@ describe('freeze DDL single source', () => {
       .join('\n')
       .trim();
     expect(body).toBe(ORG_SPINE_SQL.trim());
+  });
+
+  it('migrations/do-org/0002_guest_pii.sql matches ORG_GUEST_PII_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0002_guest_pii.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_GUEST_PII_SQL.trim());
   });
 
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
@@ -159,8 +189,8 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(1);
-    expect(sql.tables.size).toBeGreaterThanOrEqual(2);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(2);
+    expect(sql.tables.size).toBeGreaterThanOrEqual(6);
   });
 });
 

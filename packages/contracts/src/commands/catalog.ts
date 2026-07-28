@@ -225,6 +225,15 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['guest.updated'],
   },
   {
+    id: 'guests.erase',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['guest.erased'],
+    notes: '§4.8 crypto-shred — must not queue during outage.',
+  },
+  {
     id: 'rates.create_plan',
     prototypeAction: 'ADD_RATE_PLAN',
     lane: 'INTERACTIVE',

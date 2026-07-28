@@ -1437,12 +1437,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /**
    * Create a confirmed reservation and increment `sold` on every stay night in one atomic
    * write. Implements catalog `reservations.create` / platform gap `availability.book`.
-   * Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate }`.
+   * Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate, guestRef, piiKeyId }`.
    */
   async tryCreateReservation(
     input: {
       reservationId: string;
       roomTypeId: string;
+      guestRef: string;
+      piiKeyId: string;
       arrivalDate: string;
       departureDate: string;
     },
@@ -1462,6 +1464,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(input.arrivalDate) || !dateRe.test(input.departureDate)) {
       return { ok: false, error: 'invalid_date' };
+    }
+    if (!input.guestRef || !input.piiKeyId) {
+      return { ok: false, error: 'guest_ref_required' };
     }
     if (input.arrivalDate >= input.departureDate) {
       return { ok: false, error: 'invalid_stay_range' };
@@ -1535,10 +1540,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           this.ctx.storage.sql.exec(
-            `INSERT INTO reservation (reservation_id, room_type_id, arrival_date, departure_date, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'confirmed', ?, ?)`,
+            `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
             input.reservationId,
             input.roomTypeId,
+            input.guestRef,
+            input.piiKeyId,
             input.arrivalDate,
             input.departureDate,
             now,
@@ -1556,6 +1563,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               propertyId,
               reservationId: input.reservationId,
               roomTypeId: input.roomTypeId,
+              guestRef: input.guestRef,
+              piiKeyId: input.piiKeyId,
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
               status: 'confirmed',
@@ -1604,11 +1613,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
             arrival_date: string;
             departure_date: string;
             status: string;
@@ -1658,6 +1669,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: {
               propertyId,
               reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
               fromStatus: 'confirmed',
               toStatus: 'cancelled',
             },
@@ -1737,11 +1750,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
             arrival_date: string;
             departure_date: string;
             status: string;
@@ -1874,6 +1889,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: {
               propertyId,
               reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
               from: {
                 roomTypeId: reservation.room_type_id,
                 arrivalDate: reservation.arrival_date,
@@ -1970,6 +1987,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT event_type FROM outbox WHERE acked = 0 ORDER BY seq`)
       .toArray() as Array<{ event_type: string }>;
     return rows.map((r) => r.event_type);
+  }
+
+  /** Test helper: list unacked outbox payloads in append order. */
+  async listOutboxPayloads(): Promise<Array<{ eventType: string; payload: string }>> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT event_type, payload FROM outbox WHERE acked = 0 ORDER BY seq`)
+      .toArray() as Array<{ event_type: string; payload: string }>;
+    return rows.map((r) => ({ eventType: r.event_type, payload: r.payload }));
   }
 
   /** Test helper: remove all `availability_day` rows on/after `fromDate` — simulates a room type with no future ledger rows. */

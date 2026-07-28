@@ -201,6 +201,32 @@ export const RATE_DAY_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0006_rate_day.sql */
 export const RATE_DAY_SQL = RATE_DAY_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v7 — reservation links to org-scoped guest via refs only (§4.8). */
+export const RESERVATION_V7_STATEMENTS: string[] = [
+  `CREATE TABLE reservation_v7 (
+  reservation_id   TEXT PRIMARY KEY,
+  room_type_id     TEXT NOT NULL,
+  guest_ref        TEXT NOT NULL,
+  pii_key_id       TEXT NOT NULL,
+  arrival_date     TEXT NOT NULL,
+  departure_date   TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'confirmed'
+                   CHECK (status IN ('confirmed', 'cancelled')),
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+)`,
+  `INSERT INTO reservation_v7 (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
+   SELECT reservation_id, room_type_id, 'legacy', 'legacy', arrival_date, departure_date, status, created_at, updated_at FROM reservation`,
+  `DROP TABLE reservation`,
+  `ALTER TABLE reservation_v7 RENAME TO reservation`,
+  `CREATE INDEX reservation_room_type_idx ON reservation (room_type_id)`,
+  `CREATE INDEX reservation_arrival_idx ON reservation (arrival_date)`,
+  `CREATE INDEX reservation_guest_ref_idx ON reservation (guest_ref)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0007_reservation_guest_ref.sql */
+export const RESERVATION_V7_SQL = RESERVATION_V7_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -231,5 +257,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 6,
     name: 'rate_day',
     statements: RATE_DAY_STATEMENTS,
+  },
+  {
+    version: 7,
+    name: 'reservation_guest_ref',
+    statements: RESERVATION_V7_STATEMENTS,
   },
 ] as const;

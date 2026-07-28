@@ -24,6 +24,10 @@ export const NOT_MODIFIABLE = 'not_modifiable' as const;
 export const RESTRICTION_VIOLATED = 'restriction_violated' as const;
 export const RATE_MISSING = 'rate_missing' as const;
 
+/** Guest / PII wire codes */
+export const GUEST_NOT_FOUND = 'guest_not_found' as const;
+export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;
+
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {

@@ -25,10 +25,23 @@ let ALARM_SCHEDULE_SQL;
 let RESERVATION_SQL;
 let RESERVATION_V5_SQL;
 let RATE_DAY_SQL;
+let RESERVATION_V7_SQL;
 let ORG_SPINE_SQL;
+let ORG_GUEST_PII_SQL;
 let PLATFORM_REGISTRY_SQL;
 try {
-  ({ FREEZE_GATE_SQL, ROOM_TYPE_SQL, ALARM_SCHEDULE_SQL, RESERVATION_SQL, RESERVATION_V5_SQL, RATE_DAY_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
+  ({
+    FREEZE_GATE_SQL,
+    ROOM_TYPE_SQL,
+    ALARM_SCHEDULE_SQL,
+    RESERVATION_SQL,
+    RESERVATION_V5_SQL,
+    RATE_DAY_SQL,
+    RESERVATION_V7_SQL,
+    ORG_SPINE_SQL,
+    ORG_GUEST_PII_SQL,
+    PLATFORM_REGISTRY_SQL,
+  } = await import(modPath));
 } catch (e) {
   console.error(
     'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
@@ -92,6 +105,15 @@ const doPropertyTargets = [
 `,
     sql: RATE_DAY_SQL,
   },
+  {
+    path: join(root, 'migrations/do-property/0007_reservation_guest_ref.sql'),
+    header: `-- PropertyDO reservation guest_ref + pii_key_id — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: RESERVATION_V7_SQL,
+  },
 ];
 
 const targets = [
@@ -104,6 +126,15 @@ const targets = [
 
 `,
     sql: ORG_SPINE_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0002_guest_pii.sql'),
+    header: `-- OrgDO guest PII + crypto-shredding keys — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_GUEST_PII_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

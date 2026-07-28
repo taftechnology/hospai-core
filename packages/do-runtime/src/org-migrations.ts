@@ -19,10 +19,60 @@ export const ORG_SPINE_STATEMENTS: string[] = [
 
 export const ORG_SPINE_SQL = ORG_SPINE_STATEMENTS.join(';\n\n') + ';\n';
 
+/** Shared with PropertyDO — org guest commands emit to the same outbox shape. */
+export const ORG_OUTBOX_IDEMPOTENCY_STATEMENTS: string[] = [
+  `CREATE TABLE outbox (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id    TEXT NOT NULL UNIQUE,
+  event_type  TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  acked       INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+)`,
+
+  `CREATE TABLE idempotency (
+  key                 TEXT PRIMARY KEY,
+  request_fingerprint TEXT NOT NULL,
+  response            TEXT NOT NULL,
+  created_at          INTEGER NOT NULL
+)`,
+];
+
+export const GUEST_PII_STATEMENTS: string[] = [
+  `CREATE TABLE data_key (
+  pii_key_id    TEXT PRIMARY KEY,
+  scope         TEXT NOT NULL CHECK (scope IN ('guest', 'staff')),
+  subject_id    TEXT NOT NULL,
+  wrapped_key   BLOB NOT NULL,
+  created_at    INTEGER NOT NULL,
+  shredded_at   INTEGER
+)`,
+
+  `CREATE UNIQUE INDEX data_key_active_subject ON data_key(scope, subject_id) WHERE shredded_at IS NULL`,
+
+  `CREATE TABLE guest (
+  guest_id        TEXT PRIMARY KEY,
+  pii_key_id      TEXT NOT NULL,
+  profile_cipher  BLOB NOT NULL,
+  profile_iv      BLOB NOT NULL,
+  erased_at       INTEGER,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  FOREIGN KEY (pii_key_id) REFERENCES data_key(pii_key_id)
+)`,
+];
+
+export const ORG_GUEST_PII_SQL = [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS].join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
     name: '0001_org_spine',
     statements: ORG_SPINE_STATEMENTS,
+  },
+  {
+    version: 2,
+    name: '0002_guest_pii',
+    statements: [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS],
   },
 ] as const;

@@ -29,6 +29,9 @@ importers:
       '@hospai/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@hospai/crypto-shredding':
+        specifier: workspace:*
+        version: link:../../packages/crypto-shredding
       '@hospai/do-runtime':
         specifier: workspace:*
         version: link:../../packages/do-runtime
@@ -124,6 +127,15 @@ importers:
       zod:
         specifier: ^3.24.2
         version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
+  packages/crypto-shredding:
     devDependencies:
       typescript:
         specifier: ^5.8.2

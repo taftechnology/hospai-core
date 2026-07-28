@@ -18,6 +18,8 @@ export type PmsEnv = {
   HOSPAI_JURISDICTION_MODE?: string;
   /** Allow X-Dev-Actor header auth; requires HOSPAI_UNSAFE_LOCAL=1. Absent in production. */
   HOSPAI_ALLOW_DEV_ACTOR?: string;
+  /** Vitest-only: 64-char hex org master key for guest PII envelope encryption. */
+  HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */
   LEDGER_PROP_SEED?: string;
 };

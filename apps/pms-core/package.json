@@ -12,6 +12,7 @@
   },
     "dependencies": {
     "@hospai/contracts": "workspace:*",
+    "@hospai/crypto-shredding": "workspace:*",
     "@hospai/do-runtime": "workspace:*",
     "@hospai/kernel": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",

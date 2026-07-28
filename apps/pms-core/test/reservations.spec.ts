@@ -14,6 +14,8 @@ import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
+const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+
 function propertyStub(name: string) {
   return resolvePropertyStub(env.PROPERTY_DO, {
     orgId: 'org_test',
@@ -75,6 +77,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_1',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
@@ -98,6 +102,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_a',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -124,6 +130,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_gap',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -143,6 +151,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_idem',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -161,6 +171,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_arch',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: '2026-08-01',
       departureDate: '2026-08-02',
     };
@@ -196,6 +208,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_o1',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -240,6 +254,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_l1',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -294,6 +310,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_cfg1',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -362,6 +380,8 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_cancel_1',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
@@ -391,6 +411,8 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_dbl',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
@@ -418,6 +440,8 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_idem_cancel',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
@@ -444,6 +468,8 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_under',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
@@ -482,6 +508,8 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_ext',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -515,6 +543,8 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_short',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -546,6 +576,8 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_rt',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -584,6 +616,8 @@ describe('PropertyDO reservations.modify', () => {
     const first = {
       reservationId: 'res_keep',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -592,6 +626,8 @@ describe('PropertyDO reservations.modify', () => {
     const blocker = {
       reservationId: 'res_block',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: extensionNight,
       departureDate: addDays(extensionNight, 1),
     };
@@ -622,6 +658,8 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_idem_mod',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -651,6 +689,8 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_mod_cancel',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -694,6 +734,8 @@ describe('PropertyDO reservation precondition replay', () => {
     const blockInput = {
       reservationId: 'res_block',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -704,6 +746,8 @@ describe('PropertyDO reservation precondition replay', () => {
     const guestInput = {
       reservationId: 'res_guest',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -734,6 +778,8 @@ describe('PropertyDO reservation precondition replay', () => {
     const guestInput = {
       reservationId: 'res_gap',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: departure,
     };
@@ -777,6 +823,8 @@ describe('PropertyDO reservation precondition replay', () => {
     const guestInput = {
       reservationId: 'res_restrict',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: addDays(arrival, 2),
     };

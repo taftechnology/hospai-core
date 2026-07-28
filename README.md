@@ -4,15 +4,16 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`**, the **night audit spine**, the full **`reservations` create/cancel/modify spine**, **`restrictions.upsert_day`** (evaluated in the book txn), and **`rates.upsert_day`** (materialized nightly quotes) — are done.
+Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`**, the **night audit spine**, the full **`reservations` create/cancel/modify spine**, **`restrictions.upsert_day`**, **`rates.upsert_day`**, and **guests + crypto-shredding** (OrgDO encrypted PII, reservation `guest_ref`, §4.8 event contract) — are done.
 
 ### Next (blocks bookable product)
 
-Ledger, restrictions, and quotes are proven at the DO layer; a sellable product still needs:
+Ledger, restrictions, rates, and guest PII are proven at the DO layer; a sellable product still needs:
 
 - **Rate plan derivation graph** (OrgDO definitions → materialized `rate_day` workflow)
-- Queues `EVENTS_QUEUE` consumer path (in-DO flush works today)
-- Real night-audit step bodies, clear-halt, guest/folio domain
+- Queues `EVENTS_QUEUE` consumer path (in-DO `flushOutbox` exists; nothing drains it in production yet)
+- Real night-audit step bodies, clear-halt, folio domain
+- LaneGuard enforcement on catalog lanes
 
 ```bash
 pnpm install

@@ -6,6 +6,8 @@ import { enumerateStayDates } from '@hospai/pms-reservations';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
+const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+
 function mulberry32(seed: number) {
   return () => {
     seed |= 0;
@@ -113,6 +115,8 @@ describe('PropertyDO sold ledger property tests', () => {
         const input = {
           reservationId: id,
           roomTypeId: 'rt_king',
+          guestRef: LEGACY_GUEST.guestRef,
+          piiKeyId: LEGACY_GUEST.piiKeyId,
           arrivalDate: arrival,
           departureDate: departure,
         };

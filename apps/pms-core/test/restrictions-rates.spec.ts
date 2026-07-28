@@ -5,6 +5,8 @@ import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
+const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+
 function propertyStub(name: string) {
   return resolvePropertyStub(env.PROPERTY_DO, {
     orgId: 'org_test',
@@ -68,6 +70,8 @@ describe('PropertyDO restrictions + rates', () => {
     const book = {
       reservationId: 'res_min',
       roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
       arrivalDate: arrival,
       departureDate: addDays(arrival, 2),
     };

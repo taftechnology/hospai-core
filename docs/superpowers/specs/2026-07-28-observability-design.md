@@ -132,18 +132,9 @@ async function handleV1(
 
 **Fail-closed routes** (401, 404 membership, 402, 503) log at `info` with `status` — not `error`, unless an unexpected throw escapes `handleV1`.
 
-**Unhandled throws** must still produce an access log — the wrapper catches, logs at `error` with `status: 500` + `request_id`, then re-throws:
+**Unhandled throws** must still produce an access log — the wrapper catches, logs at `error` with `status: 500` + `request_id`, then re-throws (see snippet above).
 
-```ts
-try {
-  const response = await handleV1(request, env, ctx);
-  logInfo(ctx, { msg: 'http.request', …, status: response.status, duration_ms: … });
-  return response;
-} catch (e) {
-  logError(ctx, { msg: 'http.request', …, status: 500, duration_ms: …, error: String(e) });
-  throw e;
-}
-```
+**Outbox flush logging (normative).** After each outbox alarm handler run, when `flushed > 0 || unackedCount > 0`, log `outbox.flush` with `flushed`, `backlog`, `unacked_count`, `oldest_created_at` and tag `property_id` or `org_id`. Quiet idle sweeps (empty outbox, nothing flushed) stay silent. `getOutboxBacklog()` RPC on PropertyDO + OrgDO exposes the snapshot for tests and future admin surfaces; `outboxUnackedCount()` keeps a COUNT-only query.
 
 **Unauthenticated** (`resolveActor` returns 401): log line has `status: 401`, **`user_id` omitted** (never set on `ctx`).
 
@@ -212,7 +203,8 @@ Dedupe hit: `msg: 'event.dedupe_skip'` at `info`.
 | `apps/pms-core/package.json` | add `@hospai/observability` dependency |
 | `apps/pms-core/src/index.ts` | `handleV1` + request logging wrapper |
 | `apps/pms-core/src/event-consumer.ts` | consumer logs |
-| `apps/pms-core/src/property-do.ts` | backlog snapshot helper; flush/defer logs (defer log lands with LaneGuard) |
+| `apps/pms-core/src/outbox-observability.ts` | gated `outbox.flush` log helper |
+| `apps/pms-core/src/property-do.ts` | flush log in alarm + `getOutboxBacklog()` |
 | `apps/pms-core/src/org-do.ts` | same |
 | `apps/pms-core/test/observability.spec.ts` | tag presence tests |
 
@@ -225,8 +217,11 @@ Dedupe hit: `msg: 'event.dedupe_skip'` at `info`.
 5. **402/404/503 logged** — entitlement denial and membership 404 produce access log lines with correct `status` (proves wrapper runs on early returns).
 6. **Outbox snapshot** — append unacked row → `outboxBacklogSnapshot` returns `unackedCount: 1` and correct `oldestCreatedAt`.
 7. **Queue consumer log** — produce event → consume → log line contains `event_id`, `event_type`, `source` ids.
-8. **Unhandled throw logged** — forced throw inside `handleV1` → one `error`-level `http.request` line with `request_id`, `status: 500`, then 500 to caller.
-9. **No PII in logs** — guest event consumer log does not contain guest display name (grep test).
+9. **Outbox flush log** — config put → alarm flush → `outbox.flush` line with `unacked_count`, `oldest_created_at`, `property_id`; idle empty sweep silent.
+10. **getOutboxBacklog RPC** — unacked row → returns count + oldest timestamp.
+11. **Unhandled throw logged** — forced throw inside `handleV1` → one `error`-level `http.request` line with `request_id`, `status: 500`, then 500 to caller.
+12. **No PII in logs** — guest event consumer log does not contain guest display name (grep test).
+13. **Invalid orgId on property create** — access log omits `org_id` (validate before assign).
 
 ## Deployment ordering
 

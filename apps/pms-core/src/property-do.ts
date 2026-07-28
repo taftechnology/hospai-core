@@ -75,6 +75,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
+import { logOutboxFlushIfNeeded } from './outbox-observability.js';
 
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
@@ -705,8 +706,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       outbox: async () => {
-        const { flushed, backlog } = await this.flushOutboxToQueue();
-        this.rescheduleOutboxAfterFlush(flushed, backlog);
+        const result = await this.flushOutboxToQueue();
+        this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
+        logOutboxFlushIfNeeded(
+          this.ctx.storage.sql,
+          { propertyId: this.getPropertyIdSync() ?? undefined },
+          result,
+        );
       },
       'night-audit': async () => {
         // Always advance to the next calendar audit_time occurrence *before* creating the
@@ -744,6 +750,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.assertUnsafeLocal('runOutboxAlarmForTest');
     const result = await this.flushOutboxToQueue(opts);
     this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
+    logOutboxFlushIfNeeded(
+      this.ctx.storage.sql,
+      { propertyId: this.getPropertyIdSync() ?? undefined },
+      result,
+    );
     return result;
   }
 
@@ -2583,7 +2594,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async outboxUnackedCount(): Promise<number> {
-    return outboxBacklogSnapshot(this.ctx.storage.sql).unackedCount;
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async getOutboxBacklog(): Promise<{ unackedCount: number; oldestCreatedAt: number | null }> {
+    return outboxBacklogSnapshot(this.ctx.storage.sql);
   }
 
   async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {

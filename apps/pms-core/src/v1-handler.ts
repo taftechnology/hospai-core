@@ -58,13 +58,13 @@ export async function handleV1(
   const propertyCreate = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
   if (request.method === 'POST' && propertyCreate) {
     const orgId = decodeURIComponent(propertyCreate[1]!);
-    ctx.orgId = orgId;
     try {
       validateTenantId(orgId);
     } catch (e) {
       if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
       throw e;
     }
+    ctx.orgId = orgId;
 
     const memberDenied = await requireOrgMember(env, orgId, actor.userId);
     if (memberDenied) return memberDenied;

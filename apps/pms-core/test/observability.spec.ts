@@ -5,8 +5,19 @@ import { outboxBacklogSnapshot } from '@hospai/do-runtime';
 import * as provision from '../src/provision.js';
 import worker from '../src/index.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, cancelSubscription } from '../src/registry.js';
-import { provisionedOrg } from './fixtures';
+import { provisionedOrg, provisionedPropertyStub } from './fixtures';
 import { createGuest } from './guest-helpers';
+import { fingerprintPayload } from '@hospai/contracts';
+
+async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
+  const fingerprint = await fingerprintPayload({
+    key,
+    value,
+    actor: meta.actor,
+    reason: meta.reason,
+  });
+  return { key: `idem-${key}-${fingerprint.slice(0, 12)}`, fingerprint };
+}
 
 async function postOrg(orgId: string, name: string, actor: string) {
   return worker.fetch(
@@ -218,6 +229,111 @@ describe('observability (Phase 0)', () => {
     });
     const serialized = JSON.stringify(capture.lines);
     expect(serialized).not.toContain(displayName);
+    capture.restore();
+  });
+
+  it('invalid orgId on property create omits org_id from access log', async () => {
+    const capture = installLogCapture();
+    const res = await worker.fetch(
+      new Request('http://localhost/v1/orgs/org%2Finvalid/properties', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': 'user_bad' },
+        body: JSON.stringify({
+          propertyId: 'prop_x',
+          name: 'Bad',
+          timeZone: 'UTC',
+          currency: 'USD',
+        }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(400);
+    const log = httpRequestLogs(capture.lines)[0];
+    expect(log).toMatchObject({ status: 400, user_id: 'user_bad' });
+    expect(log).not.toHaveProperty('org_id');
+    capture.restore();
+  });
+
+  it('getOutboxBacklog RPC exposes oldest unacked created_at', async () => {
+    const name = `prop_backlog_${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const meta = { actor: 'tester', reason: 'backlog-rpc' };
+    const key = 'pms.availability.allow_overbooking';
+    expect(
+      await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta)),
+    ).toMatchObject({ ok: true });
+
+    const backlog = await stub.getOutboxBacklog();
+    expect(backlog.unackedCount).toBeGreaterThan(0);
+    expect(typeof backlog.oldestCreatedAt).toBe('number');
+  });
+
+  it('outbox.flush log includes backlog age when rows were flushed', async () => {
+    const name = `prop_flush_${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const meta = { actor: 'tester', reason: 'flush-log' };
+    const key = 'pms.availability.allow_overbooking';
+    expect(
+      await stub.tryPutDomainConfig(key, false, meta, await configIdem(key, false, meta)),
+    ).toMatchObject({ ok: true });
+    expect((await stub.getOutboxBacklog()).oldestCreatedAt).not.toBeNull();
+
+    const capture = installLogCapture();
+    await stub.runOutboxAlarmForTest();
+
+    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
+    expect(flushLog).toMatchObject({
+      level: 'info',
+      module_id: 'pms.core',
+      property_id: name,
+      flushed: expect.any(Number),
+      backlog: expect.any(Boolean),
+    });
+    expect((flushLog?.flushed as number) ?? 0).toBeGreaterThan(0);
+    expect(typeof flushLog?.unacked_count).toBe('number');
+    // Fully drained: oldest_created_at is null; partial backlog would carry a timestamp.
+    if ((flushLog?.unacked_count as number) > 0) {
+      expect(typeof flushLog?.oldest_created_at).toBe('number');
+    } else {
+      expect(flushLog?.oldest_created_at).toBeNull();
+    }
+    capture.restore();
+  });
+
+  it('outbox.flush log carries oldest_created_at when backlog remains', async () => {
+    const name = `prop_partial_${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const meta = { actor: 'tester', reason: 'partial-flush' };
+    const key = 'pms.availability.allow_overbooking';
+    for (const value of [true, false]) {
+      expect(
+        await stub.tryPutDomainConfig(key, value, meta, await configIdem(`${key}-${value}`, value, meta)),
+      ).toMatchObject({ ok: true });
+    }
+    expect(await stub.outboxUnackedCount()).toBeGreaterThanOrEqual(2);
+
+    const capture = installLogCapture();
+    await stub.runOutboxAlarmForTest({ maxMessages: 1 });
+
+    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
+    expect(flushLog).toMatchObject({
+      msg: 'outbox.flush',
+      property_id: name,
+      flushed: 1,
+    });
+    expect((flushLog?.unacked_count as number) ?? 0).toBeGreaterThan(0);
+    expect(typeof flushLog?.oldest_created_at).toBe('number');
+    capture.restore();
+  });
+
+  it('idle outbox sweep with empty backlog emits no outbox.flush log', async () => {
+    const name = `prop_quiet_${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    expect(await stub.getOutboxBacklog()).toEqual({ unackedCount: 0, oldestCreatedAt: null });
+
+    const capture = installLogCapture();
+    await stub.runOutboxAlarmForTest();
+    expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
     capture.restore();
   });
 });

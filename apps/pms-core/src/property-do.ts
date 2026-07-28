@@ -33,6 +33,8 @@ import {
   AlarmScheduler,
   drainOutbox,
   freeAvailability,
+  LaneGuard,
+  type LaneGuardOptions,
   migrateSql,
   outboxBacklogSnapshot,
   runIdempotent,
@@ -75,7 +77,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
-import { runOutboxAlarmFlush } from './outbox-observability.js';
+import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
 
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
@@ -287,6 +289,7 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
+  private lanes = new LaneGuard();
   private readonly entitlementCache = new EntitlementDoCache();
 
   /**
@@ -314,6 +317,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }
       }
     });
+  }
+
+  private outboxAlarmContext(): OutboxAlarmContext {
+    return {
+      sql: this.ctx.storage.sql,
+      tags: { propertyId: this.getPropertyIdSync() ?? undefined },
+      lanes: this.lanes,
+      upsertOutboxSchedule: (nextRunAt) => this.scheduler.upsertSchedule('outbox', nextRunAt),
+    };
   }
 
   /**
@@ -706,9 +718,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       outbox: async () => {
-        await runOutboxAlarmFlush(
-          this.ctx.storage.sql,
-          { propertyId: this.getPropertyIdSync() ?? undefined },
+        await runOutboxAlarmStep(
+          this.outboxAlarmContext(),
           () => this.flushOutboxToQueue(),
           (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
         );
@@ -741,18 +752,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
   }
 
-  /** Test helper: run the outbox alarm handler path (flush + reschedule). */
+  /** Test helper: run the outbox alarm handler path (flush + reschedule). Returns null when deferred. */
   async runOutboxAlarmForTest(opts?: {
     maxMessages?: number;
     maxBytes?: number;
-  }): Promise<{ flushed: number; backlog: boolean }> {
+  }): Promise<{ flushed: number; backlog: boolean } | null> {
     this.assertUnsafeLocal('runOutboxAlarmForTest');
-    return runOutboxAlarmFlush(
-      this.ctx.storage.sql,
-      { propertyId: this.getPropertyIdSync() ?? undefined },
+    return runOutboxAlarmStep(
+      this.outboxAlarmContext(),
       () => this.flushOutboxToQueue(opts),
       (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
     );
+  }
+
+  /** Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state). */
+  async resetLaneGuardForTest(opts?: LaneGuardOptions): Promise<void> {
+    this.assertUnsafeLocal('resetLaneGuardForTest');
+    this.lanes = new LaneGuard(opts);
   }
 
   /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
@@ -1086,6 +1102,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; key: string; version: number; events: string[] }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1274,6 +1291,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; roomTypeId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1365,6 +1383,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof OVERSELL; dates: string[] }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1504,6 +1523,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ARCHIVE_BLOCKED }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1621,6 +1641,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1775,6 +1796,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -1900,6 +1922,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -2243,6 +2266,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -2306,6 +2330,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -2480,6 +2505,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);

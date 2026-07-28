@@ -15,6 +15,8 @@ import {
   AlarmScheduler,
   drainOutbox,
   migrateSql,
+  LaneGuard,
+  type LaneGuardOptions,
   outboxBacklogSnapshot,
   runIdempotent,
   IdempotencyKeyReused,
@@ -31,7 +33,7 @@ import {
 } from '@hospai/crypto-shredding';
 import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
-import { runOutboxAlarmFlush } from './outbox-observability.js';
+import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
 import { SqlKeyStore } from './org-key-store.js';
 
 class GuestExistsError extends Error {
@@ -70,6 +72,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
   private readonly entitlementCache = new EntitlementDoCache();
   private readonly scheduler: AlarmScheduler;
+  private lanes = new LaneGuard();
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -147,6 +150,15 @@ export class OrgDO extends DurableObject<PmsEnv> {
     appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
   }
 
+  private outboxAlarmContext(): OutboxAlarmContext {
+    return {
+      sql: this.ctx.storage.sql,
+      tags: { orgId: this.getOrgIdSync() ?? undefined },
+      lanes: this.lanes,
+      upsertOutboxSchedule: (nextRunAt) => this.scheduler.upsertSchedule('outbox', nextRunAt),
+    };
+  }
+
   private rescheduleOutboxAfterFlush(flushed: number, backlog: boolean): void {
     const delay =
       flushed === 0 ? OUTBOX_SWEEP_INTERVAL_MS : backlog ? OUTBOX_BACKLOG_DELAY_MS : OUTBOX_SWEEP_INTERVAL_MS;
@@ -165,14 +177,19 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       outbox: async () => {
-        await runOutboxAlarmFlush(
-          this.ctx.storage.sql,
-          { orgId: this.getOrgIdSync() ?? undefined },
+        await runOutboxAlarmStep(
+          this.outboxAlarmContext(),
           () => this.flushOutboxToQueue(),
           (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
         );
       },
     });
+  }
+
+  /** Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state). */
+  async resetLaneGuardForTest(opts?: LaneGuardOptions): Promise<void> {
+    this.assertUnsafeLocal('resetLaneGuardForTest');
+    this.lanes = new LaneGuard(opts);
   }
 
   /** Test helper (unsafe-local only): invoke `alarm()` directly. */
@@ -320,6 +337,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -392,6 +410,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
@@ -446,6 +465,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof IDEM_KEY_REUSED | string }
   > {
+    this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);

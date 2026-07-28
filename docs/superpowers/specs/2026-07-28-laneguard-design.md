@@ -1,7 +1,7 @@
 # LaneGuard (Phase 0 — cooperative admission control)
 
 **Date:** 2026-07-28  
-**Status:** Draft — pending review  
+**Status:** Approved  
 **Sources:** ARCHITECTURE.md §4.2, §4.4; queues consumer spec; command catalog
 
 ## Purpose

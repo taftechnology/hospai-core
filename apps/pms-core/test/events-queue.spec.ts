@@ -198,7 +198,8 @@ describe('Queues consumer (Phase 0)', () => {
 
     await stub.setAlarmScheduleForTest('outbox', Date.now() - 1000);
     const before = Date.now();
-    const { backlog } = await stub.runOutboxAlarmForTest({ maxMessages: 1 });
+    await stub.resetLaneGuardForTest();
+    const { backlog } = (await stub.runOutboxAlarmForTest({ maxMessages: 1 }))!;
     expect(backlog).toBe(true);
 
     const schedule = await stub.getAlarmSchedule('outbox');

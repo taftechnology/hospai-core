@@ -279,6 +279,7 @@ describe('observability (Phase 0)', () => {
     expect((await stub.getOutboxBacklog()).oldestCreatedAt).not.toBeNull();
 
     const capture = installLogCapture();
+    await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest();
 
     const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
@@ -313,6 +314,7 @@ describe('observability (Phase 0)', () => {
     expect(await stub.outboxUnackedCount()).toBeGreaterThanOrEqual(2);
 
     const capture = installLogCapture();
+    await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest({ maxMessages: 1 });
 
     const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
@@ -332,6 +334,7 @@ describe('observability (Phase 0)', () => {
     expect(await stub.getOutboxBacklog()).toEqual({ unackedCount: 0, oldestCreatedAt: null });
 
     const capture = installLogCapture();
+    await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest();
     expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
     expect(capture.lines.some((l) => l.msg === 'outbox.flush_failed')).toBe(false);
@@ -353,6 +356,7 @@ describe('observability (Phase 0)', () => {
       .mockRejectedValueOnce(new Error('send failed'));
 
     const capture = installLogCapture();
+    await stub.resetLaneGuardForTest();
     await expect(stub.runOutboxAlarmForTest()).rejects.toThrow('send failed');
 
     const failLog = capture.lines.find((l) => l.msg === 'outbox.flush_failed');

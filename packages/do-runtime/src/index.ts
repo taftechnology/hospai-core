@@ -74,6 +74,13 @@ export {
 export { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, type AlarmHandler } from './alarm-scheduler.js';
 
 export {
+  DEFAULT_QUIET_MS,
+  DEFAULT_MAX_CHUNK_MS,
+  LaneGuard,
+  type LaneGuardOptions,
+} from './lane-guard.js';
+
+export {
   ORG_MIGRATIONS,
   ORG_SPINE_SQL,
   ORG_SPINE_STATEMENTS,

@@ -363,7 +363,6 @@ export const COMMAND_CATALOG: CommandEntry[] = [
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [
-  { id: 'availability.book', reason: 'Ledger decrement in same txn as reservation (§7.1)' },
   { id: 'rooms.set_ooo_range', reason: 'Explicit OOO delta on blocked' },
   { id: 'restrictions.upsert_day', reason: 'restriction_day ledger' },
   { id: 'folio.transfer_charge', reason: 'Window routing / night-audit auto-transfer' },

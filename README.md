@@ -4,18 +4,17 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`** (room types + 365-day horizon seed), and the **[night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)** — `AlarmScheduler` → `NightAuditWorkflow` (registry-resolved only) → `runAuditStep`, with `ROLL_BUSINESS_DATE` set-reconciling the horizon to `business_date + (HORIZON_DAYS - 1)` and never-dark rescheduling (post-roll, provision, and `pms.night_audit.audit_time` config-matrix hooks) — are done.
+Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`** (room types + 365-day horizon seed), the **[night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)**, and **`reservations.create` + `availability.book`** (ledger `sold` increment in the same txn as reservation insert) — are done.
 
 ### Next (blocks bookable product)
 
-The night-audit *spine* is proven, not a sellable product yet — every step but `ROLL_BUSINESS_DATE` is still a stub (see spec Follow-ons):
+First booking against the ledger is proven; a sellable product still needs:
 
-- Real `PRE_CHECK` + provisional-command queue drain/halt (§4.6)
-- Real `POST_ROOM_CHARGES` / no-show / cashier-shift / report / archive step bodies
-- Clear-halt operator command + UI (halt is currently derived-only, never cleared)
-- Reservations / booking flow itself — nothing in this repo yet consumes the availability ledger to actually sell a room
-
-Pick up the reservation/booking domain next, or harden a stub audit step, per priority. (Earlier boarding note: [horizon-extension-followon](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md).)
+- **Rates** — materialized nightly rates before meaningful quotes
+- **`reservations.cancel` / modify** — release sold back to the ledger
+- **Restriction evaluation** (`restriction_day` in the book txn)
+- Queues `EVENTS_QUEUE` consumer path (in-DO flush works today)
+- Real night-audit step bodies, clear-halt, guest/folio domain
 
 ```bash
 pnpm install

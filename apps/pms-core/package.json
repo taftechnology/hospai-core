@@ -15,6 +15,7 @@
     "@hospai/do-runtime": "workspace:*",
     "@hospai/kernel": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
+    "@hospai/pms-reservations": "workspace:*",
     "@hospai/tenant-router": "workspace:*"
   },
   "devDependencies": {

@@ -6,9 +6,11 @@ import {
   getConfigEntry,
   IDEM_KEY_REUSED,
   NOT_FOUND,
+  NO_AVAILABILITY,
   OVERSELL,
   PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
+  UNBOOKABLE,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -32,6 +34,11 @@ import {
   oversellDates,
   type InventoryRow,
 } from '@hospai/pms-inventory';
+import {
+  enumerateStayDates,
+  firstUnavailableNight,
+  type AvailabilitySnapshot,
+} from '@hospai/pms-reservations';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
@@ -361,6 +368,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (rows[0]) return JSON.parse(rows[0].value_json) as string;
     const entry = getConfigEntry('pms.night_audit.audit_time');
     return (entry?.default as string) ?? '02:00';
+  }
+
+  /** Sync read of a DOMAIN config value — stored row or register default. */
+  private readConfigValueSync(key: string): unknown {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, key)
+      .toArray() as Array<{ value_json: string }>;
+    if (rows.length > 0) return JSON.parse(rows[0]!.value_json);
+    const entry = getConfigEntry(key);
+    if (!entry) throw new UndeclaredConfigError(key);
+    return entry.default;
   }
 
   /**
@@ -1213,6 +1231,151 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ArchiveBlockedError) return { ok: false, error: ARCHIVE_BLOCKED };
       if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Create a confirmed reservation and increment `sold` on every stay night in one atomic
+   * write. Implements catalog `reservations.create` / platform gap `availability.book`.
+   * Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate }`.
+   */
+  async tryCreateReservation(
+    input: {
+      reservationId: string;
+      roomTypeId: string;
+      arrivalDate: string;
+      departureDate: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: typeof NO_AVAILABILITY; date: string }
+    | { ok: false; error: typeof UNBOOKABLE; date: string }
+    | { ok: false; error: string }
+  > {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(input.arrivalDate) || !dateRe.test(input.departureDate)) {
+      return { ok: false, error: 'invalid_date' };
+    }
+    if (input.arrivalDate >= input.departureDate) {
+      return { ok: false, error: 'invalid_stay_range' };
+    }
+
+    let nights: string[];
+    try {
+      nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+    } catch {
+      return { ok: false, error: 'invalid_stay_range' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const roomRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
+            .toArray() as Array<{ status: string }>;
+          if (!roomRows[0] || roomRows[0].status !== 'active') {
+            return { ok: false as const, error: NOT_FOUND };
+          }
+
+          const allowOverbooking = this.readConfigValueSync('pms.availability.allow_overbooking') === true;
+          const extraAllowance = allowOverbooking
+            ? Number(this.readConfigValueSync('pms.availability.oversell_allowance'))
+            : 0;
+
+          const rowsByDate = new Map<string, AvailabilitySnapshot>();
+          for (const stayDate of nights) {
+            const rows = this.ctx.storage.sql
+              .exec(
+                `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                input.roomTypeId,
+                stayDate,
+              )
+              .toArray() as Array<{
+              physical: number;
+              blocked: number;
+              held: number;
+              sold: number;
+              oversell: number;
+            }>;
+            if (rows.length === 0) {
+              return { ok: false as const, error: UNBOOKABLE, date: stayDate };
+            }
+            const row = rows[0]!;
+            rowsByDate.set(stayDate, {
+              stayDate,
+              physical: row.physical,
+              blocked: row.blocked,
+              held: row.held,
+              sold: row.sold,
+              oversell: row.oversell,
+            });
+          }
+
+          const unavailable = firstUnavailableNight(nights, rowsByDate, extraAllowance);
+          if (unavailable) {
+            return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
+          }
+
+          const now = Date.now();
+          for (const stayDate of nights) {
+            this.ctx.storage.sql.exec(
+              `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+              input.roomTypeId,
+              stayDate,
+            );
+          }
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO reservation (reservation_id, room_type_id, arrival_date, departure_date, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'confirmed', ?, ?)`,
+            input.reservationId,
+            input.roomTypeId,
+            input.arrivalDate,
+            input.departureDate,
+            now,
+            now,
+          );
+
+          const ariVersion = this.bumpAriVersionSync();
+          const fromDate = nights[0]!;
+          const toDate = nights[nights.length - 1]!;
+
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.created',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              roomTypeId: input.roomTypeId,
+              arrivalDate: input.arrivalDate,
+              departureDate: input.departureDate,
+              status: 'confirmed',
+            },
+          });
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+          });
+
+          return {
+            ok: true as const,
+            reservationId: input.reservationId,
+            ariVersion,
+            fromDate,
+            toDate,
+          };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

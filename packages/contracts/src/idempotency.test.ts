@@ -5,8 +5,10 @@ import {
   IDEM_KEY_REUSED,
   NOT_FOUND,
   OVERSELL,
+  NO_AVAILABILITY,
   PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
+  UNBOOKABLE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -33,6 +35,8 @@ describe('fingerprintPayload', () => {
     expect(ARCHIVE_BLOCKED).toBe('archive_blocked');
     expect(NOT_FOUND).toBe('not_found');
     expect(PROPERTY_ID_UNSET).toBe('property_id_unset');
+    expect(NO_AVAILABILITY).toBe('no_availability');
+    expect(UNBOOKABLE).toBe('unbookable');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

@@ -144,6 +144,24 @@ export const ALARM_SCHEDULE_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0003_alarm_schedule.sql */
 export const ALARM_SCHEDULE_SQL = ALARM_SCHEDULE_STATEMENTS.join(';\n\n') + ';\n';
 
+export const RESERVATION_STATEMENTS: string[] = [
+  `CREATE TABLE reservation (
+  reservation_id   TEXT PRIMARY KEY,
+  room_type_id     TEXT NOT NULL,
+  arrival_date     TEXT NOT NULL,
+  departure_date   TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'confirmed'
+                   CHECK (status IN ('confirmed')),
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+)`,
+  `CREATE INDEX reservation_room_type_idx ON reservation (room_type_id)`,
+  `CREATE INDEX reservation_arrival_idx ON reservation (arrival_date)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0004_reservation.sql */
+export const RESERVATION_SQL = RESERVATION_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -159,5 +177,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 3,
     name: 'alarm_schedule',
     statements: ALARM_SCHEDULE_STATEMENTS,
+  },
+  {
+    version: 4,
+    name: 'reservation',
+    statements: RESERVATION_STATEMENTS,
   },
 ] as const;

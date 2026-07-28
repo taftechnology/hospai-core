@@ -977,6 +977,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; key: string; version: number; events: string[] }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const entry = getConfigEntry(key);
     if (!entry) return { ok: false, error: `undeclared:${key}` };
     if (entry.class !== 'DOMAIN') {
@@ -1251,6 +1256,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof OVERSELL; dates: string[] }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const timeZone = this.readStoredTimeZoneSync();
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
@@ -1385,6 +1395,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ARCHIVE_BLOCKED }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const timeZone = this.readStoredTimeZoneSync();
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
@@ -2334,6 +2349,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     source?: string;
     businessDate?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     try {
       this.ctx.storage.sql.exec(
         `INSERT INTO folio_line (

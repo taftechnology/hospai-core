@@ -14,10 +14,11 @@ const doRuntimePath = join(root, 'packages/do-runtime/dist/index.js');
 
 let FEATURE_KEYS;
 let COMMAND_CATALOG;
+let ENTITLEMENT_FAIL_CLOSED_OPT_OUT;
 let PLATFORM_SEED_FEATURE_KEYS;
 
 try {
-  ({ FEATURE_KEYS, COMMAND_CATALOG } = await import(contractsPath));
+  ({ FEATURE_KEYS, COMMAND_CATALOG, ENTITLEMENT_FAIL_CLOSED_OPT_OUT } = await import(contractsPath));
   ({ PLATFORM_SEED_FEATURE_KEYS } = await import(doRuntimePath));
 } catch (e) {
   console.error('Build packages first: pnpm --filter @hospai/contracts build && pnpm --filter @hospai/do-runtime build');
@@ -26,12 +27,42 @@ try {
 }
 
 const allowed = new Set(FEATURE_KEYS);
+const optOut = new Set(ENTITLEMENT_FAIL_CLOSED_OPT_OUT);
 let failed = false;
 
 for (const entry of COMMAND_CATALOG) {
   if (!entry.entitlement) continue;
   if (!allowed.has(entry.entitlement)) {
     console.error(`Catalog entitlement not in FEATURE_KEYS: ${entry.id} → ${entry.entitlement}`);
+    failed = true;
+  }
+}
+
+for (const entry of COMMAND_CATALOG) {
+  if (entry.degraded !== 'FAIL_CLOSED') continue;
+  if (!entry.events?.length) continue;
+  if (optOut.has(entry.id)) continue;
+  if (!entry.entitlement) {
+    console.error(
+      `FAIL_CLOSED command missing entitlement (add entitlement or ENTITLEMENT_FAIL_CLOSED_OPT_OUT): ${entry.id}`,
+    );
+    failed = true;
+  }
+}
+
+for (const id of ENTITLEMENT_FAIL_CLOSED_OPT_OUT) {
+  const entry = COMMAND_CATALOG.find((c) => c.id === id);
+  if (!entry) {
+    console.error(`ENTITLEMENT_FAIL_CLOSED_OPT_OUT references unknown command: ${id}`);
+    failed = true;
+    continue;
+  }
+  if (entry.degraded !== 'FAIL_CLOSED' || !entry.events?.length) {
+    console.error(`ENTITLEMENT_FAIL_CLOSED_OPT_OUT entry is not FAIL_CLOSED with events: ${id}`);
+    failed = true;
+  }
+  if (entry.entitlement) {
+    console.error(`ENTITLEMENT_FAIL_CLOSED_OPT_OUT entry already has entitlement (remove from opt-out): ${id}`);
     failed = true;
   }
 }

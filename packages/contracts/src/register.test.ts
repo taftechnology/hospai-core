@@ -184,7 +184,8 @@ describe('command catalog', () => {
 
   it('documents platform gaps', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('availability.book');
-    expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(4);
+    expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('config.put_domain');
+    expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(3);
   });
 
   it('inventory.delete_room_type emits availability.changed', () => {

@@ -54,6 +54,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('stores DOMAIN config with audit trail and config.changed outbox', async () => {
     const stub = propertyStub(`cfg-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const meta = { actor: 'tester', reason: 'verification' };
     const idem = await configIdem('pms.availability.allow_overbooking', true, meta);
     const put = await stub.tryPutDomainConfig('pms.availability.allow_overbooking', true, meta, idem);
@@ -73,6 +74,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('replay same idempotency key does not double-write or double-emit', async () => {
     const stub = propertyStub(`idem-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const meta = { actor: 'tester', reason: 'replay' };
     const key = 'pms.availability.allow_overbooking';
     const idem = {
@@ -92,6 +94,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('fingerprint conflict returns idempotency_key_reused', async () => {
     const stub = propertyStub(`idem-conflict-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const meta = { actor: 'tester', reason: 'conflict' };
     const key = 'pms.availability.allow_overbooking';
     await stub.tryPutDomainConfig(key, true, meta, {
@@ -108,6 +111,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('drain without ack leaves rows; flush acks', async () => {
     const stub = propertyStub(`flush-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const meta = { actor: 'tester', reason: 'flush' };
     const key = 'pms.availability.allow_overbooking';
     await stub.tryPutDomainConfig(key, true, meta, {
@@ -154,6 +158,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('requires folio_window for folio_line FK', async () => {
     const stub = propertyStub(`folio-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     await stub.createFolioWindow({
       folioWindowId: 'fw_1',
       reservationId: 'res_1',
@@ -186,6 +191,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('night-audit lines require business_date (CHECK) and unique index', async () => {
     const stub = propertyStub(`audit-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     await stub.createFolioWindow({
       folioWindowId: 'fw_a',
       reservationId: 'RES1',

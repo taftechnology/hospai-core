@@ -109,4 +109,55 @@ describe('entitlements + kill-switch', () => {
     await stub.ensureMetaOrgId('org_other');
     expect(await stub.getOrgId()).toBe(orgId);
   });
+
+  it('PropertyDO cache refreshes after subscription is added on warm isolate', async () => {
+    const orgId = `org-cache-sub-${crypto.randomUUID()}`;
+    const propName = `prop-cache-sub-${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(propName, 'UTC', orgId);
+    await env.PLATFORM_DB.prepare(`DELETE FROM subscription WHERE org_id = ?`).bind(orgId).run();
+
+    const addInput = {
+      roomTypeId: 'rt_queen',
+      code: 'QUEEN',
+      name: 'Queen',
+      roomCount: 2,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    expect(await stub.tryAddRoomType(addInput, await idemFor('cache-sub-deny', addInput))).toEqual({
+      ok: false,
+      error: ENTITLEMENT_REQUIRED,
+    });
+
+    await seedSubscription(env, orgId, 'starter');
+    expect(
+      await stub.tryAddRoomType(addInput, await idemFor('cache-sub-allow', addInput)),
+    ).toMatchObject({ ok: true, roomTypeId: 'rt_queen' });
+  });
+
+  it('PropertyDO cache refreshes after subscription is removed on warm isolate', async () => {
+    const orgId = `org-cache-rm-${crypto.randomUUID()}`;
+    const propName = `prop-cache-rm-${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(propName, 'UTC', orgId);
+
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King',
+      roomCount: 2,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    expect(await stub.tryAddRoomType(addInput, await idemFor('cache-rm-add', addInput))).toMatchObject({
+      ok: true,
+    });
+
+    await env.PLATFORM_DB.prepare(`DELETE FROM subscription WHERE org_id = ?`).bind(orgId).run();
+
+    const updateInput = { roomTypeId: 'rt_king', name: 'Renamed King' };
+    expect(await stub.tryUpdateRoomType(updateInput, await idemFor('cache-rm-deny', updateInput))).toEqual({
+      ok: false,
+      error: ENTITLEMENT_REQUIRED,
+    });
+  });
 });

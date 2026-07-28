@@ -145,6 +145,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['folio.line_posted'],
     notes: 'Non-payment folio lines only.',
+    entitlement: 'pms.core',
   },
   {
     id: 'folio.authorize',
@@ -338,6 +339,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
+    entitlement: 'pms.core',
   },
   {
     id: 'inventory.delete_room_type',
@@ -346,6 +348,17 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'config.put_domain',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['config.changed'],
+    entitlement: 'pms.core',
+    notes: 'PropertyDO tryPutDomainConfig — DOMAIN class only.',
   },
   {
     id: 'restrictions.upsert_day',
@@ -403,7 +416,6 @@ export const PLATFORM_GAPS: PlatformGap[] = [
   { id: 'rooms.set_ooo_range', reason: 'Explicit OOO delta on blocked' },
   { id: 'folio.transfer_charge', reason: 'Window routing / night-audit auto-transfer' },
   { id: 'folio.split_charge_v2', reason: 'Reverse + two posts replacing mutate-in-place' },
-  { id: 'config.put_domain', reason: 'Write DOMAIN config with config.changed' },
 ];
 
 export const PROTOTYPE_ACTIONS = [

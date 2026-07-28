@@ -6,7 +6,8 @@ import { PiiVault } from './vault.js';
 
 const MASTER_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 
-/** Shared PiiVault + KeyStore checks — run against every production KeyStore implementation. */
+/** Shared PiiVault + KeyStore checks — run against every production KeyStore implementation.
+ *  pms-core imports via vitest/tsconfig alias `@hospai/crypto-shredding/keystore-conformance`. */
 export function describeKeyStoreConformance(name: string, createStore: () => KeyStore): void {
   describe(`KeyStore conformance (${name})`, () => {
     it('encrypt/decrypt round-trip', async () => {
@@ -16,6 +17,9 @@ export function describeKeyStoreConformance(name: string, createStore: () => Key
       const profile = { displayName: 'Ada Lovelace' };
       const sealed = await vault.encryptGuestProfile(piiKeyId, profile);
       expect(await vault.decryptGuestProfile(piiKeyId, sealed.ciphertext, sealed.iv)).toEqual(profile);
+      const record = store.get(piiKeyId)!;
+      expect(record.wrappedKey).toBeInstanceOf(Uint8Array);
+      expect(record.wrappedKey.byteLength).toBeGreaterThan(0);
     });
 
     it('shred destroys material and blocks decrypt', async () => {

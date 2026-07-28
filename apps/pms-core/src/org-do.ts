@@ -409,4 +409,17 @@ export class OrgDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ key_len: number | null }>;
     return (rows[0]?.key_len ?? 0) > 0;
   }
+
+  /** Test hook — read via SqlKeyStore.get() (ArrayBuffer → Uint8Array normalization path). */
+  async testGetDataKeyRecord(
+    piiKeyId: string,
+  ): Promise<{ wrappedKeyByteLength: number; shredded: boolean; wrappedKeyIsUint8Array: boolean } | null> {
+    const record = new SqlKeyStore(this.ctx.storage.sql).get(piiKeyId);
+    if (!record) return null;
+    return {
+      wrappedKeyByteLength: record.wrappedKey.byteLength,
+      shredded: record.shredded,
+      wrappedKeyIsUint8Array: record.wrappedKey instanceof Uint8Array,
+    };
+  }
 }

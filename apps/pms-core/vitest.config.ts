@@ -1,7 +1,17 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 export default defineWorkersConfig({
   test: {
+    alias: {
+      '@hospai/crypto-shredding/keystore-conformance': join(
+        root,
+        'packages/crypto-shredding/src/keystore-conformance.ts',
+      ),
+    },
     poolOptions: {
       workers: {
         wrangler: { configPath: './wrangler.jsonc' },

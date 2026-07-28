@@ -5,6 +5,13 @@ import type { GuestProfile, KeyScope, KeyStore } from './types.js';
 const WRAP_IV_BYTES = 12;
 const DATA_IV_BYTES = 12;
 
+async function generateAesKey(): Promise<CryptoKey> {
+  return (await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
+    'encrypt',
+    'decrypt',
+  ])) as CryptoKey;
+}
+
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   const out = new Uint8Array(a.length + b.length);
   out.set(a, 0);
@@ -20,10 +27,7 @@ export class PiiVault {
 
   async provisionKey(scope: KeyScope, subjectId: string): Promise<string> {
     const piiKeyId = generatePiiKeyId();
-    const dataKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
-      'encrypt',
-      'decrypt',
-    ]);
+    const dataKey = await generateAesKey();
     const wrapIv = crypto.getRandomValues(new Uint8Array(WRAP_IV_BYTES));
     const wrapped = new Uint8Array(
       await crypto.subtle.wrapKey('raw', dataKey, this.masterKey, { name: 'AES-GCM', iv: wrapIv }),
@@ -90,10 +94,7 @@ export class PiiVault {
     profileIv: Uint8Array;
   }> {
     const piiKeyId = generatePiiKeyId();
-    const dataKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
-      'encrypt',
-      'decrypt',
-    ]);
+    const dataKey = await generateAesKey();
     const wrapIv = crypto.getRandomValues(new Uint8Array(WRAP_IV_BYTES));
     const wrapped = new Uint8Array(
       await crypto.subtle.wrapKey('raw', dataKey, this.masterKey, { name: 'AES-GCM', iv: wrapIv }),

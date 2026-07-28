@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers", "vitest/globals"],
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@hospai/crypto-shredding/keystore-conformance": [
+        "../../packages/crypto-shredding/src/keystore-conformance.ts"
+      ]
+    }
   },
   "include": ["src", "test"]
 }

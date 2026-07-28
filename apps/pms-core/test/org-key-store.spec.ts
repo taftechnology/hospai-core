@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { KeyShreddedError, importMasterKeyHex, PiiVault } from '@hospai/crypto-shredding';
+import { describeKeyStoreConformance } from '@hospai/crypto-shredding/keystore-conformance';
 import type { SqlStorageLike } from '@hospai/do-runtime';
 import { SqlKeyStore } from '../src/org-key-store.js';
-
-const MASTER_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
 
 type DataKeyRow = {
   pii_key_id: string;
@@ -91,35 +89,9 @@ class DoBlobSql implements SqlStorageLike {
   }
 }
 
-describe('SqlKeyStore (DO ArrayBuffer BLOB)', () => {
-  it('encrypt/decrypt round-trip via PiiVault', async () => {
-    const store = new SqlKeyStore(new DoBlobSql());
-    const vault = new PiiVault(await importMasterKeyHex(MASTER_HEX), store);
-    const piiKeyId = await vault.provisionKey('guest', 'guest_1');
-    const profile = { displayName: 'Ada Lovelace' };
-    const sealed = await vault.encryptGuestProfile(piiKeyId, profile);
-    expect(await vault.decryptGuestProfile(piiKeyId, sealed.ciphertext, sealed.iv)).toEqual(profile);
-    expect(store.get(piiKeyId)!.wrappedKey).toBeInstanceOf(Uint8Array);
-    expect(store.get(piiKeyId)!.wrappedKey.byteLength).toBeGreaterThan(0);
-  });
+describeKeyStoreConformance('SqlKeyStore (DO ArrayBuffer BLOB)', () => new SqlKeyStore(new DoBlobSql()));
 
-  it('shred destroys material and blocks decrypt', async () => {
-    const store = new SqlKeyStore(new DoBlobSql());
-    const vault = new PiiVault(await importMasterKeyHex(MASTER_HEX), store);
-    const piiKeyId = await vault.provisionKey('guest', 'guest_1');
-    const sealed = await vault.encryptGuestProfile(piiKeyId, { displayName: 'Guest' });
-
-    expect(store.get(piiKeyId)!.wrappedKey.byteLength).toBeGreaterThan(0);
-    expect(vault.shredKey(piiKeyId)).toBe(true);
-
-    const after = store.get(piiKeyId)!;
-    expect(after.wrappedKey.byteLength).toBe(0);
-    expect(after.shredded).toBe(true);
-    await expect(vault.decryptGuestProfile(piiKeyId, sealed.ciphertext, sealed.iv)).rejects.toBeInstanceOf(
-      KeyShreddedError,
-    );
-  });
-
+describe('SqlKeyStore DO-specific', () => {
   it('get treats empty wrapped_key as shredded when shredded_at is cleared', () => {
     const sql = new DoBlobSql();
     const store = new SqlKeyStore(sql);

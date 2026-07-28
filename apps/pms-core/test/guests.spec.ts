@@ -101,6 +101,9 @@ describe('OrgDO guests + crypto-shredding', () => {
     const guestId = 'guest_fk_parent';
     const refs = await createGuest(org, guestId, 'FK Parent');
 
+    const before = await org.testGetDataKeyRecord(refs.piiKeyId);
+    expect(before).toMatchObject({ wrappedKeyIsUint8Array: true, shredded: false });
+    expect(before!.wrappedKeyByteLength).toBeGreaterThan(0);
     expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(true);
 
     const eraseInput = { guestId };
@@ -111,6 +114,8 @@ describe('OrgDO guests + crypto-shredding', () => {
     });
 
     expect(await org.getGuestPiiKeyId(guestId)).toBe(refs.piiKeyId);
+    const after = await org.testGetDataKeyRecord(refs.piiKeyId);
+    expect(after).toMatchObject({ wrappedKeyIsUint8Array: true, shredded: true, wrappedKeyByteLength: 0 });
     expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(false);
     await expect(org.readGuestProfile(guestId)).rejects.toThrow(/PII key shredded/);
   });

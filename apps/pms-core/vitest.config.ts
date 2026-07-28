@@ -11,6 +11,9 @@ export default defineWorkersConfig({
             HOSPAI_UNSAFE_LOCAL: '1',
             HOSPAI_JURISDICTION_MODE: 'simulate',
             HOSPAI_ALLOW_DEV_ACTOR: '1',
+            ...(process.env.LEDGER_PROP_SEED
+              ? { LEDGER_PROP_SEED: process.env.LEDGER_PROP_SEED }
+              : {}),
           },
         },
       },

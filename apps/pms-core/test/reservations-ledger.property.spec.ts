@@ -63,15 +63,25 @@ async function assertSoldMatchesReservations(stub: DurableObjectStub<PropertyDO>
   }
 }
 
-describe('PropertyDO sold ledger property tests', () => {
-  const defaultSeeds = [0xdecaf, 0xcafe, 0xbeef, 0xfeed, 0xface];
-  const seeds = process.env.LEDGER_PROP_SEED
-    ? [Number(process.env.LEDGER_PROP_SEED)]
-    : defaultSeeds;
+/** Resolved at module load inside the worker isolate via vitest miniflare.bindings. */
+function ledgerPropSeedCases(): Array<{ seed: number; label: string }> {
+  const override = env.LEDGER_PROP_SEED?.trim();
+  if (override) {
+    const parsed = Number(override);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`LEDGER_PROP_SEED must be numeric, got: ${override}`);
+    }
+    const seed = parsed >>> 0;
+    return [{ seed, label: `0x${seed.toString(16)}` }];
+  }
+  const defaults = [0xdecaf, 0xcafe, 0xbeef, 0xfeed, 0xface];
+  return defaults.map((seed) => ({ seed, label: `0x${seed.toString(16)}` }));
+}
 
-  it.each(seeds)(
-    'random create/cancel/modify sequences keep sold aligned (seed %#)',
-    async (seed) => {
+describe('PropertyDO sold ledger property tests', () => {
+  it.each(ledgerPropSeedCases())(
+    'random create/cancel/modify sequences keep sold aligned (seed $label)',
+    async ({ seed }) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
     const stub = await provisionedStub(name);
     const rand = mulberry32(seed);

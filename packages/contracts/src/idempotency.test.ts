@@ -11,6 +11,7 @@ import {
   UNBOOKABLE,
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
+  NOT_MODIFIABLE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -41,6 +42,7 @@ describe('fingerprintPayload', () => {
     expect(UNBOOKABLE).toBe('unbookable');
     expect(ALREADY_CANCELLED).toBe('already_cancelled');
     expect(LEDGER_INCONSISTENT).toBe('ledger_inconsistent');
+    expect(NOT_MODIFIABLE).toBe('not_modifiable');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

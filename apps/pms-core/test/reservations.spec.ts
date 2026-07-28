@@ -7,6 +7,7 @@ import {
   UNBOOKABLE,
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
+  NOT_MODIFIABLE,
 } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
@@ -35,11 +36,17 @@ async function idemFor(key: string, payload: unknown) {
   return { key, fingerprint: await fingerprintPayload(payload) };
 }
 
-async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: string, roomCount: number) {
+async function addRoomType(
+  stub: DurableObjectStub<PropertyDO>,
+  roomTypeId: string,
+  roomCount: number,
+  code = 'KING',
+  name = 'King Room',
+) {
   const input = {
     roomTypeId,
-    code: 'KING',
-    name: 'King Room',
+    code,
+    name,
     roomCount,
     maxOccupancy: 2,
     maxAdults: 2,
@@ -410,5 +417,218 @@ describe('PropertyDO reservations.cancel', () => {
     expect(result).toEqual({ ok: false, error: LEDGER_INCONSISTENT, date: arrival });
     expect(await stub.getReservationStatus('res_under')).toBe('confirmed');
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+  });
+});
+
+describe('PropertyDO reservations.modify', () => {
+  function addDays(iso: string, days: number): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+    return `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+  }
+
+  it('1. extend stay increments sold on the new night only', async () => {
+    const name = `res-mod-ext-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+    const extendedDeparture = addDays(arrival, 2);
+
+    const bookInput = {
+      reservationId: 'res_ext',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-ext', bookInput))).toMatchObject({
+      ok: true,
+    });
+    await stub.flushOutbox();
+
+    const modifyInput = {
+      reservationId: 'res_ext',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: extendedDeparture,
+    };
+    const result = await stub.tryModifyReservation(modifyInput, await idemFor('mod-ext', modifyInput));
+    expect(result).toMatchObject({ ok: true, reservationId: 'res_ext' });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect((await stub.readAvailabilityDay('rt_king', addDays(arrival, 1)))?.sold).toBe(1);
+    expect(await stub.listOutboxEventTypes()).toEqual(['reservation.modified', 'availability.changed']);
+  });
+
+  it('2. shorten stay decrements sold on the dropped night', async () => {
+    const name = `res-mod-short-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 2);
+    const shortenedDeparture = addDays(arrival, 1);
+    const secondNight = addDays(arrival, 1);
+
+    const bookInput = {
+      reservationId: 'res_short',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-short', bookInput))).toMatchObject({
+      ok: true,
+    });
+
+    const modifyInput = {
+      reservationId: 'res_short',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: shortenedDeparture,
+    };
+    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-short', modifyInput))).toMatchObject({
+      ok: true,
+    });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect((await stub.readAvailabilityDay('rt_king', secondNight))?.sold).toBe(0);
+  });
+
+  it('3. room type change moves sold between ledgers', async () => {
+    const name = `res-mod-rt-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    await addRoomType(stub, 'rt_queen', 5, 'QUEEN', 'Queen Room');
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+
+    const bookInput = {
+      reservationId: 'res_rt',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-rt', bookInput))).toMatchObject({
+      ok: true,
+    });
+    await stub.flushOutbox();
+
+    const modifyInput = {
+      reservationId: 'res_rt',
+      roomTypeId: 'rt_queen',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-rt', modifyInput))).toMatchObject({
+      ok: true,
+    });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_queen', arrival))?.sold).toBe(1);
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'reservation.modified',
+      'availability.changed',
+      'availability.changed',
+    ]);
+  });
+
+  it('4. refuses modify when extension night has no availability', async () => {
+    const name = `res-mod-full-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 1);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+    const extendedDeparture = addDays(arrival, 2);
+    const extensionNight = addDays(arrival, 1);
+
+    const first = {
+      reservationId: 'res_keep',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(first, await idemFor('book-keep', first))).toMatchObject({ ok: true });
+
+    const blocker = {
+      reservationId: 'res_block',
+      roomTypeId: 'rt_king',
+      arrivalDate: extensionNight,
+      departureDate: addDays(extensionNight, 1),
+    };
+    expect(await stub.tryCreateReservation(blocker, await idemFor('book-block', blocker))).toMatchObject({
+      ok: true,
+    });
+
+    const modifyInput = {
+      reservationId: 'res_keep',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: extendedDeparture,
+    };
+    const result = await stub.tryModifyReservation(modifyInput, await idemFor('mod-full', modifyInput));
+    expect(result).toEqual({ ok: false, error: NO_AVAILABILITY, date: extensionNight });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect((await stub.readAvailabilityDay('rt_king', extensionNight))?.sold).toBe(1);
+  });
+
+  it('5. idempotency replay does not double-touch sold', async () => {
+    const name = `res-mod-idem-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+    const extendedDeparture = addDays(arrival, 2);
+
+    const bookInput = {
+      reservationId: 'res_idem_mod',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-idem-mod', bookInput))).toMatchObject({
+      ok: true,
+    });
+
+    const modifyInput = {
+      reservationId: 'res_idem_mod',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: extendedDeparture,
+    };
+    const idem = await idemFor('mod-idem', modifyInput);
+    expect(await stub.tryModifyReservation(modifyInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryModifyReservation(modifyInput, idem)).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', addDays(arrival, 1)))?.sold).toBe(1);
+  });
+
+  it('6. cancelled reservation returns not_modifiable', async () => {
+    const name = `res-mod-cancel-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+
+    const bookInput = {
+      reservationId: 'res_mod_cancel',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-mod-cancel', bookInput))).toMatchObject({
+      ok: true,
+    });
+    expect(
+      await stub.tryCancelReservation(
+        { reservationId: 'res_mod_cancel' },
+        await idemFor('cancel-mod', { reservationId: 'res_mod_cancel' }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const modifyInput = {
+      reservationId: 'res_mod_cancel',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: addDays(arrival, 2),
+    };
+    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-cancel', modifyInput))).toEqual({
+      ok: false,
+      error: NOT_MODIFIABLE,
+    });
   });
 });

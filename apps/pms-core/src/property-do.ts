@@ -9,6 +9,7 @@ import {
   NO_AVAILABILITY,
   OVERSELL,
   PROPERTY_ID_UNSET,
+  ROOM_TYPE_EXISTS,
   TIMEZONE_UNSET,
   UNBOOKABLE,
   ALREADY_CANCELLED,
@@ -77,7 +78,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
-import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
+import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
@@ -90,6 +91,13 @@ class RoomTypeNotFoundError extends Error {
   constructor() {
     super('Room type not found or not active');
     this.name = 'RoomTypeNotFoundError';
+  }
+}
+
+class RoomTypeExistsError extends Error {
+  constructor() {
+    super('Room type already exists');
+    this.name = 'RoomTypeExistsError';
   }
 }
 
@@ -543,7 +551,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   private async flushOutboxToQueue(
     drainOpts?: { maxMessages?: number; maxBytes?: number },
-  ): Promise<{ flushed: number; backlog: boolean }> {
+  ): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] }> {
     const source = this.outboxSourceSync();
     return this.flushOutbox(async (batch) => {
       await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
@@ -756,21 +764,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async runOutboxAlarmForTest(opts?: {
     maxMessages?: number;
     maxBytes?: number;
-  }): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] } | null> {
+  }): Promise<OutboxFlushResult | null> {
     this.assertUnsafeLocal('runOutboxAlarmForTest');
-    let rows: OutboxRow[] = [];
-    const source = this.outboxSourceSync();
-    const result = await runOutboxAlarmStep(
+    return runOutboxAlarmStep(
       this.outboxAlarmContext(),
-      () =>
-        this.flushOutbox(async (batch) => {
-          rows = batch;
-          await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
-        }, opts),
+      () => this.flushOutboxToQueue(opts),
       (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
     );
-    if (result === null) return null;
-    return { ...result, rows };
   }
 
   /** Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state). */
@@ -1319,6 +1319,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const exists = this.ctx.storage.sql
+            .exec(`SELECT 1 FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
+            .toArray() as Array<{ 1: number }>;
+          if (exists.length > 0) throw new RoomTypeExistsError();
+
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO room_type (room_type_id, code, name, room_count, max_occupancy, max_adults, status, created_at, updated_at)
@@ -1367,6 +1372,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomTypeExistsError) return { ok: false, error: ROOM_TYPE_EXISTS };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -2646,14 +2652,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async flushOutbox(
     deliver?: (batch: OutboxRow[]) => Promise<void>,
     drainOpts?: { maxMessages?: number; maxBytes?: number },
-  ): Promise<{ flushed: number; backlog: boolean }> {
+  ): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] }> {
     const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql, {
       source: this.outboxSourceSync(),
       ...drainOpts,
     });
-    if (batch.length === 0) return { flushed: 0, backlog: false };
+    if (batch.length === 0) return { flushed: 0, backlog: false, rows: [] };
     if (deliver) await deliver(batch);
     ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);
-    return { flushed: batch.length, backlog };
+    return { flushed: batch.length, backlog, rows: batch };
   }
 }

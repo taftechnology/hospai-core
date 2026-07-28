@@ -3,10 +3,11 @@ import {
   outboxBacklogSnapshot,
   OUTBOX_BACKLOG_DELAY_MS,
   type LaneGuard,
+  type OutboxRow,
   type SqlStorageLike,
 } from '@hospai/do-runtime';
 
-export type OutboxFlushResult = { flushed: number; backlog: boolean };
+export type OutboxFlushResult = { flushed: number; backlog: boolean; rows: OutboxRow[] };
 
 export type OutboxFlushTags = { propertyId?: string; orgId?: string };
 

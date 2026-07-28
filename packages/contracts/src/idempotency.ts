@@ -9,6 +9,7 @@ export type IdemKeyReusedCode = typeof IDEM_KEY_REUSED;
 
 /** Inventory wire codes */
 export const TIMEZONE_UNSET = 'timezone_unset' as const;
+export const ROOM_TYPE_EXISTS = 'room_type_exists' as const;
 export const OVERSELL = 'oversell' as const;
 export const ARCHIVE_BLOCKED = 'archive_blocked' as const;
 export const NOT_FOUND = 'not_found' as const;

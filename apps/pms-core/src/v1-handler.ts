@@ -2,6 +2,7 @@ import type { DomainEventMessage, Jurisdiction, ProvisionPropertyInput } from '@
 import {
   IDEM_KEY_REUSED,
   InvalidTenantIdError,
+  ROOM_TYPE_EXISTS,
   fingerprintPayload,
   validateTenantId,
 } from '@hospai/contracts';
@@ -29,7 +30,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 function mapAddRoomTypeErrorStatus(error: string): number {
-  if (error === IDEM_KEY_REUSED || error.includes('UNIQUE constraint failed')) {
+  if (error === IDEM_KEY_REUSED || error === ROOM_TYPE_EXISTS) {
     return 409;
   }
   return 422;

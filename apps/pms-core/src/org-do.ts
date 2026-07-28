@@ -167,7 +167,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
   private async flushOutboxToQueue(
     drainOpts?: { maxMessages?: number; maxBytes?: number },
-  ): Promise<{ flushed: number; backlog: boolean }> {
+  ): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] }> {
     const source = this.outboxSourceSync();
     return this.flushOutbox(async (batch) => {
       await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
@@ -236,15 +236,15 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async flushOutbox(
     deliver?: (batch: OutboxRow[]) => Promise<void>,
     drainOpts?: { maxMessages?: number; maxBytes?: number },
-  ): Promise<{ flushed: number; backlog: boolean }> {
+  ): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] }> {
     const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql, {
       source: this.outboxSourceSync(),
       ...drainOpts,
     });
-    if (batch.length === 0) return { flushed: 0, backlog: false };
+    if (batch.length === 0) return { flushed: 0, backlog: false, rows: [] };
     if (deliver) await deliver(batch);
     ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);
-    return { flushed: batch.length, backlog };
+    return { flushed: batch.length, backlog, rows: batch };
   }
 
   private async gateCoreEntitlement(

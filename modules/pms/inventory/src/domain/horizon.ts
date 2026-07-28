@@ -2,10 +2,31 @@
 export const HORIZON_DAYS = 365;
 
 /**
+ * Enumerate `days` consecutive calendar dates (YYYY-MM-DD) from `startDate`.
+ * Pure UTC calendar stepping from parsed Y-M-D parts — never parses `startDate`
+ * with local `Date` semantics and never accepts a timeZone parameter.
+ */
+export function enumerateFromDate(startDate: string, days: number = HORIZON_DAYS): string[] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
+  if (!m) throw new Error(`invalid date: ${startDate}`);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const out: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const t = Date.UTC(y, mo - 1, d + i);
+    const dt = new Date(t);
+    out.push(
+      `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`,
+    );
+  }
+  return out;
+}
+
+/**
  * Enumerate `days` consecutive calendar dates (YYYY-MM-DD), starting with the
- * calendar day that `fromInstant` falls on in `timeZone`, advancing one
- * calendar day at a time using the IANA timezone's own calendar — never naive
- * UTC midnight arithmetic, which would drift near TZ offsets / DST boundaries.
+ * calendar day that `fromInstant` falls on in `timeZone`, then delegating to
+ * timezone-free `enumerateFromDate`.
  */
 export function enumerateHorizonDates(
   timeZone: string,
@@ -19,33 +40,11 @@ export function enumerateHorizonDates(
     day: '2-digit',
   });
 
-  const toParts = (instant: Date): { year: number; month: number; day: number } => {
-    const parts = formatter.formatToParts(instant);
-    const year = Number(parts.find((p) => p.type === 'year')!.value);
-    const month = Number(parts.find((p) => p.type === 'month')!.value);
-    const day = Number(parts.find((p) => p.type === 'day')!.value);
-    return { year, month, day };
-  };
+  const parts = formatter.formatToParts(fromInstant);
+  const year = parts.find((p) => p.type === 'year')!.value;
+  const month = parts.find((p) => p.type === 'month')!.value;
+  const day = parts.find((p) => p.type === 'day')!.value;
+  const local = `${year}-${month}-${day}`;
 
-  const toKey = (p: { year: number; month: number; day: number }): string =>
-    `${String(p.year).padStart(4, '0')}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
-
-  const start = toParts(fromInstant);
-  // Anchor at UTC midnight of the local calendar date determined above, then step
-  // whole calendar days via pure UTC arithmetic. We deliberately do NOT re-derive
-  // each subsequent date by reformatting through `timeZone`: for zones at UTC+13
-  // or UTC+14 (e.g. Pacific/Auckland during NZDT, Pacific/Kiritimati), any
-  // non-midnight UTC anchor (this used to be noon) falls on the *next* local
-  // calendar day once you add the offset, producing an off-by-one for every date
-  // in the horizon. Once the correct starting Y-M-D is known, calendar-day
-  // stepping is pure calendar math and needs no further timezone conversion.
-  let cursor = Date.UTC(start.year, start.month - 1, start.day);
-
-  const dates: string[] = [];
-  for (let i = 0; i < days; i++) {
-    const d = new Date(cursor);
-    dates.push(toKey({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }));
-    cursor += 24 * 60 * 60 * 1000;
-  }
-  return dates;
+  return enumerateFromDate(local, days);
 }

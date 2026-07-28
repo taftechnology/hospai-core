@@ -1,5 +1,61 @@
-import { describe, expect, it } from 'vitest';
-import { enumerateHorizonDates, HORIZON_DAYS } from './horizon.js';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { enumerateFromDate, enumerateHorizonDates, HORIZON_DAYS } from './horizon.js';
+
+const packageRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
+
+function runEnumerateFromDateUnder(tz: string, startDate: string, days: number): string[] {
+  const result = spawnSync(
+    'node',
+    [
+      '-e',
+      `import { enumerateFromDate } from './dist/domain/horizon.js'; console.log(JSON.stringify(enumerateFromDate('${startDate}', ${days})));`,
+    ],
+    {
+      cwd: packageRoot,
+      env: { ...process.env, TZ: tz },
+      encoding: 'utf8',
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `spawn failed under TZ=${tz}`);
+  }
+  return JSON.parse(result.stdout.trim()) as string[];
+}
+
+describe('enumerateFromDate', () => {
+  beforeAll(() => {
+    const build = spawnSync('pnpm', ['run', 'build'], { cwd: packageRoot, encoding: 'utf8' });
+    if (build.status !== 0) {
+      throw new Error(build.stderr || build.stdout || 'build failed');
+    }
+  });
+
+  it('is pure calendar stepping (no TZ)', () => {
+    expect(enumerateFromDate('2026-07-27', 3)).toEqual([
+      '2026-07-27',
+      '2026-07-28',
+      '2026-07-29',
+    ]);
+  });
+
+  it('steps across month and year boundaries via Date.UTC calendar arithmetic', () => {
+    expect(enumerateFromDate('2026-01-30', 3)).toEqual(['2026-01-30', '2026-01-31', '2026-02-01']);
+    expect(enumerateFromDate('2026-12-31', 2)).toEqual(['2026-12-31', '2027-01-01']);
+  });
+
+  it('rejects invalid startDate strings', () => {
+    expect(() => enumerateFromDate('2026/07/27', 1)).toThrow(/invalid date/);
+  });
+
+  it('identical under TZ=UTC and TZ=Pacific/Auckland (subprocess isolation)', () => {
+    const expected = ['2026-01-16', '2026-01-17', '2026-01-18', '2026-01-19', '2026-01-20'];
+    expect(runEnumerateFromDateUnder('UTC', '2026-01-16', 5)).toEqual(expected);
+    expect(runEnumerateFromDateUnder('Pacific/Auckland', '2026-01-16', 5)).toEqual(expected);
+  });
+});
 
 describe('enumerateHorizonDates', () => {
   it('returns 365 dates for Europe/Berlin', () => {

@@ -4,11 +4,18 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze, tenancy spine, §10.1 idempotency × outbox, and **`pms.inventory`** (room types + 365-day horizon seed) are done.
+Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`** (room types + 365-day horizon seed), and the **[night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)** — `AlarmScheduler` → `NightAuditWorkflow` (registry-resolved only) → `runAuditStep`, with `ROLL_BUSINESS_DATE` set-reconciling the horizon to `business_date + (HORIZON_DAYS - 1)` and never-dark rescheduling (post-roll, provision, and `pms.night_audit.audit_time` config-matrix hooks) — are done.
 
 ### Next (blocks bookable product)
 
-**[Night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)** — AlarmScheduler → Workflow → `ROLL_BUSINESS_DATE` with set-reconcile horizon to `business_date + (HORIZON_DAYS - 1)`. Trigger still: before bookings ≥ ~300 days out. (Earlier boarding note: [horizon-extension-followon](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md).)
+The night-audit *spine* is proven, not a sellable product yet — every step but `ROLL_BUSINESS_DATE` is still a stub (see spec Follow-ons):
+
+- Real `PRE_CHECK` + provisional-command queue drain/halt (§4.6)
+- Real `POST_ROOM_CHARGES` / no-show / cashier-shift / report / archive step bodies
+- Clear-halt operator command + UI (halt is currently derived-only, never cleared)
+- Reservations / booking flow itself — nothing in this repo yet consumes the availability ledger to actually sell a room
+
+Pick up the reservation/booking domain next, or harden a stub audit step, per priority. (Earlier boarding note: [horizon-extension-followon](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md).)
 
 ```bash
 pnpm install

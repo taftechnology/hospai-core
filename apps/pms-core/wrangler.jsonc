@@ -25,6 +25,13 @@
       "new_sqlite_classes": ["OrgDO"]
     }
   ],
+  "workflows": [
+    {
+      "binding": "NIGHT_AUDIT_WORKFLOW",
+      "name": "hospai-night-audit",
+      "class_name": "NightAuditWorkflow"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "PLATFORM_DB",

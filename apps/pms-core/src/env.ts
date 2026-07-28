@@ -1,9 +1,13 @@
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 
+/** RPC payload for `NightAuditWorkflow` — registry-resolved `propertyId` only, never a raw DO id. */
+export type NightAuditWorkflowParams = { propertyId: string };
+
 export type PmsEnv = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
   ORG_DO: DurableObjectNamespace<OrgDO>;
+  NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
   PLATFORM_DB: D1Database;
   /**
    * Must be `1` for any local-only unsafe flags (simulate jurisdiction, dev actor).

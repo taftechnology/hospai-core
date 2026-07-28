@@ -13,6 +13,7 @@ import { getProperty, upsertOrg } from './registry.js';
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
 export { OrgDO } from './org-do.js';
+export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
 const DEV_ACTOR_HEADER = 'x-dev-actor';

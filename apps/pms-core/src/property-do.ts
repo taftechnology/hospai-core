@@ -314,6 +314,74 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     await this.scheduler.armFromTable();
   }
 
+  /**
+   * Sync — recompute `night-audit`'s `next_run_at` and upsert it into `alarm_schedule`,
+   * without arming `setAlarm` (callers arm after their transaction commits). No-op
+   * (returns `false`) if the timezone or business_date is not yet provisioned — an
+   * opportunistic reschedule from a config write must never throw on a half-provisioned
+   * property; the explicit `rescheduleNightAudit()` entry point fails closed instead.
+   */
+  private rescheduleNightAuditSync(): boolean {
+    const timeZone = this.readStoredTimeZoneSync();
+    const businessDate = this.readBusinessDateSync();
+    if (!timeZone || !businessDate) return false;
+
+    const now = Date.now();
+    const today = enumerateHorizonDates(timeZone, new Date(now), 1)[0]!;
+    const nextRunAt =
+      businessDate < today ? now : nextAuditRunAtMs(timeZone, this.readAuditTimeSync(), new Date(now));
+    this.scheduler.upsertSchedule('night-audit', nextRunAt);
+    return true;
+  }
+
+  /** Sync raw read of `pms.night_audit.audit_time`, falling back to the register default. */
+  private readAuditTimeSync(): string {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, 'pms.night_audit.audit_time')
+      .toArray() as Array<{ value_json: string }>;
+    if (rows[0]) return JSON.parse(rows[0].value_json) as string;
+    const entry = getConfigEntry('pms.night_audit.audit_time');
+    return (entry?.default as string) ?? '02:00';
+  }
+
+  /**
+   * Recompute and arm the `night-audit` schedule: `next_run_at = now` if `business_date`
+   * is still behind "today" in the property timezone (so the Workflow re-fires immediately
+   * rather than waiting for the next calendar `audit_time`), else the next `audit_time`
+   * occurrence. Called by the Workflow after a successful run and by the config write hook
+   * when `consumers.reschedulesNightAudit`. Fails closed if timezone/business_date are unset.
+   */
+  async rescheduleNightAudit(): Promise<void> {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) throw new Error(TIMEZONE_UNSET);
+    if (!this.readBusinessDateSync()) throw new Error(BUSINESS_DATE_UNSET);
+    this.rescheduleNightAuditSync();
+    await this.scheduler.armFromTable();
+  }
+
+  /**
+   * §4.4 alarm entrypoint — the only caller of `ctx.storage.setAlarm` in this class (via
+   * `AlarmScheduler`). Multiplexes all named schedules; `night-audit` creates a
+   * `NightAuditWorkflow` instance resolved from `__meta.property_id`, never a raw DO id.
+   */
+  async alarm(): Promise<void> {
+    await this.scheduler.run({
+      'night-audit': async () => {
+        const propertyId = this.getPropertyIdSync();
+        if (!propertyId) return;
+        await this.env.NIGHT_AUDIT_WORKFLOW.create({
+          id: `na-${propertyId}-${Date.now()}`,
+          params: { propertyId },
+        });
+      },
+    });
+  }
+
+  /** Test helper: invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
+  async triggerAlarmForTest(): Promise<void> {
+    return this.alarm();
+  }
+
   /** Test helper: read a raw `alarm_schedule` row. */
   async getAlarmSchedule(name: string): Promise<{ nextRunAt: number; lastError: string | null } | null> {
     const rows = this.ctx.storage.sql
@@ -586,7 +654,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
     }
     try {
-      return this.ctx.storage.transactionSync(() =>
+      const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const parsed = validateConfigWrite(key, value);
           const existing = this.ctx.storage.sql
@@ -634,9 +702,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               actor: meta.actor,
             },
           });
-          return { ok: true as const, key, version, events: ['config.changed'] };
+          // Same txn as the config write per spec: if this key's death mask reschedules
+          // the night audit, recompute + upsert `alarm_schedule.next_run_at` here so a
+          // crash between commit and `setAlarm` still leaves the table correct — the next
+          // `alarm()` / cold start reconciles `setAlarm` from `alarm_schedule`.
+          const rescheduled = entry.consumers.reschedulesNightAudit && this.rescheduleNightAuditSync();
+          return { ok: true as const, key, version, events: ['config.changed'], rescheduled };
         }),
       );
+      if (result.ok && result.rescheduled) {
+        await this.scheduler.armFromTable();
+      }
+      return result;
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) {
         return { ok: false, error: IDEM_KEY_REUSED };

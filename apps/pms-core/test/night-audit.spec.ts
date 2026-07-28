@@ -234,6 +234,108 @@ describe('PropertyDO night audit', () => {
     const rerun = await stub.runAuditStep(startDate, 'PRE_CHECK');
     expect(rerun).toEqual({ status: 'COMPLETED' });
   });
+
+  it('rescheduleNightAudit: business_date < today re-arms next_run_at to "now" (not the next audit_time)', async () => {
+    const name = `na-resched-behind-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    const originalBusinessDate = (await stub.readBusinessDate())!;
+    await stub.setBusinessDateForTest(subtractDays(originalBusinessDate, 1));
+
+    const before = Date.now();
+    await stub.rescheduleNightAudit();
+    const after = Date.now();
+
+    const schedule = await stub.getAlarmSchedule('night-audit');
+    expect(schedule).not.toBeNull();
+    // "Now", not tomorrow's 02:00 — the Workflow must re-fire immediately while behind.
+    expect(schedule!.nextRunAt).toBeGreaterThanOrEqual(before);
+    expect(schedule!.nextRunAt).toBeLessThanOrEqual(after + 5000);
+  });
+
+  it('rescheduleNightAudit: business_date current arms the next audit_time occurrence (future)', async () => {
+    const name = `na-resched-current-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    await stub.rescheduleNightAudit();
+    const schedule = await stub.getAlarmSchedule('night-audit');
+    expect(schedule).not.toBeNull();
+    expect(schedule!.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  it('10. matrix: changing pms.night_audit.audit_time reschedules alarm_schedule inside the config transaction', async () => {
+    const name = `na-matrix-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    const before = await stub.getAlarmSchedule('night-audit');
+    expect(before).not.toBeNull();
+
+    const idem = await idemFor('audit-time-change', {
+      key: 'pms.night_audit.audit_time',
+      value: '05:30',
+      actor: 'test:matrix',
+      reason: 'test:reschedule',
+    });
+    const result = await stub.tryPutDomainConfig(
+      'pms.night_audit.audit_time',
+      '05:30',
+      { actor: 'test:matrix', reason: 'test:reschedule' },
+      idem,
+    );
+    expect(result.ok).toBe(true);
+
+    const after = await stub.getAlarmSchedule('night-audit');
+    expect(after).not.toBeNull();
+    // Recomputed against the *new* audit_time — value should have moved.
+    expect(after!.nextRunAt).not.toBe(before!.nextRunAt);
+  });
+
+  it('config keys with reschedulesNightAudit=false do not touch alarm_schedule', async () => {
+    const name = `na-nonmatrix-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    const before = await stub.getAlarmSchedule('night-audit');
+
+    const idem = await idemFor('non-reschedule-write', {
+      key: 'pms.availability.allow_overbooking',
+      value: true,
+      actor: 'test:matrix',
+      reason: 'test:non-reschedule',
+    });
+    const result = await stub.tryPutDomainConfig(
+      'pms.availability.allow_overbooking',
+      true,
+      { actor: 'test:matrix', reason: 'test:non-reschedule' },
+      idem,
+    );
+    expect(result.ok).toBe(true);
+
+    const after = await stub.getAlarmSchedule('night-audit');
+    expect(after!.nextRunAt).toBe(before!.nextRunAt);
+  });
+
+  it('9. alarm() drives night-audit via NightAuditWorkflow, resolved through the registry only', async () => {
+    const name = `na-alarm-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    // Property is behind — a real run would advance business_date on completion.
+    const originalBusinessDate = (await stub.readBusinessDate())!;
+    await stub.setBusinessDateForTest(subtractDays(originalBusinessDate, 1));
+    await stub.rescheduleNightAudit();
+
+    await stub.triggerAlarmForTest();
+
+    // AlarmScheduler always re-arms, even though the handler only *creates* the Workflow
+    // instance (the Workflow itself advances business_date asynchronously).
+    const schedule = await stub.getAlarmSchedule('night-audit');
+    expect(schedule).not.toBeNull();
+    expect(schedule!.lastError).toBeNull();
+  });
 });
 
 /** Subtract `n` calendar days from a YYYY-MM-DD string, purely via UTC arithmetic (no TZ). */

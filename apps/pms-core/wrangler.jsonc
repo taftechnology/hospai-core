@@ -54,7 +54,9 @@
       {
         "queue": "hospai-events",
         "max_batch_size": 100,
-        "max_batch_timeout": 5
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "hospai-events-dlq"
       }
     ]
   },

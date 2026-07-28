@@ -185,7 +185,12 @@ export default {
         msg.ack();
         continue;
       }
-      handleDomainEvent(body);
+      try {
+        handleDomainEvent(body);
+      } catch {
+        msg.retry();
+        continue;
+      }
       await env.EVENT_DEDUPE_KV.put(`seen:${body.eventId}`, '1', { expirationTtl: DEDUPE_TTL_SEC });
       msg.ack();
     }

@@ -264,7 +264,12 @@ export default {
         msg.ack();
         continue;
       }
-      await handleDomainEvent(body); // contract assertions; no DO writes Phase 0
+      try {
+        handleDomainEvent(body); // contract assertions; no DO writes Phase 0
+      } catch {
+        msg.retry();
+        continue;
+      }
       await env.EVENT_DEDUPE_KV.put(`seen:${body.eventId}`, '1', { expirationTtl: DEDUPE_TTL_SEC });
       msg.ack();
     }
@@ -274,7 +279,13 @@ export default {
 
 `handleDomainEvent` (Phase 0): switch on `eventType`; assert payload shape — e.g. `reservation.created` contains `guestRef` and not `guestName`; `folio.line_posted` contains money columns; `guest.*` contains refs not plaintext. Log for test visibility.
 
-Configure Queue DLQ in wrangler for poison messages.
+Configure Queue DLQ in wrangler for poison messages (`max_retries` + `dead_letter_queue`). Per-message `try/catch` with `msg.retry()` isolates a poison message from its batch-mates — do not let handler throws escape `queue()`.
+
+### Deployment ordering (new event types)
+
+The proof consumer throws on unknown `eventType` (`default: throw`). That strictness makes contract assertions meaningful, but it creates a deployment constraint: **ship consumer support for a new event type before (or in the same deploy as) the producer that emits it.** A producer ahead of its consumer sends those events to retry → DLQ after `max_retries`.
+
+Phase 1 adds event types by the dozen. Record the rule now: **consumer change first, producer change second** (or atomic same deploy). Violating order produces DLQ traffic, not silent success.
 
 **Dedupe TTL:** define `DEDUPE_TTL_SEC` as a named constant with comment: must remain ≥ idempotency retention when purge exists. Today: use a conservative large TTL (e.g. 30 days) with explicit TODO linked to retention policy.
 
@@ -286,8 +297,11 @@ Configure Queue DLQ in wrangler for poison messages.
   "consumers": [{
     "queue": "hospai-events",
     "max_batch_size": 100,
-    "max_batch_timeout": 5
+    "max_batch_timeout": 5,
+    "max_retries": 3,
+    "dead_letter_queue": "hospai-events-dlq"
     // no max_concurrency: 1 — see §5
+    // DLQ has no consumer in Phase 0; monitor depth via dashboard/wrangler
   }]
 },
 "kv_namespaces": [

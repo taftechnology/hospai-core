@@ -1,10 +1,11 @@
-import { env, createMessageBatch } from 'cloudflare:test';
+import { env, createMessageBatch, createExecutionContext, getQueueResult } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import type { DomainEventMessage, EventSource } from '@hospai/contracts';
 import { fingerprintPayload } from '@hospai/contracts';
 import { OUTBOX_BACKLOG_DELAY_MS, toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
 import { handleDomainEvent } from '../src/event-consumer.js';
+import type { PmsEnv } from '../src/env.js';
 import type { OrgDO } from '../src/org-do.js';
 import type { PropertyDO } from '../src/property-do.js';
 import { provisionedOrg, provisionedPropertyStub } from './fixtures';
@@ -110,6 +111,52 @@ describe('Queues consumer (Phase 0)', () => {
 
     expect(await env.EVENT_DEDUPE_KV.get(`seen:${message.eventId}`)).toBe('1');
     expect(() => handleDomainEvent(message)).not.toThrow();
+  });
+
+  it('poison message retries in isolation; batch-mates ack', async () => {
+    const goodEventId = crypto.randomUUID();
+    const badEventId = crypto.randomUUID();
+    const batch = createMessageBatch('hospai-events', [
+      {
+        id: 'msg-good',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: goodEventId,
+          eventType: 'config.changed',
+          payload: { key: 'k', version: 1, consumers: {}, actor: 'a' },
+          seq: 1,
+          source: { do: 'property' as const, id: 'prop-batch' },
+          createdAt: Date.now(),
+        },
+      },
+      {
+        id: 'msg-bad',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: badEventId,
+          eventType: 'unknown.event',
+          payload: {},
+          seq: 2,
+          source: { do: 'property' as const, id: 'prop-batch' },
+          createdAt: Date.now(),
+        },
+      },
+    ]);
+    const ctx = createExecutionContext();
+    const runQueue = worker.queue as (
+      batch: MessageBatch<DomainEventMessage>,
+      queueEnv: PmsEnv,
+      ctx: ExecutionContext,
+    ) => Promise<void>;
+    await runQueue(batch as MessageBatch<DomainEventMessage>, env, ctx);
+    const result = await getQueueResult(batch, ctx);
+
+    expect(await env.EVENT_DEDUPE_KV.get(`seen:${goodEventId}`)).toBe('1');
+    expect(await env.EVENT_DEDUPE_KV.get(`seen:${badEventId}`)).toBeNull();
+    expect(result.explicitAcks).toContain('msg-good');
+    expect(result.retryMessages).toEqual([{ msgId: 'msg-bad' }]);
   });
 
   it('flush deliver failure leaves rows unacked; retry delivers once', async () => {

@@ -1,7 +1,7 @@
 # Availability horizon extension (follow-on)
 
 **Date:** 2026-07-27  
-**Status:** Boarded — blocks bookable product; implement with night-audit (or earlier if bookings land first)  
+**Status:** Superseded by [2026-07-27-night-audit-horizon-design.md](./2026-07-27-night-audit-horizon-design.md) (alarm → Workflow spine + set-reconcile horizon). Keep this note for trigger wording only.
 **Depends on:** `pms.inventory` horizon seed (done); night-audit `BusinessDate` rollover (§8)  
 **Sources:** [pms.inventory design](./2026-07-27-pms-inventory-design.md) Follow-on; ARCHITECTURE.md §7.1, §8
 

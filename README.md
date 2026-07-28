@@ -8,7 +8,7 @@ Schema-freeze, tenancy spine, §10.1 idempotency × outbox, and **`pms.inventory
 
 ### Next (blocks bookable product)
 
-**[Availability horizon extension](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md)** — night audit must extend `availability_day` by +1 day per business-date rollover. Trigger: **before any booking path accepts stays ≥ ~300 days out** (or first group/allotment product), not when the property turns one year old. Missing ledger rows are unbookable.
+**[Night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)** — AlarmScheduler → Workflow → `ROLL_BUSINESS_DATE` with set-reconcile horizon to `business_date + (HORIZON_DAYS - 1)`. Trigger still: before bookings ≥ ~300 days out. (Earlier boarding note: [horizon-extension-followon](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md).)
 
 ```bash
 pnpm install

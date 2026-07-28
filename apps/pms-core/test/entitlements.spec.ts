@@ -1,16 +1,18 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { ENTITLEMENT_REQUIRED } from '@hospai/contracts';
-import { loadSnapshot } from '@hospai/entitlement-client';
+import { loadSnapshot, readActiveEntitlementVersion } from '@hospai/entitlement-client';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index';
 import type { OrgDO } from '../src/org-do';
 import {
+  cancelSubscription,
   ensureOrgRegistryRow,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
   seedSubscription,
   setKillSwitch,
+  tryDeleteSubscription,
 } from '../src/registry';
 import { idemFor, propertyStub, provisionedPropertyStub } from './guest-helpers';
 
@@ -108,5 +110,29 @@ describe('entitlements + kill-switch', () => {
     expect(await stub.getOrgId()).toBe(orgId);
     await stub.ensureMetaOrgId('org_other');
     expect(await stub.getOrgId()).toBe(orgId);
+  });
+
+  it('subscription rows cannot be deleted and version bumps on cancel/resubscribe', async () => {
+    const orgId = `org-ver-${crypto.randomUUID()}`;
+    await seedSubscription(env, orgId, 'starter');
+    const starterSnap = await loadSnapshot(env, orgId);
+    expect(starterSnap.version).toBe(1);
+    expect(starterSnap.features['pms.units.limit']).toBe(20);
+
+    const del = await tryDeleteSubscription(env, orgId);
+    expect(del.ok).toBe(false);
+    expect(del.ok === false && /retained/i.test(del.error)).toBe(true);
+
+    await cancelSubscription(env, orgId);
+    expect(await readActiveEntitlementVersion(env, orgId)).toBe(0);
+
+    await seedSubscription(env, orgId, 'growth');
+    const growthSnap = await loadSnapshot(env, orgId);
+    expect(growthSnap.version).toBeGreaterThan(starterSnap.version);
+    expect(growthSnap.features['pms.units.limit']).toBe(100);
+
+    const cachedStarter = await loadSnapshot(env, orgId, { version: starterSnap.version });
+    expect(cachedStarter.features['pms.units.limit']).toBe(20);
+    expect(cachedStarter.version).toBe(1);
   });
 });

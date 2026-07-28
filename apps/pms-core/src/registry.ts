@@ -86,21 +86,58 @@ export async function seedSubscription(
 ): Promise<void> {
   await ensurePlatformSchema(env.PLATFORM_DB);
   await ensureOrgRegistryRow(env, orgId, orgId);
-  await env.PLATFORM_DB.prepare(
-    `INSERT OR IGNORE INTO subscription (org_id, plan_code, status, entitlement_version, trial_ends_at, current_period_end)
-     VALUES (?, ?, 'active', 1, NULL, NULL)`,
+
+  const existing = await env.PLATFORM_DB.prepare(
+    `SELECT plan_code, status FROM subscription WHERE org_id = ?`,
   )
-    .bind(orgId, planCode)
-    .run();
-  const after = await env.PLATFORM_DB.prepare(`SELECT plan_code FROM subscription WHERE org_id = ?`)
     .bind(orgId)
-    .first<{ plan_code: string }>();
-  if (after && after.plan_code !== planCode) {
+    .first<{ plan_code: string; status: string }>();
+
+  if (!existing) {
     await env.PLATFORM_DB.prepare(
-      `UPDATE subscription SET plan_code = ?, entitlement_version = entitlement_version + 1 WHERE org_id = ?`,
+      `INSERT INTO subscription (org_id, plan_code, status, entitlement_version, trial_ends_at, current_period_end)
+       VALUES (?, ?, 'active', 1, NULL, NULL)`,
     )
-      .bind(planCode, orgId)
+      .bind(orgId, planCode)
       .run();
+    return;
+  }
+
+  if (existing.status === 'active' && existing.plan_code === planCode) return;
+
+  await env.PLATFORM_DB.prepare(
+    `UPDATE subscription
+     SET plan_code = ?, status = 'active', entitlement_version = entitlement_version + 1
+     WHERE org_id = ?`,
+  )
+    .bind(planCode, orgId)
+    .run();
+}
+
+/** Test helper: cancel without deleting — bumps entitlement_version for KV cache isolation. */
+export async function cancelSubscription(env: PmsEnv, orgId: string): Promise<void> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const row = await env.PLATFORM_DB.prepare(`SELECT status FROM subscription WHERE org_id = ?`)
+    .bind(orgId)
+    .first<{ status: string }>();
+  if (!row || row.status === 'cancelled') return;
+  await env.PLATFORM_DB.prepare(
+    `UPDATE subscription SET status = 'cancelled', entitlement_version = entitlement_version + 1 WHERE org_id = ?`,
+  )
+    .bind(orgId)
+    .run();
+}
+
+/** Test helper: attempt DELETE (must abort when trigger is present). */
+export async function tryDeleteSubscription(
+  env: PmsEnv,
+  orgId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await env.PLATFORM_DB.prepare(`DELETE FROM subscription WHERE org_id = ?`).bind(orgId).run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 

@@ -30,6 +30,7 @@ let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let PLATFORM_REGISTRY_SQL;
 let PLATFORM_ENTITLEMENT_SQL;
+let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
 try {
   ({
     FREEZE_GATE_SQL,
@@ -43,6 +44,7 @@ try {
     ORG_GUEST_PII_SQL,
     PLATFORM_REGISTRY_SQL,
     PLATFORM_ENTITLEMENT_SQL,
+    PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
   } = await import(modPath));
 } catch (e) {
   console.error(
@@ -156,6 +158,16 @@ const targets = [
 
 `,
     sql: PLATFORM_ENTITLEMENT_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0003_subscription_invariants.sql'),
+    header: `-- Platform D1 subscription invariants (§6.3) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- entitlement_version is monotonic per org; rows are never deleted.
+
+`,
+    sql: PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
   },
 ];
 

@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS plan_feature (
 CREATE TABLE IF NOT EXISTS subscription (
   org_id               TEXT PRIMARY KEY REFERENCES org(org_id),
   plan_code            TEXT NOT NULL REFERENCES plan(code),
-  status               TEXT NOT NULL DEFAULT 'active',
-  entitlement_version  INTEGER NOT NULL DEFAULT 1,
+  status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+  entitlement_version  INTEGER NOT NULL DEFAULT 1 CHECK (entitlement_version >= 1),
   trial_ends_at        INTEGER,
   current_period_end   INTEGER
 );

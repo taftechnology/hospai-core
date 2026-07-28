@@ -57,11 +57,35 @@ export const PLATFORM_ENTITLEMENT_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS subscription (
   org_id               TEXT PRIMARY KEY REFERENCES org(org_id),
   plan_code            TEXT NOT NULL REFERENCES plan(code),
-  status               TEXT NOT NULL DEFAULT 'active',
-  entitlement_version  INTEGER NOT NULL DEFAULT 1,
+  status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+  entitlement_version  INTEGER NOT NULL DEFAULT 1 CHECK (entitlement_version >= 1),
   trial_ends_at        INTEGER,
   current_period_end   INTEGER
 )`,
+];
+
+/** §6.3 — entitlement_version is monotonic per org; rows are never deleted. */
+export const PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS: string[] = [
+  `CREATE TRIGGER IF NOT EXISTS subscription_no_delete
+BEFORE DELETE ON subscription
+BEGIN
+  SELECT RAISE(ABORT, 'subscription rows are retained; update status instead');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS subscription_entitlement_version_never_decreases
+BEFORE UPDATE OF entitlement_version ON subscription
+WHEN NEW.entitlement_version < OLD.entitlement_version
+BEGIN
+  SELECT RAISE(ABORT, 'entitlement_version is monotonic per org');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS subscription_entitlement_version_bump_on_change
+BEFORE UPDATE ON subscription
+WHEN (NEW.plan_code IS NOT OLD.plan_code OR NEW.status IS NOT OLD.status)
+  AND NEW.entitlement_version <= OLD.entitlement_version
+BEGIN
+  SELECT RAISE(ABORT, 'entitlement_version must increase when plan or status changes');
+END`,
 ];
 
 /** Phase 0 seed — Starter + Growth (§6.7 subset). */
@@ -84,6 +108,7 @@ export const PLATFORM_ENTITLEMENT_STATEMENTS_ALL: string[] = [
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
+  ...PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
 ];
 
 /** D1 seed feature keys — kept in sync with @hospai/contracts FEATURE_KEYS via check:entitlements. */
@@ -94,5 +119,8 @@ export const PLATFORM_REGISTRY_SQL = PLATFORM_REGISTRY_STATEMENTS.join(';\n\n') 
 
 export const PLATFORM_ENTITLEMENT_SQL =
   PLATFORM_ENTITLEMENT_STATEMENTS_ALL.join(';\n\n') + ';\n';
+
+export const PLATFORM_SUBSCRIPTION_INVARIANT_SQL =
+  PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS.join(';\n\n') + ';\n';
 
 export const PLATFORM_ALL_SQL = PLATFORM_ALL_STATEMENTS.join(';\n\n') + ';\n';

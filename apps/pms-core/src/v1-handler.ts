@@ -43,8 +43,10 @@ export async function handleV1(
   ctx.userId = actor.userId;
 
   if (request.method === 'POST' && pathname === '/v1/admin/migration-sweep') {
+    // Random id — timestamp ids collide under concurrent POSTs. Overlapping sweeps are
+    // allowed (dev-gated today); Phase 1 cron should pick daily idempotency vs fan-out policy.
     const instance = await env.MIGRATION_SWEEP_WORKFLOW.create({
-      id: `migration-sweep-${Date.now()}`,
+      id: `migration-sweep-${crypto.randomUUID()}`,
       params: { triggeredBy: actor.userId },
     });
     return json({ workflowId: instance.id }, 202);

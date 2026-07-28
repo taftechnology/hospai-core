@@ -141,7 +141,7 @@ if (request.method === 'POST' && pathname === '/v1/admin/migration-sweep') {
   const actor = await resolveActor(request, env);
   if (actor instanceof Response) return actor;
   const instance = await env.MIGRATION_SWEEP_WORKFLOW.create({
-    id: `migration-sweep-${Date.now()}`,
+    id: `migration-sweep-${crypto.randomUUID()}`,
     params: { triggeredBy: actor.userId },
   });
   return json({ workflowId: instance.id }, 202);

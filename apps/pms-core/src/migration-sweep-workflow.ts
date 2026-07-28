@@ -178,6 +178,8 @@ export class MigrationSweepWorkflow extends WorkflowEntrypoint<PmsEnv, Migration
     do {
       const pageAfter = entitlementAfter;
       const pageIndex = entitlementPage;
+      // Re-list org ids (second D1 pass) so each entitlement page step is independently
+      // replayable — org and entitlement checks are not fused into one step callback.
       const pageResult = await step.do(`entitlements-page-${pageIndex}`, async () => {
         const page = await listOrgIds(this.env, { after: pageAfter, limit: pageLimit });
         const counts = await sweepEntitlementPage(this.env, page.ids);

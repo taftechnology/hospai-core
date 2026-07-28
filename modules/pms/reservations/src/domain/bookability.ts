@@ -21,18 +21,17 @@ export function firstUnbookableNight(
 }
 
 /**
- * First night where `free + extraAllowance < 1`.
- * Returns `null` when every night can absorb one unit.
+ * First night where `freeAvailability(row) < 1`.
+ * Ledger `oversell` is authoritative — never add config allowance here.
  */
 export function firstUnavailableNight(
   nights: string[],
   rowsByDate: ReadonlyMap<string, AvailabilitySnapshot>,
-  extraAllowance: number,
 ): string | null {
   for (const stayDate of nights) {
     const row = rowsByDate.get(stayDate);
     if (!row) return stayDate;
-    if (freeAvailability(row) + extraAllowance < 1) return stayDate;
+    if (freeAvailability(row) < 1) return stayDate;
   }
   return null;
 }

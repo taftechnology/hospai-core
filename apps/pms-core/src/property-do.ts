@@ -89,13 +89,16 @@ export type NightAuditStep = (typeof NIGHT_AUDIT_STEPS)[number];
 /**
  * Set-reconcile `availability_day` to `[businessDate, businessDate + (HORIZON_DAYS - 1)]`
  * for every *active* room type: INSERT missing dates only, at `physical = room_type.room_count`
- * (all other columns default 0). Never overwrites an existing row's `physical` / `sold` /
- * `held` / `blocked` / `oversell`, and never inserts for an archived type. Idempotent —
- * re-running with the same `businessDate` on an already-reconciled horizon inserts nothing.
+ * (all other columns default 0). New rows get `oversell = ledgerOversell` (materialized
+ * from DOMAIN config at write time). Never overwrites an existing row's `physical` /
+ * `sold` / `held` / `blocked` / `oversell`, and never inserts for an archived type.
+ * Idempotent — re-running with the same `businessDate` on an already-reconciled horizon
+ * inserts nothing.
  */
 export function reconcileHorizon(
   sql: SqlStorageLike,
   businessDate: string,
+  ledgerOversell: number,
 ): { insertedCount: number; fromDate: string; toDate: string } {
   const required = enumerateFromDate(businessDate, HORIZON_DAYS);
   const fromDate = required[0]!;
@@ -121,10 +124,11 @@ export function reconcileHorizon(
       if (existingDates.has(stayDate)) continue;
       sql.exec(
         `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
-         VALUES (?, ?, ?, 0, 0, 0, 0, 1)`,
+         VALUES (?, ?, ?, 0, 0, 0, ?, 1)`,
         rt.room_type_id,
         stayDate,
         rt.room_count,
+        ledgerOversell,
       );
       insertedCount += 1;
     }
@@ -382,6 +386,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
+   * Materialize DOMAIN oversell config into `availability_day.oversell` at ledger write
+   * time. Book paths read the column only — never add config allowance on top.
+   */
+  private materializedOversellAllowanceSync(): number {
+    if (this.readConfigValueSync('pms.availability.allow_overbooking') !== true) return 0;
+    return Number(this.readConfigValueSync('pms.availability.oversell_allowance'));
+  }
+
+  /**
    * Recompute and arm the `night-audit` schedule: `next_run_at = now` if `business_date`
    * is still behind "today" in the property timezone (so the Workflow re-fires immediately
    * rather than waiting for the next calendar `audit_time`), else the next `audit_time`
@@ -500,7 +513,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async reconcileHorizonForTest(
     businessDate: string,
   ): Promise<{ insertedCount: number; fromDate: string; toDate: string }> {
-    return reconcileHorizon(this.ctx.storage.sql, businessDate);
+    return reconcileHorizon(
+      this.ctx.storage.sql,
+      businessDate,
+      this.materializedOversellAllowanceSync(),
+    );
   }
 
   /** Any `FAILED` `night_audit_run` row halts new audit runs — derived, not a separate flag. */
@@ -666,7 +683,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     if (this.rollFailureForTest) throw new Error(this.rollFailureForTest);
 
-    const { insertedCount, fromDate, toDate } = reconcileHorizon(this.ctx.storage.sql, newBusinessDate);
+    const { insertedCount, fromDate, toDate } = reconcileHorizon(
+      this.ctx.storage.sql,
+      newBusinessDate,
+      this.materializedOversellAllowanceSync(),
+    );
     if (insertedCount > 0) {
       const propertyId = this.getPropertyIdSync();
       const ariVersion = this.bumpAriVersionSync();
@@ -957,13 +978,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           // Horizon is always anchored to __meta.business_date, never wall clock.
           const dates = enumerateFromDate(businessDate);
+          const ledgerOversell = this.materializedOversellAllowanceSync();
           for (const stayDate of dates) {
             this.ctx.storage.sql.exec(
               `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
-               VALUES (?, ?, ?, 0, 0, 0, 0, 1)`,
+               VALUES (?, ?, ?, 0, 0, 0, ?, 1)`,
               input.roomTypeId,
               stayDate,
               input.roomCount,
+              ledgerOversell,
             );
           }
 
@@ -1284,11 +1307,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: NOT_FOUND };
           }
 
-          const allowOverbooking = this.readConfigValueSync('pms.availability.allow_overbooking') === true;
-          const extraAllowance = allowOverbooking
-            ? Number(this.readConfigValueSync('pms.availability.oversell_allowance'))
-            : 0;
-
           const rowsByDate = new Map<string, AvailabilitySnapshot>();
           for (const stayDate of nights) {
             const rows = this.ctx.storage.sql
@@ -1318,7 +1336,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             });
           }
 
-          const unavailable = firstUnavailableNight(nights, rowsByDate, extraAllowance);
+          const unavailable = firstUnavailableNight(nights, rowsByDate);
           if (unavailable) {
             return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
           }

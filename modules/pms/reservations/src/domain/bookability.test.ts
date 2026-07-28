@@ -21,11 +21,13 @@ describe('bookability', () => {
       ['2026-07-27', row('2026-07-27', 9)],
       ['2026-07-28', row('2026-07-28', 10)],
     ]);
-    expect(firstUnavailableNight(['2026-07-27', '2026-07-28'], map, 0)).toBe('2026-07-28');
+    expect(firstUnavailableNight(['2026-07-27', '2026-07-28'], map)).toBe('2026-07-28');
   });
 
-  it('extraAllowance permits one unit over physical', () => {
-    const map = new Map([['2026-07-27', row('2026-07-27', 10, 10)]]);
-    expect(firstUnavailableNight(['2026-07-27'], map, 1)).toBeNull();
+  it('ledger oversell is included in freeAvailability, not double-counted', () => {
+    const map = new Map([['2026-07-27', { ...row('2026-07-27', 10, 10), oversell: 2 }]]);
+    expect(firstUnavailableNight(['2026-07-27'], map)).toBeNull();
+    const full = new Map([['2026-07-27', { ...row('2026-07-27', 12, 10), oversell: 2 }]]);
+    expect(firstUnavailableNight(['2026-07-27'], full)).toBe('2026-07-27');
   });
 });

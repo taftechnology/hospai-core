@@ -157,14 +157,9 @@ describe('PropertyDO reservations.create + availability.book', () => {
     expect(result).toEqual({ ok: false, error: NOT_FOUND });
   });
 
-  it('6. allow_overbooking permits one unit over physical', async () => {
+  it('6. allow_overbooking materializes into ledger and permits one unit over physical', async () => {
     const name = `res-oversell-${crypto.randomUUID()}`;
     const stub = await provisionedStub(name, 'Europe/Berlin');
-    const added = await addRoomType(stub, 'rt_king', 1);
-    const arrival = added.fromDate;
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
-    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
-    const departure = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
 
     await stub.tryPutDomainConfig(
       'pms.availability.allow_overbooking',
@@ -179,6 +174,14 @@ describe('PropertyDO reservations.create + availability.book', () => {
       await idemFor('cfg-allow', { key: 'pms.availability.oversell_allowance', value: 1, actor: 'test', reason: 'oversell' }),
     );
 
+    const added = await addRoomType(stub, 'rt_king', 1);
+    expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.oversell).toBe(1);
+
+    const arrival = added.fromDate;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departure = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
     const first = {
       reservationId: 'res_o1',
       roomTypeId: 'rt_king',
@@ -190,5 +193,55 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const second = { ...first, reservationId: 'res_o2' };
     expect(await stub.tryCreateReservation(second, await idemFor('book-o2', second))).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(2);
+  });
+
+  it('7. book uses ledger oversell only — non-zero column is not double-counted with config', async () => {
+    const name = `res-ledger-os-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 10);
+    const arrival = added.fromDate;
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: arrival,
+      physical: 10,
+      sold: 10,
+      oversell: 2,
+    });
+
+    await stub.tryPutDomainConfig(
+      'pms.availability.allow_overbooking',
+      true,
+      { actor: 'test', reason: 'oversell' },
+      await idemFor('cfg-dc', { key: 'pms.availability.allow_overbooking', value: true, actor: 'test', reason: 'oversell' }),
+    );
+    await stub.tryPutDomainConfig(
+      'pms.availability.oversell_allowance',
+      2,
+      { actor: 'test', reason: 'oversell' },
+      await idemFor('cfg-dc2', { key: 'pms.availability.oversell_allowance', value: 2, actor: 'test', reason: 'oversell' }),
+    );
+
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departure = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
+    const first = {
+      reservationId: 'res_l1',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(first, await idemFor('book-l1', first))).toMatchObject({ ok: true });
+
+    const second = { ...first, reservationId: 'res_l2' };
+    expect(await stub.tryCreateReservation(second, await idemFor('book-l2', second))).toMatchObject({ ok: true });
+
+    const third = { ...first, reservationId: 'res_l3' };
+    expect(await stub.tryCreateReservation(third, await idemFor('book-l3', third))).toEqual({
+      ok: false,
+      error: NO_AVAILABILITY,
+      date: arrival,
+    });
   });
 });

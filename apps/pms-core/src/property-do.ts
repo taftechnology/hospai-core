@@ -83,6 +83,71 @@ class ArchiveBlockedError extends Error {
   }
 }
 
+class NoAvailabilityError extends Error {
+  constructor(public readonly date: string) {
+    super(`No availability on ${date}`);
+    this.name = 'NoAvailabilityError';
+  }
+}
+
+class UnbookableError extends Error {
+  constructor(public readonly date: string) {
+    super(`Unbookable night ${date}`);
+    this.name = 'UnbookableError';
+  }
+}
+
+class RestrictionViolatedError extends Error {
+  constructor(
+    public readonly rule: string,
+    public readonly date: string,
+    public readonly required?: number,
+  ) {
+    super(`Restriction violated: ${rule}`);
+    this.name = 'RestrictionViolatedError';
+  }
+}
+
+class LedgerInconsistentError extends Error {
+  constructor(public readonly date: string) {
+    super(`Ledger inconsistent on ${date}`);
+    this.name = 'LedgerInconsistentError';
+  }
+}
+
+function mapReservationPreconditionError(e: unknown):
+  | { ok: false; error: typeof IDEM_KEY_REUSED }
+  | { ok: false; error: typeof NOT_FOUND }
+  | { ok: false; error: typeof NO_AVAILABILITY; date: string }
+  | { ok: false; error: typeof UNBOOKABLE; date: string }
+  | {
+      ok: false;
+      error: typeof RESTRICTION_VIOLATED;
+      rule: string;
+      date: string;
+      required?: number;
+    }
+  | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+  | null {
+  if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+  if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
+  if (e instanceof NoAvailabilityError) return { ok: false, error: NO_AVAILABILITY, date: e.date };
+  if (e instanceof UnbookableError) return { ok: false, error: UNBOOKABLE, date: e.date };
+  if (e instanceof RestrictionViolatedError) {
+    return {
+      ok: false,
+      error: RESTRICTION_VIOLATED,
+      rule: e.rule,
+      date: e.date,
+      ...(e.required !== undefined ? { required: e.required } : {}),
+    };
+  }
+  if (e instanceof LedgerInconsistentError) {
+    return { ok: false, error: LEDGER_INCONSISTENT, date: e.date };
+  }
+  return null;
+}
+
 export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
 
 /** §8 night-audit step sequence. `ROLL_BUSINESS_DATE` is the only step that mutates `__meta.business_date` / the horizon. */
@@ -443,9 +508,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     arrivalDate: string,
     departureDate: string,
     nights: string[],
-  ):
-    | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
-    | null {
+  ): void {
     const dates = [...new Set([...nights, departureDate])];
     const violation = firstRestrictionViolation(
       arrivalDate,
@@ -453,14 +516,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       nights,
       this.loadRestrictionRowsSync(roomTypeId, dates),
     );
-    if (!violation) return null;
-    return {
-      ok: false as const,
-      error: RESTRICTION_VIOLATED,
-      rule: violation.rule,
-      date: violation.date,
-      ...(violation.required !== undefined ? { required: violation.required } : {}),
-    };
+    if (violation) {
+      throw new RestrictionViolatedError(violation.rule, violation.date, violation.required);
+    }
   }
 
   /**
@@ -1423,7 +1481,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
             .toArray() as Array<{ status: string }>;
           if (!roomRows[0] || roomRows[0].status !== 'active') {
-            return { ok: false as const, error: NOT_FOUND };
+            throw new RoomTypeNotFoundError();
           }
 
           const rowsByDate = new Map<string, AvailabilitySnapshot>();
@@ -1442,7 +1500,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               oversell: number;
             }>;
             if (rows.length === 0) {
-              return { ok: false as const, error: UNBOOKABLE, date: stayDate };
+              throw new UnbookableError(stayDate);
             }
             const row = rows[0]!;
             rowsByDate.set(stayDate, {
@@ -1457,16 +1515,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const unavailable = firstUnavailableNight(nights, rowsByDate);
           if (unavailable) {
-            return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
+            throw new NoAvailabilityError(unavailable);
           }
 
-          const restrictionFail = this.restrictionFailureSync(
+          this.restrictionFailureSync(
             input.roomTypeId,
             input.arrivalDate,
             input.departureDate,
             nights,
           );
-          if (restrictionFail) return restrictionFail;
 
           const now = Date.now();
           for (const stayDate of nights) {
@@ -1520,7 +1577,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -1571,7 +1629,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               )
               .toArray() as Array<{ sold: number }>;
             if (rows.length === 0 || rows[0]!.sold < 1) {
-              return { ok: false as const, error: LEDGER_INCONSISTENT, date: stayDate };
+              throw new LedgerInconsistentError(stayDate);
             }
           }
 
@@ -1626,7 +1684,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -1712,7 +1771,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
             .toArray() as Array<{ status: string }>;
           if (!roomRows[0] || roomRows[0].status !== 'active') {
-            return { ok: false as const, error: NOT_FOUND };
+            throw new RoomTypeNotFoundError();
           }
 
           const oldNights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
@@ -1729,7 +1788,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               )
               .toArray() as Array<{ sold: number }>;
             if (rows.length === 0 || rows[0]!.sold < 1) {
-              return { ok: false as const, error: LEDGER_INCONSISTENT, date: stayDate };
+              throw new LedgerInconsistentError(stayDate);
             }
           }
 
@@ -1749,7 +1808,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               oversell: number;
             }>;
             if (rows.length === 0) {
-              return { ok: false as const, error: UNBOOKABLE, date: stayDate };
+              throw new UnbookableError(stayDate);
             }
             const row = rows[0]!;
             const releasedSold = sameRoomType && oldNightSet.has(stayDate) ? row.sold - 1 : row.sold;
@@ -1765,16 +1824,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const unavailable = firstUnavailableNight(newNights, rowsByDate);
           if (unavailable) {
-            return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
+            throw new NoAvailabilityError(unavailable);
           }
 
-          const restrictionFail = this.restrictionFailureSync(
+          this.restrictionFailureSync(
             input.roomTypeId,
             input.arrivalDate,
             input.departureDate,
             newNights,
           );
-          if (restrictionFail) return restrictionFail;
 
           for (const stayDate of oldNights) {
             this.ctx.storage.sql.exec(
@@ -1876,7 +1934,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

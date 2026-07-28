@@ -8,7 +8,9 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  RESTRICTION_VIOLATED,
 } from '@hospai/contracts';
+import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
@@ -672,5 +674,126 @@ describe('PropertyDO reservations.modify', () => {
       ok: false,
       error: NOT_MODIFIABLE,
     });
+  });
+});
+
+function addDays(iso: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)!;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+describe('PropertyDO reservation precondition replay', () => {
+  it('no_availability is never cached: after demand clears, retrying the same idempotency key succeeds', async () => {
+    const name = `res-noavail-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 1);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+
+    const blockInput = {
+      reservationId: 'res_block',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(blockInput, await idemFor('book-block', blockInput))).toMatchObject({
+      ok: true,
+    });
+
+    const guestInput = {
+      reservationId: 'res_guest',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    const idem = await idemFor('book-guest-replay-fixed', guestInput);
+    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+      ok: false,
+      error: NO_AVAILABILITY,
+      date: arrival,
+    });
+
+    await stub.tryCancelReservation(
+      { reservationId: 'res_block' },
+      await idemFor('cancel-block', { reservationId: 'res_block' }),
+    );
+
+    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+  });
+
+  it('unbookable is never cached: after restoring the missing horizon row, retrying the same idempotency key succeeds', async () => {
+    const name = `res-unbookable-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const gapDate = addDays(arrival, 1);
+    await stub.deleteAvailabilityDay('rt_king', gapDate);
+
+    const departure = addDays(arrival, 2);
+    const guestInput = {
+      reservationId: 'res_gap',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    const idem = await idemFor('book-gap-replay-fixed', guestInput);
+    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+      ok: false,
+      error: UNBOOKABLE,
+      date: gapDate,
+    });
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: gapDate,
+      physical: 5,
+      sold: 0,
+    });
+
+    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+  });
+
+  it('restriction_violated is never cached: after relaxing the rule, retrying the same idempotency key succeeds', async () => {
+    const name = `res-restrict-replay-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+
+    const strict = {
+      roomTypeId: 'rt_king',
+      ratePlanId: TYPE_WIDE_RATE_PLAN,
+      stayDate: arrival,
+      minLos: 3,
+      maxLos: null,
+      cta: false,
+      ctd: false,
+      stopSell: false,
+    };
+    expect(await stub.tryUpsertRestrictionDay(strict, await idemFor('ups-strict', strict))).toMatchObject({
+      ok: true,
+    });
+
+    const guestInput = {
+      reservationId: 'res_restrict',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: addDays(arrival, 2),
+    };
+    const idem = await idemFor('book-restrict-replay-fixed', guestInput);
+    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+      ok: false,
+      error: RESTRICTION_VIOLATED,
+      rule: 'min_los',
+      date: arrival,
+      required: 3,
+    });
+
+    const relaxed = { ...strict, minLos: 1 };
+    expect(await stub.tryUpsertRestrictionDay(relaxed, await idemFor('ups-relaxed', relaxed))).toMatchObject({
+      ok: true,
+    });
+
+    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
   });
 });

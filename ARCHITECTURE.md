@@ -1103,9 +1103,14 @@ append outbox rows.
 Consequences:
 
 1. **`{ ok: false }` never leaves partial ledger state** — a failed book, cancel, or modify
-   does not rely on transaction rollback; the idempotency row may cache the failure, but
-   `sold` is unchanged.
-2. **Idempotency replay is safe** — cached failures reflect a true no-op on the ledger.
+   does not mutate `sold`. Precondition failures that depend on *current* ledger or
+   restriction state (`no_availability`, `unbookable`, `restriction_violated`,
+   `ledger_inconsistent`, and the inventory analogues) are **thrown inside**
+   `runIdempotent` so the transaction rolls back and the failure is **not** cached — the
+   same idempotency key remains retryable once demand or rules change (§7.5 inventory
+   oversell pattern).
+2. **Idempotency replay is safe** — successful outcomes and stable semantic failures (e.g.
+   `already_cancelled`, `not_modifiable`) may be cached; ledger-state preconditions are not.
 3. **New commands must follow the same shape** — interleaving checks with writes is a defect.
 
 Property-based tests (§11) assert the ledger invariant: for each `(room_type_id, stay_date)`,

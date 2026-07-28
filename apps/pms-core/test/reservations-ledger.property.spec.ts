@@ -64,12 +64,17 @@ async function assertSoldMatchesReservations(stub: DurableObjectStub<PropertyDO>
 }
 
 describe('PropertyDO sold ledger property tests', () => {
-  it(
-    'random create/cancel/modify sequences keep sold aligned with confirmed reservations',
-    async () => {
+  const defaultSeeds = [0xdecaf, 0xcafe, 0xbeef, 0xfeed, 0xface];
+  const seeds = process.env.LEDGER_PROP_SEED
+    ? [Number(process.env.LEDGER_PROP_SEED)]
+    : defaultSeeds;
+
+  it.each(seeds)(
+    'random create/cancel/modify sequences keep sold aligned (seed %#)',
+    async (seed) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
     const stub = await provisionedStub(name);
-    const rand = mulberry32(0xdecaf);
+    const rand = mulberry32(seed);
 
     const addInput = {
       roomTypeId: 'rt_king',

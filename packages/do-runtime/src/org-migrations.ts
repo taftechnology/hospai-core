@@ -64,30 +64,8 @@ export const GUEST_PII_STATEMENTS: string[] = [
 
 export const ORG_GUEST_PII_SQL = [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS].join(';\n\n') + ';\n';
 
-/** v3 — true crypto-shred: null wrapped_key on erase; rebuild for v2 NOT NULL column. */
-export const DATA_KEY_SHRED_MATERIAL_STATEMENTS: string[] = [
-  `CREATE TABLE data_key_new (
-  pii_key_id    TEXT PRIMARY KEY,
-  scope         TEXT NOT NULL CHECK (scope IN ('guest', 'staff')),
-  subject_id    TEXT NOT NULL,
-  wrapped_key   BLOB,
-  created_at    INTEGER NOT NULL,
-  shredded_at   INTEGER
-)`,
-
-  `INSERT INTO data_key_new (pii_key_id, scope, subject_id, wrapped_key, created_at, shredded_at)
-   SELECT pii_key_id, scope, subject_id,
-          CASE WHEN shredded_at IS NOT NULL THEN NULL ELSE wrapped_key END,
-          created_at, shredded_at
-   FROM data_key`,
-
-  `DROP TABLE data_key`,
-  `ALTER TABLE data_key_new RENAME TO data_key`,
-
-  `CREATE UNIQUE INDEX data_key_active_subject ON data_key(scope, subject_id) WHERE shredded_at IS NULL`,
-];
-
-export const ORG_DATA_KEY_SHRED_SQL = DATA_KEY_SHRED_MATERIAL_STATEMENTS.join(';\n\n') + ';\n';
+/** Never DROP/rebuild `data_key` while `guest.pii_key_id` FK references it — DO storage enforces FKs.
+ *  Shred destroys material via in-place UPDATE (`wrapped_key = x''`), not table rebuild. */
 
 export const ORG_MIGRATIONS = [
   {
@@ -99,10 +77,5 @@ export const ORG_MIGRATIONS = [
     version: 2,
     name: '0002_guest_pii',
     statements: [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS],
-  },
-  {
-    version: 3,
-    name: '0003_data_key_shred_material',
-    statements: DATA_KEY_SHRED_MATERIAL_STATEMENTS,
   },
 ] as const;

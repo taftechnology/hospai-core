@@ -311,24 +311,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
             return { ok: true as const, guestId: input.guestId, piiKeyId: guest.pii_key_id };
           }
 
-          const keyRows = this.ctx.storage.sql
-            .exec(`SELECT shredded_at, wrapped_key FROM data_key WHERE pii_key_id = ?`, guest.pii_key_id)
-            .toArray() as Array<{ shredded_at: number | null; wrapped_key: Uint8Array | null }>;
-          const keyRow = keyRows[0];
-          if (
-            !keyRow ||
-            keyRow.shredded_at != null ||
-            keyRow.wrapped_key == null ||
-            keyRow.wrapped_key.length === 0
-          ) {
+          const keyStore = new SqlKeyStore(this.ctx.storage.sql);
+          if (!keyStore.shred(guest.pii_key_id)) {
             throw new Error('key_shred_failed');
           }
-
-          this.ctx.storage.sql.exec(
-            `UPDATE data_key SET wrapped_key = NULL, shredded_at = ? WHERE pii_key_id = ? AND shredded_at IS NULL`,
-            Date.now(),
-            guest.pii_key_id,
-          );
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
@@ -416,13 +402,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return vault.shredKey(piiKeyId);
   }
 
-  /** Test hook — true when wrapped_key column is NULL (material destroyed, not just flagged). */
+  /** Test hook — true when wrapped_key blob has decryptable material. */
   async testDataKeyHasMaterial(piiKeyId: string): Promise<boolean> {
     const rows = this.ctx.storage.sql
-      .exec(`SELECT wrapped_key FROM data_key WHERE pii_key_id = ?`, piiKeyId)
-      .toArray() as Array<{ wrapped_key: Uint8Array | null }>;
-    const row = rows[0];
-    if (!row) return false;
-    return row.wrapped_key != null && row.wrapped_key.length > 0;
+      .exec(`SELECT length(wrapped_key) AS key_len FROM data_key WHERE pii_key_id = ?`, piiKeyId)
+      .toArray() as Array<{ key_len: number | null }>;
+    return (rows[0]?.key_len ?? 0) > 0;
   }
 }

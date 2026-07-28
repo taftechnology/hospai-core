@@ -647,10 +647,12 @@ Workflow with per-store steps.
 7. CERTIFY           append a purge certificate (subject, scope, timestamps, operator)
 ```
 
-After step 1 the data is **already unrecoverable everywhere**, including in stores the Workflow
-has not reached yet and in backups, PITR windows, and R2 lifecycle-pending objects that a
-delete-first design could never catch. Steps 2–5 reclaim space and satisfy "the row is gone"
-audits; they are housekeeping, not the guarantee.
+After step 1 the data is **already unrecoverable in every store the Workflow reaches** and in
+R2 lifecycle-pending objects that a delete-first design could never catch. **Backups and DO
+PITR windows are not covered in Phase 0** — a restore to before the shred can recover key
+material unless PITR retention is shorter than the erasure SLA or the org master key is rotated
+out-of-band after erasure (see §4.8 operational caveat). Steps 2–5 reclaim space and satisfy
+"the row is gone" audits; they are housekeeping, not the cryptographic guarantee.
 
 **Properties this design has to have:**
 

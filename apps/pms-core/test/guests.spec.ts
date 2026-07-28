@@ -95,6 +95,25 @@ describe('OrgDO guests + crypto-shredding', () => {
       error: GUEST_NOT_FOUND,
     });
   });
+
+  it('6. erase shreds data_key in place while guest FK row remains', async () => {
+    const org = await provisionedOrg(`org-fk-shred-${crypto.randomUUID()}`);
+    const guestId = 'guest_fk_parent';
+    const refs = await createGuest(org, guestId, 'FK Parent');
+
+    expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(true);
+
+    const eraseInput = { guestId };
+    expect(await org.tryEraseGuest(eraseInput, await idemFor('erase-fk', eraseInput))).toMatchObject({
+      ok: true,
+      guestId,
+      piiKeyId: refs.piiKeyId,
+    });
+
+    expect(await org.getGuestPiiKeyId(guestId)).toBe(refs.piiKeyId);
+    expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(false);
+    await expect(org.readGuestProfile(guestId)).rejects.toThrow(/PII key shredded/);
+  });
 });
 
 describe('PropertyDO reservation.created PII contract', () => {

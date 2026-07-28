@@ -54,7 +54,7 @@ export class SqlKeyStore implements KeyStore {
       return false;
     }
     this.sql.exec(
-      `UPDATE data_key SET wrapped_key = NULL, shredded_at = ? WHERE pii_key_id = ? AND shredded_at IS NULL`,
+      `UPDATE data_key SET wrapped_key = x'', shredded_at = ? WHERE pii_key_id = ? AND shredded_at IS NULL`,
       Date.now(),
       piiKeyId,
     );

@@ -54,7 +54,7 @@ describe('auth + membership (Phase 0)', () => {
     expect(members.some((m) => m.userId === 'user_mallory')).toBe(false);
 
     const provision = await postProperty(orgId, `prop_${crypto.randomUUID()}`, 'user_mallory');
-    expect(provision.status).toBe(403);
+    expect(provision.status).toBe(404);
   });
 
   it('cross-org property create denied for non-member', async () => {
@@ -64,7 +64,30 @@ describe('auth + membership (Phase 0)', () => {
     expect((await postOrg(orgB, 'Org B', 'user_b')).status).toBe(201);
 
     const denied = await postProperty(orgA, `prop_${crypto.randomUUID()}`, 'user_b');
-    expect(denied.status).toBe(403);
+    expect(denied.status).toBe(404);
+  });
+
+  it('non-member and absent org are indistinguishable (404/404)', async () => {
+    const existingOrg = `org_exist_${crypto.randomUUID()}`;
+    const absentOrg = `org_absent_${crypto.randomUUID()}`;
+    expect((await postOrg(existingOrg, 'Exists', 'user_owner')).status).toBe(201);
+
+    const onExisting = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${existingOrg}/properties`, {
+        headers: { 'x-dev-actor': 'user_stranger' },
+      }),
+      env,
+    );
+    const onAbsent = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${absentOrg}/properties`, {
+        headers: { 'x-dev-actor': 'user_stranger' },
+      }),
+      env,
+    );
+    expect(onExisting.status).toBe(404);
+    expect(onAbsent.status).toBe(404);
+    expect(await onExisting.json()).toEqual({ error: 'not_found' });
+    expect(await onAbsent.json()).toEqual({ error: 'not_found' });
   });
 
   it('member can provision property in their org', async () => {
@@ -94,7 +117,7 @@ describe('auth + membership (Phase 0)', () => {
       }),
       env,
     );
-    expect(forbidden.status).toBe(403);
+    expect(forbidden.status).toBe(404);
   });
 
   it('member property read allowed', async () => {
@@ -124,26 +147,29 @@ describe('auth + membership (Phase 0)', () => {
       }),
       env,
     );
-    expect(forbidden.status).toBe(403);
+    expect(forbidden.status).toBe(404);
   });
 
-  it('unknown org returns 404 without materializing OrgDO', async () => {
+  it('absent org (no D1 row) probe does not materialize OrgDO', async () => {
     const orgId = `org_missing_${crypto.randomUUID()}`;
     const before = await listDurableObjectIds(env.ORG_DO as unknown as DurableObjectNamespace);
 
-    const res = await worker.fetch(
+    const getRes = await worker.fetch(
       new Request(`http://localhost/v1/orgs/${orgId}/properties`, {
         headers: { 'x-dev-actor': 'user_probe' },
       }),
       env,
     );
-    expect(res.status).toBe(404);
+    expect(getRes.status).toBe(404);
+
+    const postRes = await postProperty(orgId, `prop_${crypto.randomUUID()}`, 'user_probe');
+    expect(postRes.status).toBe(404);
 
     const after = await listDurableObjectIds(env.ORG_DO as unknown as DurableObjectNamespace);
     expect(after.length).toBe(before.length);
   });
 
-  it('property create on unknown org returns 404 not 403', async () => {
+  it('property create on unknown org returns 404', async () => {
     const orgId = `org_nobody_${crypto.randomUUID()}`;
     const res = await postProperty(orgId, `prop_${crypto.randomUUID()}`, 'user_x');
     expect(res.status).toBe(404);

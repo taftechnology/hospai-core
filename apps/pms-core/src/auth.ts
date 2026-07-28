@@ -82,7 +82,7 @@ export async function resolveActor(request: Request, env: PmsEnv): Promise<Actor
   return { userId, source: 'clerk' };
 }
 
-/** D1 org must exist; actor must be in OrgDO member table. Unknown org → 404. */
+/** D1 org must exist; actor must be in OrgDO member table. Unknown org or non-member → 404. */
 export async function requireOrgMember(
   env: PmsEnv,
   orgId: string,
@@ -96,10 +96,8 @@ export async function requireOrgMember(
   const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
   const role = await org.getMemberRole(userId);
   if (!role) {
-    return Response.json(
-      { error: 'forbidden', message: 'Not a member of this org' },
-      { status: 403 },
-    );
+    // Same status + body as unknown org — do not distinguish (org existence oracle).
+    return Response.json({ error: 'not_found' }, { status: 404 });
   }
   return null;
 }

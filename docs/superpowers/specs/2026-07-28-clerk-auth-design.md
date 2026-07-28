@@ -41,7 +41,7 @@ Clerk answers: *who is this caller?* OrgDO answers: *what may they do in this or
 - **`createOrg`** insert-only registry write; `POST /v1/orgs` returns **409** on duplicate `orgId` (prerequisite — see **Org creation**)
 - **`getOrg`** D1 existence check before any OrgDO RPC in membership paths (prevents DO materialization on unknown orgs)
 - Edge: **membership check** on every org-scoped and property-scoped `/v1/*` route (see **Route matrix**)
-- HTTP **403** when authenticated but not a member; **401** when unauthenticated
+- HTTP **404** when org unknown or caller not a member (same response — no existence oracle); **401** when unauthenticated
 - Vitest: existing 227 tests unchanged (dev-actor path); new tests for membership enforcement + Clerk path (mocked verify)
 
 **Out**
@@ -162,9 +162,15 @@ async function resolveActor(request: Request, env: PmsEnv): Promise<Actor | Resp
 
 ## Membership enforcement
 
-**D1 existence gate (required).** Any RPC to OrgDO instantiates the object; the constructor runs migrations and creates `__meta` storage. A membership check against a nonexistent `orgId` would materialize a fully-migrated empty OrgDO — correct 403, wrong side effect. An authenticated user iterating `orgId` values would create one DO per attempt; `validateTenantId` bounds identifier *shape*, not *count*.
+**D1 existence gate (required).** Any RPC to OrgDO instantiates the object; the constructor runs migrations and creates `__meta` storage. Without the gate, a membership check against a nonexistent `orgId` would materialize a fully-migrated empty OrgDO on every probe. An authenticated user iterating `orgId` values would create one DO per attempt; `validateTenantId` bounds identifier *shape*, not *count*.
 
-Confirm the org row exists in **Platform D1** before touching OrgDO. Property routes already load `property.org_id` from D1; org-scoped routes add one indexed `SELECT org_id FROM org WHERE org_id = ?`. Unknown org → **404** (not 403 — the org does not exist). Known org, non-member → **403**.
+Confirm the org row exists in **Platform D1** before touching OrgDO. Property routes already load `property.org_id` from D1; org-scoped routes add one indexed `SELECT org_id FROM org WHERE org_id = ?`.
+
+**404 for both unknown org and non-member.** Returning 403 for a known org the caller doesn't belong to leaks org existence (authenticated enumeration oracle). Both cases return **404** `{ error: 'not_found' }` — indistinguishable to the caller. Debug detail belongs in logs, not status codes.
+
+**Absent org (no D1 row):** `getOrg` returns null → 404 with **no OrgDO RPC** — the D1 gate prevents materialization.
+
+**Known org, non-member:** D1 row exists → `getMemberRole` RPC runs → OrgDO may materialize. That is unavoidable without a D1 membership mirror; only the status code is unified to 404.
 
 ```ts
 async function requireOrgMember(
@@ -179,7 +185,7 @@ async function requireOrgMember(
   const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
   const role = await org.getMemberRole(userId);
   if (!role) {
-    return Response.json({ error: 'forbidden', message: 'Not a member of this org' }, { status: 403 });
+    return Response.json({ error: 'not_found' }, { status: 404 });
   }
   return null;
 }
@@ -245,19 +251,20 @@ Use `jwtKey` for zero-network verification in the Workers isolate.
 | `apps/pms-core/src/registry.ts` | `createOrg` (insert-only), `getOrg`; keep `upsertOrg` for internal provision paths |
 | `apps/pms-core/src/index.ts` | replace `requireDevActor` with `resolveActor`; `createOrg` + membership checks per route matrix |
 | `apps/pms-core/src/org-do.ts` | `getMemberRole` |
-| `apps/pms-core/test/auth.spec.ts` | membership 403, cross-org denial, org takeover 409, mocked Clerk path |
+| `apps/pms-core/test/auth.spec.ts` | membership 404/404, cross-org denial, org takeover 409, absent-org DO gate, mocked Clerk path |
 
 ## Success tests
 
 1. **Existing suite green** — all 227+ tests pass unchanged via dev-actor path.
-2. **Org takeover blocked** — Alice `POST /v1/orgs` with `orgId` X → **201**; Mallory `POST /v1/orgs` with same `orgId` → **409** `{ error: 'org_exists' }`; Mallory **not** in `listMembers`; Mallory `POST /v1/orgs/X/properties` → **403**. Regression test for the highest-privilege write path.
-3. **Cross-org property create denied** — `user_a` creates org A; `user_b` (member of org B only) `POST /v1/orgs/A/properties` → **403**.
-4. **Non-member property read denied** — provision as `user_a`; `GET /v1/properties/:id` as `user_b` → **403**.
+2. **Org takeover blocked** — Alice `POST /v1/orgs` with `orgId` X → **201**; Mallory `POST /v1/orgs` with same `orgId` → **409** `{ error: 'org_exists' }`; Mallory **not** in `listMembers`; Mallory `POST /v1/orgs/X/properties` → **404**.
+3. **Cross-org property create denied** — `user_a` creates org A; `user_b` (member of org B only) `POST /v1/orgs/A/properties` → **404**.
+4. **Non-member property read denied** — provision as `user_a`; `GET /v1/properties/:id` as `user_b` → **404**.
 5. **Member property read allowed** — same property, `user_a` → **200**.
 6. **Clerk path (mocked)** — with dev flags off and `authenticateRequest` mocked to return `userId`, route succeeds when member; **401** when mock returns unauthenticated.
-7. **Org list requires membership** — `GET /v1/orgs/:orgId/properties` as non-member → **403**.
-8. **Unknown org does not materialize OrgDO** — membership check for nonexistent `orgId` → **404**; no OrgDO id in `listDurableObjectIds` for that org (or equivalent assertion that storage was not created).
-9. **Org create still works** — `POST /v1/orgs` with dev actor → creator in `listMembers` as `owner`.
+7. **Org list requires membership** — `GET /v1/orgs/:orgId/properties` as non-member → **404** (same body as unknown org).
+8. **Absent org (no D1 row) does not materialize OrgDO** — GET + POST probe → **404**; `listDurableObjectIds(ORG_DO)` count unchanged. (Calling `listMembers()` on the stub afterward **will** materialize — that is not the HTTP path.)
+9. **Non-member indistinguishable from absent org** — existing org + stranger vs absent org both **404** `{ error: 'not_found' }`.
+10. **Org create still works** — `POST /v1/orgs` with dev actor → creator in `listMembers` as `owner`.
 
 ## Deployment ordering
 

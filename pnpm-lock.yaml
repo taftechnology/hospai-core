@@ -27,7 +27,7 @@ importers:
   apps/pms-core:
     dependencies:
       '@clerk/backend':
-        specifier: ^3.13.2
+        specifier: 3.13.2
         version: 3.13.2
       '@hospai/contracts':
         specifier: workspace:*

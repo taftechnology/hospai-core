@@ -18,21 +18,30 @@ export const LIMIT_EXCEEDED = 'limit_exceeded' as const;
 
 export type PlanCode = 'starter' | 'growth';
 
-/** Catalog FAIL_CLOSED commands not yet gated at a DO boundary (explicit until wired). */
-export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT = [
-  'reservations.no_show',
-  'folio.authorize',
-  'folio.capture',
-  'folio.split_charge_payment',
-  'night_audit.run',
-  'channels.sync',
-  'channels.add',
-  'rates.create_plan',
-  'rates.update_plan',
-  'rates.delete_plan',
-  'rates.update_room_type_rate',
-  'rates.bulk_update',
-  'housekeeping.staff_delete',
-  'staff.add',
-  'staff.delete',
-] as const;
+/** FAIL_CLOSED catalog commands exempt from the entitlement field — each entry must carry a reason. */
+export type EntitlementFailClosedOptOut = {
+  id: string;
+  reason: string;
+};
+
+export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
+  { id: 'reservations.no_show', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'folio.authorize', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'folio.capture', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'folio.split_charge_payment', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  {
+    id: 'night_audit.run',
+    reason:
+      'Permanent — background alarm path; gating would strand business-date roll rather than deny a user action',
+  },
+  { id: 'channels.sync', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'channels.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'rates.create_plan', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'rates.update_plan', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'rates.delete_plan', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'rates.update_room_type_rate', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'rates.bulk_update', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'housekeeping.staff_delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'staff.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  { id: 'staff.delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
+];

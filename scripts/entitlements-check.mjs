@@ -27,7 +27,7 @@ try {
 }
 
 const allowed = new Set(FEATURE_KEYS);
-const optOut = new Set(ENTITLEMENT_FAIL_CLOSED_OPT_OUT);
+const optOut = new Set(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.map((entry) => entry.id));
 let failed = false;
 
 for (const entry of COMMAND_CATALOG) {
@@ -50,7 +50,11 @@ for (const entry of COMMAND_CATALOG) {
   }
 }
 
-for (const id of ENTITLEMENT_FAIL_CLOSED_OPT_OUT) {
+for (const { id, reason } of ENTITLEMENT_FAIL_CLOSED_OPT_OUT) {
+  if (!reason?.trim()) {
+    console.error(`ENTITLEMENT_FAIL_CLOSED_OPT_OUT missing reason: ${id}`);
+    failed = true;
+  }
   const entry = COMMAND_CATALOG.find((c) => c.id === id);
   if (!entry) {
     console.error(`ENTITLEMENT_FAIL_CLOSED_OPT_OUT references unknown command: ${id}`);

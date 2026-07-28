@@ -106,7 +106,7 @@ export async function loadSnapshot(
   }
 }
 
-/** In-DO cache: version re-check + max-age so warm isolates cannot serve stale grants forever. */
+/** In-DO cache: max-age bounds staleness; D1 is consulted only on expiry, not per command. */
 export class EntitlementDoCache {
   private snap: EntitlementSnapshot | null = null;
   private cachedAt = 0;
@@ -120,11 +120,8 @@ export class EntitlementDoCache {
 
   async load(env: EntitlementEnv, orgId: string): Promise<EntitlementSnapshot> {
     const now = Date.now();
-    if (this.snap && this.snap.orgId === orgId) {
-      const currentVersion = await readActiveEntitlementVersion(env, orgId);
-      const versionFresh = this.snap.version === currentVersion;
-      const ageFresh = now - this.cachedAt < EntitlementDoCache.MAX_AGE_MS;
-      if (versionFresh && ageFresh) return this.snap;
+    if (this.snap && this.snap.orgId === orgId && now - this.cachedAt < EntitlementDoCache.MAX_AGE_MS) {
+      return this.snap;
     }
     this.snap = await loadSnapshot(env, orgId);
     this.cachedAt = now;

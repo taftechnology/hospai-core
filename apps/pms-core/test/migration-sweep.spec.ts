@@ -64,6 +64,15 @@ function installLogCapture() {
   return { lines, restore: () => spy.mockRestore() };
 }
 
+/** Per-tenant sweep issues — scoped checks for shared D1/DO fixtures (`isolatedStorage: false`). */
+function sweepIssuesForTenants(lines: Record<string, unknown>[], tenantIds: Set<string>) {
+  return lines.filter(
+    (l) =>
+      (l.msg === 'migration.sweep.error' || l.msg === 'migration.sweep.mismatch') &&
+      tenantIds.has(l.id as string),
+  );
+}
+
 describe('migration orchestrator (Phase 0)', () => {
   beforeEach(async () => {
     resetPlatformSchemaGate();
@@ -112,11 +121,10 @@ describe('migration orchestrator (Phase 0)', () => {
     capture.restore();
 
     const summary = capture.lines.find((l) => l.msg === 'migration.sweep.complete');
-    expect(summary).toMatchObject({
-      ok: expect.any(Number),
-      mismatch: 0,
-      errors: 0,
-    });
+    expect(summary).toBeDefined();
+
+    const own = new Set([orgId, propertyId]);
+    expect(sweepIssuesForTenants(capture.lines, own)).toEqual([]);
     expect((summary?.ok as number) ?? 0).toBeGreaterThanOrEqual(3);
 
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
@@ -187,10 +195,13 @@ describe('migration orchestrator (Phase 0)', () => {
     await runMigrationSweep({ triggeredBy: 'user_err', pageLimit: 50 });
     capture.restore();
 
+    await badEntitlement.setSchemaVersionRpcFailureForTest(false);
+
     const summary = capture.lines.find((l) => l.msg === 'migration.sweep.complete');
-    expect((summary?.errors as number) ?? 0).toBeGreaterThanOrEqual(1);
+    expect(summary).toBeDefined();
+    expect(capture.lines.some((l) => l.msg === 'migration.sweep.error' && l.id === orgBad)).toBe(true);
+    expect(sweepIssuesForTenants(capture.lines, new Set([orgOk]))).toEqual([]);
     expect((summary?.ok as number) ?? 0).toBeGreaterThanOrEqual(1);
-    expect(capture.lines.some((l) => l.msg === 'migration.sweep.error')).toBe(true);
   });
 
   it('step count is bounded by page batches, not fleet size', async () => {

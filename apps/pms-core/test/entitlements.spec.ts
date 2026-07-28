@@ -13,6 +13,7 @@ import {
   seedSubscription,
   setKillSwitch,
   tryDeleteSubscription,
+  trySetSubscriptionStatus,
 } from '../src/registry';
 import { idemFor, propertyStub, provisionedPropertyStub } from './guest-helpers';
 
@@ -122,6 +123,10 @@ describe('entitlements + kill-switch', () => {
     const del = await tryDeleteSubscription(env, orgId);
     expect(del.ok).toBe(false);
     expect(del.ok === false && /retained/i.test(del.error)).toBe(true);
+
+    const badStatus = await trySetSubscriptionStatus(env, orgId, 'typo');
+    expect(badStatus.ok).toBe(false);
+    expect(badStatus.ok === false && /active or cancelled/i.test(badStatus.error)).toBe(true);
 
     await cancelSubscription(env, orgId);
     expect(await readActiveEntitlementVersion(env, orgId)).toBe(0);

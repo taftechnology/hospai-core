@@ -14,7 +14,7 @@ Close the last retrofittable Phase 0 gap that every mutating command must pass t
 
 - Platform D1 migration **0002**: `feature`, `plan`, `plan_feature`, `subscription` (+ seed: **Starter**, **Growth**)
 - **PropertyDO `__meta.org_id`** — write-once, provision-populated (prerequisite for six PropertyDO commands; see below)
-- `OrgEntitlementDO` (v1): resolve snapshot from D1, bump `entitlement_version`, own `hard` meter counters
+- `OrgEntitlementDO` (v1): resolve snapshot from D1, own `hard` meter counters
 - Package `@hospai/entitlement-client`: types, `loadSnapshot`, `require`, `checkKillSwitch`, hard-limit helpers
 - Wrangler: `ORG_ENTITLEMENT_DO`, `ENTITLEMENT_KV` bindings
 - **Enforcement map** (normative — see below): kill-switch at edge; entitlement at edge **and** DO `try*` boundary
@@ -90,6 +90,8 @@ plan_feature (plan_code FK, feature_key FK, value TEXT NOT NULL)
 subscription (org_id PK FK, plan_code FK, status, entitlement_version INTEGER NOT NULL, trial_ends_at NULL, current_period_end NULL)
 ```
 
+**Subscription invariants (Platform D1 triggers — §6.3, migration 0003):** rows are never deleted (cancellation = `status` update); `entitlement_version` is monotonic per org and must increase on any plan or status change; `status` ∈ `{active, cancelled}`. Triggers are retroactive on existing databases. Version bumps live in D1 write helpers (`seedSubscription`, future billing paths), not in OrgEntitlementDO.
+
 **Phase 0 seed**
 
 | Plan | `pms.core` | `pms.units.limit` |
@@ -124,7 +126,7 @@ export type EntitlementSnapshot = {
 };
 ```
 
-`subscription.entitlement_version` increments on any subscription/plan change; KV key `ent:${orgId}:v${version}` (§6.3). Phase 0 passes `version` from the loaded snapshot (no signed session yet).
+`subscription.entitlement_version` increments on any subscription/plan change (D1 write path + triggers in 0003); KV key `ent:${orgId}:v${version}` (§6.3). Phase 0 passes `version` from the loaded snapshot (no signed session yet).
 
 ## OrgEntitlementDO
 
@@ -132,7 +134,8 @@ export type EntitlementSnapshot = {
 - **Migration v1:** `meter_counter (meter_key, period, value)` for `hard` limits; `meta (key, value)` for last resolved version
 - **`resolveEntitlements()`:** read Platform D1 → compute snapshot → persist counters' limits slice → return snapshot
 - **`checkHardLimit(meterKey, delta)`:** atomic increment/reject inside DO storage (never stale via KV)
-- **`bumpVersion()`:** called when subscription row changes (from Worker after D1 write)
+
+Version bumps are **not** an OrgEntitlementDO concern — they happen in Platform D1 subscription writes, enforced by D1 triggers (0003). A new KV key follows automatically from the incremented `entitlement_version`.
 
 Phase 0 **does not** enforce `pms.units.limit` on room-type add (counter wiring deferred); DO and client exist so the next slice only adds the catalog meter mapping.
 
@@ -206,7 +209,7 @@ HTTP mapping: `entitlement_required` → 402; kill-switch or resolution failure 
 
 ## Test contract
 
-1. **`seedSubscription(env, orgId, planCode)`** — upsert D1 subscription; call `OrgEntitlementDO.bumpVersion` or rely on resolve
+1. **`seedSubscription(env, orgId, planCode)`** — upsert D1 subscription (bumps `entitlement_version` on plan/status change; triggers enforce monotonicity)
 2. **Entitlement follows the org under test** — call `seedSubscription` inside **`provisionedOrg(orgId)`** and **`provisionedStub(…)`** (and `syncOrgAndPropertyDo` / HTTP provision paths), using the **same** `orgId` the test passes. Do **not** hardcode `org_test` in a global `beforeAll`; guest tests override `orgId` per case (`org-${name}`, `org-erase-${uuid}`, …) and seven call sites never use the default.
 3. **Denial without mutation** — org with no subscription: `tryCreateReservation` → `{ ok: false, error: 'entitlement_required' }`; availability ledger unchanged
 4. **Kill-switch** — with subscription present, `setKillSwitch(env, 'pms.core', true)` → edge `POST …/properties` returns 503

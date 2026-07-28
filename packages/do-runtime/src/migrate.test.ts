@@ -193,7 +193,12 @@ describe('freeze DDL single source', () => {
     );
     expect(
       PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS.some((s) =>
-        s.includes('subscription_entitlement_version_bump_on_change'),
+        s.includes('entitlement_version must increase when plan or status changes'),
+      ),
+    ).toBe(true);
+    expect(
+      PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS.some((s) =>
+        s.includes('subscription_update_invariants'),
       ),
     ).toBe(true);
   });

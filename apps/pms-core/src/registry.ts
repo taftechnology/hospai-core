@@ -141,6 +141,22 @@ export async function tryDeleteSubscription(
   }
 }
 
+/** Test helper: attempt raw status write (must abort on invalid domain or missing version bump). */
+export async function trySetSubscriptionStatus(
+  env: PmsEnv,
+  orgId: string,
+  status: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await env.PLATFORM_DB.prepare(`UPDATE subscription SET status = ? WHERE org_id = ?`)
+      .bind(status, orgId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Test-only: set operational kill-switch for a feature key. */
 export async function setKillSwitch(
   env: PmsEnv,

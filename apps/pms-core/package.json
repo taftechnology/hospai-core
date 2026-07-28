@@ -14,6 +14,7 @@
     "@hospai/contracts": "workspace:*",
     "@hospai/crypto-shredding": "workspace:*",
     "@hospai/do-runtime": "workspace:*",
+    "@hospai/entitlement-client": "workspace:*",
     "@hospai/kernel": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
     "@hospai/pms-rates": "workspace:*",

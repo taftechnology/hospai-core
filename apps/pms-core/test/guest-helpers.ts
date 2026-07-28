@@ -1,23 +1,14 @@
-import { env } from 'cloudflare:test';
-import { fingerprintPayload } from '@hospai/contracts';
-import { resolveOrgStub } from '@hospai/tenant-router';
-import type { OrgDO } from '../src/org-do';
+import type { OrgDO } from '../src/org-do.js';
+import { idemFor, provisionedOrg } from './fixtures.js';
 
-export const TEST_ORG_ID = 'org_test';
-
-export function orgStub(orgId = TEST_ORG_ID) {
-  return resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
-}
-
-export async function idemFor(key: string, payload: unknown) {
-  return { key, fingerprint: await fingerprintPayload(payload) };
-}
-
-export async function provisionedOrg(orgId = TEST_ORG_ID): Promise<DurableObjectStub<OrgDO>> {
-  const stub = orgStub(orgId);
-  await stub.ensureMetaOrgId(orgId);
-  return stub;
-}
+export {
+  DEFAULT_TEST_ORG,
+  orgStub,
+  propertyStub,
+  idemFor,
+  provisionedOrg,
+  provisionedPropertyStub,
+} from './fixtures.js';
 
 export type GuestRefs = { guestRef: string; piiKeyId: string };
 

@@ -35,6 +35,9 @@ importers:
       '@hospai/do-runtime':
         specifier: workspace:*
         version: link:../../packages/do-runtime
+      '@hospai/entitlement-client':
+        specifier: workspace:*
+        version: link:../../packages/entitlement-client
       '@hospai/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
@@ -149,6 +152,25 @@ importers:
       '@hospai/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250726.0
+        version: 4.20260702.1
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
+  packages/entitlement-client:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@hospai/tenant-router':
+        specifier: workspace:*
+        version: link:../tenant-router
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250726.0

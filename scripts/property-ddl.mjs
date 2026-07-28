@@ -29,6 +29,7 @@ let RESERVATION_V7_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let PLATFORM_REGISTRY_SQL;
+let PLATFORM_ENTITLEMENT_SQL;
 try {
   ({
     FREEZE_GATE_SQL,
@@ -41,6 +42,7 @@ try {
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     PLATFORM_REGISTRY_SQL,
+    PLATFORM_ENTITLEMENT_SQL,
   } = await import(modPath));
 } catch (e) {
   console.error(
@@ -145,6 +147,15 @@ const targets = [
 
 `,
     sql: PLATFORM_REGISTRY_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0002_entitlements.sql'),
+    header: `-- Platform D1 entitlement plane (§6.1) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: PLATFORM_ENTITLEMENT_SQL,
   },
 ];
 

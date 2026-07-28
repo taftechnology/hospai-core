@@ -16,6 +16,8 @@ import {
   NOT_MODIFIABLE,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
+  ENTITLEMENT_REQUIRED,
+  ENTITLEMENT_UNAVAILABLE,
   fingerprintPayload,
   type IdempotencyKey,
 } from '@hospai/contracts';
@@ -53,6 +55,7 @@ import {
 import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
+import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 
 /**
@@ -265,6 +268,7 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
+  private readonly entitlementCache = new EntitlementDoCache();
 
   /**
    * Set only by `setRollFailureForTest`. When non-null, `runRollStepSync` throws
@@ -332,6 +336,38 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       JSON.stringify(propertyId),
       Date.now(),
     );
+  }
+
+  /** Raw-SQL insert of `__meta.org_id` if absent. Never overwrites an existing value. */
+  async ensureMetaOrgId(orgId: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.org_id', ?, 1, ?)
+       ON CONFLICT(key) DO NOTHING`,
+      JSON.stringify(orgId),
+      Date.now(),
+    );
+  }
+
+  async getOrgId(): Promise<string | null> {
+    return this.getOrgIdSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private getOrgIdSync(): string | null {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.org_id')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return null;
+    return JSON.parse(rows[0].value_json) as string;
+  }
+
+  private async gateCoreEntitlement(
+    orgId: string,
+  ): Promise<{ ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE } | null> {
+    const result = await assertEntitled(this.env, this.entitlementCache, orgId, 'pms.core');
+    if (!result.ok) return result;
+    return null;
   }
 
   async getPropertyId(): Promise<string | null> {
@@ -1124,6 +1160,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; roomTypeId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     // Preconditions are checked *before* entering runIdempotent: a precondition
     // failure must never be cached under the idempotency key, or fixing the
     // precondition (e.g. provisioning the timezone) and replaying the same key
@@ -1456,6 +1497,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const timeZone = this.readStoredTimeZoneSync();
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
@@ -1605,6 +1651,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
@@ -1725,6 +1776,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const timeZone = this.readStoredTimeZoneSync();
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
@@ -2063,6 +2119,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
@@ -2121,6 +2182,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 

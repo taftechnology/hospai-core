@@ -12,6 +12,10 @@
       {
         "name": "ORG_DO",
         "class_name": "OrgDO"
+      },
+      {
+        "name": "ORG_ENTITLEMENT_DO",
+        "class_name": "OrgEntitlementDO"
       }
     ]
   },
@@ -23,6 +27,16 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["OrgDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["OrgEntitlementDO"]
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "ENTITLEMENT_KV",
+      "id": "00000000-0000-0000-0000-000000000002"
     }
   ],
   "workflows": [

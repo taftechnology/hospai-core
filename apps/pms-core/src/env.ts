@@ -7,6 +7,8 @@ export type NightAuditWorkflowParams = { propertyId: string };
 export type PmsEnv = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
   ORG_DO: DurableObjectNamespace<OrgDO>;
+  ORG_ENTITLEMENT_DO: DurableObjectNamespace;
+  ENTITLEMENT_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
   PLATFORM_DB: D1Database;
   /**

@@ -1,27 +1,11 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, GUEST_ALREADY_ERASED, GUEST_NOT_FOUND } from '@hospai/contracts';
-import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
-import { createGuest, idemFor, provisionedOrg } from './guest-helpers';
+import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub } from './guest-helpers';
 
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
-
-async function provisionedProperty(name: string): Promise<DurableObjectStub<PropertyDO>> {
-  const stub = propertyStub(name);
-  await stub.ensureMetaPropertyId(name);
-  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'UTC' });
-  await stub.ensureTimeZoneIfAbsent('UTC', { key: `provision:timezone:${name}`, fingerprint });
-  await stub.ensureBusinessDateIfAbsent('UTC', new Date());
-  await stub.ensureNightAuditSchedule('UTC', new Date());
-  await stub.flushOutbox();
-  return stub;
+async function provisionedProperty(name: string, orgId: string): Promise<DurableObjectStub<PropertyDO>> {
+  return provisionedPropertyStub(name, 'UTC', orgId);
 }
 
 describe('OrgDO guests + crypto-shredding', () => {
@@ -124,8 +108,9 @@ describe('OrgDO guests + crypto-shredding', () => {
 describe('PropertyDO reservation.created PII contract', () => {
   it('reservation.created carries guest_ref + pii_key_id, never display name', async () => {
     const name = `res-pii-${crypto.randomUUID()}`;
-    const org = await provisionedOrg(`org-${name}`);
-    const stub = await provisionedProperty(name);
+    const orgId = `org-${name}`;
+    const org = await provisionedOrg(orgId);
+    const stub = await provisionedProperty(name, orgId);
     const guestName = 'Secret Guest Name';
     const guest = await createGuest(org, 'guest_book', guestName);
 

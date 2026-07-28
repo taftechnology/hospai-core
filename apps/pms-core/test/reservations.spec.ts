@@ -11,34 +11,10 @@ import {
   RESTRICTION_VIOLATED,
 } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
-import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
+import { idemFor, provisionedPropertyStub, propertyStub } from './fixtures';
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
-
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
-
-async function provisionedStub(name: string, timeZone: string): Promise<DurableObjectStub<PropertyDO>> {
-  const stub = propertyStub(name);
-  await stub.ensureMetaPropertyId(name);
-  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
-  await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
-  const instant = new Date();
-  await stub.ensureBusinessDateIfAbsent(timeZone, instant);
-  await stub.ensureNightAuditSchedule(timeZone, instant);
-  await stub.flushOutbox();
-  return stub;
-}
-
-async function idemFor(key: string, payload: unknown) {
-  return { key, fingerprint: await fingerprintPayload(payload) };
-}
 
 async function addRoomType(
   stub: DurableObjectStub<PropertyDO>,
@@ -65,7 +41,7 @@ async function addRoomType(
 describe('PropertyDO reservations.create + availability.book', () => {
   it('1. books a 2-night stay and increments sold on each night', async () => {
     const name = `res-book-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -92,7 +68,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('2. rejects when sold already at physical', async () => {
     const name = `res-full-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -116,7 +92,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('3. rejects unbookable gap in horizon', async () => {
     const name = `res-gap-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -141,7 +117,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('4. idempotency replay does not double-sell', async () => {
     const name = `res-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -164,7 +140,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('5. rejects archived room type', async () => {
     const name = `res-arch-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     await addRoomType(stub, 'rt_king', 5);
     await stub.tryDeleteRoomType({ roomTypeId: 'rt_king' }, await idemFor('arch', { roomTypeId: 'rt_king' }));
 
@@ -182,7 +158,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('6. allow_overbooking materializes into ledger and permits one unit over physical', async () => {
     const name = `res-oversell-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
 
     await stub.tryPutDomainConfig(
       'pms.availability.allow_overbooking',
@@ -222,7 +198,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('7. book uses ledger oversell only — non-zero column is not double-counted with config', async () => {
     const name = `res-ledger-os-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 10);
     const arrival = added.fromDate;
 
@@ -274,7 +250,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('8. enabling overbooking after seed rematerializes oversell on existing horizon rows', async () => {
     const name = `res-cfg-after-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
@@ -324,7 +300,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('9. invalidateAri skips archived room types — oversell stays 0 and free stays 0', async () => {
     const name = `res-cfg-arch-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
 
@@ -368,7 +344,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 describe('PropertyDO reservations.cancel', () => {
   it('1. create then cancel returns sold to 0 and emits both events', async () => {
     const name = `res-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -401,7 +377,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('2. double cancel returns already_cancelled without changing sold', async () => {
     const name = `res-dbl-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -430,7 +406,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('3. idempotency replay does not double-decrement sold', async () => {
     const name = `res-cancel-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -458,7 +434,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('4. refuses cancel when sold would underflow', async () => {
     const name = `res-underflow-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -499,7 +475,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('1. extend stay increments sold on the new night only', async () => {
     const name = `res-mod-ext-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -533,7 +509,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('2. shorten stay decrements sold on the dropped night', async () => {
     const name = `res-mod-short-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 2);
@@ -567,7 +543,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('3. room type change moves sold between ledgers', async () => {
     const name = `res-mod-rt-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     await addRoomType(stub, 'rt_queen', 5, 'QUEEN', 'Queen Room');
     const arrival = added.fromDate;
@@ -606,7 +582,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('4. refuses modify when extension night has no availability', async () => {
     const name = `res-mod-full-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -649,7 +625,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('5. idempotency replay does not double-touch sold', async () => {
     const name = `res-mod-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -681,7 +657,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('6. cancelled reservation returns not_modifiable', async () => {
     const name = `res-mod-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -726,7 +702,7 @@ function addDays(iso: string, days: number): string {
 describe('PropertyDO reservation precondition replay', () => {
   it('no_availability is never cached: after demand clears, retrying the same idempotency key succeeds', async () => {
     const name = `res-noavail-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -768,7 +744,7 @@ describe('PropertyDO reservation precondition replay', () => {
 
   it('unbookable is never cached: after restoring the missing horizon row, retrying the same idempotency key succeeds', async () => {
     const name = `res-unbookable-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const gapDate = addDays(arrival, 1);
@@ -802,7 +778,7 @@ describe('PropertyDO reservation precondition replay', () => {
 
   it('restriction_violated is never cached: after relaxing the rule, retrying the same idempotency key succeeds', async () => {
     const name = `res-restrict-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
 

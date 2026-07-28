@@ -75,6 +75,7 @@ async function syncOrgAndPropertyDo(
   ) as DurableObjectStub<PropertyDO>;
   await prop.setRecordedJurisdiction(property.jurisdiction);
   await prop.ensureMetaPropertyId(property.propertyId);
+  await prop.ensureMetaOrgId(property.orgId);
   const fingerprint = await fingerprintPayload({
     propertyId: property.propertyId,
     timeZone: property.timeZone,

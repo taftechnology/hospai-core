@@ -1,4 +1,11 @@
 import type { Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import {
+  checkKillSwitch,
+  EntitlementRequiredError,
+  EntitlementResolutionError,
+  loadSnapshot,
+  require,
+} from '@hospai/entitlement-client';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import {
   assertEnvSafeForRequest,
@@ -6,6 +13,7 @@ import {
   type PmsEnv,
 } from './env.js';
 import { OrgDO } from './org-do.js';
+import { OrgEntitlementDO } from './org-entitlement-do.js';
 import { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { getProperty, upsertOrg } from './registry.js';
@@ -13,6 +21,7 @@ import { getProperty, upsertOrg } from './registry.js';
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
 export { OrgDO } from './org-do.js';
+export { OrgEntitlementDO } from './org-entitlement-do.js';
 export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
@@ -82,6 +91,23 @@ export default {
         if (!body.propertyId || !body.name || !body.timeZone) {
           return json({ error: 'invalid_body' }, 400);
         }
+
+        if (await checkKillSwitch(env, 'pms.core')) {
+          return new Response(null, { status: 503 });
+        }
+        try {
+          const snap = await loadSnapshot(env, orgId);
+          require(snap, 'pms.core');
+        } catch (e) {
+          if (e instanceof EntitlementRequiredError) {
+            return json({ error: e.code, feature: e.featureKey }, 402);
+          }
+          if (e instanceof EntitlementResolutionError) {
+            return new Response(null, { status: 503 });
+          }
+          return new Response(null, { status: 503 });
+        }
+
         const input: ProvisionPropertyInput = {
           orgId,
           orgName: body.orgName,

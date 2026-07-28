@@ -1,3 +1,5 @@
+import type { FeatureKey } from '../entitlements.js';
+
 export type Lane = 'INTERACTIVE' | 'BACKGROUND' | 'BULK' | 'SHELL';
 export type DegradedClass = 'READ_STALE' | 'QUEUE_PROVISIONAL' | 'FAIL_CLOSED' | 'N/A';
 
@@ -12,6 +14,7 @@ export type CommandEntry = {
   degraded: DegradedClass;
   idempotent: boolean;
   events: string[];
+  entitlement?: FeatureKey;
   notes?: string;
 };
 
@@ -35,6 +38,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.created', 'availability.changed'],
+    entitlement: 'pms.core',
   },
   // UPDATE_RESERVATION_STATUS split — inventory/legal transitions fail closed
   {
@@ -63,6 +67,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
     notes: 'Inventory-affecting — must not invent stock during outage.',
+    entitlement: 'pms.core',
   },
   {
     id: 'reservations.no_show',
@@ -105,6 +110,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.modified', 'availability.changed'],
+    entitlement: 'pms.core',
   },
   {
     id: 'rooms.update_status',
@@ -215,6 +221,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['guest.created'],
+    entitlement: 'pms.core',
   },
   {
     id: 'guests.update',
@@ -223,6 +230,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['guest.updated'],
+    entitlement: 'pms.core',
   },
   {
     id: 'guests.erase',
@@ -232,6 +240,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['guest.erased'],
     notes: '§4.8 crypto-shred — must not queue during outage.',
+    entitlement: 'pms.core',
   },
   {
     id: 'rates.create_plan',
@@ -320,6 +329,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
+    entitlement: 'pms.core',
   },
   {
     id: 'inventory.update_room_type',
@@ -344,6 +354,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['restriction.changed'],
+    entitlement: 'pms.core',
   },
   {
     id: 'rates.upsert_day',
@@ -352,6 +363,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate.changed'],
+    entitlement: 'pms.core',
   },
   {
     id: 'staff.add',

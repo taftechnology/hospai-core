@@ -11,36 +11,12 @@ import {
 } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
-
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
-
-/** Provision a fresh PropertyDO stub with `__meta.property_id` + stored timezone + business_date. */
-async function provisionedStub(name: string, timeZone: string): Promise<DurableObjectStub<PropertyDO>> {
-  const stub = propertyStub(name);
-  await stub.ensureMetaPropertyId(name);
-  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
-  await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
-  const instant = new Date();
-  await stub.ensureBusinessDateIfAbsent(timeZone, instant);
-  await stub.ensureNightAuditSchedule(timeZone, instant);
-  // Drain the provisioning `config.changed` event so outbox assertions below start clean.
-  await stub.flushOutbox();
-  return stub;
-}
-
-async function idemFor(key: string, payload: unknown) {
-  return { key, fingerprint: await fingerprintPayload(payload) };
-}
+import { idemFor, provisionedPropertyStub, propertyStub, ensureEntitledMeta } from './fixtures';
 
 describe('PropertyDO inventory commands', () => {
   it('1. add room type without a stored timezone rejects with timezone_unset', async () => {
     const stub = propertyStub(`inv-no-tz-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -57,6 +33,7 @@ describe('PropertyDO inventory commands', () => {
     const name = `inv-no-tz-replay-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await stub.ensureMetaPropertyId(name);
+    await ensureEntitledMeta(stub);
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -87,6 +64,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('1c. add room type without a stored property_id rejects with property_id_unset, uncached', async () => {
     const stub = propertyStub(`inv-no-pid-${crypto.randomUUID()}`);
+    await ensureEntitledMeta(stub);
     const fingerprint = await fingerprintPayload({ propertyId: 'x', timeZone: 'Europe/Berlin' });
     await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: 'provision:timezone:x', fingerprint });
     const input = {
@@ -103,7 +81,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('2. add room type under Europe/Berlin seeds exactly 365 rows from business_date, two events, ARI version 1', async () => {
     const name = `inv-berlin-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const businessDate = await stub.readBusinessDate();
     expect(businessDate).not.toBeNull();
     const input = {
@@ -137,6 +115,7 @@ describe('PropertyDO inventory commands', () => {
     const name = `inv-no-bd-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await stub.ensureMetaPropertyId(name);
+    await ensureEntitledMeta(stub);
     const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
     await stub.ensureTimeZoneIfAbsent('Europe/Berlin', {
       key: `provision:timezone:${name}`,
@@ -157,7 +136,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('3. replay of the same idempotency key does not double-seed or double-emit', async () => {
     const name = `inv-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -182,7 +161,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('4. update lowering room_count below sold returns oversell with offending dates', async () => {
     const name = `inv-oversell-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -214,7 +193,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('5. update ok changes existing future rows only; never inserts dates; past rows untouched', async () => {
     const name = `inv-update-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -262,7 +241,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('6. archive with future committed demand returns archive_blocked', async () => {
     const name = `inv-archive-blocked-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -290,7 +269,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('7. archive clean sets status archived, zeroes future physical, leaves past untouched, both events', async () => {
     const name = `inv-archive-clean-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -331,7 +310,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('7b. archive with zero future ledger rows still emits room_type_changed but skips availability.changed and the ARI bump', async () => {
     const name = `inv-archive-empty-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -362,7 +341,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('not_found is never cached: update on a missing room type, then retry the same idempotency key once it exists', async () => {
     const name = `inv-not-found-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const updateInput = { roomTypeId: 'rt_ghost', roomCount: 5 };
     const idem = await idemFor('update-not-found-fixed', updateInput);
 
@@ -386,7 +365,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('oversell is never cached: after clearing the offending demand, retrying the same idempotency key succeeds', async () => {
     const name = `inv-oversell-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -424,7 +403,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('8. archived code can be reused on a new active room type (partial unique index)', async () => {
     const name = `inv-code-reuse-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
     const addInput = {
       roomTypeId: 'rt_king_1',
       code: 'KING',

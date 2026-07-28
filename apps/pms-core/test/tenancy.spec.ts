@@ -212,6 +212,19 @@ describe('tenancy spine', () => {
     const orgId = `org_${crypto.randomUUID()}`;
     const { default: worker } = await import('../src/index');
 
+    const orgCreated = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-dev-actor': 'user_http',
+        },
+        body: JSON.stringify({ orgId, name: 'HTTP Org' }),
+      }),
+      env,
+    );
+    expect(orgCreated.status).toBe(201);
+
     const denied = await worker.fetch(
       new Request('http://localhost/v1/orgs/' + orgId + '/properties', {
         method: 'POST',

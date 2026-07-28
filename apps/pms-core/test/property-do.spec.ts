@@ -1,16 +1,8 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, IDEM_KEY_REUSED } from '@hospai/contracts';
-import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
-
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
+import { ensureEntitledMeta, propertyStub } from './fixtures';
 
 async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
   const fingerprint = await fingerprintPayload({
@@ -141,6 +133,7 @@ describe('PropertyDO freeze gate', () => {
   it('rejects duplicate type-wide restriction_day rows (rate_plan_id DEFAULT *)', async () => {
     const stub = propertyStub(`rest-${crypto.randomUUID()}`);
     await stub.ensureMetaPropertyId('rest-test');
+    await ensureEntitledMeta(stub);
     await stub.upsertRestrictionDay({
       roomTypeId: 'rt_king',
       stayDate: '2026-08-01',

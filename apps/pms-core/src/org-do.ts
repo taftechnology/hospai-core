@@ -3,6 +3,8 @@ import {
   GUEST_ALREADY_ERASED,
   GUEST_NOT_FOUND,
   IDEM_KEY_REUSED,
+  ENTITLEMENT_REQUIRED,
+  ENTITLEMENT_UNAVAILABLE,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -18,6 +20,7 @@ import {
   PiiVault,
   type GuestProfile,
 } from '@hospai/crypto-shredding';
+import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
 import { SqlKeyStore } from './org-key-store.js';
 
@@ -55,6 +58,7 @@ function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem
 
 export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
+  private readonly entitlementCache = new EntitlementDoCache();
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -91,6 +95,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
       `INSERT INTO __meta (key, value) VALUES ('org_id', ?) ON CONFLICT(key) DO NOTHING`,
       orgId,
     );
+  }
+
+  private async gateCoreEntitlement(
+    orgId: string,
+  ): Promise<{ ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE } | null> {
+    const result = await assertEntitled(this.env, this.entitlementCache, orgId, 'pms.core');
+    if (!result.ok) return result;
+    return null;
   }
 
   async getSchemaVersion(): Promise<number> {
@@ -176,6 +188,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
 
     try {
       const replay = readIdempotentReplay<
@@ -246,6 +260,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
 
     try {
       const replay = readIdempotentReplay<
@@ -298,6 +314,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
 
     try {
       return this.ctx.storage.transactionSync(() =>

@@ -2,33 +2,10 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, RESTRICTION_VIOLATED, RATE_MISSING } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
-import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
+import { idemFor, provisionedPropertyStub } from './fixtures';
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
-
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
-
-async function provisionedStub(name: string): Promise<DurableObjectStub<PropertyDO>> {
-  const stub = propertyStub(name);
-  await stub.ensureMetaPropertyId(name);
-  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'UTC' });
-  await stub.ensureTimeZoneIfAbsent('UTC', { key: `provision:timezone:${name}`, fingerprint });
-  await stub.ensureBusinessDateIfAbsent('UTC', new Date());
-  await stub.ensureNightAuditSchedule('UTC', new Date());
-  await stub.flushOutbox();
-  return stub;
-}
-
-async function idemFor(key: string, payload: unknown) {
-  return { key, fingerprint: await fingerprintPayload(payload) };
-}
 
 function addDays(iso: string, days: number): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)!;
@@ -39,7 +16,7 @@ function addDays(iso: string, days: number): string {
 describe('PropertyDO restrictions + rates', () => {
   it('1. min_los on arrival blocks create in the book txn', async () => {
     const name = `restrict-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name);
+    const stub = await provisionedPropertyStub(name, 'UTC');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -87,7 +64,7 @@ describe('PropertyDO restrictions + rates', () => {
 
   it('2. materialized rate_day enables quote across a stay', async () => {
     const name = `rates-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name);
+    const stub = await provisionedPropertyStub(name, 'UTC');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',

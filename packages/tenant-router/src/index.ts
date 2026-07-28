@@ -158,6 +158,12 @@ export function resolveOrgStub(ns: DurableObjectNamespaceLike, route: OrgRoute):
   return ns.get(id, route.locationHint ? { locationHint: route.locationHint } : undefined);
 }
 
+/** Resolve an OrgEntitlementDO stub (same orgId naming as OrgDO). */
+export function resolveOrgEntitlementStub(ns: DurableObjectNamespaceLike, orgId: string): unknown {
+  const id = ns.idFromName(orgId);
+  return ns.get(id);
+}
+
 /** Assert DO instance jurisdiction matches the registry. Call on cold start. */
 export function assertJurisdictionMatch(
   actual: string | null | undefined,

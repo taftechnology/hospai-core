@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { fingerprintPayload } from '@hospai/contracts';
 import { HORIZON_DAYS } from '@hospai/pms-inventory';
 import { enumerateStayDates } from '@hospai/pms-reservations';
-import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
+import { idemFor, provisionedPropertyStub } from './fixtures';
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -16,29 +16,6 @@ function mulberry32(seed: number) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function propertyStub(name: string) {
-  return resolvePropertyStub(env.PROPERTY_DO, {
-    orgId: 'org_test',
-    propertyId: name,
-    jurisdiction: null,
-  }) as DurableObjectStub<PropertyDO>;
-}
-
-async function provisionedStub(name: string): Promise<DurableObjectStub<PropertyDO>> {
-  const stub = propertyStub(name);
-  await stub.ensureMetaPropertyId(name);
-  const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'UTC' });
-  await stub.ensureTimeZoneIfAbsent('UTC', { key: `provision:timezone:${name}`, fingerprint });
-  await stub.ensureBusinessDateIfAbsent('UTC', new Date());
-  await stub.ensureNightAuditSchedule('UTC', new Date());
-  await stub.flushOutbox();
-  return stub;
-}
-
-async function idemFor(key: string, payload: unknown) {
-  return { key, fingerprint: await fingerprintPayload(payload) };
 }
 
 function addDays(iso: string, days: number): string {
@@ -85,7 +62,7 @@ describe('PropertyDO sold ledger property tests', () => {
     'random create/cancel/modify sequences keep sold aligned (seed $label)',
     async ({ seed }) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
-    const stub = await provisionedStub(name);
+    const stub = await provisionedPropertyStub(name, 'UTC');
     const rand = mulberry32(seed);
 
     const addInput = {

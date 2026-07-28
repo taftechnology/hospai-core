@@ -1,5 +1,5 @@
-import type { PropertyRecord } from '@hospai/contracts';
-import { PLATFORM_REGISTRY_STATEMENTS } from '@hospai/do-runtime';
+import type { PlanCode, PropertyRecord } from '@hospai/contracts';
+import { PLATFORM_ALL_STATEMENTS } from '@hospai/do-runtime';
 import type { Jurisdiction } from '@hospai/tenant-router';
 import type { PmsEnv } from './env.js';
 
@@ -12,7 +12,7 @@ let schemaReady: Promise<void> | null = null;
 export async function ensurePlatformSchema(db: D1Database): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
-      for (const stmt of PLATFORM_REGISTRY_STATEMENTS) {
+      for (const stmt of PLATFORM_ALL_STATEMENTS) {
         await db.prepare(stmt).run();
       }
     })().catch((err) => {
@@ -67,6 +67,55 @@ export async function upsertOrg(
   )
     .bind(orgId, name, Date.now())
     .run();
+  await seedSubscription(env, orgId, 'starter');
+}
+
+export async function ensureOrgRegistryRow(env: PmsEnv, orgId: string, name: string): Promise<void> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  await env.PLATFORM_DB.prepare(
+    `INSERT OR IGNORE INTO org (org_id, name, status, created_at) VALUES (?, ?, 'active', ?)`,
+  )
+    .bind(orgId, name, Date.now())
+    .run();
+}
+
+export async function seedSubscription(
+  env: PmsEnv,
+  orgId: string,
+  planCode: PlanCode,
+): Promise<void> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  await ensureOrgRegistryRow(env, orgId, orgId);
+  await env.PLATFORM_DB.prepare(
+    `INSERT OR IGNORE INTO subscription (org_id, plan_code, status, entitlement_version, trial_ends_at, current_period_end)
+     VALUES (?, ?, 'active', 1, NULL, NULL)`,
+  )
+    .bind(orgId, planCode)
+    .run();
+  const after = await env.PLATFORM_DB.prepare(`SELECT plan_code FROM subscription WHERE org_id = ?`)
+    .bind(orgId)
+    .first<{ plan_code: string }>();
+  if (after && after.plan_code !== planCode) {
+    await env.PLATFORM_DB.prepare(
+      `UPDATE subscription SET plan_code = ?, entitlement_version = entitlement_version + 1 WHERE org_id = ?`,
+    )
+      .bind(planCode, orgId)
+      .run();
+  }
+}
+
+/** Test-only: set operational kill-switch for a feature key. */
+export async function setKillSwitch(
+  env: PmsEnv,
+  featureKey: string,
+  active: boolean,
+): Promise<void> {
+  const key = `kill:${featureKey}`;
+  if (active) {
+    await env.ENTITLEMENT_KV.put(key, '1');
+  } else {
+    await env.ENTITLEMENT_KV.delete(key);
+  }
 }
 
 export async function insertProperty(

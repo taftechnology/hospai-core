@@ -63,7 +63,7 @@ export {
   TYPE_WIDE_RATE_PLAN,
 } from './property-migrations.js';
 
-export { AlarmScheduler, type AlarmHandler } from './alarm-scheduler.js';
+export { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, type AlarmHandler } from './alarm-scheduler.js';
 
 export {
   ORG_MIGRATIONS,

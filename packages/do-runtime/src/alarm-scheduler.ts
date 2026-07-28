@@ -2,6 +2,14 @@ import type { SqlStorageLike } from './index.js';
 
 export type AlarmHandler = () => void | Promise<void>;
 
+/**
+ * Backoff applied to a schedule whose handler threw, or which is due with no
+ * registered handler. Without it `next_run_at` stays in the past, `armFromTable()`
+ * re-arms to that past instant, the alarm fires again immediately, and the DO
+ * spins in a tight loop instead of merely being late.
+ */
+export const ALARM_FAILURE_BACKOFF_MS = 60_000;
+
 export class AlarmScheduler {
   constructor(
     private sql: SqlStorageLike,
@@ -25,13 +33,18 @@ export class AlarmScheduler {
     );
   }
 
+  /**
+   * Never-dark invariant: always re-arm from the table. Clamped to "now" so a
+   * `next_run_at` left in the past (missed window, crash, backoff not yet applied)
+   * schedules a prompt catch-up fire instead of an immediate self-retriggering loop.
+   */
   async armFromTable(): Promise<void> {
     const rows = this.sql
       .exec(`SELECT MIN(next_run_at) AS next FROM alarm_schedule`)
       .toArray() as Array<{ next: number | null }>;
     const next = rows[0]?.next;
     if (next != null) {
-      await this.storage.setAlarm(next);
+      await this.storage.setAlarm(Math.max(next, Date.now()));
     }
   }
 
@@ -43,16 +56,31 @@ export class AlarmScheduler {
 
     for (const { name } of due) {
       const handler = handlers[name];
-      if (!handler) continue;
+      if (!handler) {
+        this.backoff(name, `no handler registered for schedule "${name}"`);
+        continue;
+      }
       try {
         await handler();
         this.sql.exec(`UPDATE alarm_schedule SET last_error = NULL WHERE name = ?`, name);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        this.sql.exec(`UPDATE alarm_schedule SET last_error = ? WHERE name = ?`, message, name);
+        this.backoff(name, message);
       }
     }
 
     await this.armFromTable();
+  }
+
+  /** Record the failure and push `next_run_at` past "now" so the retry is delayed, not immediate. */
+  private backoff(name: string, message: string): void {
+    const at = Date.now();
+    this.sql.exec(
+      `UPDATE alarm_schedule SET last_error = ?, next_run_at = ?, updated_at = ? WHERE name = ?`,
+      message,
+      at + ALARM_FAILURE_BACKOFF_MS,
+      at,
+      name,
+    );
   }
 }

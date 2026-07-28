@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { AlarmScheduler, type SqlStorageLike } from './index.js';
+import { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, type SqlStorageLike } from './index.js';
 
 type AlarmScheduleRow = {
   name: string;
@@ -47,11 +47,28 @@ class AlarmScheduleMemorySql implements SqlStorageLike {
       return { toArray: () => [{ next }] };
     }
 
-    if (q.startsWith('UPDATE alarm_schedule SET last_error = ? WHERE name = ?')) {
+    if (
+      q.startsWith(
+        'UPDATE alarm_schedule SET last_error = ?, next_run_at = ?, updated_at = ? WHERE name = ?',
+      )
+    ) {
       const message = bindings[0] as string | null;
-      const name = bindings[1] as string;
+      const nextRunAt = bindings[1] as number;
+      const updatedAt = bindings[2] as number;
+      const name = bindings[3] as string;
       const row = this.rows.get(name);
-      if (row) row.last_error = message;
+      if (row) {
+        row.last_error = message;
+        row.next_run_at = nextRunAt;
+        row.updated_at = updatedAt;
+      }
+      return { toArray: () => [] };
+    }
+
+    if (q.startsWith('UPDATE alarm_schedule SET last_error = NULL WHERE name = ?')) {
+      const name = bindings[0] as string;
+      const row = this.rows.get(name);
+      if (row) row.last_error = null;
       return { toArray: () => [] };
     }
 
@@ -69,14 +86,14 @@ describe('AlarmScheduler', () => {
     vi.useRealTimers();
   });
 
-  it('throwing handler still arms setAlarm with next due time', async () => {
+  it('throwing handler backs its schedule off and still arms setAlarm in the future', async () => {
     const now = Date.now();
     const sql = new AlarmScheduleMemorySql();
     const setAlarm = vi.fn(async (_t: number) => {});
     const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
 
     scheduler.upsertSchedule('failing', now - 1_000);
-    scheduler.upsertSchedule('future', now + 60_000);
+    scheduler.upsertSchedule('future', now + 10 * ALARM_FAILURE_BACKOFF_MS);
 
     await scheduler.run({
       failing: () => {
@@ -85,10 +102,46 @@ describe('AlarmScheduler', () => {
       future: async () => {},
     });
 
-    expect(setAlarm).toHaveBeenCalledTimes(1);
-    const minNext = Math.min(...[...sql.rows.values()].map((r) => r.next_run_at));
-    expect(setAlarm).toHaveBeenCalledWith(minNext);
     expect(sql.rows.get('failing')?.last_error).toBe('handler blew up');
+    // The failing schedule moved forward by the backoff instead of staying in the past.
+    expect(sql.rows.get('failing')?.next_run_at).toBe(now + ALARM_FAILURE_BACKOFF_MS);
+
+    expect(setAlarm).toHaveBeenCalledTimes(1);
+    const armedAt = setAlarm.mock.calls[0]![0];
+    expect(armedAt).toBeGreaterThan(now);
+    expect(armedAt).toBe(now + ALARM_FAILURE_BACKOFF_MS);
+  });
+
+  it('a second run after a throwing handler no longer sees the schedule as due (no hot loop)', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+    const handler = vi.fn(() => {
+      throw new Error('always fails');
+    });
+
+    scheduler.upsertSchedule('failing', now - 1_000);
+    await scheduler.run({ failing: handler });
+    await scheduler.run({ failing: handler });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('a due schedule with no registered handler is backed off and recorded, not left in the past', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+
+    scheduler.upsertSchedule('orphan', now - 5_000);
+
+    await scheduler.run({});
+
+    const row = sql.rows.get('orphan')!;
+    expect(row.next_run_at).toBe(now + ALARM_FAILURE_BACKOFF_MS);
+    expect(row.last_error).toContain('no handler registered');
+    expect(setAlarm).toHaveBeenCalledWith(now + ALARM_FAILURE_BACKOFF_MS);
   });
 
   it('armFromTable sets alarm to minimum next_run_at', async () => {
@@ -103,5 +156,18 @@ describe('AlarmScheduler', () => {
     await scheduler.armFromTable();
 
     expect(setAlarm).toHaveBeenCalledWith(now + 10_000);
+  });
+
+  it('armFromTable clamps a stale past next_run_at to now', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+
+    scheduler.upsertSchedule('stale', now - 3_600_000);
+
+    await scheduler.armFromTable();
+
+    expect(setAlarm).toHaveBeenCalledWith(now);
   });
 });

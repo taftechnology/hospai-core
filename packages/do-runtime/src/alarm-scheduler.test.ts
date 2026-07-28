@@ -47,6 +47,12 @@ class AlarmScheduleMemorySql implements SqlStorageLike {
       return { toArray: () => [{ next }] };
     }
 
+    if (q.startsWith('SELECT next_run_at FROM alarm_schedule WHERE name = ?')) {
+      const name = bindings[0] as string;
+      const row = this.rows.get(name);
+      return { toArray: () => (row ? [{ next_run_at: row.next_run_at }] : []) };
+    }
+
     if (
       q.startsWith(
         'UPDATE alarm_schedule SET last_error = ?, next_run_at = ?, updated_at = ? WHERE name = ?',
@@ -142,6 +148,43 @@ describe('AlarmScheduler', () => {
     expect(row.next_run_at).toBe(now + ALARM_FAILURE_BACKOFF_MS);
     expect(row.last_error).toContain('no handler registered');
     expect(setAlarm).toHaveBeenCalledWith(now + ALARM_FAILURE_BACKOFF_MS);
+  });
+
+  it('handler that returns without advancing next_run_at is backed off (never-spin)', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+    const handler = vi.fn(async () => {
+      /* succeeds but leaves next_run_at in the past */
+    });
+
+    scheduler.upsertSchedule('stuck', now - 1_000);
+    await scheduler.run({ stuck: handler });
+    await scheduler.run({ stuck: handler });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(sql.rows.get('stuck')?.next_run_at).toBe(now + ALARM_FAILURE_BACKOFF_MS);
+    expect(sql.rows.get('stuck')?.last_error).toContain('without advancing next_run_at');
+    expect(setAlarm).toHaveBeenCalledWith(now + ALARM_FAILURE_BACKOFF_MS);
+  });
+
+  it('handler that advances next_run_at past now clears last_error and is not backed off', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+
+    scheduler.upsertSchedule('ok', now - 1_000);
+    await scheduler.run({
+      ok: () => {
+        scheduler.upsertSchedule('ok', now + 120_000);
+      },
+    });
+
+    expect(sql.rows.get('ok')?.next_run_at).toBe(now + 120_000);
+    expect(sql.rows.get('ok')?.last_error).toBeNull();
+    expect(setAlarm).toHaveBeenCalledWith(now + 120_000);
   });
 
   it('armFromTable sets alarm to minimum next_run_at', async () => {

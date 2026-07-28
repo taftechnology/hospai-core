@@ -3,10 +3,10 @@ import type { SqlStorageLike } from './index.js';
 export type AlarmHandler = () => void | Promise<void>;
 
 /**
- * Backoff applied to a schedule whose handler threw, or which is due with no
- * registered handler. Without it `next_run_at` stays in the past, `armFromTable()`
- * re-arms to that past instant, the alarm fires again immediately, and the DO
- * spins in a tight loop instead of merely being late.
+ * Backoff applied when a due schedule would otherwise re-fire immediately:
+ * handler threw, no handler registered, or handler returned without advancing
+ * `next_run_at` past "now". Without it `armFromTable()` re-arms to a past (or
+ * present) instant and the DO spins instead of merely being late.
  */
 export const ALARM_FAILURE_BACKOFF_MS = 60_000;
 
@@ -62,7 +62,13 @@ export class AlarmScheduler {
       }
       try {
         await handler();
-        this.sql.exec(`UPDATE alarm_schedule SET last_error = NULL WHERE name = ?`, name);
+        // Never-spin is structural: a successful handler that leaves next_run_at
+        // still due would otherwise clear last_error and re-fire every cycle.
+        if (this.isStillDue(name, Date.now())) {
+          this.backoff(name, `handler returned without advancing next_run_at`);
+        } else {
+          this.sql.exec(`UPDATE alarm_schedule SET last_error = NULL WHERE name = ?`, name);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.backoff(name, message);
@@ -70,6 +76,14 @@ export class AlarmScheduler {
     }
 
     await this.armFromTable();
+  }
+
+  private isStillDue(name: string, now: number): boolean {
+    const rows = this.sql
+      .exec(`SELECT next_run_at FROM alarm_schedule WHERE name = ?`, name)
+      .toArray() as Array<{ next_run_at: number }>;
+    const next = rows[0]?.next_run_at;
+    return next != null && next <= now;
   }
 
   /** Record the failure and push `next_run_at` past "now" so the retry is delayed, not immediate. */

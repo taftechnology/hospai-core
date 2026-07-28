@@ -367,6 +367,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       'night-audit': async () => {
+        // Always advance to the next calendar audit_time occurrence *before* creating the
+        // Workflow — AlarmScheduler.run() always re-arms to MIN(next_run_at), so if this
+        // handler left next_run_at in the past (e.g. the Workflow halts/exits early), the
+        // very next `armFromTable()` would immediately re-fire and storm duplicate
+        // Workflows. Catch-up ("fire now if still behind") remains the Workflow's terminal
+        // `rescheduleNightAudit()` after a successful run — this bump is intentionally
+        // *not* `now`.
+        const timeZone = this.readStoredTimeZoneSync();
+        if (timeZone) {
+          const nextRunAt = nextAuditRunAtMs(timeZone, this.readAuditTimeSync(), new Date());
+          this.scheduler.upsertSchedule('night-audit', nextRunAt);
+        }
+
+        // Halted or unprovisioned: skip the Workflow entirely (schedule is already bumped
+        // above, so we don't storm) rather than spend a Workflow instance that will just
+        // exit early.
+        if (await this.isNightAuditHalted()) return;
         const propertyId = this.getPropertyIdSync();
         if (!propertyId) return;
         await this.env.NIGHT_AUDIT_WORKFLOW.create({
@@ -390,6 +407,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const row = rows[0];
     if (!row) return null;
     return { nextRunAt: row.next_run_at, lastError: row.last_error };
+  }
+
+  /** Test helper: force a raw `alarm_schedule.next_run_at`, bypassing the scheduler API. */
+  async setAlarmScheduleForTest(name: string, nextRunAt: number): Promise<void> {
+    this.scheduler.upsertSchedule(name, nextRunAt);
+  }
+
+  /** Test helper: insert a `FAILED` `night_audit_run` row directly, to simulate a halt without needing a real failing step. */
+  async forceNightAuditHaltForTest(businessDate: string): Promise<void> {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO night_audit_run (business_date, step, status, attempt, started_at, completed_at, error)
+       VALUES (?, 'PRE_CHECK', 'FAILED', 1, ?, NULL, 'forced-for-test')
+       ON CONFLICT(business_date, step) DO UPDATE SET status = 'FAILED', error = 'forced-for-test'`,
+      businessDate,
+      now,
+    );
   }
 
   /** Raw-SQL monotonic counter for `__meta.ari_version`. Never routed through `tryPutDomainConfig` (undeclared key). */

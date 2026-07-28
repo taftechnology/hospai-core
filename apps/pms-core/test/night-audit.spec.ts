@@ -336,6 +336,37 @@ describe('PropertyDO night audit', () => {
     expect(schedule).not.toBeNull();
     expect(schedule!.lastError).toBeNull();
   });
+
+  it('alarm() always advances next_run_at into the future even when halted, preventing a re-fire storm', async () => {
+    const name = `na-storm-${crypto.randomUUID()}`;
+    const timeZone = 'Europe/Berlin';
+    const stub = await provisionedStub(name, timeZone);
+
+    // Force a halt (a FAILED step) so the handler exits early without ever running the
+    // Workflow to completion — this is exactly the case that used to leave next_run_at
+    // stuck in the past.
+    await stub.forceNightAuditHaltForTest((await stub.readBusinessDate())!);
+    expect(await stub.isNightAuditHalted()).toBe(true);
+
+    // Put the schedule in the past, simulating a due alarm.
+    await stub.setAlarmScheduleForTest('night-audit', Date.now() - 60_000);
+    const before = await stub.getAlarmSchedule('night-audit');
+    expect(before!.nextRunAt).toBeLessThanOrEqual(Date.now());
+
+    const now = Date.now();
+    await stub.triggerAlarmForTest();
+
+    const after = await stub.getAlarmSchedule('night-audit');
+    expect(after).not.toBeNull();
+    // Bumped to the next audit_time occurrence, not "now" — must be strictly in the future.
+    expect(after!.nextRunAt).toBeGreaterThan(now);
+
+    // A second immediate alarm must not re-fire (schedule is no longer due) and must not
+    // change next_run_at again.
+    await stub.triggerAlarmForTest();
+    const afterSecond = await stub.getAlarmSchedule('night-audit');
+    expect(afterSecond!.nextRunAt).toBe(after!.nextRunAt);
+  });
 });
 
 /** Subtract `n` calendar days from a YYYY-MM-DD string, purely via UTC arithmetic (no TZ). */

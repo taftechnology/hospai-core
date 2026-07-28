@@ -1,10 +1,19 @@
 import type { DomainEventMessage } from '@hospai/contracts';
+import { logInfo, type ObservabilityContext } from '@hospai/observability';
 
 /**
  * Must remain ≥ idempotency retention when a purge policy exists.
  * Today idempotency rows are never purged; this TTL is advisory dedupe only.
  */
 export const DEDUPE_TTL_SEC = 30 * 24 * 60 * 60;
+
+function eventContext(body: DomainEventMessage): ObservabilityContext {
+  return {
+    moduleId: 'pms.events',
+    orgId: body.source.do === 'org' ? body.source.id : undefined,
+    propertyId: body.source.do === 'property' ? body.source.id : undefined,
+  };
+}
 
 function assertRecord(payload: unknown, label: string): Record<string, unknown> {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -87,4 +96,24 @@ export function handleDomainEvent(message: DomainEventMessage): void {
     default:
       throw new Error(`unknown event type: ${message.eventType}`);
   }
+}
+
+export function logEventConsumed(body: DomainEventMessage): void {
+  logInfo(eventContext(body), {
+    msg: 'event.consumed',
+    event_id: body.eventId,
+    event_type: body.eventType,
+    source_do: body.source.do,
+    source_id: body.source.id,
+  });
+}
+
+export function logEventDedupeSkip(body: DomainEventMessage): void {
+  logInfo(eventContext(body), {
+    msg: 'event.dedupe_skip',
+    event_id: body.eventId,
+    event_type: body.eventType,
+    source_do: body.source.do,
+    source_id: body.source.id,
+  });
 }

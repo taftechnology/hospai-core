@@ -176,3 +176,19 @@ export function drainOutbox(
 export function ackOutboxThrough(sql: SqlStorageLike, seq: number): void {
   sql.exec(`UPDATE outbox SET acked = 1 WHERE seq <= ? AND acked = 0`, seq);
 }
+
+export function outboxBacklogSnapshot(sql: SqlStorageLike): {
+  unackedCount: number;
+  oldestCreatedAt: number | null;
+} {
+  const countRow = sql.exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`).toArray()[0] as
+    | { c: number }
+    | undefined;
+  const oldestRow = sql
+    .exec(`SELECT MIN(created_at) AS oldest FROM outbox WHERE acked = 0`)
+    .toArray()[0] as { oldest: number | null } | undefined;
+  return {
+    unackedCount: Number(countRow?.c ?? 0),
+    oldestCreatedAt: oldestRow?.oldest ?? null,
+  };
+}

@@ -15,6 +15,7 @@ import {
   AlarmScheduler,
   drainOutbox,
   migrateSql,
+  outboxBacklogSnapshot,
   runIdempotent,
   IdempotencyKeyReused,
   toQueueBatchEntry,
@@ -192,10 +193,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   async outboxUnackedCount(): Promise<number> {
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
-      .toArray() as Array<{ c: number }>;
-    return Number(rows[0]?.c ?? 0);
+    return outboxBacklogSnapshot(this.ctx.storage.sql).unackedCount;
   }
 
   async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {

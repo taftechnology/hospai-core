@@ -47,6 +47,9 @@ importers:
       '@hospai/money':
         specifier: workspace:*
         version: link:../../packages/money
+      '@hospai/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@hospai/pms-inventory':
         specifier: workspace:*
         version: link:../../modules/pms/inventory
@@ -208,6 +211,15 @@ importers:
         version: 3.2.7(@types/node@22.20.1)
 
   packages/money:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
+  packages/observability:
     devDependencies:
       typescript:
         specifier: ^5.8.2

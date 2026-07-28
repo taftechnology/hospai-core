@@ -18,6 +18,7 @@
     "@hospai/entitlement-client": "workspace:*",
     "@hospai/kernel": "workspace:*",
     "@hospai/money": "workspace:*",
+    "@hospai/observability": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
     "@hospai/pms-rates": "workspace:*",
     "@hospai/pms-reservations": "workspace:*",

@@ -106,6 +106,8 @@ export async function listPropertyIds(
 
 Default `limit = 50`. `after` is the last id from the previous page (`null` for first page). `nextAfter` is the last id returned, or `null` when the page is short (end of table).
 
+**Property page query returns full rows** (`property_id`, `org_id`, `jurisdiction`, `time_zone`) so the sweep loop resolves stubs from the page result — one D1 query per page, not 1 + N re-reads via `getProperty` per id.
+
 D1 pagination bounds the query; Workflow **page batching** bounds step count — both are required at production scale.
 
 ## Workflow

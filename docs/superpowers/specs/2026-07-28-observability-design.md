@@ -1,7 +1,7 @@
 # Observability (Phase 0 — tenant-tagged telemetry)
 
 **Date:** 2026-07-28  
-**Status:** Draft — pending review  
+**Status:** Approved for implementation  
 **Sources:** ARCHITECTURE.md §13, §14; queues consumer spec; Clerk auth spec
 
 ## Purpose
@@ -132,6 +132,19 @@ async function handleV1(
 
 **Fail-closed routes** (401, 404 membership, 402, 503) log at `info` with `status` — not `error`, unless an unexpected throw escapes `handleV1`.
 
+**Unhandled throws** must still produce an access log — the wrapper catches, logs at `error` with `status: 500` + `request_id`, then re-throws:
+
+```ts
+try {
+  const response = await handleV1(request, env, ctx);
+  logInfo(ctx, { msg: 'http.request', …, status: response.status, duration_ms: … });
+  return response;
+} catch (e) {
+  logError(ctx, { msg: 'http.request', …, status: 500, duration_ms: …, error: String(e) });
+  throw e;
+}
+```
+
 **Unauthenticated** (`resolveActor` returns 401): log line has `status: 401`, **`user_id` omitted** (never set on `ctx`).
 
 ## DO / alarm integration (Phase 0 minimum)
@@ -212,7 +225,8 @@ Dedupe hit: `msg: 'event.dedupe_skip'` at `info`.
 5. **402/404/503 logged** — entitlement denial and membership 404 produce access log lines with correct `status` (proves wrapper runs on early returns).
 6. **Outbox snapshot** — append unacked row → `outboxBacklogSnapshot` returns `unackedCount: 1` and correct `oldestCreatedAt`.
 7. **Queue consumer log** — produce event → consume → log line contains `event_id`, `event_type`, `source` ids.
-8. **No PII in logs** — guest create path logs do not contain guest name/email (grep test).
+8. **Unhandled throw logged** — forced throw inside `handleV1` → one `error`-level `http.request` line with `request_id`, `status: 500`, then 500 to caller.
+9. **No PII in logs** — guest event consumer log does not contain guest display name (grep test).
 
 ## Deployment ordering
 

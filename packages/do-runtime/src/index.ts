@@ -118,6 +118,7 @@ export {
   OutboxPayloadTooLargeError,
   type OutboxRow,
   type DrainOutboxResult,
+  outboxBacklogSnapshot,
 } from './outbox.js';
 
 export { IdempotencyKeyReused, runIdempotent } from './idempotency.js';

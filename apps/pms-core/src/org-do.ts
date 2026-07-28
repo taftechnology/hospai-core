@@ -312,12 +312,20 @@ export class OrgDO extends DurableObject<PmsEnv> {
           }
 
           const keyRows = this.ctx.storage.sql
-            .exec(`SELECT shredded_at FROM data_key WHERE pii_key_id = ?`, guest.pii_key_id)
-            .toArray() as Array<{ shredded_at: number | null }>;
-          if (!keyRows[0] || keyRows[0].shredded_at != null) throw new Error('key_shred_failed');
+            .exec(`SELECT shredded_at, wrapped_key FROM data_key WHERE pii_key_id = ?`, guest.pii_key_id)
+            .toArray() as Array<{ shredded_at: number | null; wrapped_key: Uint8Array | null }>;
+          const keyRow = keyRows[0];
+          if (
+            !keyRow ||
+            keyRow.shredded_at != null ||
+            keyRow.wrapped_key == null ||
+            keyRow.wrapped_key.length === 0
+          ) {
+            throw new Error('key_shred_failed');
+          }
 
           this.ctx.storage.sql.exec(
-            `UPDATE data_key SET shredded_at = ? WHERE pii_key_id = ? AND shredded_at IS NULL`,
+            `UPDATE data_key SET wrapped_key = NULL, shredded_at = ? WHERE pii_key_id = ? AND shredded_at IS NULL`,
             Date.now(),
             guest.pii_key_id,
           );
@@ -406,5 +414,15 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async testShredGuestKey(piiKeyId: string): Promise<boolean> {
     const vault = await this.vault();
     return vault.shredKey(piiKeyId);
+  }
+
+  /** Test hook — true when wrapped_key column is NULL (material destroyed, not just flagged). */
+  async testDataKeyHasMaterial(piiKeyId: string): Promise<boolean> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT wrapped_key FROM data_key WHERE pii_key_id = ?`, piiKeyId)
+      .toArray() as Array<{ wrapped_key: Uint8Array | null }>;
+    const row = rows[0];
+    if (!row) return false;
+    return row.wrapped_key != null && row.wrapped_key.length > 0;
   }
 }

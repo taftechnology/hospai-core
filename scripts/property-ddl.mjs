@@ -28,6 +28,7 @@ let RATE_DAY_SQL;
 let RESERVATION_V7_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
+let ORG_DATA_KEY_SHRED_SQL;
 let PLATFORM_REGISTRY_SQL;
 try {
   ({
@@ -40,6 +41,7 @@ try {
     RESERVATION_V7_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
+    ORG_DATA_KEY_SHRED_SQL,
     PLATFORM_REGISTRY_SQL,
   } = await import(modPath));
 } catch (e) {
@@ -135,6 +137,15 @@ const targets = [
 
 `,
     sql: ORG_GUEST_PII_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0003_data_key_shred_material.sql'),
+    header: `-- OrgDO true crypto-shred — null wrapped_key on erase — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_DATA_KEY_SHRED_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

@@ -48,7 +48,7 @@ describe('OrgDO guests + crypto-shredding', () => {
   it('2. erase guest shreds key — profile undecodable, guest.erased emitted', async () => {
     const org = await provisionedOrg(`org-erase-${crypto.randomUUID()}`);
     const guestId = 'guest_erase_me';
-    await createGuest(org, guestId, 'Erase Target');
+    const refs = await createGuest(org, guestId, 'Erase Target');
 
     const eraseInput = { guestId };
     expect(await org.tryEraseGuest(eraseInput, await idemFor('erase-1', eraseInput))).toMatchObject({
@@ -56,6 +56,7 @@ describe('OrgDO guests + crypto-shredding', () => {
       guestId,
     });
 
+    expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(false);
     await expect(org.readGuestProfile(guestId)).rejects.toThrow(/PII key shredded/);
     expect(await org.listOutboxEventTypes()).toEqual(['guest.created', 'guest.erased']);
   });
@@ -67,6 +68,7 @@ describe('OrgDO guests + crypto-shredding', () => {
     expect(await org.testStaffRoundTrip(staff.piiKeyId, 'hourly rate 42')).toBe('hourly rate 42');
 
     expect(await org.testShredGuestKey(guest.piiKeyId)).toBe(true);
+    expect(await org.testDataKeyHasMaterial(guest.piiKeyId)).toBe(false);
     await expect(org.readGuestProfile('guest_scope')).rejects.toThrow(/PII key shredded/);
     expect(await org.testStaffRoundTrip(staff.piiKeyId, 'hourly rate 42')).toBe('hourly rate 42');
   });

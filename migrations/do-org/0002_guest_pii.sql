@@ -22,7 +22,7 @@ CREATE TABLE data_key (
   pii_key_id    TEXT PRIMARY KEY,
   scope         TEXT NOT NULL CHECK (scope IN ('guest', 'staff')),
   subject_id    TEXT NOT NULL,
-  wrapped_key   BLOB NOT NULL,
+  wrapped_key   BLOB,
   created_at    INTEGER NOT NULL,
   shredded_at   INTEGER
 );

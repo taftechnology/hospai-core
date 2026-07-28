@@ -21,6 +21,7 @@ class MemoryKeyStore implements KeyStore {
     const row = this.rows.get(piiKeyId);
     if (!row || row.shredded) return false;
     row.shredded = true;
+    row.wrappedKey = new Uint8Array(0);
     return true;
   }
 }
@@ -52,5 +53,25 @@ describe('PiiVault', () => {
 
     const staffPlain = await vault.decrypt(staffKey, staffSealed.ciphertext, staffSealed.iv);
     expect(new TextDecoder().decode(staffPlain)).toBe('pay rate blob');
+  });
+
+  it('shred destroys wrapped key material in the store', async () => {
+    const master = await importMasterKeyHex(MASTER_HEX);
+    const store = new MemoryKeyStore();
+    const vault = new PiiVault(master, store);
+    const guestKey = await vault.provisionKey('guest', 'guest_1');
+    const sealed = await vault.encryptGuestProfile(guestKey, { displayName: 'Guest Name' });
+
+    const before = store.get(guestKey)!;
+    expect(before.wrappedKey.length).toBeGreaterThan(0);
+
+    expect(vault.shredKey(guestKey)).toBe(true);
+    const after = store.get(guestKey)!;
+    expect(after.wrappedKey.length).toBe(0);
+    expect(after.shredded).toBe(true);
+
+    await expect(
+      vault.decryptGuestProfile(guestKey, sealed.ciphertext, sealed.iv),
+    ).rejects.toBeInstanceOf(KeyShreddedError);
   });
 });

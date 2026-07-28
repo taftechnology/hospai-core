@@ -756,13 +756,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async runOutboxAlarmForTest(opts?: {
     maxMessages?: number;
     maxBytes?: number;
-  }): Promise<{ flushed: number; backlog: boolean } | null> {
+  }): Promise<{ flushed: number; backlog: boolean; rows: OutboxRow[] } | null> {
     this.assertUnsafeLocal('runOutboxAlarmForTest');
-    return runOutboxAlarmStep(
+    let rows: OutboxRow[] = [];
+    const source = this.outboxSourceSync();
+    const result = await runOutboxAlarmStep(
       this.outboxAlarmContext(),
-      () => this.flushOutboxToQueue(opts),
+      () =>
+        this.flushOutbox(async (batch) => {
+          rows = batch;
+          await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
+        }, opts),
       (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
     );
+    if (result === null) return null;
+    return { ...result, rows };
   }
 
   /** Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state). */

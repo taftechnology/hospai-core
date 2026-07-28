@@ -1,5 +1,10 @@
 import type { DomainEventMessage, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
-import { InvalidTenantIdError, validateTenantId } from '@hospai/contracts';
+import {
+  IDEM_KEY_REUSED,
+  InvalidTenantIdError,
+  fingerprintPayload,
+  validateTenantId,
+} from '@hospai/contracts';
 import {
   checkKillSwitch,
   EntitlementRequiredError,
@@ -7,7 +12,7 @@ import {
   loadSnapshot,
   require,
 } from '@hospai/entitlement-client';
-import { logError, logInfo, type ObservabilityContext } from '@hospai/observability';
+import type { ObservabilityContext } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import {
   requireOrgMember,
@@ -21,6 +26,35 @@ import { createOrg, getProperty } from './registry.js';
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
+}
+
+function mapAddRoomTypeErrorStatus(error: string): number {
+  if (error === IDEM_KEY_REUSED || error.includes('UNIQUE constraint failed')) {
+    return 409;
+  }
+  return 422;
+}
+
+async function gatePmsCore(
+  env: PmsEnv,
+  orgId: string,
+): Promise<Response | null> {
+  if (await checkKillSwitch(env, 'pms.core')) {
+    return new Response(null, { status: 503 });
+  }
+  try {
+    const snap = await loadSnapshot(env, orgId);
+    require(snap, 'pms.core');
+  } catch (e) {
+    if (e instanceof EntitlementRequiredError) {
+      return json({ error: e.code, feature: e.featureKey }, 402);
+    }
+    if (e instanceof EntitlementResolutionError) {
+      return new Response(null, { status: 503 });
+    }
+    return new Response(null, { status: 503 });
+  }
+  return null;
 }
 
 export async function handleV1(
@@ -98,21 +132,8 @@ export async function handleV1(
     }
     ctx.propertyId = body.propertyId;
 
-    if (await checkKillSwitch(env, 'pms.core')) {
-      return new Response(null, { status: 503 });
-    }
-    try {
-      const snap = await loadSnapshot(env, orgId);
-      require(snap, 'pms.core');
-    } catch (e) {
-      if (e instanceof EntitlementRequiredError) {
-        return json({ error: e.code, feature: e.featureKey }, 402);
-      }
-      if (e instanceof EntitlementResolutionError) {
-        return new Response(null, { status: 503 });
-      }
-      return new Response(null, { status: 503 });
-    }
+    const gated = await gatePmsCore(env, orgId);
+    if (gated) return gated;
 
     const input: ProvisionPropertyInput = {
       orgId,
@@ -158,6 +179,72 @@ export async function handleV1(
       recordedJurisdiction: recorded ?? null,
       schemaVersion: await resolved.stub.getSchemaVersion(),
     });
+  }
+
+  const roomTypeCreate = pathname.match(/^\/v1\/properties\/([^/]+)\/room-types$/);
+  if (request.method === 'POST' && roomTypeCreate) {
+    const propertyId = decodeURIComponent(roomTypeCreate[1]!);
+    ctx.propertyId = propertyId;
+
+    const memberDenied = await requirePropertyOrgMember(env, propertyId, actor.userId);
+    if (memberDenied) return memberDenied;
+
+    const property = await getProperty(env, propertyId);
+    if (!property) return json({ error: 'not_found' }, 404);
+    ctx.orgId = property.orgId;
+
+    const gated = await gatePmsCore(env, property.orgId);
+    if (gated) return gated;
+
+    const body = (await request.json()) as {
+      roomTypeId: string;
+      code: string;
+      name: string;
+      roomCount: number;
+      maxOccupancy: number;
+      maxAdults: number;
+      idempotencyKey: string;
+    };
+    if (
+      !body.roomTypeId ||
+      !body.code ||
+      !body.name ||
+      typeof body.roomCount !== 'number' ||
+      typeof body.maxOccupancy !== 'number' ||
+      typeof body.maxAdults !== 'number' ||
+      !body.idempotencyKey
+    ) {
+      return json({ error: 'invalid_body' }, 400);
+    }
+
+    const fingerprint = await fingerprintPayload({
+      roomTypeId: body.roomTypeId,
+      code: body.code,
+      name: body.name,
+      roomCount: body.roomCount,
+      maxOccupancy: body.maxOccupancy,
+      maxAdults: body.maxAdults,
+    });
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    if (!resolved) return json({ error: 'not_found' }, 404);
+
+    const result = await resolved.stub.tryAddRoomType(
+      {
+        roomTypeId: body.roomTypeId,
+        code: body.code,
+        name: body.name,
+        roomCount: body.roomCount,
+        maxOccupancy: body.maxOccupancy,
+        maxAdults: body.maxAdults,
+      },
+      { key: body.idempotencyKey, fingerprint },
+    );
+
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
+    }
+    return json(result, 201);
   }
 
   const orgProperties = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);

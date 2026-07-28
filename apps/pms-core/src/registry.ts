@@ -72,6 +72,72 @@ export async function getOrg(
   };
 }
 
+export type PageOpts = { limit?: number; after?: string | null };
+
+const DEFAULT_PAGE_LIMIT = 50;
+
+/** Keyset pagination on `org_id` — cursor must match sort key. */
+export async function listOrgIds(
+  env: PmsEnv,
+  opts?: PageOpts,
+): Promise<{ ids: string[]; nextAfter: string | null }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const limit = opts?.limit ?? DEFAULT_PAGE_LIMIT;
+  const after = opts?.after ?? null;
+
+  const { results } = after
+    ? await env.PLATFORM_DB.prepare(
+        `SELECT org_id FROM org WHERE org_id > ? ORDER BY org_id ASC LIMIT ?`,
+      )
+        .bind(after, limit)
+        .all<{ org_id: string }>()
+    : await env.PLATFORM_DB.prepare(`SELECT org_id FROM org ORDER BY org_id ASC LIMIT ?`)
+        .bind(limit)
+        .all<{ org_id: string }>();
+
+  const ids = (results ?? []).map((r) => r.org_id);
+  const nextAfter = ids.length === limit ? ids[ids.length - 1]! : null;
+  return { ids, nextAfter };
+}
+
+export type PropertySweepRow = {
+  propertyId: string;
+  orgId: string;
+  jurisdiction: Jurisdiction | null;
+  timeZone: string;
+};
+
+/** Keyset pagination on `property_id`; returns full rows for stub resolution without N+1 reads. */
+export async function listPropertyIds(
+  env: PmsEnv,
+  opts?: PageOpts,
+): Promise<{ rows: PropertySweepRow[]; nextAfter: string | null }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const limit = opts?.limit ?? DEFAULT_PAGE_LIMIT;
+  const after = opts?.after ?? null;
+
+  const { results } = after
+    ? await env.PLATFORM_DB.prepare(
+        `SELECT property_id, org_id, jurisdiction, time_zone FROM property WHERE property_id > ? ORDER BY property_id ASC LIMIT ?`,
+      )
+        .bind(after, limit)
+        .all<{ property_id: string; org_id: string; jurisdiction: string | null; time_zone: string }>()
+    : await env.PLATFORM_DB.prepare(
+        `SELECT property_id, org_id, jurisdiction, time_zone FROM property ORDER BY property_id ASC LIMIT ?`,
+      )
+        .bind(limit)
+        .all<{ property_id: string; org_id: string; jurisdiction: string | null; time_zone: string }>();
+
+  const rows = (results ?? []).map((r) => ({
+    propertyId: r.property_id,
+    orgId: r.org_id,
+    jurisdiction: (r.jurisdiction as Jurisdiction | null) ?? null,
+    timeZone: r.time_zone,
+  }));
+  const nextAfter = rows.length === limit ? rows[rows.length - 1]!.propertyId : null;
+  return { rows, nextAfter };
+}
+
 /** Insert org row + seed Starter subscription. Returns false if org_id already exists. */
 export async function createOrg(env: PmsEnv, orgId: string, name: string): Promise<boolean> {
   validateTenantId(orgId);

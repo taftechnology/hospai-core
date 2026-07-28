@@ -4,6 +4,9 @@ import type { PropertyDO } from './property-do.js';
 /** RPC payload for `NightAuditWorkflow` — registry-resolved `propertyId` only, never a raw DO id. */
 export type NightAuditWorkflowParams = { propertyId: string };
 
+/** RPC payload for `MigrationSweepWorkflow` — dev-actor userId for audit trail. */
+export type MigrationSweepParams = { triggeredBy: string; pageLimit?: number };
+
 export type PmsEnv = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
   ORG_DO: DurableObjectNamespace<OrgDO>;
@@ -14,6 +17,7 @@ export type PmsEnv = {
   /** Advisory consumer dedupe — side-effect handlers must also use DO idempotency. */
   EVENT_DEDUPE_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
+  MIGRATION_SWEEP_WORKFLOW: Workflow<MigrationSweepParams>;
   PLATFORM_DB: D1Database;
   /**
    * Must be `1` for any local-only unsafe flags (simulate jurisdiction, dev actor).

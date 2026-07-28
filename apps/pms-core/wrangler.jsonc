@@ -65,6 +65,11 @@
       "binding": "NIGHT_AUDIT_WORKFLOW",
       "name": "hospai-night-audit",
       "class_name": "NightAuditWorkflow"
+    },
+    {
+      "binding": "MIGRATION_SWEEP_WORKFLOW",
+      "name": "hospai-migration-sweep",
+      "class_name": "MigrationSweepWorkflow"
     }
   ],
   "d1_databases": [

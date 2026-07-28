@@ -2,7 +2,29 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_ALARM_SCHEDULE_SQL, ORG_GUEST_PII_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RESERVATION_V7_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import {
+  ALARM_SCHEDULE_SQL,
+  FREEZE_GATE_SQL,
+  ORG_ALARM_SCHEDULE_SQL,
+  ORG_ENTITLEMENT_SCHEMA_HEAD,
+  ORG_GUEST_PII_SQL,
+  ORG_MIGRATIONS,
+  ORG_SCHEMA_HEAD,
+  ORG_SPINE_SQL,
+  PLATFORM_REGISTRY_SQL,
+  PLATFORM_REGISTRY_STATEMENTS,
+  PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
+  PROPERTY_SCHEMA_HEAD,
+  RESERVATION_SQL,
+  RESERVATION_V5_SQL,
+  RESERVATION_V7_SQL,
+  RATE_DAY_SQL,
+  ROOM_TYPE_SQL,
+  freeAvailability,
+  migrateSql,
+  PROPERTY_MIGRATIONS,
+  type SqlStorageLike,
+} from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -225,5 +247,13 @@ describe('freeze DDL single source', () => {
 describe('freeAvailability', () => {
   it('matches ledger formula', () => {
     expect(freeAvailability({ physical: 10, blocked: 1, held: 0, sold: 3, oversell: 1 })).toBe(7);
+  });
+});
+
+describe('schema head constants', () => {
+  it('match current migration array tails', () => {
+    expect(PROPERTY_SCHEMA_HEAD).toBe(7);
+    expect(ORG_SCHEMA_HEAD).toBe(3);
+    expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 });

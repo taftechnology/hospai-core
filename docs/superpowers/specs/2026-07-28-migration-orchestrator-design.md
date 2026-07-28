@@ -1,7 +1,7 @@
 # Migration orchestrator (Phase 0 — fleet schema sweep)
 
 **Date:** 2026-07-28  
-**Status:** Draft — pending review  
+**Status:** Approved  
 **Sources:** ARCHITECTURE.md §4.3, §12, §14; `migrateSql`; tenancy spine; NightAuditWorkflow pattern
 
 ## Purpose

@@ -11,11 +11,31 @@ type PlanFeatureRow = {
 };
 
 export class OrgEntitlementDO extends DurableObject<PmsEnv> {
+  private schemaVersionRpcFailureForTest = false;
+
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...ORG_ENTITLEMENT_MIGRATIONS]);
     });
+  }
+
+  async getSchemaVersion(): Promise<number> {
+    if (this.schemaVersionRpcFailureForTest) {
+      throw new Error('schema_version_rpc_failed');
+    }
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
+      .toArray() as Array<{ v: number }>;
+    return Number(rows[0]?.v ?? 0);
+  }
+
+  /** Test helper (unsafe-local only): force `getSchemaVersion` to throw. */
+  async setSchemaVersionRpcFailureForTest(fail: boolean): Promise<void> {
+    if (this.env.HOSPAI_UNSAFE_LOCAL !== '1') {
+      throw new Error('setSchemaVersionRpcFailureForTest requires HOSPAI_UNSAFE_LOCAL=1 (local only)');
+    }
+    this.schemaVersionRpcFailureForTest = fail;
   }
 
   async resolveEntitlements(orgId: string): Promise<EntitlementSnapshot> {

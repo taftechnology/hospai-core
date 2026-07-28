@@ -14,7 +14,7 @@ import {
   requirePropertyOrgMember,
   resolveActor,
 } from './auth.js';
-import type { PmsEnv } from './env.js';
+import { isDevActorAllowed, type PmsEnv } from './env.js';
 import { OrgDO } from './org-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { createOrg, getProperty } from './registry.js';
@@ -28,13 +28,27 @@ export async function handleV1(
   env: PmsEnv,
   ctx: ObservabilityContext,
 ): Promise<Response> {
+  const url = new URL(request.url);
+  const { pathname } = url;
+
+  if (pathname === '/v1/admin/migration-sweep') {
+    if (!isDevActorAllowed(env) || request.method !== 'POST') {
+      return json({ error: 'not_found' }, 404);
+    }
+  }
+
   const actor = await resolveActor(request, env);
   if (actor instanceof Response) return actor;
 
   ctx.userId = actor.userId;
 
-  const url = new URL(request.url);
-  const { pathname } = url;
+  if (request.method === 'POST' && pathname === '/v1/admin/migration-sweep') {
+    const instance = await env.MIGRATION_SWEEP_WORKFLOW.create({
+      id: `migration-sweep-${Date.now()}`,
+      params: { triggeredBy: actor.userId },
+    });
+    return json({ workflowId: instance.id }, 202);
+  }
 
   if (request.method === 'POST' && pathname === '/v1/orgs') {
     const body = (await request.json()) as { orgId: string; name: string };

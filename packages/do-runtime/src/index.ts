@@ -109,6 +109,12 @@ export {
 } from './entitlement-migrations.js';
 
 export {
+  PROPERTY_SCHEMA_HEAD,
+  ORG_SCHEMA_HEAD,
+  ORG_ENTITLEMENT_SCHEMA_HEAD,
+} from './schema-head.js';
+
+export {
   appendOutbox,
   drainOutbox,
   ackOutboxThrough,

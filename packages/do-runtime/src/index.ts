@@ -104,7 +104,15 @@ export {
   appendOutbox,
   drainOutbox,
   ackOutboxThrough,
+  queueMessageUtf8Bytes,
+  QUEUE_MAX_BATCH_BYTES,
+  QUEUE_MAX_MESSAGE_BYTES,
+  QUEUE_MAX_MESSAGES,
+  QUEUE_MESSAGE_ENVELOPE_OVERHEAD_BYTES,
+  MAX_OUTBOX_PAYLOAD_BYTES,
+  OutboxPayloadTooLargeError,
   type OutboxRow,
+  type DrainOutboxResult,
 } from './outbox.js';
 
 export { IdempotencyKeyReused, runIdempotent } from './idempotency.js';

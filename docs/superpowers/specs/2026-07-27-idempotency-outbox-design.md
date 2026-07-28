@@ -67,8 +67,8 @@ export function drainOutbox(sql, opts?: { maxMessages?: number; maxBytes?: numbe
 export function ackOutboxThrough(sql, seq: number): void;
 ```
 
-- `drainOutbox` measures payload size with UTF-8 (`TextEncoder`), matching the Queues 1 MB byte cap — not JS string `.length`.
-- Always emits at least one row so an oversized payload cannot permanently stall the queue.
+- `drainOutbox` measures **Queue message** UTF-8 size (`payload` + envelope overhead), matching Cloudflare limits: **256 KiB batch**, **128 KiB per message**, **100 messages** — not JS string `.length`.
+- `appendOutbox` rejects payloads that cannot fit a Queue message (fail at produce time, not at sweep).
 - `runIdempotent` validates **both** `key` and `fingerprint` are non-empty before SELECT.
 - On hit + matching fingerprint: `JSON.parse(response)` and return (typed via caller).
 - On hit + mismatch: throw `IdempotencyKeyReused` (caught **inside** the same isolate, e.g. by `tryPutDomainConfig`).

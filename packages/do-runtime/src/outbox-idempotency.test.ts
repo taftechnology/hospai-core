@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { IdempotencyKeyReused, runIdempotent } from './idempotency.js';
-import { appendOutbox, drainOutbox, ackOutboxThrough } from './outbox.js';
+import {
+  appendOutbox,
+  drainOutbox,
+  ackOutboxThrough,
+  MAX_OUTBOX_PAYLOAD_BYTES,
+  OutboxPayloadTooLargeError,
+  queueMessageUtf8Bytes,
+  QUEUE_MAX_BATCH_BYTES,
+} from './outbox.js';
 import type { SqlStorageLike } from './index.js';
 
 type OutboxRecord = {
@@ -92,34 +100,68 @@ describe('outbox helpers', () => {
     const sql = new OutboxMemorySql();
     appendOutbox(sql, { eventId: 'e1', eventType: 'config.changed', payload: { a: 1 } });
     appendOutbox(sql, { eventId: 'e2', eventType: 'config.changed', payload: { a: 2 } });
-    const batch = drainOutbox(sql);
+    const { rows: batch } = drainOutbox(sql);
     expect(batch).toHaveLength(2);
     expect(batch[0]!.eventId).toBe('e1');
-    expect(drainOutbox(sql)).toHaveLength(2); // still unacked
+    expect(drainOutbox(sql).rows).toHaveLength(2); // still unacked
     ackOutboxThrough(sql, batch[1]!.seq);
-    expect(drainOutbox(sql)).toHaveLength(0);
+    expect(drainOutbox(sql).rows).toHaveLength(0);
+  });
+
+  it('append rejects payload over queue message budget', () => {
+    const sql = new OutboxMemorySql();
+    const huge = 'x'.repeat(MAX_OUTBOX_PAYLOAD_BYTES + 1);
+    expect(() =>
+      appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: huge }),
+    ).toThrow(OutboxPayloadTooLargeError);
   });
 
   it('drain respects maxMessages', () => {
     const sql = new OutboxMemorySql();
     appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: {} });
     appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: {} });
-    expect(drainOutbox(sql, { maxMessages: 1 })).toHaveLength(1);
+    expect(drainOutbox(sql, { maxMessages: 1 }).rows).toHaveLength(1);
   });
 
-  it('drain maxBytes uses UTF-8 size (CJK undercounts with string.length)', () => {
+  it('drain maxBytes uses envelope UTF-8 size (not payload alone)', () => {
     const sql = new OutboxMemorySql();
-    // Each payload is JSON `"ゲスト名"` — multi-byte UTF-8; `.length` undercounts vs bytes.
     const cjk = { name: 'ゲスト名' };
     appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: cjk });
     appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: cjk });
     const payloadUtf8 = new TextEncoder().encode(JSON.stringify(cjk)).length;
-    expect(payloadUtf8).toBeGreaterThan(JSON.stringify(cjk).length);
+    const messageUtf8 = queueMessageUtf8Bytes({ payload: JSON.stringify(cjk) });
+    expect(messageUtf8).toBeGreaterThan(payloadUtf8);
 
-    // Cap just under two UTF-8 payloads → only first row.
-    const batch = drainOutbox(sql, { maxBytes: payloadUtf8 * 2 - 1 });
-    expect(batch).toHaveLength(1);
-    expect(batch[0]!.eventId).toBe('e1');
+    const batch = drainOutbox(sql, { maxBytes: messageUtf8 * 2 - 1 });
+    expect(batch.rows).toHaveLength(1);
+    expect(batch.backlog).toBe(true);
+  });
+
+  it('drain reports backlog when more rows remain', () => {
+    const sql = new OutboxMemorySql();
+    for (let i = 0; i < 3; i++) {
+      appendOutbox(sql, { eventId: `e${i}`, eventType: 't', payload: { i } });
+    }
+    const short = drainOutbox(sql, { maxMessages: 2 });
+    expect(short.rows).toHaveLength(2);
+    expect(short.backlog).toBe(true);
+    ackOutboxThrough(sql, short.rows[1]!.seq);
+    const rest = drainOutbox(sql, { maxMessages: 2 });
+    expect(rest.rows).toHaveLength(1);
+    expect(rest.backlog).toBe(false);
+  });
+
+  it('default maxBytes matches Cloudflare 256 KiB batch cap', () => {
+    const sql = new OutboxMemorySql();
+    const payload = JSON.stringify({ blob: 'x'.repeat(2000) });
+    const messageBytes = queueMessageUtf8Bytes({ payload });
+    const perBatch = Math.floor(QUEUE_MAX_BATCH_BYTES / messageBytes);
+    for (let i = 0; i < perBatch + 5; i++) {
+      appendOutbox(sql, { eventId: `e${i}`, eventType: 't', payload: JSON.parse(payload) });
+    }
+    const first = drainOutbox(sql);
+    expect(first.rows.length).toBeLessThanOrEqual(100);
+    expect(first.backlog).toBe(true);
   });
 
   it('partial ack leaves the remaining suffix unacked', () => {
@@ -127,10 +169,10 @@ describe('outbox helpers', () => {
     appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: {} });
     appendOutbox(sql, { eventId: 'e2', eventType: 't', payload: {} });
     appendOutbox(sql, { eventId: 'e3', eventType: 't', payload: {} });
-    const batch = drainOutbox(sql);
+    const { rows: batch } = drainOutbox(sql);
     expect(batch).toHaveLength(3);
     ackOutboxThrough(sql, batch[0]!.seq);
-    const remaining = drainOutbox(sql);
+    const remaining = drainOutbox(sql).rows;
     expect(remaining).toHaveLength(2);
     expect(remaining.map((r) => r.eventId)).toEqual(['e2', 'e3']);
   });
@@ -156,7 +198,7 @@ describe('runIdempotent', () => {
     });
     expect(second).toEqual({ ok: true, n: 1 });
     expect(runs).toBe(1);
-    expect(drainOutbox(sql)).toHaveLength(1);
+    expect(drainOutbox(sql).rows).toHaveLength(1);
   });
 
   it('throws IdempotencyKeyReused on fingerprint mismatch', () => {

@@ -288,12 +288,15 @@ export class PropertyDO extends DurableObject<Env> {
   }
 
   private async flushOutbox(): Promise<void> {
-    // Queues caps a batch at 100 messages AND 1 MB total. Reservation payloads
-    // make the byte ceiling bind first — bound by bytes, not row count.
+    // Queues caps a batch at 100 messages, 128 KiB per message, 256 KiB total.
     const candidates = this.sql.exec(
       `SELECT seq, payload FROM outbox WHERE acked = 0 ORDER BY seq LIMIT 100`,
     ).toArray();
-    const batch = takeWhileUnderLimit(candidates, { maxMessages: 100, maxBytes: 1_000_000 });
+    const batch = takeWhileUnderLimit(candidates, {
+      maxMessages: 100,
+      maxBytes: 256 * 1024,
+      messageEnvelopeOverhead: 512,
+    });
     if (batch.length === 0) return;
 
     await this.env.EVENTS_QUEUE.sendBatch(batch.map(toMessage));

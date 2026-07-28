@@ -2525,7 +2525,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {
-    return drainOutbox(this.ctx.storage.sql, opts);
+    return drainOutbox(this.ctx.storage.sql, opts).rows;
   }
 
   async ackOutboxThrough(seq: number): Promise<void> {
@@ -2534,11 +2534,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async flushOutbox(
     deliver?: (batch: OutboxRow[]) => Promise<void>,
-  ): Promise<{ flushed: number }> {
-    const batch = drainOutbox(this.ctx.storage.sql);
-    if (batch.length === 0) return { flushed: 0 };
+  ): Promise<{ flushed: number; backlog: boolean }> {
+    const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql);
+    if (batch.length === 0) return { flushed: 0, backlog: false };
     if (deliver) await deliver(batch);
     ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);
-    return { flushed: batch.length };
+    return { flushed: batch.length, backlog };
   }
 }

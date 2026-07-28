@@ -36,6 +36,7 @@ export async function provisionedPropertyStub(
   timeZone: string,
   currency: string,
   orgId = DEFAULT_TEST_ORG,
+  opts?: { flushOutbox?: boolean },
 ): Promise<DurableObjectStub<PropertyDO>> {
   await seedSubscription(env, orgId, 'starter');
   const stub = propertyStub(name, orgId);
@@ -54,7 +55,10 @@ export async function provisionedPropertyStub(
   const instant = new Date();
   await stub.ensureBusinessDateIfAbsent(timeZone, instant);
   await stub.ensureNightAuditSchedule(timeZone, instant);
-  await stub.flushOutbox();
+  await stub.ensureOutboxScheduleIfAbsent();
+  if (opts?.flushOutbox !== false) {
+    await stub.flushOutbox();
+  }
   return stub;
 }
 

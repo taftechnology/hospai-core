@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_GUEST_PII_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RESERVATION_V7_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_ALARM_SCHEDULE_SQL, ORG_GUEST_PII_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RESERVATION_V7_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -169,6 +169,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_GUEST_PII_SQL.trim());
   });
 
+  it('migrations/do-org/0003_alarm_schedule.sql matches ORG_ALARM_SCHEDULE_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0003_alarm_schedule.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_ALARM_SCHEDULE_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -205,8 +217,8 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(2);
-    expect(sql.tables.size).toBeGreaterThanOrEqual(6);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(3);
+    expect(sql.tables.size).toBeGreaterThanOrEqual(7);
   });
 });
 

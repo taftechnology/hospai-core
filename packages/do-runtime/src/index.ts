@@ -78,6 +78,7 @@ export {
   ORG_SPINE_SQL,
   ORG_SPINE_STATEMENTS,
   ORG_GUEST_PII_SQL,
+  ORG_ALARM_SCHEDULE_SQL,
   GUEST_PII_STATEMENTS,
 } from './org-migrations.js';
 
@@ -107,6 +108,10 @@ export {
   domainEventMessageUtf8Bytes,
   queueMessageUtf8Bytes,
   outboxAppendQueueBytes,
+  toQueueMessage,
+  toQueueBatchEntry,
+  OUTBOX_SWEEP_INTERVAL_MS,
+  OUTBOX_BACKLOG_DELAY_MS,
   QUEUE_MAX_BATCH_BYTES,
   QUEUE_MAX_MESSAGE_BYTES,
   QUEUE_MAX_MESSAGES,

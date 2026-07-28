@@ -11,9 +11,16 @@ import {
 import {
   ORG_MIGRATIONS,
   appendOutbox,
+  ackOutboxThrough as ackOutboxThroughSql,
+  AlarmScheduler,
+  drainOutbox,
   migrateSql,
   runIdempotent,
   IdempotencyKeyReused,
+  toQueueBatchEntry,
+  OUTBOX_BACKLOG_DELAY_MS,
+  OUTBOX_SWEEP_INTERVAL_MS,
+  type OutboxRow,
 } from '@hospai/do-runtime';
 import {
   importMasterKeyHex,
@@ -60,9 +67,11 @@ function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem
 export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
   private readonly entitlementCache = new EntitlementDoCache();
+  private readonly scheduler: AlarmScheduler;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
+    this.scheduler = new AlarmScheduler(ctx.storage.sql, ctx.storage);
     ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...ORG_MIGRATIONS]);
       ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
@@ -96,6 +105,119 @@ export class OrgDO extends DurableObject<PmsEnv> {
       `INSERT INTO __meta (key, value) VALUES ('org_id', ?) ON CONFLICT(key) DO NOTHING`,
       orgId,
     );
+    await this.ensureOutboxScheduleIfAbsent();
+  }
+
+  async getSchemaVersion(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
+      .toArray() as Array<{ v: number }>;
+    return Number(rows[0]?.v ?? 0);
+  }
+
+  /** First-write outbox sweep schedule — idempotent. */
+  async ensureOutboxScheduleIfAbsent(): Promise<void> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM alarm_schedule WHERE name = 'outbox' LIMIT 1`)
+      .toArray() as Array<{ one: number }>;
+    if (rows.length > 0) return;
+    this.scheduler.upsertSchedule('outbox', Date.now() + OUTBOX_SWEEP_INTERVAL_MS);
+    await this.scheduler.armFromTable();
+  }
+
+  private assertUnsafeLocal(helper: string): void {
+    if (this.env.HOSPAI_UNSAFE_LOCAL !== '1') {
+      throw new Error(`${helper} requires HOSPAI_UNSAFE_LOCAL=1 (local only)`);
+    }
+  }
+
+  private outboxSourceSync(): EventSource {
+    const id = this.getOrgIdSync();
+    if (!id) throw new Error('org_id_unset');
+    return { do: 'org', id };
+  }
+
+  private appendOrgOutbox(row: {
+    eventId: string;
+    eventType: string;
+    payload: unknown;
+  }): void {
+    appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
+  }
+
+  private rescheduleOutboxAfterFlush(flushed: number, backlog: boolean): void {
+    const delay =
+      flushed === 0 ? OUTBOX_SWEEP_INTERVAL_MS : backlog ? OUTBOX_BACKLOG_DELAY_MS : OUTBOX_SWEEP_INTERVAL_MS;
+    this.scheduler.upsertSchedule('outbox', Date.now() + delay);
+  }
+
+  private async flushOutboxToQueue(
+    drainOpts?: { maxMessages?: number; maxBytes?: number },
+  ): Promise<{ flushed: number; backlog: boolean }> {
+    const source = this.outboxSourceSync();
+    return this.flushOutbox(async (batch) => {
+      await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
+    }, drainOpts);
+  }
+
+  async alarm(): Promise<void> {
+    await this.scheduler.run({
+      outbox: async () => {
+        const { flushed, backlog } = await this.flushOutboxToQueue();
+        this.rescheduleOutboxAfterFlush(flushed, backlog);
+      },
+    });
+  }
+
+  /** Test helper (unsafe-local only): invoke `alarm()` directly. */
+  async triggerAlarmForTest(): Promise<void> {
+    this.assertUnsafeLocal('triggerAlarmForTest');
+    return this.alarm();
+  }
+
+  /** Test helper: read a raw `alarm_schedule` row. */
+  async getAlarmSchedule(name: string): Promise<{ nextRunAt: number; lastError: string | null } | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT next_run_at, last_error FROM alarm_schedule WHERE name = ?`, name)
+      .toArray() as Array<{ next_run_at: number; last_error: string | null }>;
+    const row = rows[0];
+    if (!row) return null;
+    return { nextRunAt: row.next_run_at, lastError: row.last_error };
+  }
+
+  /** Test helper (unsafe-local only): force a raw `alarm_schedule.next_run_at`. */
+  async setAlarmScheduleForTest(name: string, nextRunAt: number): Promise<void> {
+    this.assertUnsafeLocal('setAlarmScheduleForTest');
+    this.scheduler.upsertSchedule(name, nextRunAt);
+  }
+
+  async outboxUnackedCount(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {
+    return drainOutbox(this.ctx.storage.sql, { ...opts, source: this.outboxSourceSync() }).rows;
+  }
+
+  async ackOutboxThrough(seq: number): Promise<void> {
+    ackOutboxThroughSql(this.ctx.storage.sql, seq);
+  }
+
+  async flushOutbox(
+    deliver?: (batch: OutboxRow[]) => Promise<void>,
+    drainOpts?: { maxMessages?: number; maxBytes?: number },
+  ): Promise<{ flushed: number; backlog: boolean }> {
+    const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql, {
+      source: this.outboxSourceSync(),
+      ...drainOpts,
+    });
+    if (batch.length === 0) return { flushed: 0, backlog: false };
+    if (deliver) await deliver(batch);
+    ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);
+    return { flushed: batch.length, backlog };
   }
 
   private async gateCoreEntitlement(
@@ -104,13 +226,6 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const result = await assertEntitled(this.env, this.entitlementCache, orgId, 'pms.core');
     if (!result.ok) return result;
     return null;
-  }
-
-  async getSchemaVersion(): Promise<number> {
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
-      .toArray() as Array<{ v: number }>;
-    return Number(rows[0]?.v ?? 0);
   }
 
   async ensureMember(userId: string, role: 'owner' | 'admin' | 'staff' = 'owner'): Promise<void> {
@@ -178,20 +293,6 @@ export class OrgDO extends DurableObject<PmsEnv> {
       .exec(`SELECT user_id, role FROM member ORDER BY user_id`)
       .toArray() as Array<{ user_id: string; role: string }>;
     return rows.map((r) => ({ userId: r.user_id, role: r.role as 'owner' | 'admin' | 'staff' }));
-  }
-
-  private outboxSourceSync(): EventSource {
-    const id = this.getOrgIdSync();
-    if (!id) throw new Error('org_id_unset');
-    return { do: 'org', id };
-  }
-
-  private appendOrgOutbox(row: {
-    eventId: string;
-    eventType: string;
-    payload: unknown;
-  }): void {
-    appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
   }
 
   async tryCreateGuest(

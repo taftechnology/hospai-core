@@ -9,6 +9,10 @@ export type PmsEnv = {
   ORG_DO: DurableObjectNamespace<OrgDO>;
   ORG_ENTITLEMENT_DO: DurableObjectNamespace;
   ENTITLEMENT_KV: KVNamespace;
+  /** Domain event bus — outbox drain target. */
+  EVENTS_QUEUE: Queue<import('@hospai/contracts').DomainEventMessage>;
+  /** Advisory consumer dedupe — side-effect handlers must also use DO idempotency. */
+  EVENT_DEDUPE_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
   PLATFORM_DB: D1Database;
   /**

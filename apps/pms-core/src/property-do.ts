@@ -37,6 +37,9 @@ import {
   runIdempotent,
   IdempotencyKeyReused,
   TYPE_WIDE_RATE_PLAN,
+  toQueueBatchEntry,
+  OUTBOX_BACKLOG_DELAY_MS,
+  OUTBOX_SWEEP_INTERVAL_MS,
   type OutboxRow,
   type SqlStorageLike,
 } from '@hospai/do-runtime';
@@ -508,6 +511,31 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     await this.scheduler.armFromTable();
   }
 
+  /** First-write outbox sweep schedule — idempotent, mirrors timezone/currency provisioning. */
+  async ensureOutboxScheduleIfAbsent(): Promise<void> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM alarm_schedule WHERE name = 'outbox' LIMIT 1`)
+      .toArray() as Array<{ one: number }>;
+    if (rows.length > 0) return;
+    this.scheduler.upsertSchedule('outbox', Date.now() + OUTBOX_SWEEP_INTERVAL_MS);
+    await this.scheduler.armFromTable();
+  }
+
+  private rescheduleOutboxAfterFlush(flushed: number, backlog: boolean): void {
+    const delay =
+      flushed === 0 ? OUTBOX_SWEEP_INTERVAL_MS : backlog ? OUTBOX_BACKLOG_DELAY_MS : OUTBOX_SWEEP_INTERVAL_MS;
+    this.scheduler.upsertSchedule('outbox', Date.now() + delay);
+  }
+
+  private async flushOutboxToQueue(
+    drainOpts?: { maxMessages?: number; maxBytes?: number },
+  ): Promise<{ flushed: number; backlog: boolean }> {
+    const source = this.outboxSourceSync();
+    return this.flushOutbox(async (batch) => {
+      await this.env.EVENTS_QUEUE.sendBatch(batch.map((row) => toQueueBatchEntry(row, source)));
+    }, drainOpts);
+  }
+
   /**
    * Sync — recompute `night-audit`'s `next_run_at` and upsert it into `alarm_schedule`,
    * without arming `setAlarm` (callers arm after their transaction commits). No-op
@@ -675,6 +703,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    */
   async alarm(): Promise<void> {
     await this.scheduler.run({
+      outbox: async () => {
+        const { flushed, backlog } = await this.flushOutboxToQueue();
+        this.rescheduleOutboxAfterFlush(flushed, backlog);
+      },
       'night-audit': async () => {
         // Always advance to the next calendar audit_time occurrence *before* creating the
         // Workflow — AlarmScheduler.run() always re-arms to MIN(next_run_at), so if this
@@ -701,6 +733,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         });
       },
     });
+  }
+
+  /** Test helper: run the outbox alarm handler path (flush + reschedule). */
+  async runOutboxAlarmForTest(opts?: {
+    maxMessages?: number;
+    maxBytes?: number;
+  }): Promise<{ flushed: number; backlog: boolean }> {
+    this.assertUnsafeLocal('runOutboxAlarmForTest');
+    const result = await this.flushOutboxToQueue(opts);
+    this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
+    return result;
   }
 
   /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
@@ -2555,9 +2598,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async flushOutbox(
     deliver?: (batch: OutboxRow[]) => Promise<void>,
+    drainOpts?: { maxMessages?: number; maxBytes?: number },
   ): Promise<{ flushed: number; backlog: boolean }> {
     const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql, {
       source: this.outboxSourceSync(),
+      ...drainOpts,
     });
     if (batch.length === 0) return { flushed: 0, backlog: false };
     if (deliver) await deliver(batch);

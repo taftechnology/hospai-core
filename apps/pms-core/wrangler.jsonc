@@ -37,8 +37,27 @@
     {
       "binding": "ENTITLEMENT_KV",
       "id": "00000000-0000-0000-0000-000000000002"
+    },
+    {
+      "binding": "EVENT_DEDUPE_KV",
+      "id": "00000000-0000-0000-0000-000000000003"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "EVENTS_QUEUE",
+        "queue": "hospai-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "hospai-events",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5
+      }
+    ]
+  },
   "workflows": [
     {
       "binding": "NIGHT_AUDIT_WORKFLOW",

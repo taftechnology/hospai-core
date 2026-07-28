@@ -1,4 +1,4 @@
-import type { Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import type { DomainEventMessage, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
 import { InvalidTenantIdError, validateTenantId } from '@hospai/contracts';
 import {
   checkKillSwitch,
@@ -18,6 +18,7 @@ import { OrgEntitlementDO } from './org-entitlement-do.js';
 import { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { getProperty, upsertOrg } from './registry.js';
+import { DEDUPE_TTL_SEC, handleDomainEvent } from './event-consumer.js';
 
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
@@ -175,5 +176,18 @@ export default {
     }
 
     return json({ error: 'not_found' }, 404);
+  },
+
+  async queue(batch: MessageBatch<DomainEventMessage>, env: PmsEnv): Promise<void> {
+    for (const msg of batch.messages) {
+      const body = msg.body;
+      if (await env.EVENT_DEDUPE_KV.get(`seen:${body.eventId}`)) {
+        msg.ack();
+        continue;
+      }
+      handleDomainEvent(body);
+      await env.EVENT_DEDUPE_KV.put(`seen:${body.eventId}`, '1', { expirationTtl: DEDUPE_TTL_SEC });
+      msg.ack();
+    }
   },
 };

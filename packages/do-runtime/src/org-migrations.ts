@@ -1,5 +1,7 @@
 /** OrgDO spine DDL — membership stub + property registry mirror (not routing SoR). */
 
+import { ALARM_SCHEDULE_STATEMENTS } from './property-migrations.js';
+
 export const ORG_SPINE_STATEMENTS: string[] = [
   `CREATE TABLE member (
   user_id     TEXT PRIMARY KEY,
@@ -64,6 +66,10 @@ export const GUEST_PII_STATEMENTS: string[] = [
 
 export const ORG_GUEST_PII_SQL = [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS].join(';\n\n') + ';\n';
 
+/** Shared with PropertyDO — org outbox drain uses the same alarm_schedule shape. */
+export { ALARM_SCHEDULE_STATEMENTS };
+export const ORG_ALARM_SCHEDULE_SQL = ALARM_SCHEDULE_STATEMENTS.join(';\n\n') + ';\n';
+
 /** Never DROP/rebuild `data_key` while `guest.pii_key_id` FK references it — DO storage enforces FKs.
  *  Shred destroys material via in-place UPDATE (`wrapped_key = x''`), not table rebuild. */
 
@@ -77,5 +83,10 @@ export const ORG_MIGRATIONS = [
     version: 2,
     name: '0002_guest_pii',
     statements: [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST_PII_STATEMENTS],
+  },
+  {
+    version: 3,
+    name: '0003_alarm_schedule',
+    statements: ALARM_SCHEDULE_STATEMENTS,
   },
 ] as const;

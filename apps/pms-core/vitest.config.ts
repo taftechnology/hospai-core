@@ -14,6 +14,8 @@ export default defineWorkersConfig({
     },
     poolOptions: {
       workers: {
+        // Queue consumer binding requires a single worker — one consumer per queue name.
+        singleWorker: true,
         wrangler: { configPath: './wrangler.jsonc' },
         isolatedStorage: false,
         miniflare: {

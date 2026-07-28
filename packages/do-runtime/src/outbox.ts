@@ -14,6 +14,11 @@ export const QUEUE_MAX_BATCH_BYTES = 256 * 1024;
 export const QUEUE_MAX_MESSAGE_BYTES = 128 * 1024;
 export const QUEUE_MAX_MESSAGES = 100;
 
+/** Idle outbox sweep cadence per DO alarm schedule. */
+export const OUTBOX_SWEEP_INTERVAL_MS = 30_000;
+/** Catch-up delay when unacked rows remain after a drain. */
+export const OUTBOX_BACKLOG_DELAY_MS = 1_000;
+
 export type OutboxRow = {
   seq: number;
   eventId: string;
@@ -79,6 +84,26 @@ export function outboxAppendQueueBytes(input: {
     createdAt: Number.MAX_SAFE_INTEGER,
     source: input.source,
   });
+}
+
+/** Map a drained outbox row to the Queue message body. */
+export function toQueueMessage(row: OutboxRow, source: EventSource): DomainEventMessage {
+  return {
+    eventId: row.eventId,
+    eventType: row.eventType,
+    payload: payloadForMessage(row.payload),
+    seq: row.seq,
+    source,
+    createdAt: row.createdAt,
+  };
+}
+
+/** Entry shape for `Queue.sendBatch`. */
+export function toQueueBatchEntry(
+  row: OutboxRow,
+  source: EventSource,
+): { body: DomainEventMessage } {
+  return { body: toQueueMessage(row, source) };
 }
 
 export function appendOutbox(

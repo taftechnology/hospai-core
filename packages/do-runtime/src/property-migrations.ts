@@ -185,6 +185,22 @@ export const RESERVATION_V5_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0005_reservation_status.sql */
 export const RESERVATION_V5_SQL = RESERVATION_V5_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v6 — materialized nightly rates (PropertyDO read path for quotes). */
+export const RATE_DAY_STATEMENTS: string[] = [
+  `CREATE TABLE rate_day (
+  room_type_id   TEXT NOT NULL,
+  rate_plan_id   TEXT NOT NULL DEFAULT 'BAR',
+  stay_date      TEXT NOT NULL,
+  amount_minor   INTEGER NOT NULL,
+  currency       TEXT NOT NULL DEFAULT 'USD',
+  version        INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (room_type_id, rate_plan_id, stay_date)
+)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0006_rate_day.sql */
+export const RATE_DAY_SQL = RATE_DAY_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -210,5 +226,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 5,
     name: 'reservation_status',
     statements: RESERVATION_V5_STATEMENTS,
+  },
+  {
+    version: 6,
+    name: 'rate_day',
+    statements: RATE_DAY_STATEMENTS,
   },
 ] as const;

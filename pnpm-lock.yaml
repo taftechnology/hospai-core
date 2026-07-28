@@ -38,9 +38,15 @@ importers:
       '@hospai/pms-inventory':
         specifier: workspace:*
         version: link:../../modules/pms/inventory
+      '@hospai/pms-rates':
+        specifier: workspace:*
+        version: link:../../modules/pms/rates
       '@hospai/pms-reservations':
         specifier: workspace:*
         version: link:../../modules/pms/reservations
+      '@hospai/pms-restrictions':
+        specifier: workspace:*
+        version: link:../../modules/pms/restrictions
       '@hospai/tenant-router':
         specifier: workspace:*
         version: link:../../packages/tenant-router
@@ -74,7 +80,33 @@ importers:
         specifier: ^3.0.9
         version: 3.2.7(@types/node@22.20.1)
 
+  modules/pms/rates:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
   modules/pms/reservations:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
+  modules/pms/restrictions:
     dependencies:
       '@hospai/contracts':
         specifier: workspace:*

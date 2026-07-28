@@ -1091,6 +1091,26 @@ every property in the fleet (§12); adding it now, always zero, costs nothing. T
 TTL length, abandonment policy, whether the booking wizard also holds — is a Phase 3 decision.
 Until then `held` is always 0 and `free` is unaffected.
 
+#### Validate-then-mutate (inventory commands)
+
+Every inventory-affecting PropertyDO command (`reservations.create`, `reservations.cancel`,
+`reservations.modify`, and any future book path) **finishes all precondition checks before any
+ledger write**. Availability, restriction, and release checks run against the current ledger
+(with virtual release simulated for modify overlaps on same-room nights); only after every
+night passes does the command increment or decrement `sold`, flip reservation state, or
+append outbox rows.
+
+Consequences:
+
+1. **`{ ok: false }` never leaves partial ledger state** — a failed book, cancel, or modify
+   does not rely on transaction rollback; the idempotency row may cache the failure, but
+   `sold` is unchanged.
+2. **Idempotency replay is safe** — cached failures reflect a true no-op on the ledger.
+3. **New commands must follow the same shape** — interleaving checks with writes is a defect.
+
+Property-based tests (§11) assert the ledger invariant: for each `(room_type_id, stay_date)`,
+`sold` equals the count of confirmed reservations whose stay range covers that night.
+
 When holds do land, three things become mandatory at the same time: a `hold-expiry` schedule on
 the `AlarmScheduler` (§4.4), held inventory reading as **unavailable** in the ARI projection
 (or the booking engine sells rooms an agent is holding), and monitoring for abandoned holds —

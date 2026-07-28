@@ -329,6 +329,22 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['inventory.room_type_changed', 'availability.changed'],
   },
   {
+    id: 'restrictions.upsert_day',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['restriction.changed'],
+  },
+  {
+    id: 'rates.upsert_day',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['rate.changed'],
+  },
+  {
     id: 'staff.add',
     prototypeAction: 'ADD_STAFF',
     lane: 'INTERACTIVE',
@@ -364,7 +380,6 @@ export const COMMAND_CATALOG: CommandEntry[] = [
 
 export const PLATFORM_GAPS: PlatformGap[] = [
   { id: 'rooms.set_ooo_range', reason: 'Explicit OOO delta on blocked' },
-  { id: 'restrictions.upsert_day', reason: 'restriction_day ledger' },
   { id: 'folio.transfer_charge', reason: 'Window routing / night-audit auto-transfer' },
   { id: 'folio.split_charge_v2', reason: 'Reverse + two posts replacing mutate-in-place' },
   { id: 'config.put_domain', reason: 'Write DOMAIN config with config.changed' },

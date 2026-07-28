@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
+import { ALARM_SCHEDULE_SQL, FREEZE_GATE_SQL, ORG_MIGRATIONS, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL, PLATFORM_REGISTRY_STATEMENTS, RESERVATION_SQL, RESERVATION_V5_SQL, RATE_DAY_SQL, ROOM_TYPE_SQL, freeAvailability, migrateSql, PROPERTY_MIGRATIONS, type SqlStorageLike } from './index.js';
 
 class MemorySql implements SqlStorageLike {
   schemaVersion: Array<{ version: number; name: string; applied_at: number }> = [];
@@ -42,14 +42,14 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 5', () => {
+  it('applies property migrations through version 6', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(5);
+    expect(v1).toBe(6);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(5);
-    expect(sql.schemaVersion).toHaveLength(5);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(v2).toBe(6);
+    expect(sql.schemaVersion).toHaveLength(6);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(10);
   });
 });
@@ -113,6 +113,18 @@ describe('freeze DDL single source', () => {
       .join('\n')
       .trim();
     expect(body).toBe(RESERVATION_V5_SQL.trim());
+  });
+
+  it('migrations/do-property/0006_rate_day.sql matches RATE_DAY_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0006_rate_day.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(RATE_DAY_SQL.trim());
   });
 
   it('migrations/do-org/0001_org_spine.sql matches ORG_SPINE_SQL', () => {

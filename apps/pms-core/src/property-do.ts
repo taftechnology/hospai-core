@@ -14,6 +14,9 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  RESTRICTION_VIOLATED,
+  RATE_MISSING,
+  fingerprintPayload,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -26,6 +29,7 @@ import {
   migrateSql,
   runIdempotent,
   IdempotencyKeyReused,
+  TYPE_WIDE_RATE_PLAN,
   type OutboxRow,
   type SqlStorageLike,
 } from '@hospai/do-runtime';
@@ -42,6 +46,11 @@ import {
   firstUnavailableNight,
   type AvailabilitySnapshot,
 } from '@hospai/pms-reservations';
+import {
+  firstRestrictionViolation,
+  type RestrictionRow,
+} from '@hospai/pms-restrictions';
+import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
@@ -395,6 +404,63 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private materializedOversellAllowanceSync(): number {
     if (this.readConfigValueSync('pms.availability.allow_overbooking') !== true) return 0;
     return Number(this.readConfigValueSync('pms.availability.oversell_allowance'));
+  }
+
+  private loadRestrictionRowsSync(roomTypeId: string, dates: string[]): Map<string, RestrictionRow> {
+    const map = new Map<string, RestrictionRow>();
+    for (const stayDate of dates) {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT min_los, max_los, cta, ctd, stop_sell FROM restriction_day
+           WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+          roomTypeId,
+          TYPE_WIDE_RATE_PLAN,
+          stayDate,
+        )
+        .toArray() as Array<{
+        min_los: number | null;
+        max_los: number | null;
+        cta: number;
+        ctd: number;
+        stop_sell: number;
+      }>;
+      const row = rows[0];
+      if (!row) continue;
+      map.set(stayDate, {
+        stayDate,
+        minLos: row.min_los,
+        maxLos: row.max_los,
+        cta: row.cta !== 0,
+        ctd: row.ctd !== 0,
+        stopSell: row.stop_sell !== 0,
+      });
+    }
+    return map;
+  }
+
+  private restrictionFailureSync(
+    roomTypeId: string,
+    arrivalDate: string,
+    departureDate: string,
+    nights: string[],
+  ):
+    | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
+    | null {
+    const dates = [...new Set([...nights, departureDate])];
+    const violation = firstRestrictionViolation(
+      arrivalDate,
+      departureDate,
+      nights,
+      this.loadRestrictionRowsSync(roomTypeId, dates),
+    );
+    if (!violation) return null;
+    return {
+      ok: false as const,
+      error: RESTRICTION_VIOLATED,
+      rule: violation.rule,
+      date: violation.date,
+      ...(violation.required !== undefined ? { required: violation.required } : {}),
+    };
   }
 
   /**
@@ -1327,6 +1393,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: typeof NO_AVAILABILITY; date: string }
     | { ok: false; error: typeof UNBOOKABLE; date: string }
+    | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
     const timeZone = this.readStoredTimeZoneSync();
@@ -1392,6 +1459,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (unavailable) {
             return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
           }
+
+          const restrictionFail = this.restrictionFailureSync(
+            input.roomTypeId,
+            input.arrivalDate,
+            input.departureDate,
+            nights,
+          );
+          if (restrictionFail) return restrictionFail;
 
           const now = Date.now();
           for (const stayDate of nights) {
@@ -1575,6 +1650,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof NOT_MODIFIABLE }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+    | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
     const timeZone = this.readStoredTimeZoneSync();
@@ -1691,6 +1767,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (unavailable) {
             return { ok: false as const, error: NO_AVAILABILITY, date: unavailable };
           }
+
+          const restrictionFail = this.restrictionFailureSync(
+            input.roomTypeId,
+            input.arrivalDate,
+            input.departureDate,
+            newNights,
+          );
+          if (restrictionFail) return restrictionFail;
 
           for (const stayDate of oldNights) {
             this.ctx.storage.sql.exec(
@@ -1852,19 +1936,197 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     ratePlanId?: string;
     stayDate: string;
     minLos?: number | null;
+    maxLos?: number | null;
+    cta?: boolean;
+    ctd?: boolean;
+    stopSell?: boolean;
   }): Promise<void> {
-    const ratePlanId = input.ratePlanId ?? '*';
-    this.ctx.storage.sql.exec(
-      `INSERT INTO restriction_day (room_type_id, rate_plan_id, stay_date, min_los, version)
-       VALUES (?, ?, ?, ?, 1)
-       ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
-         min_los = excluded.min_los,
-         version = restriction_day.version + 1`,
-      input.roomTypeId,
+    const ratePlanId = input.ratePlanId ?? TYPE_WIDE_RATE_PLAN;
+    const body = {
+      roomTypeId: input.roomTypeId,
       ratePlanId,
-      input.stayDate,
-      input.minLos ?? null,
+      stayDate: input.stayDate,
+      minLos: input.minLos ?? null,
+      maxLos: input.maxLos ?? null,
+      cta: input.cta ?? false,
+      ctd: input.ctd ?? false,
+      stopSell: input.stopSell ?? false,
+    };
+    const result = await this.tryUpsertRestrictionDay(
+      body,
+      {
+        key: `test-restrict-${crypto.randomUUID()}`,
+        fingerprint: await fingerprintPayload(body),
+      },
     );
+    if (!result.ok) throw new Error(result.error);
+  }
+
+  /**
+   * Upsert a type-wide or rate-plan-specific `restriction_day` row. Implements catalog
+   * `restrictions.upsert_day`. Fingerprint: full input body.
+   */
+  async tryUpsertRestrictionDay(
+    input: {
+      roomTypeId: string;
+      ratePlanId: string;
+      stayDate: string;
+      minLos: number | null;
+      maxLos: number | null;
+      cta: boolean;
+      ctd: boolean;
+      stopSell: boolean;
+    },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO restriction_day (room_type_id, rate_plan_id, stay_date, min_los, max_los, cta, ctd, stop_sell, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+             ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+               min_los = excluded.min_los,
+               max_los = excluded.max_los,
+               cta = excluded.cta,
+               ctd = excluded.ctd,
+               stop_sell = excluded.stop_sell,
+               version = restriction_day.version + 1`,
+            input.roomTypeId,
+            input.ratePlanId,
+            input.stayDate,
+            input.minLos,
+            input.maxLos,
+            input.cta ? 1 : 0,
+            input.ctd ? 1 : 0,
+            input.stopSell ? 1 : 0,
+          );
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'restriction.changed',
+            payload: {
+              propertyId,
+              roomTypeId: input.roomTypeId,
+              ratePlanId: input.ratePlanId,
+              stayDate: input.stayDate,
+            },
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Materialize a nightly rate. Implements catalog `rates.upsert_day`.
+   * Fingerprint: `{ roomTypeId, ratePlanId, stayDate, amountMinor, currency }`.
+   */
+  async tryUpsertRateDay(
+    input: {
+      roomTypeId: string;
+      ratePlanId: string;
+      stayDate: string;
+      amountMinor: number;
+      currency: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
+             VALUES (?, ?, ?, ?, ?, 1)
+             ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+               amount_minor = excluded.amount_minor,
+               currency = excluded.currency,
+               version = rate_day.version + 1`,
+            input.roomTypeId,
+            input.ratePlanId,
+            input.stayDate,
+            input.amountMinor,
+            input.currency,
+          );
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'rate.changed',
+            payload: {
+              propertyId,
+              roomTypeId: input.roomTypeId,
+              ratePlanId: input.ratePlanId,
+              stayDate: input.stayDate,
+            },
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Quote materialized nightly rates for a stay (read-only). */
+  async quoteStay(input: {
+    roomTypeId: string;
+    ratePlanId?: string;
+    arrivalDate: string;
+    departureDate: string;
+  }): Promise<
+    | { ok: true; totalMinor: number; currency: string }
+    | { ok: false; error: typeof RATE_MISSING; date: string }
+    | { ok: false; error: string }
+  > {
+    let nights: string[];
+    try {
+      nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+    } catch {
+      return { ok: false, error: 'invalid_stay_range' };
+    }
+    const ratePlanId = input.ratePlanId ?? 'BAR';
+    const amounts = new Map<string, number>();
+    let currency = 'USD';
+    for (const stayDate of nights) {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT amount_minor, currency FROM rate_day WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+          input.roomTypeId,
+          ratePlanId,
+          stayDate,
+        )
+        .toArray() as Array<{ amount_minor: number; currency: string }>;
+      const row = rows[0];
+      if (!row) return { ok: false, error: RATE_MISSING, date: stayDate };
+      amounts.set(stayDate, row.amount_minor);
+      currency = row.currency;
+    }
+    const quoted = quoteStay(nights, amounts);
+    if (!quoted.ok) return { ok: false, error: RATE_MISSING, date: quoted.missingDate };
+    return { ok: true, totalMinor: quoted.totalMinor, currency };
+  }
+
+  /** Test helper: confirmed reservation count covering a ledger night. */
+  async countConfirmedReservationsCovering(roomTypeId: string, stayDate: string): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS c FROM reservation
+         WHERE room_type_id = ? AND status = 'confirmed'
+           AND arrival_date <= ? AND departure_date > ?`,
+        roomTypeId,
+        stayDate,
+        stayDate,
+      )
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
   }
 
   async countRestrictionDays(roomTypeId: string, stayDate: string): Promise<number> {

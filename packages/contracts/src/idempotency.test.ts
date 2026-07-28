@@ -12,6 +12,8 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  RESTRICTION_VIOLATED,
+  RATE_MISSING,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -43,6 +45,8 @@ describe('fingerprintPayload', () => {
     expect(ALREADY_CANCELLED).toBe('already_cancelled');
     expect(LEDGER_INCONSISTENT).toBe('ledger_inconsistent');
     expect(NOT_MODIFIABLE).toBe('not_modifiable');
+    expect(RESTRICTION_VIOLATED).toBe('restriction_violated');
+    expect(RATE_MISSING).toBe('rate_missing');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

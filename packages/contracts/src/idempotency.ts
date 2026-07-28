@@ -21,6 +21,8 @@ export const UNBOOKABLE = 'unbookable' as const;
 export const ALREADY_CANCELLED = 'already_cancelled' as const;
 export const LEDGER_INCONSISTENT = 'ledger_inconsistent' as const;
 export const NOT_MODIFIABLE = 'not_modifiable' as const;
+export const RESTRICTION_VIOLATED = 'restriction_violated' as const;
+export const RATE_MISSING = 'rate_missing' as const;
 
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {

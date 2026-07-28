@@ -10,11 +10,13 @@
     "lint": "echo ok",
     "dev": "wrangler dev"
   },
-  "dependencies": {
+    "dependencies": {
     "@hospai/contracts": "workspace:*",
     "@hospai/do-runtime": "workspace:*",
     "@hospai/kernel": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
+    "@hospai/pms-rates": "workspace:*",
+    "@hospai/pms-restrictions": "workspace:*",
     "@hospai/pms-reservations": "workspace:*",
     "@hospai/tenant-router": "workspace:*"
   },

@@ -1,13 +1,144 @@
 import { describe, expect, it } from 'vitest';
-import { allocate, money } from './index.js';
+import {
+  add,
+  allocate,
+  assertPostedMatches,
+  currencyCode,
+  CurrencyMismatchError,
+  InvalidFxRateError,
+  InvalidMoneyError,
+  money,
+  negate,
+  postToLedger,
+  roundHalfAwayFromZero,
+  type PostedLineAmount,
+} from './index.js';
+
+describe('currencyCode', () => {
+  it('accepts valid ISO codes', () => {
+    expect(currencyCode('usd')).toBe('USD');
+  });
+
+  it('rejects nonsense', () => {
+    expect(() => currencyCode('nonsense')).toThrow(InvalidMoneyError);
+  });
+});
 
 describe('money', () => {
   it('rejects floats', () => {
-    expect(() => money(1.5, 'USD')).toThrow();
+    expect(() => money(1.5, currencyCode('USD'))).toThrow(InvalidMoneyError);
   });
 
+  it('add rejects cross-currency at runtime', () => {
+    expect(() => add(money(100, currencyCode('EUR')), money(50, currencyCode('USD')))).toThrow(
+      CurrencyMismatchError,
+    );
+  });
+});
+
+describe('allocate', () => {
   it('allocates with exact foot', () => {
     expect(allocate(100, [60, 40])).toEqual([60, 40]);
     expect(allocate(100, [1, 1, 1]).reduce((a, b) => a + b, 0)).toBe(100);
+  });
+
+  it('rejects non-positive weights', () => {
+    expect(() => allocate(100, [-1, 2])).toThrow(InvalidMoneyError);
+    expect(() => allocate(100, [0, 1])).toThrow(InvalidMoneyError);
+  });
+
+  it('supports FIRST remainder policy', () => {
+    expect(allocate(100, [1, 1, 1], { policy: 'FIRST' })).toEqual([34, 33, 33]);
+  });
+});
+
+describe('roundHalfAwayFromZero', () => {
+  it('makes reversals foot exactly', () => {
+    const pos = roundHalfAwayFromZero(25n, 10n);
+    const neg = roundHalfAwayFromZero(-25n, 10n);
+    expect(pos).toBe(3n);
+    expect(neg).toBe(-3n);
+    expect(pos + neg).toBe(0n);
+  });
+});
+
+describe('postToLedger', () => {
+  it('uses identity rate for same currency', () => {
+    const posted = postToLedger(money(1000, currencyCode('EUR')), currencyCode('EUR'), '1', 1);
+    expect(posted).toEqual({
+      amountMinor: 1000,
+      txnCurrency: 'EUR',
+      ledgerAmountMinor: 1000,
+      fxRate: '1',
+      fxRateAt: 1,
+    });
+  });
+
+  it('rejects non-identity rate for same currency', () => {
+    expect(() =>
+      postToLedger(money(100, currencyCode('EUR')), currencyCode('EUR'), '1.1', 1),
+    ).toThrow(InvalidFxRateError);
+  });
+
+  it('converts cross-currency deterministically', () => {
+    const posted = postToLedger(money(10000, currencyCode('EUR')), currencyCode('USD'), '1.0842', 1);
+    expect(posted.ledgerAmountMinor).toBe(10842);
+    expect(posted.fxRate).toBe('1.0842');
+  });
+
+  it('rejects invalid fx strings', () => {
+    expect(() =>
+      postToLedger(money(100, currencyCode('EUR')), currencyCode('USD'), '1.2.3', 1),
+    ).toThrow(InvalidFxRateError);
+  });
+});
+
+describe('assertPostedMatches', () => {
+  it('passes when ledger column matches conversion', () => {
+    expect(
+      assertPostedMatches(
+        {
+          amountMinor: 1000,
+          txnCurrency: 'EUR',
+          ledgerAmountMinor: 1000,
+          fxRate: '1',
+          fxRateAt: 1,
+        },
+        currencyCode('EUR'),
+      ).ledgerAmountMinor,
+    ).toBe(1000);
+  });
+
+  it('throws on ledger drift', () => {
+    expect(() =>
+      assertPostedMatches(
+        {
+          amountMinor: 1000,
+          txnCurrency: 'EUR',
+          ledgerAmountMinor: 999,
+          fxRate: '1',
+          fxRateAt: 1,
+        },
+        currencyCode('EUR'),
+      ),
+    ).toThrow(InvalidMoneyError);
+  });
+});
+
+describe('structuredClone', () => {
+  it('round-trips PostedLineAmount', () => {
+    const posted: PostedLineAmount = {
+      amountMinor: 100,
+      txnCurrency: currencyCode('USD'),
+      ledgerAmountMinor: 100,
+      fxRate: '1',
+      fxRateAt: 1,
+    };
+    expect(structuredClone(posted)).toEqual(posted);
+  });
+
+  it('round-trips negated money', () => {
+    const m = negate(money(50, currencyCode('USD')));
+    expect(structuredClone(m)).toEqual(m);
   });
 });

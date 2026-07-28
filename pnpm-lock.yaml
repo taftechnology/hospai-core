@@ -41,6 +41,9 @@ importers:
       '@hospai/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@hospai/money':
+        specifier: workspace:*
+        version: link:../../packages/money
       '@hospai/pms-inventory':
         specifier: workspace:*
         version: link:../../modules/pms/inventory
@@ -127,6 +130,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@hospai/money':
+        specifier: workspace:*
+        version: link:../money
       zod:
         specifier: ^3.24.2
         version: 3.25.76

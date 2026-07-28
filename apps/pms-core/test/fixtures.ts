@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { fingerprintPayload } from '@hospai/contracts';
+import { ledgerCurrencyForTimeZone } from '@hospai/money';
 import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
 import type { PropertyDO } from '../src/property-do';
@@ -42,6 +43,14 @@ export async function provisionedPropertyStub(
   await stub.ensureMetaOrgId(orgId);
   const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
   await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
+  const currencyFp = await fingerprintPayload({
+    propertyId: name,
+    currency: ledgerCurrencyForTimeZone(timeZone),
+  });
+  await stub.ensureCurrencyIfAbsent(ledgerCurrencyForTimeZone(timeZone), {
+    key: `provision:currency:${name}`,
+    fingerprint: currencyFp,
+  });
   const instant = new Date();
   await stub.ensureBusinessDateIfAbsent(timeZone, instant);
   await stub.ensureNightAuditSchedule(timeZone, instant);

@@ -18,6 +18,10 @@ import {
   RATE_MISSING,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
+  FX_RATE_INVALID,
+  LEDGER_AMOUNT_MISMATCH,
+  MONEY_INVALID,
+  CURRENCY_UNSET,
   fingerprintPayload,
   type IdempotencyKey,
 } from '@hospai/contracts';
@@ -56,6 +60,14 @@ import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
+import {
+  assertPostedMatches,
+  currencyCode,
+  InvalidFxRateError,
+  InvalidMoneyError,
+  type CurrencyCode,
+  type PostedLineAmount,
+} from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 
 /**
@@ -395,6 +407,38 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ value_json: string }>;
     if (!rows[0]) return null;
     return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /** Sync — ledger currency row only; never readConfig default (same as timezone). */
+  private readStoredLedgerCurrencySync(): CurrencyCode | null {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, 'pms.money.currency_code')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return null;
+    try {
+      return currencyCode(JSON.parse(rows[0].value_json) as string);
+    } catch {
+      return null;
+    }
+  }
+
+  /** DOMAIN put of the first-write ledger currency. No-op if a row already exists. */
+  async ensureCurrencyIfAbsent(
+    currency: string,
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true; version: number } | { ok: false; error: string } | { ok: true; skipped: true }> {
+    if (this.readStoredLedgerCurrencySync() !== null) {
+      return { ok: true, skipped: true };
+    }
+    const code = currencyCode(currency);
+    const result = await this.tryPutDomainConfig(
+      'pms.money.currency_code',
+      code,
+      { actor: 'system:provision', reason: 'provision:first-write-currency' },
+      idem,
+    );
+    if (!result.ok) return result;
+    return { ok: true, version: result.version };
   }
 
   /** DOMAIN put of the first-write timezone. No-op if a row already exists — re-provisioning never overwrites. */
@@ -2319,64 +2363,151 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
-  async addFolioLine(input: {
-    folioLineId: string;
-    folioWindowId: string;
-    reservationId: string;
-    chargeCode: string;
-    amountMinor: number;
-    txnCurrency: string;
-    ledgerAmountMinor: number;
-    fxRate: string;
-    fxRateAt?: number;
-    source?: string;
-    businessDate?: string;
-  }): Promise<void> {
-    const result = await this.tryAddFolioLine(input);
+  async addFolioLine(
+    input: {
+      folioLineId: string;
+      folioWindowId: string;
+      reservationId: string;
+      chargeCode: string;
+      amountMinor: number;
+      txnCurrency: string;
+      ledgerAmountMinor: number;
+      fxRate: string;
+      fxRateAt?: number;
+      source?: string;
+      businessDate?: string;
+    },
+    idem?: IdempotencyKey,
+  ): Promise<void> {
+    const key = idem ?? {
+      key: `folio-line:${input.folioLineId}`,
+      fingerprint: await fingerprintPayload({
+        folioLineId: input.folioLineId,
+        folioWindowId: input.folioWindowId,
+        reservationId: input.reservationId,
+        chargeCode: input.chargeCode,
+        amountMinor: input.amountMinor,
+        txnCurrency: input.txnCurrency,
+        ledgerAmountMinor: input.ledgerAmountMinor,
+        fxRate: input.fxRate,
+        fxRateAt: input.fxRateAt,
+        source: input.source,
+        businessDate: input.businessDate,
+      }),
+    };
+    const result = await this.tryAddFolioLine(input, key);
     if (!result.ok) throw new Error(result.error);
   }
 
-  async tryAddFolioLine(input: {
-    folioLineId: string;
-    folioWindowId: string;
-    reservationId: string;
-    chargeCode: string;
-    amountMinor: number;
-    txnCurrency: string;
-    ledgerAmountMinor: number;
-    fxRate: string;
-    fxRateAt?: number;
-    source?: string;
-    businessDate?: string;
-  }): Promise<{ ok: true } | { ok: false; error: string }> {
+  async tryAddFolioLine(
+    input: {
+      folioLineId: string;
+      folioWindowId: string;
+      reservationId: string;
+      chargeCode: string;
+      amountMinor: number;
+      txnCurrency: string;
+      ledgerAmountMinor: number;
+      fxRate: string;
+      fxRateAt?: number;
+      source?: string;
+      businessDate?: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+
+    const fxRateAt = input.fxRateAt ?? Date.now();
+    const moneyCheck = this.validateFolioLineMoney(input, ledgerCurrency, fxRateAt);
+    if (!moneyCheck.ok) return moneyCheck;
+
     try {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO folio_line (
-           folio_line_id, folio_window_id, reservation_id, charge_code,
-           amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-           source, business_date, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        input.folioLineId,
-        input.folioWindowId,
-        input.reservationId,
-        input.chargeCode,
-        input.amountMinor,
-        input.txnCurrency,
-        input.ledgerAmountMinor,
-        input.fxRate,
-        input.fxRateAt ?? Date.now(),
-        input.source ?? null,
-        input.businessDate ?? null,
-        Date.now(),
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO folio_line (
+               folio_line_id, folio_window_id, reservation_id, charge_code,
+               amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+               source, business_date, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            input.folioLineId,
+            input.folioWindowId,
+            input.reservationId,
+            input.chargeCode,
+            moneyCheck.posted.amountMinor,
+            moneyCheck.posted.txnCurrency,
+            moneyCheck.posted.ledgerAmountMinor,
+            moneyCheck.posted.fxRate,
+            moneyCheck.posted.fxRateAt,
+            input.source ?? null,
+            input.businessDate ?? null,
+            Date.now(),
+          );
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.line_posted',
+            payload: {
+              propertyId,
+              folioLineId: input.folioLineId,
+              folioWindowId: input.folioWindowId,
+              reservationId: input.reservationId,
+              chargeCode: input.chargeCode,
+              amountMinor: moneyCheck.posted.amountMinor,
+              txnCurrency: moneyCheck.posted.txnCurrency,
+              ledgerAmountMinor: moneyCheck.posted.ledgerAmountMinor,
+              fxRate: moneyCheck.posted.fxRate,
+              fxRateAt: moneyCheck.posted.fxRateAt,
+            },
+          });
+          return { ok: true as const };
+        }),
       );
-      return { ok: true };
     } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private validateFolioLineMoney(
+    input: {
+      amountMinor: number;
+      txnCurrency: string;
+      ledgerAmountMinor: number;
+      fxRate: string;
+    },
+    ledgerCurrency: CurrencyCode,
+    fxRateAt: number,
+  ): { ok: true; posted: PostedLineAmount } | { ok: false; error: string } {
+    try {
+      const posted = assertPostedMatches(
+        {
+          amountMinor: input.amountMinor,
+          txnCurrency: input.txnCurrency,
+          ledgerAmountMinor: input.ledgerAmountMinor,
+          fxRate: input.fxRate,
+          fxRateAt,
+        },
+        ledgerCurrency,
+      );
+      return { ok: true, posted };
+    } catch (e) {
+      if (e instanceof InvalidFxRateError) return { ok: false, error: FX_RATE_INVALID };
+      if (e instanceof InvalidMoneyError) {
+        if (e.message.includes('ledger amount does not match')) {
+          return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+        }
+        return { ok: false, error: MONEY_INVALID };
+      }
+      return { ok: false, error: MONEY_INVALID };
     }
   }
 

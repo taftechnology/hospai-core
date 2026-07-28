@@ -1,5 +1,6 @@
 import type { ProvisionPropertyInput, ProvisionPropertyResult, PropertyRecord } from '@hospai/contracts';
 import { fingerprintPayload } from '@hospai/contracts';
+import { ledgerCurrencyForTimeZone } from '@hospai/money';
 import {
   InvalidTimeZoneError,
   locationHintFromTimeZone,
@@ -83,6 +84,14 @@ async function syncOrgAndPropertyDo(
   await prop.ensureTimeZoneIfAbsent(property.timeZone, {
     key: `provision:timezone:${property.propertyId}`,
     fingerprint,
+  });
+  const currencyFingerprint = await fingerprintPayload({
+    propertyId: property.propertyId,
+    currency: ledgerCurrencyForTimeZone(property.timeZone),
+  });
+  await prop.ensureCurrencyIfAbsent(ledgerCurrencyForTimeZone(property.timeZone), {
+    key: `provision:currency:${property.propertyId}`,
+    fingerprint: currencyFingerprint,
   });
   // Same clock instant drives both the first-write business_date and the initial
   // night-audit alarm arm, keeping provisioning internally consistent.

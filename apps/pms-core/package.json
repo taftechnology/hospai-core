@@ -16,6 +16,7 @@
     "@hospai/do-runtime": "workspace:*",
     "@hospai/entitlement-client": "workspace:*",
     "@hospai/kernel": "workspace:*",
+    "@hospai/money": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
     "@hospai/pms-rates": "workspace:*",
     "@hospai/pms-restrictions": "workspace:*",

@@ -62,7 +62,7 @@ describe('PropertyDO sold ledger property tests', () => {
     'random create/cancel/modify sequences keep sold aligned (seed $label)',
     async ({ seed }) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC');
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
     const rand = mulberry32(seed);
 
     const addInput = {

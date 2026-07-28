@@ -1,6 +1,5 @@
 import { env } from 'cloudflare:test';
 import { fingerprintPayload } from '@hospai/contracts';
-import { ledgerCurrencyForTimeZone } from '@hospai/money';
 import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
 import type { PropertyDO } from '../src/property-do';
@@ -35,6 +34,7 @@ export async function provisionedOrg(orgId = DEFAULT_TEST_ORG): Promise<DurableO
 export async function provisionedPropertyStub(
   name: string,
   timeZone: string,
+  currency: string,
   orgId = DEFAULT_TEST_ORG,
 ): Promise<DurableObjectStub<PropertyDO>> {
   await seedSubscription(env, orgId, 'starter');
@@ -45,9 +45,9 @@ export async function provisionedPropertyStub(
   await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
   const currencyFp = await fingerprintPayload({
     propertyId: name,
-    currency: ledgerCurrencyForTimeZone(timeZone),
+    currency,
   });
-  await stub.ensureCurrencyIfAbsent(ledgerCurrencyForTimeZone(timeZone), {
+  await stub.ensureCurrencyIfAbsent(currency, {
     key: `provision:currency:${name}`,
     fingerprint: currencyFp,
   });

@@ -65,6 +65,7 @@ import {
   currencyCode,
   InvalidFxRateError,
   InvalidMoneyError,
+  LedgerAmountMismatchError,
   type CurrencyCode,
   type PostedLineAmount,
 } from '@hospai/money';
@@ -407,6 +408,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ value_json: string }>;
     if (!rows[0]) return null;
     return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /** Read the stored `pms.money.currency_code` DOMAIN row directly — never falls back to the register default. */
+  async readStoredLedgerCurrency(): Promise<CurrencyCode | null> {
+    return this.readStoredLedgerCurrencySync();
   }
 
   /** Sync — ledger currency row only; never readConfig default (same as timezone). */
@@ -2501,12 +2507,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: true, posted };
     } catch (e) {
       if (e instanceof InvalidFxRateError) return { ok: false, error: FX_RATE_INVALID };
-      if (e instanceof InvalidMoneyError) {
-        if (e.message.includes('ledger amount does not match')) {
-          return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
-        }
-        return { ok: false, error: MONEY_INVALID };
-      }
+      if (e instanceof LedgerAmountMismatchError) return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+      if (e instanceof InvalidMoneyError) return { ok: false, error: MONEY_INVALID };
       return { ok: false, error: MONEY_INVALID };
     }
   }

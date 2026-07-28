@@ -52,7 +52,7 @@ function runNightAuditWorkflow(propertyId: string): Promise<void> {
 describe('PropertyDO night audit', () => {
   it('3. catch-up set-reconcile fills gaps with physical = room_count; idempotent re-run inserts nothing', async () => {
     const name = `na-catchup-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const businessDate = (await stub.readBusinessDate())!;
     const addInput = {
       roomTypeId: 'rt_king',
@@ -86,7 +86,7 @@ describe('PropertyDO night audit', () => {
   it('4. N due rolls advance max stay_date by exactly N; end = business_date + (HORIZON_DAYS - 1)', async () => {
     const name = `na-rolls-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     // Backdate business_date N days behind "today" *before* seeding, so the room type's
     // initial horizon is [start, start + HORIZON_DAYS - 1] and rolling forward N times
@@ -132,7 +132,7 @@ describe('PropertyDO night audit', () => {
   it('5. a further startNightAudit when already current does not advance business_date into the future', async () => {
     const name = `na-current-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -159,7 +159,7 @@ describe('PropertyDO night audit', () => {
 
   it('6. archived room type never gains new rows from reconcile', async () => {
     const name = `na-archived-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const businessDate = (await stub.readBusinessDate())!;
     const addInput = {
       roomTypeId: 'rt_king',
@@ -203,7 +203,7 @@ describe('PropertyDO night audit', () => {
   it('11. PRE_CHECK stub completes; only ROLL mutates business_date/horizon; started+completed outbox events present', async () => {
     const name = `na-steps-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     // Backdate before seeding so ROLL is due and its reconcile has a new day to insert
     // (window shifts forward by exactly one day), giving a real `availability.changed`.
@@ -255,7 +255,7 @@ describe('PropertyDO night audit', () => {
   it('rescheduleNightAudit: business_date < today re-arms next_run_at to "now" (not the next audit_time)', async () => {
     const name = `na-resched-behind-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     const originalBusinessDate = (await stub.readBusinessDate())!;
     await stub.setBusinessDateForTest(subtractDays(originalBusinessDate, 1));
@@ -274,7 +274,7 @@ describe('PropertyDO night audit', () => {
   it('rescheduleNightAudit: business_date current arms the next audit_time occurrence (future)', async () => {
     const name = `na-resched-current-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     await stub.rescheduleNightAudit();
     const schedule = await stub.getAlarmSchedule('night-audit');
@@ -285,7 +285,7 @@ describe('PropertyDO night audit', () => {
   it('10. matrix: changing pms.night_audit.audit_time reschedules alarm_schedule inside the config transaction', async () => {
     const name = `na-matrix-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     const before = await stub.getAlarmSchedule('night-audit');
     expect(before).not.toBeNull();
@@ -313,7 +313,7 @@ describe('PropertyDO night audit', () => {
   it('config keys with reschedulesNightAudit=false do not touch alarm_schedule', async () => {
     const name = `na-nonmatrix-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     const before = await stub.getAlarmSchedule('night-audit');
 
@@ -338,7 +338,7 @@ describe('PropertyDO night audit', () => {
   it('alarm() dispatches the night-audit handler without error (creates the Workflow instance only — does NOT execute its body)', async () => {
     const name = `na-alarm-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     // Property is behind — a real run would advance business_date on completion.
     const originalBusinessDate = (await stub.readBusinessDate())!;
@@ -365,6 +365,7 @@ describe('PropertyDO night audit', () => {
       name: 'Workflow Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_owner',
     });
     expect(provisioned.ok).toBe(true);
@@ -412,7 +413,7 @@ describe('PropertyDO night audit', () => {
 
   it('a step body that throws mid-way rolls back its mutations; only the FAILED bookkeeping persists', async () => {
     const name = `na-rollback-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
 
     const addInput = {
       roomTypeId: 'rt_king',
@@ -459,7 +460,7 @@ describe('PropertyDO night audit', () => {
   it('alarm() always advances next_run_at into the future even when halted, preventing a re-fire storm', async () => {
     const name = `na-storm-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
-    const stub = await provisionedPropertyStub(name, timeZone);
+    const stub = await provisionedPropertyStub(name, timeZone, 'EUR');
 
     // Force a halt (a FAILED step) so the handler exits early without ever running the
     // Workflow to completion — this is exactly the case that used to leave next_run_at

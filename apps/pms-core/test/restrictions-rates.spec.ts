@@ -16,7 +16,7 @@ function addDays(iso: string, days: number): string {
 describe('PropertyDO restrictions + rates', () => {
   it('1. min_los on arrival blocks create in the book txn', async () => {
     const name = `restrict-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC');
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -64,7 +64,7 @@ describe('PropertyDO restrictions + rates', () => {
 
   it('2. materialized rate_day enables quote across a stay', async () => {
     const name = `rates-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC');
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',

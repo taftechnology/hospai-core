@@ -95,7 +95,7 @@ export async function seedSubscription(
 
   if (!existing) {
     await env.PLATFORM_DB.prepare(
-      `INSERT INTO subscription (org_id, plan_code, status, entitlement_version, trial_ends_at, current_period_end)
+      `INSERT OR IGNORE INTO subscription (org_id, plan_code, status, entitlement_version, trial_ends_at, current_period_end)
        VALUES (?, ?, 'active', 1, NULL, NULL)`,
     )
       .bind(orgId, planCode)

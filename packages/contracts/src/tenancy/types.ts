@@ -28,6 +28,8 @@ export type ProvisionPropertyInput = {
   name: string;
   jurisdiction: Jurisdiction | null;
   timeZone: string;
+  /** ISO 4217 ledger currency — required at provision, same as timeZone (never derived). */
+  currency: string;
   actorUserId: string;
 };
 
@@ -35,6 +37,6 @@ export type ProvisionPropertyResult =
   | { ok: true; property: PropertyRecord; locationHint: string }
   | {
       ok: false;
-      error: 'jurisdiction_conflict' | 'invalid_timezone' | string;
+      error: 'jurisdiction_conflict' | 'invalid_timezone' | 'invalid_currency' | string;
       existing?: PropertyRecord;
     };

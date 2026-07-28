@@ -98,6 +98,7 @@ describe('entitlements + kill-switch', () => {
         propertyId: `prop_kill_${crypto.randomUUID()}`,
         name: 'Kill Test',
         timeZone: 'UTC',
+        currency: 'USD',
       }),
     });
     const res = await worker.fetch(req, env);
@@ -107,7 +108,7 @@ describe('entitlements + kill-switch', () => {
   it('PropertyDO __meta.org_id is write-once', async () => {
     const orgId = `org-meta-${crypto.randomUUID()}`;
     const propName = `prop-meta-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(propName, 'UTC', orgId);
+    const stub = await provisionedPropertyStub(propName, 'UTC', 'USD', orgId);
     expect(await stub.getOrgId()).toBe(orgId);
     await stub.ensureMetaOrgId('org_other');
     expect(await stub.getOrgId()).toBe(orgId);

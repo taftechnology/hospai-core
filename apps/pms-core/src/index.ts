@@ -86,9 +86,10 @@ export default {
           name: string;
           jurisdiction?: Jurisdiction | null;
           timeZone: string;
+          currency: string;
           orgName?: string;
         };
-        if (!body.propertyId || !body.name || !body.timeZone) {
+        if (!body.propertyId || !body.name || !body.timeZone || !body.currency) {
           return json({ error: 'invalid_body' }, 400);
         }
 
@@ -115,6 +116,7 @@ export default {
           name: body.name,
           jurisdiction: body.jurisdiction === undefined ? null : body.jurisdiction,
           timeZone: body.timeZone,
+          currency: body.currency,
           actorUserId: actor,
         };
         const result = await provisionProperty(env, input);
@@ -122,7 +124,7 @@ export default {
           if (result.error === 'jurisdiction_conflict') {
             return json({ error: result.error, existing: result.existing }, 409);
           }
-          if (result.error === 'invalid_timezone') {
+          if (result.error === 'invalid_timezone' || result.error === 'invalid_currency') {
             return json({ error: result.error }, 400);
           }
           return json({ error: result.error }, 400);

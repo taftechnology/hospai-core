@@ -26,7 +26,7 @@ Everything else on the Phase 0 tail (Queues, LaneGuard, Clerk, observability) is
 **In**
 
 - Expand `@hospai/money` with typed, structured-clone-safe primitives (see **Types**)
-- Cross-currency **addition rejected at runtime** (`CurrencyMismatchError`); optional **compile-time** guard via `Money<C extends CurrencyCode>` (generic erases at RPC — no runtime cost)
+- Cross-currency **addition rejected at runtime** (`CurrencyMismatchError`); **compile-time** guard when both operands use literal codes via `currencyCode('EUR')` → `Money<'EUR'>` (generic erases at RPC — no runtime cost)
 - FX rate as **decimal string** (never float); frozen-at-post semantics validated at the package boundary
 - `allocate(total, weights, opts?)` with explicit **remainder policy**; **positive weights enforced**
 - `postToLedger(txn, ledgerCurrency, fxRate, fxRateAt)` — pure conversion producing `PostedLineAmount`
@@ -85,7 +85,7 @@ export type PostedLineAmount = {
 export type RemainderPolicy = 'LAST' | 'FIRST';
 ```
 
-**Construction:** `currencyCode(raw)` validates ISO 4217 shape (`/^[A-Z]{3}$/`) and returns `CurrencyCode`. `money(amountMinor, currency)` validates integer minor units.
+**Construction:** `currencyCode<C extends string>(raw: C): CurrencyCode & Uppercase<C>` validates ISO 4217 shape and **preserves the literal** so `currencyCode('EUR')` and `currencyCode('USD')` are distinct types. Dynamic strings widen to `CurrencyCode`. `money(amountMinor, currency)` validates integer minor units.
 
 **Cross-currency arithmetic:** `add(a, b)` / `subtract(a, b)` require matching `currency` at runtime; with `Money<'EUR'>` and `Money<'USD'>` the call is a compile-time error. No `addMixed` escape hatch.
 
@@ -108,7 +108,7 @@ export type RemainderPolicy = 'LAST' | 'FIRST';
 
 **Register default `USD` is for display fallback only.** Ledger decisions use `readStoredLedgerCurrencySync()` — reads `property_config` row for `pms.money.currency_code`, returns `null` if absent (same pattern as timezone).
 
-**Provision:** `ensureCurrencyIfAbsent(code, idem)` at first provision alongside timezone — `ledgerCurrencyForTimeZone(timeZone)` supplies the initial code for known IANA zones; no row → `CURRENCY_UNSET` on folio post.
+**Provision:** `ProvisionPropertyInput.currency` is **required** (same as `timeZone` — never derived from timezone). `ensureCurrencyIfAbsent(code, idem)` writes the first DOMAIN row at provision; no row → `CURRENCY_UNSET` on folio post.
 
 ## PropertyDO — `tryAddFolioLine`
 

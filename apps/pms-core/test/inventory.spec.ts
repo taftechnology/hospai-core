@@ -81,7 +81,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('2. add room type under Europe/Berlin seeds exactly 365 rows from business_date, two events, ARI version 1', async () => {
     const name = `inv-berlin-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const businessDate = await stub.readBusinessDate();
     expect(businessDate).not.toBeNull();
     const input = {
@@ -136,7 +136,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('3. replay of the same idempotency key does not double-seed or double-emit', async () => {
     const name = `inv-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -161,7 +161,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('4. update lowering room_count below sold returns oversell with offending dates', async () => {
     const name = `inv-oversell-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -193,7 +193,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('5. update ok changes existing future rows only; never inserts dates; past rows untouched', async () => {
     const name = `inv-update-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -241,7 +241,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('6. archive with future committed demand returns archive_blocked', async () => {
     const name = `inv-archive-blocked-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -269,7 +269,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('7. archive clean sets status archived, zeroes future physical, leaves past untouched, both events', async () => {
     const name = `inv-archive-clean-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -310,7 +310,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('7b. archive with zero future ledger rows still emits room_type_changed but skips availability.changed and the ARI bump', async () => {
     const name = `inv-archive-empty-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -341,7 +341,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('not_found is never cached: update on a missing room type, then retry the same idempotency key once it exists', async () => {
     const name = `inv-not-found-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const updateInput = { roomTypeId: 'rt_ghost', roomCount: 5 };
     const idem = await idemFor('update-not-found-fixed', updateInput);
 
@@ -365,7 +365,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('oversell is never cached: after clearing the offending demand, retrying the same idempotency key succeeds', async () => {
     const name = `inv-oversell-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -403,7 +403,7 @@ describe('PropertyDO inventory commands', () => {
 
   it('8. archived code can be reused on a new active room type (partial unique index)', async () => {
     const name = `inv-code-reuse-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin');
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const addInput = {
       roomTypeId: 'rt_king_1',
       code: 'KING',

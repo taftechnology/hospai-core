@@ -6,6 +6,7 @@ import {
   currencyCode,
   CurrencyMismatchError,
   InvalidFxRateError,
+  LedgerAmountMismatchError,
   InvalidMoneyError,
   money,
   negate,
@@ -30,7 +31,9 @@ describe('money', () => {
   });
 
   it('add rejects cross-currency at runtime', () => {
-    expect(() => add(money(100, currencyCode('EUR')), money(50, currencyCode('USD')))).toThrow(
+    const eurCode: string = 'EUR';
+    const usdCode: string = 'USD';
+    expect(() => add(money(100, currencyCode(eurCode)), money(50, currencyCode(usdCode)))).toThrow(
       CurrencyMismatchError,
     );
   });
@@ -121,7 +124,7 @@ describe('assertPostedMatches', () => {
         },
         currencyCode('EUR'),
       ),
-    ).toThrow(InvalidMoneyError);
+    ).toThrow(LedgerAmountMismatchError);
   });
 });
 

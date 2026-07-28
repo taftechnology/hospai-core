@@ -165,7 +165,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('requires folio_window for folio_line FK', async () => {
     const name = `folio-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York');
+    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.createFolioWindow({
       folioWindowId: 'fw_1',
       reservationId: 'res_1',
@@ -199,7 +199,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('night-audit lines require business_date (CHECK) and unique index', async () => {
     const name = `audit-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York');
+    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.createFolioWindow({
       folioWindowId: 'fw_a',
       reservationId: 'RES1',
@@ -256,7 +256,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('folio line money validation returns wire codes before storage', async () => {
     const name = `money-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York');
+    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.ensureMetaPropertyId(name);
     await stub.createFolioWindow({
       folioWindowId: 'fw_m',
@@ -331,7 +331,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('folio line post is idempotent and emits folio.line_posted', async () => {
     const name = `folio-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York');
+    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.createFolioWindow({
       folioWindowId: 'fw_i',
       reservationId: 'res_i',

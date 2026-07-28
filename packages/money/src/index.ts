@@ -33,6 +33,13 @@ export class InvalidMoneyError extends Error {
   }
 }
 
+export class LedgerAmountMismatchError extends InvalidMoneyError {
+  constructor() {
+    super('ledger amount does not match fx conversion');
+    this.name = 'LedgerAmountMismatchError';
+  }
+}
+
 export class InvalidFxRateError extends Error {
   constructor(message: string) {
     super(message);
@@ -49,12 +56,13 @@ export class CurrencyMismatchError extends Error {
 
 const ISO4217 = /^[A-Z]{3}$/;
 
-export function currencyCode(raw: string): CurrencyCode {
-  const code = raw.toUpperCase();
+/** Preserves string literal so `currencyCode('EUR')` and `currencyCode('USD')` are distinct types. */
+export function currencyCode<C extends string>(raw: C): CurrencyCode & Uppercase<C> {
+  const code = raw.toUpperCase() as Uppercase<C>;
   if (!ISO4217.test(code)) {
     throw new InvalidMoneyError('currency must be ISO 4217 (3 uppercase letters)');
   }
-  return code as CurrencyCode;
+  return code as CurrencyCode & Uppercase<C>;
 }
 
 export function money<C extends CurrencyCode>(amountMinor: number, currency: C): Money<C> {
@@ -119,7 +127,7 @@ function parseFxRate(rate: FxRate): { num: bigint; den: bigint } {
   const body = negative ? validated.slice(1) : validated;
   const [whole, frac = ''] = body.split('.');
   const den = 10n ** BigInt(frac.length);
-  const num = BigInt(whole + frac.padEnd(frac.length, '0'));
+  const num = BigInt(whole + frac);
   return { num: negative ? -num : num, den };
 }
 
@@ -180,7 +188,7 @@ export function assertPostedMatches(
   const txn = money(input.amountMinor, currencyCode(input.txnCurrency));
   const posted = postToLedger(txn, ledgerCurrency, input.fxRate, input.fxRateAt);
   if (posted.ledgerAmountMinor !== input.ledgerAmountMinor) {
-    throw new InvalidMoneyError('ledger amount does not match fx conversion');
+    throw new LedgerAmountMismatchError();
   }
   return posted;
 }
@@ -209,12 +217,3 @@ export function allocate(
   return parts;
 }
 
-/** Initial ledger currency for known IANA zones at provision — not a runtime FX source. */
-export function ledgerCurrencyForTimeZone(timeZone: string): CurrencyCode {
-  if (timeZone.startsWith('Europe/')) return currencyCode('EUR');
-  if (timeZone.startsWith('America/')) return currencyCode('USD');
-  if (timeZone.startsWith('Asia/Tokyo')) return currencyCode('JPY');
-  if (timeZone.startsWith('Asia/')) return currencyCode('USD');
-  if (timeZone === 'UTC') return currencyCode('USD');
-  throw new InvalidMoneyError(`no default ledger currency for timezone ${timeZone}`);
-}

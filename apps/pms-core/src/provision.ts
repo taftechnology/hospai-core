@@ -1,6 +1,6 @@
 import type { ProvisionPropertyInput, ProvisionPropertyResult, PropertyRecord } from '@hospai/contracts';
 import { fingerprintPayload } from '@hospai/contracts';
-import { ledgerCurrencyForTimeZone } from '@hospai/money';
+import { currencyCode, InvalidMoneyError } from '@hospai/money';
 import {
   InvalidTimeZoneError,
   locationHintFromTimeZone,
@@ -26,12 +26,22 @@ export async function provisionProperty(
     throw e;
   }
 
+  let ledgerCurrency: string;
+  try {
+    ledgerCurrency = currencyCode(input.currency);
+  } catch (e) {
+    if (e instanceof InvalidMoneyError) {
+      return { ok: false, error: 'invalid_currency' };
+    }
+    throw e;
+  }
+
   const existing = await getProperty(env, input.propertyId);
   if (existing) {
     if (existing.jurisdiction !== input.jurisdiction) {
       return { ok: false, error: 'jurisdiction_conflict', existing };
     }
-    await syncOrgAndPropertyDo(env, existing, locationHint, input.actorUserId);
+    await syncOrgAndPropertyDo(env, existing, locationHint, input.actorUserId, ledgerCurrency);
     return { ok: true, property: existing, locationHint };
   }
 
@@ -44,7 +54,7 @@ export async function provisionProperty(
     timeZone: input.timeZone,
   });
 
-  await syncOrgAndPropertyDo(env, property, locationHint, input.actorUserId);
+  await syncOrgAndPropertyDo(env, property, locationHint, input.actorUserId, ledgerCurrency);
   return { ok: true, property, locationHint };
 }
 
@@ -53,6 +63,7 @@ async function syncOrgAndPropertyDo(
   property: PropertyRecord,
   locationHint: string,
   actorUserId: string,
+  ledgerCurrency: string,
 ): Promise<void> {
   const org = resolveOrgStub(env.ORG_DO, { orgId: property.orgId }) as DurableObjectStub<OrgDO>;
   await org.ensureMember(actorUserId, 'owner');
@@ -87,9 +98,9 @@ async function syncOrgAndPropertyDo(
   });
   const currencyFingerprint = await fingerprintPayload({
     propertyId: property.propertyId,
-    currency: ledgerCurrencyForTimeZone(property.timeZone),
+    currency: ledgerCurrency,
   });
-  await prop.ensureCurrencyIfAbsent(ledgerCurrencyForTimeZone(property.timeZone), {
+  await prop.ensureCurrencyIfAbsent(ledgerCurrency, {
     key: `provision:currency:${property.propertyId}`,
     fingerprint: currencyFingerprint,
   });

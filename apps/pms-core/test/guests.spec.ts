@@ -5,7 +5,7 @@ import type { PropertyDO } from '../src/property-do';
 import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub } from './guest-helpers';
 
 async function provisionedProperty(name: string, orgId: string): Promise<DurableObjectStub<PropertyDO>> {
-  return provisionedPropertyStub(name, 'UTC', orgId);
+  return provisionedPropertyStub(name, 'UTC', 'USD', orgId);
 }
 
 describe('OrgDO guests + crypto-shredding', () => {

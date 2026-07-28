@@ -26,6 +26,7 @@ describe('tenancy spine', () => {
       name: 'EU Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_owner',
     });
     expect(result.ok).toBe(true);
@@ -54,6 +55,7 @@ describe('tenancy spine', () => {
       name: 'Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Paris',
+      currency: 'EUR',
       actorUserId: 'user_a',
     });
     expect(first.ok).toBe(true);
@@ -64,6 +66,7 @@ describe('tenancy spine', () => {
       name: 'Hotel',
       jurisdiction: 'us',
       timeZone: 'Europe/Paris',
+      currency: 'EUR',
       actorUserId: 'user_a',
     });
     expect(second.ok).toBe(false);
@@ -84,6 +87,7 @@ describe('tenancy spine', () => {
       name: 'Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_a',
     });
     expect(first.ok).toBe(true);
@@ -105,6 +109,7 @@ describe('tenancy spine', () => {
       name: 'Local Dev Hotel',
       jurisdiction: null,
       timeZone: 'America/New_York',
+      currency: 'USD',
       actorUserId: 'user_dev',
     });
     expect(result.ok).toBe(true);
@@ -125,6 +130,7 @@ describe('tenancy spine', () => {
       name: 'TZ Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_owner',
     });
     expect(result.ok).toBe(true);
@@ -141,9 +147,52 @@ describe('tenancy spine', () => {
       name: 'TZ Hotel',
       jurisdiction: 'eu',
       timeZone: 'America/Chicago',
+      currency: 'USD',
       actorUserId: 'user_owner',
     });
     expect(await resolved!.stub.readStoredTimeZone()).toBe('Europe/Berlin');
+  });
+
+  it('provision writes ledger currency into PropertyDO on first write only', async () => {
+    const propertyId = `prop_ccy_${crypto.randomUUID()}`;
+    const orgId = `org_${crypto.randomUUID()}`;
+    const result = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Currency Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/London',
+      currency: 'GBP',
+      actorUserId: 'user_owner',
+    });
+    expect(result.ok).toBe(true);
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    expect(await resolved!.stub.readStoredLedgerCurrency()).toBe('GBP');
+
+    await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Currency Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/London',
+      currency: 'EUR',
+      actorUserId: 'user_owner',
+    });
+    expect(await resolved!.stub.readStoredLedgerCurrency()).toBe('GBP');
+  });
+
+  it('rejects invalid ledger currency at provision', async () => {
+    const result = await provisionProperty(env, {
+      orgId: `org_${crypto.randomUUID()}`,
+      propertyId: `prop_bad_ccy_${crypto.randomUUID()}`,
+      name: 'Bad Currency Hotel',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'nonsense',
+      actorUserId: 'user_dev',
+    });
+    expect(result).toEqual({ ok: false, error: 'invalid_currency' });
   });
 
   it('provision sets __meta.business_date and arms the night-audit alarm schedule', async () => {
@@ -155,6 +204,7 @@ describe('tenancy spine', () => {
       name: 'BD Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_owner',
     });
     expect(result.ok).toBe(true);
@@ -176,6 +226,7 @@ describe('tenancy spine', () => {
       name: 'BD Hotel',
       jurisdiction: 'eu',
       timeZone: 'Europe/Berlin',
+      currency: 'EUR',
       actorUserId: 'user_owner',
     });
     expect(await resolved!.stub.readBusinessDate()).toBe(businessDate);
@@ -234,6 +285,7 @@ describe('tenancy spine', () => {
           name: 'HTTP Hotel',
           jurisdiction: null,
           timeZone: 'America/Chicago',
+          currency: 'USD',
         }),
       }),
       env,
@@ -252,6 +304,7 @@ describe('tenancy spine', () => {
           name: 'HTTP Hotel',
           jurisdiction: null,
           timeZone: 'America/Chicago',
+          currency: 'USD',
         }),
       }),
       env,

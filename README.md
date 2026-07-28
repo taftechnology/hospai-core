@@ -4,14 +4,14 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`** (room types + 365-day horizon seed), the **[night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)**, and **`reservations.create` + `availability.book`** (ledger `sold` increment in the same txn as reservation insert) — are done.
+Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`** (room types + 365-day horizon seed), the **[night audit spine + horizon extension](docs/superpowers/specs/2026-07-27-night-audit-horizon-design.md)**, **`reservations.create` + `availability.book`**, and **`reservations.cancel`** (ledger `sold` release in the same txn as status flip) — are done.
 
 ### Next (blocks bookable product)
 
-First booking against the ledger is proven; a sellable product still needs:
+First booking and cancel against the ledger are proven; a sellable product still needs:
 
 - **Rates** — materialized nightly rates before meaningful quotes
-- **`reservations.cancel` / modify** — release sold back to the ledger
+- **`reservations.modify`** — date/room changes with sold delta
 - **Restriction evaluation** (`restriction_day` in the book txn)
 - Queues `EVENTS_QUEUE` consumer path (in-DO flush works today)
 - Real night-audit step bodies, clear-halt, guest/folio domain

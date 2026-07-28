@@ -18,6 +18,8 @@ export const BUSINESS_DATE_UNSET = 'business_date_unset' as const;
 /** Reservations wire codes */
 export const NO_AVAILABILITY = 'no_availability' as const;
 export const UNBOOKABLE = 'unbookable' as const;
+export const ALREADY_CANCELLED = 'already_cancelled' as const;
+export const LEDGER_INCONSISTENT = 'ledger_inconsistent' as const;
 
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {

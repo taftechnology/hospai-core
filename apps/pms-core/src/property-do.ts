@@ -11,6 +11,8 @@ import {
   PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
   UNBOOKABLE,
+  ALREADY_CANCELLED,
+  LEDGER_INCONSISTENT,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -1396,6 +1398,120 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Cancel a confirmed reservation and decrement `sold` on every stay night in one atomic
+   * write. Implements catalog `reservations.cancel`. Fingerprint: `{ reservationId }`.
+   */
+  async tryCancelReservation(
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: typeof ALREADY_CANCELLED }
+    | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+    | { ok: false; error: string }
+  > {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'confirmed') {
+            return { ok: false as const, error: ALREADY_CANCELLED };
+          }
+
+          const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+          for (const stayDate of nights) {
+            const rows = this.ctx.storage.sql
+              .exec(
+                `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                reservation.room_type_id,
+                stayDate,
+              )
+              .toArray() as Array<{ sold: number }>;
+            if (rows.length === 0 || rows[0]!.sold < 1) {
+              return { ok: false as const, error: LEDGER_INCONSISTENT, date: stayDate };
+            }
+          }
+
+          for (const stayDate of nights) {
+            this.ctx.storage.sql.exec(
+              `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+              reservation.room_type_id,
+              stayDate,
+            );
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'cancelled', updated_at = ? WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          const ariVersion = this.bumpAriVersionSync();
+          const fromDate = nights[0]!;
+          const toDate = nights[nights.length - 1]!;
+
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              fromStatus: 'confirmed',
+              toStatus: 'cancelled',
+            },
+          });
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: {
+              propertyId,
+              roomTypeId: reservation.room_type_id,
+              fromDate,
+              toDate,
+              version: ariVersion,
+            },
+          });
+
+          return {
+            ok: true as const,
+            reservationId: input.reservationId,
+            ariVersion,
+            fromDate,
+            toDate,
+          };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Test helper: read reservation status, or null if absent. */
+  async getReservationStatus(reservationId: string): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ status: string }>;
+    return rows[0]?.status ?? null;
   }
 
   /** Test helper: count `availability_day` rows for a room type. */

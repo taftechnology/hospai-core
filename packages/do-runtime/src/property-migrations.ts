@@ -162,6 +162,29 @@ export const RESERVATION_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0004_reservation.sql */
 export const RESERVATION_SQL = RESERVATION_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v5 — extend reservation.status to allow cancelled (SQLite table rebuild). */
+export const RESERVATION_V5_STATEMENTS: string[] = [
+  `CREATE TABLE reservation_v5 (
+  reservation_id   TEXT PRIMARY KEY,
+  room_type_id     TEXT NOT NULL,
+  arrival_date     TEXT NOT NULL,
+  departure_date   TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'confirmed'
+                   CHECK (status IN ('confirmed', 'cancelled')),
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+)`,
+  `INSERT INTO reservation_v5 (reservation_id, room_type_id, arrival_date, departure_date, status, created_at, updated_at)
+   SELECT reservation_id, room_type_id, arrival_date, departure_date, status, created_at, updated_at FROM reservation`,
+  `DROP TABLE reservation`,
+  `ALTER TABLE reservation_v5 RENAME TO reservation`,
+  `CREATE INDEX reservation_room_type_idx ON reservation (room_type_id)`,
+  `CREATE INDEX reservation_arrival_idx ON reservation (arrival_date)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0005_reservation_status.sql */
+export const RESERVATION_V5_SQL = RESERVATION_V5_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -182,5 +205,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 4,
     name: 'reservation',
     statements: RESERVATION_STATEMENTS,
+  },
+  {
+    version: 5,
+    name: 'reservation_status',
+    statements: RESERVATION_V5_STATEMENTS,
   },
 ] as const;

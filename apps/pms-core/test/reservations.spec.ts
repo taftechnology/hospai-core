@@ -5,6 +5,8 @@ import {
   NO_AVAILABILITY,
   NOT_FOUND,
   UNBOOKABLE,
+  ALREADY_CANCELLED,
+  LEDGER_INCONSISTENT,
 } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
@@ -243,5 +245,122 @@ describe('PropertyDO reservations.create + availability.book', () => {
       error: NO_AVAILABILITY,
       date: arrival,
     });
+  });
+});
+
+describe('PropertyDO reservations.cancel', () => {
+  it('1. create then cancel returns sold to 0 and emits both events', async () => {
+    const name = `res-cancel-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 2));
+    const departureDate = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+    const second = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const secondDate = `${second.getUTCFullYear()}-${String(second.getUTCMonth() + 1).padStart(2, '0')}-${String(second.getUTCDate()).padStart(2, '0')}`;
+
+    const bookInput = {
+      reservationId: 'res_cancel_1',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-cancel-1', bookInput))).toMatchObject({
+      ok: true,
+    });
+    await stub.flushOutbox();
+
+    const cancelInput = { reservationId: 'res_cancel_1' };
+    const cancelResult = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-1', cancelInput));
+    expect(cancelResult).toMatchObject({ ok: true, reservationId: 'res_cancel_1' });
+    expect(await stub.getReservationStatus('res_cancel_1')).toBe('cancelled');
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_king', secondDate))?.sold).toBe(0);
+    expect(await stub.listOutboxEventTypes()).toEqual(['reservation.status_changed', 'availability.changed']);
+  });
+
+  it('2. double cancel returns already_cancelled without changing sold', async () => {
+    const name = `res-dbl-cancel-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departureDate = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
+    const bookInput = {
+      reservationId: 'res_dbl',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-dbl', bookInput))).toMatchObject({ ok: true });
+
+    const cancelInput = { reservationId: 'res_dbl' };
+    expect(await stub.tryCancelReservation(cancelInput, await idemFor('cancel-dbl-1', cancelInput))).toMatchObject({
+      ok: true,
+    });
+
+    const again = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-dbl-2', cancelInput));
+    expect(again).toEqual({ ok: false, error: ALREADY_CANCELLED });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+  });
+
+  it('3. idempotency replay does not double-decrement sold', async () => {
+    const name = `res-cancel-idem-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departureDate = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
+    const bookInput = {
+      reservationId: 'res_idem_cancel',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-idem-cancel', bookInput))).toMatchObject({
+      ok: true,
+    });
+
+    const cancelInput = { reservationId: 'res_idem_cancel' };
+    const idem = await idemFor('cancel-idem', cancelInput);
+    expect(await stub.tryCancelReservation(cancelInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCancelReservation(cancelInput, idem)).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+  });
+
+  it('4. refuses cancel when sold would underflow', async () => {
+    const name = `res-underflow-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departureDate = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
+    const bookInput = {
+      reservationId: 'res_under',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate,
+    };
+    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-under', bookInput))).toMatchObject({ ok: true });
+
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: arrival,
+      physical: 5,
+      sold: 0,
+    });
+
+    const cancelInput = { reservationId: 'res_under' };
+    const result = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-under', cancelInput));
+    expect(result).toEqual({ ok: false, error: LEDGER_INCONSISTENT, date: arrival });
+    expect(await stub.getReservationStatus('res_under')).toBe('confirmed');
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
   });
 });

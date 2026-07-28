@@ -9,6 +9,8 @@ import {
   PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
   UNBOOKABLE,
+  ALREADY_CANCELLED,
+  LEDGER_INCONSISTENT,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -37,6 +39,8 @@ describe('fingerprintPayload', () => {
     expect(PROPERTY_ID_UNSET).toBe('property_id_unset');
     expect(NO_AVAILABILITY).toBe('no_availability');
     expect(UNBOOKABLE).toBe('unbookable');
+    expect(ALREADY_CANCELLED).toBe('already_cancelled');
+    expect(LEDGER_INCONSISTENT).toBe('ledger_inconsistent');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

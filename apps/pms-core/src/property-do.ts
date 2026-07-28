@@ -397,6 +397,48 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
+   * Rematerialize ledger `oversell` from DOMAIN config on every open horizon row
+   * (`stay_date >= business_date`). Called inside `tryPutDomainConfig` when
+   * `consumers.invalidatesAri`. Bumps property ARI and emits `availability.changed`
+   * when any row is updated.
+   */
+  private invalidateAriSync(): boolean {
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return false;
+
+    const rangeRows = this.ctx.storage.sql
+      .exec(
+        `SELECT MIN(stay_date) AS from_date, MAX(stay_date) AS to_date, COUNT(*) AS c
+         FROM availability_day WHERE stay_date >= ?`,
+        businessDate,
+      )
+      .toArray() as Array<{ from_date: string | null; to_date: string | null; c: number }>;
+    const range = rangeRows[0];
+    if (!range || range.c === 0 || !range.from_date || !range.to_date) return false;
+
+    const ledgerOversell = this.materializedOversellAllowanceSync();
+    this.ctx.storage.sql.exec(
+      `UPDATE availability_day SET oversell = ?, version = version + 1 WHERE stay_date >= ?`,
+      ledgerOversell,
+      businessDate,
+    );
+
+    const propertyId = this.getPropertyIdSync();
+    const ariVersion = this.bumpAriVersionSync();
+    appendOutbox(this.ctx.storage.sql, {
+      eventId: crypto.randomUUID(),
+      eventType: 'availability.changed',
+      payload: {
+        propertyId,
+        fromDate: range.from_date,
+        toDate: range.to_date,
+        version: ariVersion,
+      },
+    });
+    return true;
+  }
+
+  /**
    * Recompute and arm the `night-audit` schedule: `next_run_at = now` if `business_date`
    * is still behind "today" in the property timezone (so the Workflow re-fires immediately
    * rather than waiting for the next calendar `audit_time`), else the next `audit_time`
@@ -830,7 +872,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           // crash between commit and `setAlarm` still leaves the table correct — the next
           // `alarm()` / cold start reconciles `setAlarm` from `alarm_schedule`.
           const rescheduled = entry.consumers.reschedulesNightAudit && this.rescheduleNightAuditSync();
-          return { ok: true as const, key, version, events: ['config.changed'], rescheduled };
+          const events: string[] = ['config.changed'];
+          if (entry.consumers.invalidatesAri && this.invalidateAriSync()) {
+            events.push('availability.changed');
+          }
+          return { ok: true as const, key, version, events, rescheduled };
         }),
       );
       if (result.ok && result.rescheduled) {

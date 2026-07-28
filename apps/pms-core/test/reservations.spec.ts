@@ -246,6 +246,54 @@ describe('PropertyDO reservations.create + availability.book', () => {
       date: arrival,
     });
   });
+
+  it('8. enabling overbooking after seed rematerializes oversell on existing horizon rows', async () => {
+    const name = `res-cfg-after-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 1);
+    const arrival = added.fromDate;
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
+
+    await stub.tryPutDomainConfig(
+      'pms.availability.allow_overbooking',
+      true,
+      { actor: 'test', reason: 'oversell-after-seed' },
+      await idemFor('cfg-after-over', {
+        key: 'pms.availability.allow_overbooking',
+        value: true,
+        actor: 'test',
+        reason: 'oversell-after-seed',
+      }),
+    );
+    await stub.tryPutDomainConfig(
+      'pms.availability.oversell_allowance',
+      1,
+      { actor: 'test', reason: 'oversell-after-seed' },
+      await idemFor('cfg-after-allow', {
+        key: 'pms.availability.oversell_allowance',
+        value: 1,
+        actor: 'test',
+        reason: 'oversell-after-seed',
+      }),
+    );
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(1);
+
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
+    const dep = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1));
+    const departure = `${dep.getUTCFullYear()}-${String(dep.getUTCMonth() + 1).padStart(2, '0')}-${String(dep.getUTCDate()).padStart(2, '0')}`;
+
+    const first = {
+      reservationId: 'res_cfg1',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(first, await idemFor('book-cfg1', first))).toMatchObject({ ok: true });
+
+    const second = { ...first, reservationId: 'res_cfg2' };
+    expect(await stub.tryCreateReservation(second, await idemFor('book-cfg2', second))).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(2);
+  });
 });
 
 describe('PropertyDO reservations.cancel', () => {

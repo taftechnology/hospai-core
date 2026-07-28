@@ -274,14 +274,10 @@ const noReservationsImportInBookability = {
   },
 };
 
-/** @deprecated Alias kept so existing CI configs keep working; same as boundary rule. */
-const noReservationScanAvailability = noReservationsImportInBookability;
-
 export const rules = {
   'no-id-from-name-outside-tenant-router': noIdFromName,
   'no-domain-config-from-kv': noDomainFromKv,
   'no-entitlement-in-domain': noEntitlementInDomain,
-  'no-reservation-scan-availability': noReservationScanAvailability,
   'no-reservations-import-in-bookability': noReservationsImportInBookability,
   'no-platform-import-in-domain': noPlatformImportInDomain,
   'no-pms-importing-addons': noPmsImportingAddons,
@@ -297,7 +293,6 @@ const plugin = {
         'hospai/no-id-from-name-outside-tenant-router': 'error',
         'hospai/no-domain-config-from-kv': 'error',
         'hospai/no-entitlement-in-domain': 'error',
-        'hospai/no-reservation-scan-availability': 'error',
         'hospai/no-reservations-import-in-bookability': 'error',
         'hospai/no-platform-import-in-domain': 'error',
         'hospai/no-pms-importing-addons': 'error',

@@ -188,7 +188,7 @@ Widen inventory `try*` results:
 
 ## Follow-on (explicit triggers)
 
-**Horizon extension** — Owner: night-audit business-date rollover (extend +1 day). Trigger to schedule work: **before any booking path accepts stays ≥ ~300 days out**, or when the first group/corporate allotment product starts — whichever is sooner. Not “when the property turns one year old.”
+**Horizon extension** — See [2026-07-27-horizon-extension-followon.md](./2026-07-27-horizon-extension-followon.md) (boarded). Owner: night-audit business-date rollover (extend +1 day). Trigger: **before any booking path accepts stays ≥ ~300 days out**, or when the first group/corporate allotment product starts — whichever is sooner. Not “when the property turns one year old.”
 
 **Timezone change command** — Separate INTERACTIVE / FAIL_CLOSED command with §7.5 preconditions; never via re-provision.
 

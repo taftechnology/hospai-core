@@ -4,7 +4,11 @@ Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARC
 
 ## Phase 0
 
-Schema-freeze gate is done. Current foundation work: **tenancy spine** (Platform D1 registry + OrgDO + PropertyDO provisioning) plus a first vertical slice through **`pms.inventory`**: `@hospai/pms-inventory` (horizon + oversell/archive guards) and `PropertyDO.tryAddRoomType` / `tryUpdateRoomType` / `tryDeleteRoomType` (archive), all wired through `runIdempotent` + `transactionSync` with `inventory.room_type_changed` / `availability.changed` outbox events. Idempotency × outbox wiring is done: `PropertyDO.tryPutDomainConfig` runs through `runIdempotent` with caller-supplied fingerprints, and `flushOutbox`/`drainOutboxBatch`/`ackOutboxThrough` expose outbox delivery for consumers.
+Schema-freeze, tenancy spine, §10.1 idempotency × outbox, and **`pms.inventory`** (room types + 365-day horizon seed) are done.
+
+### Next (blocks bookable product)
+
+**[Availability horizon extension](docs/superpowers/specs/2026-07-27-horizon-extension-followon.md)** — night audit must extend `availability_day` by +1 day per business-date rollover. Trigger: **before any booking path accepts stays ≥ ~300 days out** (or first group/allotment product), not when the property turns one year old. Missing ledger rows are unbookable.
 
 ```bash
 pnpm install

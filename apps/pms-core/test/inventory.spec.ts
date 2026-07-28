@@ -1,6 +1,14 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { ARCHIVE_BLOCKED, fingerprintPayload, NOT_FOUND, OVERSELL, PROPERTY_ID_UNSET, TIMEZONE_UNSET } from '@hospai/contracts';
+import {
+  ARCHIVE_BLOCKED,
+  BUSINESS_DATE_UNSET,
+  fingerprintPayload,
+  NOT_FOUND,
+  OVERSELL,
+  PROPERTY_ID_UNSET,
+  TIMEZONE_UNSET,
+} from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
 
@@ -12,12 +20,15 @@ function propertyStub(name: string) {
   }) as DurableObjectStub<PropertyDO>;
 }
 
-/** Provision a fresh PropertyDO stub with `__meta.property_id` + stored timezone. */
+/** Provision a fresh PropertyDO stub with `__meta.property_id` + stored timezone + business_date. */
 async function provisionedStub(name: string, timeZone: string): Promise<DurableObjectStub<PropertyDO>> {
   const stub = propertyStub(name);
   await stub.ensureMetaPropertyId(name);
   const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
   await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
+  const instant = new Date();
+  await stub.ensureBusinessDateIfAbsent(timeZone, instant);
+  await stub.ensureNightAuditSchedule(timeZone, instant);
   // Drain the provisioning `config.changed` event so outbox assertions below start clean.
   await stub.flushOutbox();
   return stub;
@@ -42,7 +53,7 @@ describe('PropertyDO inventory commands', () => {
     expect(result).toEqual({ ok: false, error: TIMEZONE_UNSET });
   });
 
-  it('1b. timezone_unset is never cached: replaying the same idempotency key after provisioning the timezone succeeds', async () => {
+  it('1b. timezone_unset / business_date_unset are never cached: replaying the same idempotency key after provisioning succeeds', async () => {
     const name = `inv-no-tz-replay-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await stub.ensureMetaPropertyId(name);
@@ -59,12 +70,18 @@ describe('PropertyDO inventory commands', () => {
     const first = await stub.tryAddRoomType(input, idem);
     expect(first).toEqual({ ok: false, error: TIMEZONE_UNSET });
 
-    // Provision the timezone, then replay the *same* idempotency key.
+    // Provision the timezone only, then replay the *same* idempotency key.
     const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
     await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: `provision:timezone:${name}`, fingerprint });
 
     const second = await stub.tryAddRoomType(input, idem);
-    expect(second.ok).toBe(true);
+    expect(second).toEqual({ ok: false, error: BUSINESS_DATE_UNSET });
+
+    // Provision the business_date, then replay the same idempotency key again.
+    await stub.ensureBusinessDateIfAbsent('Europe/Berlin', new Date());
+
+    const third = await stub.tryAddRoomType(input, idem);
+    expect(third.ok).toBe(true);
     expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
   });
 
@@ -84,9 +101,11 @@ describe('PropertyDO inventory commands', () => {
     expect(result).toEqual({ ok: false, error: PROPERTY_ID_UNSET });
   });
 
-  it('2. add room type under Europe/Berlin seeds exactly 365 rows, two events, ARI version 1', async () => {
+  it('2. add room type under Europe/Berlin seeds exactly 365 rows from business_date, two events, ARI version 1', async () => {
     const name = `inv-berlin-${crypto.randomUUID()}`;
     const stub = await provisionedStub(name, 'Europe/Berlin');
+    const businessDate = await stub.readBusinessDate();
+    expect(businessDate).not.toBeNull();
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -99,6 +118,8 @@ describe('PropertyDO inventory commands', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.ariVersion).toBe(1);
+    // Horizon is anchored to __meta.business_date, never wall clock.
+    expect(result.fromDate).toBe(businessDate);
 
     expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
     expect(await stub.readAriVersion()).toBe(1);
@@ -110,6 +131,28 @@ describe('PropertyDO inventory commands', () => {
     const first = await stub.readAvailabilityDay('rt_king', result.fromDate);
     expect(first?.physical).toBe(10);
     expect(first?.free).toBe(10);
+  });
+
+  it('2b. add room type without a stored business_date rejects with business_date_unset', async () => {
+    const name = `inv-no-bd-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await stub.ensureMetaPropertyId(name);
+    const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
+    await stub.ensureTimeZoneIfAbsent('Europe/Berlin', {
+      key: `provision:timezone:${name}`,
+      fingerprint,
+    });
+    const input = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    const result = await stub.tryAddRoomType(input, await idemFor('add-no-bd', input));
+    expect(result).toEqual({ ok: false, error: BUSINESS_DATE_UNSET });
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(0);
   });
 
   it('3. replay of the same idempotency key does not double-seed or double-emit', async () => {

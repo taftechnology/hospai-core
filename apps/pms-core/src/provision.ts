@@ -83,6 +83,11 @@ async function syncOrgAndPropertyDo(
     key: `provision:timezone:${property.propertyId}`,
     fingerprint,
   });
+  // Same clock instant drives both the first-write business_date and the initial
+  // night-audit alarm arm, keeping provisioning internally consistent.
+  const instant = new Date();
+  await prop.ensureBusinessDateIfAbsent(property.timeZone, instant);
+  await prop.ensureNightAuditSchedule(property.timeZone, instant);
 }
 
 /** Resolve a PropertyDO stub using only the D1 registry (callers never pass jurisdiction). */

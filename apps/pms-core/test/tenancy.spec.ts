@@ -36,7 +36,7 @@ describe('tenancy spine', () => {
     expect(resolved).not.toBeNull();
     expect(resolved!.property.jurisdiction).toBe('eu');
     expect(await resolved!.stub.getRecordedJurisdiction()).toBe('eu');
-    expect(await resolved!.stub.getSchemaVersion()).toBe(2);
+    expect(await resolved!.stub.getSchemaVersion()).toBe(3);
 
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     const refs = await org.listPropertyRefs();
@@ -144,6 +144,41 @@ describe('tenancy spine', () => {
       actorUserId: 'user_owner',
     });
     expect(await resolved!.stub.readStoredTimeZone()).toBe('Europe/Berlin');
+  });
+
+  it('provision sets __meta.business_date and arms the night-audit alarm schedule', async () => {
+    const propertyId = `prop_bd_${crypto.randomUUID()}`;
+    const orgId = `org_${crypto.randomUUID()}`;
+    const result = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'BD Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      actorUserId: 'user_owner',
+    });
+    expect(result.ok).toBe(true);
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    expect(resolved).not.toBeNull();
+
+    const businessDate = await resolved!.stub.readBusinessDate();
+    expect(businessDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const schedule = await resolved!.stub.getAlarmSchedule('night-audit');
+    expect(schedule).not.toBeNull();
+    expect(schedule!.nextRunAt).toBeGreaterThan(Date.now());
+
+    // Re-provisioning must never overwrite the first-write business_date.
+    await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'BD Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      actorUserId: 'user_owner',
+    });
+    expect(await resolved!.stub.readBusinessDate()).toBe(businessDate);
   });
 
   it('readStoredTimeZone returns null for a PropertyDO that was never provisioned', async () => {

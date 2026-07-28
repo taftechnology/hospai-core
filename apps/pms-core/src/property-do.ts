@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ARCHIVE_BLOCKED,
+  BUSINESS_DATE_UNSET,
   domainConfigKeys,
   getConfigEntry,
   IDEM_KEY_REUSED,
@@ -14,6 +15,7 @@ import {
   PROPERTY_MIGRATIONS,
   appendOutbox,
   ackOutboxThrough as ackOutboxThroughSql,
+  AlarmScheduler,
   drainOutbox,
   freeAvailability,
   migrateSql,
@@ -21,7 +23,13 @@ import {
   IdempotencyKeyReused,
   type OutboxRow,
 } from '@hospai/do-runtime';
-import { archiveBlocked, enumerateHorizonDates, oversellDates, type InventoryRow } from '@hospai/pms-inventory';
+import {
+  archiveBlocked,
+  enumerateFromDate,
+  enumerateHorizonDates,
+  oversellDates,
+  type InventoryRow,
+} from '@hospai/pms-inventory';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
@@ -54,9 +62,61 @@ class ArchiveBlockedError extends Error {
   }
 }
 
+/**
+ * Offset (ms) such that `atMs + offset` equals the wall-clock instant `atMs`
+ * formatted in `timeZone`, reinterpreted as UTC. Standard technique for
+ * converting a zoned wall-clock time to an epoch without a TZ database library.
+ */
+function timeZoneOffsetMs(timeZone: string, atMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(new Date(atMs));
+  const map: Record<string, string> = {};
+  for (const part of parts) map[part.type] = part.value;
+  const hour = map.hour === '24' ? 0 : Number(map.hour);
+  const asIfUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    hour,
+    Number(map.minute),
+    Number(map.second),
+  );
+  return asIfUtc - atMs;
+}
+
+/** Epoch ms for `HH:MM` wall-clock time on `dateStr` (YYYY-MM-DD) in `timeZone`. */
+function zonedWallTimeToEpochMs(timeZone: string, dateStr: string, hh: number, mm: number): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) throw new Error(`invalid date: ${dateStr}`);
+  const asUtcGuess = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hh, mm, 0);
+  const offset = timeZoneOffsetMs(timeZone, asUtcGuess);
+  return asUtcGuess - offset;
+}
+
+/** Next occurrence at or after `instant` of `auditTime` ("HH:MM") in `timeZone`, as epoch ms. */
+function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): number {
+  const [hh, mm] = auditTime.split(':').map(Number);
+  const today = enumerateHorizonDates(timeZone, instant, 1)[0]!;
+  const candidate = zonedWallTimeToEpochMs(timeZone, today, hh!, mm!);
+  if (candidate > instant.getTime()) return candidate;
+  const tomorrow = enumerateFromDate(today, 2)[1]!;
+  return zonedWallTimeToEpochMs(timeZone, tomorrow, hh!, mm!);
+}
+
 export class PropertyDO extends DurableObject<PmsEnv> {
+  private readonly scheduler: AlarmScheduler;
+
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
+    this.scheduler = new AlarmScheduler(ctx.storage.sql, ctx.storage);
     ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...PROPERTY_MIGRATIONS]);
       ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
@@ -146,6 +206,58 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
     if (!result.ok) return result;
     return { ok: true, version: result.version };
+  }
+
+  /** Read the stored `__meta.business_date`, or null if never provisioned. */
+  async readBusinessDate(): Promise<string | null> {
+    return this.readBusinessDateSync();
+  }
+
+  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
+  private readBusinessDateSync(): string | null {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.business_date')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) return null;
+    return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /**
+   * Raw-SQL first-write of `__meta.business_date`: the local calendar date derived
+   * from `instant` in `timeZone`. Never overwrites an existing value — re-provisioning
+   * or replaying provision with a different instant/timezone must not roll it back.
+   */
+  async ensureBusinessDateIfAbsent(timeZone: string, instant: Date): Promise<void> {
+    const businessDate = enumerateHorizonDates(timeZone, instant, 1)[0]!;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.business_date', ?, 1, ?)
+       ON CONFLICT(key) DO NOTHING`,
+      JSON.stringify(businessDate),
+      Date.now(),
+    );
+  }
+
+  /**
+   * Upsert the `night-audit` alarm schedule for the next `pms.night_audit.audit_time`
+   * occurrence (register default `02:00`) in `timeZone`, then re-arm from the table.
+   * Idempotent to call repeatedly — always recomputes from "now".
+   */
+  async ensureNightAuditSchedule(timeZone: string, instant: Date): Promise<void> {
+    const auditTime = (await this.readConfig('pms.night_audit.audit_time')) as string;
+    const nextRunAt = nextAuditRunAtMs(timeZone, auditTime, instant);
+    this.scheduler.upsertSchedule('night-audit', nextRunAt);
+    await this.scheduler.armFromTable();
+  }
+
+  /** Test helper: read a raw `alarm_schedule` row. */
+  async getAlarmSchedule(name: string): Promise<{ nextRunAt: number; lastError: string | null } | null> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT next_run_at, last_error FROM alarm_schedule WHERE name = ?`, name)
+      .toArray() as Array<{ next_run_at: number; last_error: string | null }>;
+    const row = rows[0];
+    if (!row) return null;
+    return { nextRunAt: row.next_run_at, lastError: row.last_error };
   }
 
   /** Raw-SQL monotonic counter for `__meta.ari_version`. Never routed through `tryPutDomainConfig` (undeclared key). */
@@ -392,6 +504,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -410,7 +524,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
           );
 
-          const dates = enumerateHorizonDates(timeZone);
+          // Horizon is always anchored to __meta.business_date, never wall clock.
+          const dates = enumerateFromDate(businessDate);
           for (const stayDate of dates) {
             this.ctx.storage.sql.exec(
               `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)

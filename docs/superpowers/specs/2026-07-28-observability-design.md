@@ -134,7 +134,7 @@ async function handleV1(
 
 **Unhandled throws** must still produce an access log — the wrapper catches, logs at `error` with `status: 500` + `request_id`, then re-throws (see snippet above).
 
-**Outbox flush logging (normative).** After each outbox alarm handler run, when `flushed > 0 || unackedCount > 0`, log `outbox.flush` with `flushed`, `backlog`, `unacked_count`, `oldest_created_at` and tag `property_id` or `org_id`. Quiet idle sweeps (empty outbox, nothing flushed) stay silent. `getOutboxBacklog()` RPC on PropertyDO + OrgDO exposes the snapshot for tests and future admin surfaces; `outboxUnackedCount()` keeps a COUNT-only query.
+**Outbox flush logging (normative).** Shared helper `runOutboxAlarmFlush`: try flush → reschedule → `outbox.flush` on success; on failure `outbox.flush_failed` with backlog snapshot, then **rethrow** so `AlarmScheduler` backoff is unchanged. Success log when `flushed > 0` only (idle sweep skips snapshot queries entirely). `getOutboxBacklog()` RPC on PropertyDO + OrgDO exposes the snapshot for tests and future admin surfaces; `outboxUnackedCount()` keeps a COUNT-only query.
 
 **Unauthenticated** (`resolveActor` returns 401): log line has `status: 401`, **`user_id` omitted** (never set on `ctx`).
 
@@ -217,8 +217,9 @@ Dedupe hit: `msg: 'event.dedupe_skip'` at `info`.
 5. **402/404/503 logged** — entitlement denial and membership 404 produce access log lines with correct `status` (proves wrapper runs on early returns).
 6. **Outbox snapshot** — append unacked row → `outboxBacklogSnapshot` returns `unackedCount: 1` and correct `oldestCreatedAt`.
 7. **Queue consumer log** — produce event → consume → log line contains `event_id`, `event_type`, `source` ids.
-9. **Outbox flush log** — config put → alarm flush → `outbox.flush` line with `unacked_count`, `oldest_created_at`, `property_id`; idle empty sweep silent.
-10. **getOutboxBacklog RPC** — unacked row → returns count + oldest timestamp.
+9. **Outbox flush log** — config put → alarm flush → `outbox.flush` line with `unacked_count`, `oldest_created_at`, `property_id`; idle empty sweep silent (no snapshot query).
+10. **Outbox flush failure log** — `sendBatch` throw → `outbox.flush_failed` with backlog snapshot + `error`, then rethrow; no `outbox.flush` line.
+11. **getOutboxBacklog RPC** — unacked row → returns count + oldest timestamp.
 11. **Unhandled throw logged** — forced throw inside `handleV1` → one `error`-level `http.request` line with `request_id`, `status: 500`, then 500 to caller.
 12. **No PII in logs** — guest event consumer log does not contain guest display name (grep test).
 13. **Invalid orgId on property create** — access log omits `org_id` (validate before assign).

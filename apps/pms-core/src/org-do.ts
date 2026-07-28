@@ -31,7 +31,7 @@ import {
 } from '@hospai/crypto-shredding';
 import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
-import { logOutboxFlushIfNeeded } from './outbox-observability.js';
+import { runOutboxAlarmFlush } from './outbox-observability.js';
 import { SqlKeyStore } from './org-key-store.js';
 
 class GuestExistsError extends Error {
@@ -165,9 +165,12 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       outbox: async () => {
-        const result = await this.flushOutboxToQueue();
-        this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
-        logOutboxFlushIfNeeded(this.ctx.storage.sql, { orgId: this.getOrgIdSync() ?? undefined }, result);
+        await runOutboxAlarmFlush(
+          this.ctx.storage.sql,
+          { orgId: this.getOrgIdSync() ?? undefined },
+          () => this.flushOutboxToQueue(),
+          (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
+        );
       },
     });
   }

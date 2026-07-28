@@ -75,7 +75,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
-import { logOutboxFlushIfNeeded } from './outbox-observability.js';
+import { runOutboxAlarmFlush } from './outbox-observability.js';
 
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
@@ -706,12 +706,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async alarm(): Promise<void> {
     await this.scheduler.run({
       outbox: async () => {
-        const result = await this.flushOutboxToQueue();
-        this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
-        logOutboxFlushIfNeeded(
+        await runOutboxAlarmFlush(
           this.ctx.storage.sql,
           { propertyId: this.getPropertyIdSync() ?? undefined },
-          result,
+          () => this.flushOutboxToQueue(),
+          (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
         );
       },
       'night-audit': async () => {
@@ -748,14 +747,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     maxBytes?: number;
   }): Promise<{ flushed: number; backlog: boolean }> {
     this.assertUnsafeLocal('runOutboxAlarmForTest');
-    const result = await this.flushOutboxToQueue(opts);
-    this.rescheduleOutboxAfterFlush(result.flushed, result.backlog);
-    logOutboxFlushIfNeeded(
+    return runOutboxAlarmFlush(
       this.ctx.storage.sql,
       { propertyId: this.getPropertyIdSync() ?? undefined },
-      result,
+      () => this.flushOutboxToQueue(opts),
+      (flushed, backlog) => this.rescheduleOutboxAfterFlush(flushed, backlog),
     );
-    return result;
   }
 
   /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */

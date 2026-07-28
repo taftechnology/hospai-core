@@ -334,6 +334,39 @@ describe('observability (Phase 0)', () => {
     const capture = installLogCapture();
     await stub.runOutboxAlarmForTest();
     expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
+    expect(capture.lines.some((l) => l.msg === 'outbox.flush_failed')).toBe(false);
+    capture.restore();
+  });
+
+  it('outbox.flush_failed logs backlog snapshot when sendBatch throws', async () => {
+    const name = `prop_fail_${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const meta = { actor: 'tester', reason: 'flush-fail-log' };
+    const key = 'pms.availability.allow_overbooking';
+    expect(
+      await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta)),
+    ).toMatchObject({ ok: true });
+    expect((await stub.getOutboxBacklog()).unackedCount).toBeGreaterThan(0);
+
+    const sendBatch = vi
+      .spyOn(env.EVENTS_QUEUE, 'sendBatch')
+      .mockRejectedValueOnce(new Error('send failed'));
+
+    const capture = installLogCapture();
+    await expect(stub.runOutboxAlarmForTest()).rejects.toThrow('send failed');
+
+    const failLog = capture.lines.find((l) => l.msg === 'outbox.flush_failed');
+    expect(failLog).toMatchObject({
+      level: 'error',
+      module_id: 'pms.core',
+      property_id: name,
+      error: 'send failed',
+    });
+    expect((failLog?.unacked_count as number) ?? 0).toBeGreaterThan(0);
+    expect(typeof failLog?.oldest_created_at).toBe('number');
+    expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
+
+    sendBatch.mockRestore();
     capture.restore();
   });
 });

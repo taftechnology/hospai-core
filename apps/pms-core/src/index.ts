@@ -9,15 +9,19 @@ import {
 } from '@hospai/entitlement-client';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import {
+  requireOrgMember,
+  requirePropertyOrgMember,
+  resolveActor,
+} from './auth.js';
+import {
   assertEnvSafeForRequest,
-  isDevActorAllowed,
   type PmsEnv,
 } from './env.js';
 import { OrgDO } from './org-do.js';
 import { OrgEntitlementDO } from './org-entitlement-do.js';
 import { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import { getProperty, upsertOrg } from './registry.js';
+import { createOrg, getProperty } from './registry.js';
 import { DEDUPE_TTL_SEC, handleDomainEvent } from './event-consumer.js';
 
 export type { PmsEnv } from './env.js';
@@ -26,29 +30,6 @@ export { OrgDO } from './org-do.js';
 export { OrgEntitlementDO } from './org-entitlement-do.js';
 export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-
-const DEV_ACTOR_HEADER = 'x-dev-actor';
-
-function requireDevActor(request: Request, env: PmsEnv): string | Response {
-  if (!isDevActorAllowed(env)) {
-    return Response.json(
-      {
-        error: 'auth_unavailable',
-        message:
-          'Dev actor auth is disabled. Set HOSPAI_UNSAFE_LOCAL=1 and HOSPAI_ALLOW_DEV_ACTOR=1 in .dev.vars for local only.',
-      },
-      { status: 401 },
-    );
-  }
-  const actor = request.headers.get(DEV_ACTOR_HEADER);
-  if (!actor || !actor.startsWith('user_')) {
-    return Response.json(
-      { error: 'missing_actor', message: `Routes require ${DEV_ACTOR_HEADER}: user_…` },
-      { status: 401 },
-    );
-  }
-  return actor;
-}
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -66,9 +47,8 @@ export default {
       return new Response('hospai-pms-core', { status: 200 });
     }
 
-    // All tenancy HTTP surface requires actor while Clerk is unwired.
     if (pathname.startsWith('/v1/')) {
-      const actor = requireDevActor(request, env);
+      const actor = await resolveActor(request, env);
       if (actor instanceof Response) return actor;
 
       if (request.method === 'POST' && pathname === '/v1/orgs') {
@@ -80,9 +60,12 @@ export default {
           if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
           throw e;
         }
-        await upsertOrg(env, body.orgId, body.name);
+        const created = await createOrg(env, body.orgId, body.name);
+        if (!created) {
+          return json({ error: 'org_exists' }, 409);
+        }
         const org = resolveOrgStub(env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
-        await org.ensureMember(actor, 'owner');
+        await org.ensureMember(actor.userId, 'owner');
         return json({ orgId: body.orgId, name: body.name }, 201);
       }
 
@@ -95,6 +78,10 @@ export default {
           if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
           throw e;
         }
+
+        const memberDenied = await requireOrgMember(env, orgId, actor.userId);
+        if (memberDenied) return memberDenied;
+
         const body = (await request.json()) as {
           propertyId: string;
           name: string;
@@ -131,7 +118,7 @@ export default {
           jurisdiction: body.jurisdiction === undefined ? null : body.jurisdiction,
           timeZone: body.timeZone,
           currency: body.currency,
-          actorUserId: actor,
+          actorUserId: actor.userId,
         };
         const result = await provisionProperty(env, input);
         if (!result.ok) {
@@ -149,6 +136,9 @@ export default {
       const propertyGet = pathname.match(/^\/v1\/properties\/([^/]+)$/);
       if (request.method === 'GET' && propertyGet) {
         const propertyId = decodeURIComponent(propertyGet[1]!);
+        const memberDenied = await requirePropertyOrgMember(env, propertyId, actor.userId);
+        if (memberDenied) return memberDenied;
+
         const resolved = await resolvePropertyFromRegistry(env, propertyId);
         if (!resolved) return json({ error: 'not_found' }, 404);
         const recorded = await resolved.stub.getRecordedJurisdiction();
@@ -163,12 +153,18 @@ export default {
       const orgProperties = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
       if (request.method === 'GET' && orgProperties) {
         const orgId = decodeURIComponent(orgProperties[1]!);
+        const memberDenied = await requireOrgMember(env, orgId, actor.userId);
+        if (memberDenied) return memberDenied;
+
         const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
         return json({ orgId, properties: await org.listPropertyRefs() });
       }
 
       if (request.method === 'GET' && pathname.startsWith('/v1/registry/properties/')) {
         const propertyId = decodeURIComponent(pathname.slice('/v1/registry/properties/'.length));
+        const memberDenied = await requirePropertyOrgMember(env, propertyId, actor.userId);
+        if (memberDenied) return memberDenied;
+
         const property = await getProperty(env, propertyId);
         if (!property) return json({ error: 'not_found' }, 404);
         return json({ property });

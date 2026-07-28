@@ -86,6 +86,8 @@ describe('entitlements + kill-switch', () => {
   it('kill-switch returns 503 on property provision HTTP', async () => {
     const orgId = `org-kill-${crypto.randomUUID()}`;
     await seedSubscription(env, orgId, 'starter');
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember('user_kill_test', 'owner');
     await setKillSwitch(env, 'pms.core', true);
 
     const req = new Request(`https://example.com/v1/orgs/${orgId}/properties`, {

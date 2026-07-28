@@ -10,7 +10,8 @@
     "lint": "echo ok",
     "dev": "wrangler dev"
   },
-    "dependencies": {
+  "dependencies": {
+    "@clerk/backend": "3.13.2",
     "@hospai/contracts": "workspace:*",
     "@hospai/crypto-shredding": "workspace:*",
     "@hospai/do-runtime": "workspace:*",
@@ -19,8 +20,8 @@
     "@hospai/money": "workspace:*",
     "@hospai/pms-inventory": "workspace:*",
     "@hospai/pms-rates": "workspace:*",
-    "@hospai/pms-restrictions": "workspace:*",
     "@hospai/pms-reservations": "workspace:*",
+    "@hospai/pms-restrictions": "workspace:*",
     "@hospai/tenant-router": "workspace:*"
   },
   "devDependencies": {

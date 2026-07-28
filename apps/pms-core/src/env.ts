@@ -24,6 +24,13 @@ export type PmsEnv = {
   HOSPAI_JURISDICTION_MODE?: string;
   /** Allow X-Dev-Actor header auth; requires HOSPAI_UNSAFE_LOCAL=1. Absent in production. */
   HOSPAI_ALLOW_DEV_ACTOR?: string;
+  /** Clerk secret key — production auth. Never in top-level wrangler vars. */
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
+  /** PEM public key for networkless JWT verification on Workers. */
+  CLERK_JWT_KEY?: string;
+  /** Comma-separated azp allowlist for session tokens (SPA origins). */
+  CLERK_AUTHORIZED_PARTIES?: string;
   /** Vitest-only: 64-char hex org master key for guest PII envelope encryption. */
   HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */

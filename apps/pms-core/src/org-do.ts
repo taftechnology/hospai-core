@@ -238,6 +238,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     );
   }
 
+  async getMemberRole(userId: string): Promise<'owner' | 'admin' | 'staff' | null> {
+    const row = this.ctx.storage.sql
+      .exec(`SELECT role FROM member WHERE user_id = ?`, userId)
+      .toArray()[0] as { role: string } | undefined;
+    if (!row) return null;
+    return row.role as 'owner' | 'admin' | 'staff';
+  }
+
   async upsertPropertyRef(input: {
     propertyId: string;
     name: string;

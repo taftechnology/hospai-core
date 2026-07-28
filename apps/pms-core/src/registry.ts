@@ -53,6 +53,42 @@ export async function getProperty(
   return rowToProperty(row as Record<string, unknown>);
 }
 
+export async function getOrg(
+  env: PmsEnv,
+  orgId: string,
+): Promise<{ orgId: string; name: string; status: string; createdAt: number } | null> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const row = await env.PLATFORM_DB.prepare(
+    `SELECT org_id, name, status, created_at FROM org WHERE org_id = ?`,
+  )
+    .bind(orgId)
+    .first<{ org_id: string; name: string; status: string; created_at: number }>();
+  if (!row) return null;
+  return {
+    orgId: row.org_id,
+    name: row.name,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+/** Insert org row + seed Starter subscription. Returns false if org_id already exists. */
+export async function createOrg(env: PmsEnv, orgId: string, name: string): Promise<boolean> {
+  validateTenantId(orgId);
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const existing = await env.PLATFORM_DB.prepare(`SELECT org_id FROM org WHERE org_id = ?`)
+    .bind(orgId)
+    .first();
+  if (existing) return false;
+  await env.PLATFORM_DB.prepare(
+    `INSERT INTO org (org_id, name, status, created_at) VALUES (?, ?, 'active', ?)`,
+  )
+    .bind(orgId, name, Date.now())
+    .run();
+  await seedSubscription(env, orgId, 'starter');
+  return true;
+}
+
 export async function upsertOrg(
   env: PmsEnv,
   orgId: string,

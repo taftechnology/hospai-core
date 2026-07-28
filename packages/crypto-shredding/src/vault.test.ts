@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { describeKeyStoreConformance } from './keystore-conformance.js';
 import { KeyShreddedError } from './errors.js';
 import { importMasterKeyHex } from './master-key.js';
 import type { KeyStore, WrappedKeyRecord } from './types.js';
@@ -26,17 +27,9 @@ class MemoryKeyStore implements KeyStore {
   }
 }
 
-describe('PiiVault', () => {
-  it('encrypts and decrypts guest profiles', async () => {
-    const master = await importMasterKeyHex(MASTER_HEX);
-    const store = new MemoryKeyStore();
-    const vault = new PiiVault(master, store);
-    const piiKeyId = await vault.provisionKey('guest', 'guest_1');
-    const profile = { displayName: 'Ada Lovelace', email: 'ada@example.com' };
-    const sealed = await vault.encryptGuestProfile(piiKeyId, profile);
-    expect(await vault.decryptGuestProfile(piiKeyId, sealed.ciphertext, sealed.iv)).toEqual(profile);
-  });
+describeKeyStoreConformance('MemoryKeyStore', () => new MemoryKeyStore());
 
+describe('PiiVault', () => {
   it('shreds guest keys without touching staff keys', async () => {
     const master = await importMasterKeyHex(MASTER_HEX);
     const store = new MemoryKeyStore();
@@ -53,25 +46,5 @@ describe('PiiVault', () => {
 
     const staffPlain = await vault.decrypt(staffKey, staffSealed.ciphertext, staffSealed.iv);
     expect(new TextDecoder().decode(staffPlain)).toBe('pay rate blob');
-  });
-
-  it('shred destroys wrapped key material in the store', async () => {
-    const master = await importMasterKeyHex(MASTER_HEX);
-    const store = new MemoryKeyStore();
-    const vault = new PiiVault(master, store);
-    const guestKey = await vault.provisionKey('guest', 'guest_1');
-    const sealed = await vault.encryptGuestProfile(guestKey, { displayName: 'Guest Name' });
-
-    const before = store.get(guestKey)!;
-    expect(before.wrappedKey.length).toBeGreaterThan(0);
-
-    expect(vault.shredKey(guestKey)).toBe(true);
-    const after = store.get(guestKey)!;
-    expect(after.wrappedKey.length).toBe(0);
-    expect(after.shredded).toBe(true);
-
-    await expect(
-      vault.decryptGuestProfile(guestKey, sealed.ciphertext, sealed.iv),
-    ).rejects.toBeInstanceOf(KeyShreddedError);
   });
 });

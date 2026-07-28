@@ -1,10 +1,54 @@
 import { env } from 'cloudflare:test';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload } from '@hospai/contracts';
 import { enumerateFromDate, HORIZON_DAYS } from '@hospai/pms-inventory';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import { NIGHT_AUDIT_HALTED, NIGHT_AUDIT_STEPS } from '../src/property-do';
 import type { PropertyDO } from '../src/property-do';
+import { NightAuditWorkflow } from '../src/night-audit-workflow';
+import { provisionProperty, resolvePropertyFromRegistry } from '../src/provision';
+import { ensurePlatformSchema } from '../src/registry';
+import type { NightAuditWorkflowParams, PmsEnv } from '../src/env';
+
+/**
+ * Synchronous stand-in for the Workflows engine: runs each `step.do` callback inline,
+ * once, with no durable checkpointing or retries. Lets `NightAuditWorkflow.run()` be
+ * executed for real against real bindings — vitest-pool-workers creates Workflow
+ * instances but never drives their bodies to completion in-process.
+ */
+function fakeWorkflowStep(): WorkflowStep {
+  return {
+    do: async (_name: string, ...rest: unknown[]) => {
+      const callback = rest[rest.length - 1] as () => Promise<unknown>;
+      return callback();
+    },
+    sleep: async () => {},
+    sleepUntil: async () => {},
+    waitForEvent: async () => {
+      throw new Error('waitForEvent is not supported by fakeWorkflowStep');
+    },
+  } as unknown as WorkflowStep;
+}
+
+/**
+ * Execute the real `NightAuditWorkflow.run()` body against real bindings.
+ *
+ * The class cannot be instantiated here: `WorkflowEntrypoint`'s native constructor
+ * rejects vitest-pool-workers' mock `ExecutionContext`. `run()` only ever touches
+ * `this.env`, so the genuine method is invoked with a minimal receiver carrying it.
+ * Nothing about the workflow logic is re-implemented — registry resolution, the halt
+ * check, the step loop and the terminal reschedule all run for real.
+ */
+function runNightAuditWorkflow(propertyId: string): Promise<void> {
+  const receiver = { env: env as PmsEnv } as unknown as NightAuditWorkflow;
+  const event = {
+    payload: { propertyId },
+    timestamp: new Date(),
+    instanceId: `test-${propertyId}`,
+  } as WorkflowEvent<NightAuditWorkflowParams>;
+  return NightAuditWorkflow.prototype.run.call(receiver, event, fakeWorkflowStep());
+}
 
 function propertyStub(name: string) {
   return resolvePropertyStub(env.PROPERTY_DO, {
@@ -318,7 +362,7 @@ describe('PropertyDO night audit', () => {
     expect(after!.nextRunAt).toBe(before!.nextRunAt);
   });
 
-  it('9. alarm() drives night-audit via NightAuditWorkflow, resolved through the registry only', async () => {
+  it('alarm() dispatches the night-audit handler without error (creates the Workflow instance only — does NOT execute its body)', async () => {
     const name = `na-alarm-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
     const stub = await provisionedStub(name, timeZone);
@@ -330,11 +374,113 @@ describe('PropertyDO night audit', () => {
 
     await stub.triggerAlarmForTest();
 
-    // AlarmScheduler always re-arms, even though the handler only *creates* the Workflow
-    // instance (the Workflow itself advances business_date asynchronously).
+    // Scope note: this asserts only that the alarm handler dispatched cleanly and
+    // re-armed. vitest-pool-workers does not run Workflow bodies, so the
+    // registry → Workflow → runAuditStep handoff is proven by test 9 below instead.
     const schedule = await stub.getAlarmSchedule('night-audit');
     expect(schedule).not.toBeNull();
     expect(schedule!.lastError).toBeNull();
+  });
+
+  it('9. NightAuditWorkflow.run() resolves through the D1 registry only and drives runAuditStep to completion', async () => {
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    const propertyId = `prop_na_wf_${crypto.randomUUID()}`;
+    const orgId = `org_${crypto.randomUUID()}`;
+    const provisioned = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Workflow Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      actorUserId: 'user_owner',
+    });
+    expect(provisioned.ok).toBe(true);
+
+    // Resolve exactly the way the Workflow does — via the registry row provisionProperty wrote.
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    expect(resolved).not.toBeNull();
+    const stub = resolved!.stub;
+
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    expect((await stub.tryAddRoomType(addInput, await idemFor('add-wf', addInput))).ok).toBe(true);
+
+    // Put the property one day behind so ROLL_BUSINESS_DATE has real work to do.
+    const originalBusinessDate = (await stub.readBusinessDate())!;
+    const behindDate = subtractDays(originalBusinessDate, 1);
+    await stub.setBusinessDateForTest(behindDate);
+
+    await runNightAuditWorkflow(propertyId);
+
+    // The Workflow body actually ran: every step COMPLETED and the roll advanced the date.
+    for (const step of NIGHT_AUDIT_STEPS) {
+      expect(await stub.getNightAuditStepStatus(behindDate, step)).toBe('COMPLETED');
+    }
+    expect(await stub.readBusinessDate()).toBe(originalBusinessDate);
+
+    // Terminal `rescheduleNightAudit()` ran: now current, so armed at the next audit_time.
+    const schedule = await stub.getAlarmSchedule('night-audit');
+    expect(schedule).not.toBeNull();
+    expect(schedule!.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  it('9b. NightAuditWorkflow.run() exits silently for a propertyId absent from the registry', async () => {
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await expect(
+      runNightAuditWorkflow(`prop_missing_${crypto.randomUUID()}`),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a step body that throws mid-way rolls back its mutations; only the FAILED bookkeeping persists', async () => {
+    const name = `na-rollback-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+
+    const addInput = {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+    };
+    expect((await stub.tryAddRoomType(addInput, await idemFor('add-rollback', addInput))).ok).toBe(true);
+
+    const originalBusinessDate = (await stub.readBusinessDate())!;
+    const behindDate = subtractDays(originalBusinessDate, 1);
+    await stub.setBusinessDateForTest(behindDate);
+    await stub.flushOutbox();
+
+    const ariBefore = await stub.readAriVersion();
+    const rowsBefore = await stub.countAvailabilityDays('rt_king');
+
+    // Fail *after* the roll has written the advanced business_date.
+    await stub.setRollFailureForTest('injected mid-roll failure');
+    const result = await stub.runAuditStep(behindDate, 'ROLL_BUSINESS_DATE');
+    expect(result.status).toBe('FAILED');
+    expect(result.error).toBe('injected mid-roll failure');
+
+    // Step body rolled back whole: no advanced date, no partial horizon, no ARI bump.
+    expect(await stub.readBusinessDate()).toBe(behindDate);
+    expect(await stub.countAvailabilityDays('rt_king')).toBe(rowsBefore);
+    expect(await stub.readAriVersion()).toBe(ariBefore);
+
+    // Bookkeeping survived: FAILED row + halt + the started event from txn A.
+    expect(await stub.getNightAuditStepStatus(behindDate, 'ROLL_BUSINESS_DATE')).toBe('FAILED');
+    expect(await stub.isNightAuditHalted()).toBe(true);
+    const events = await stub.listOutboxEventTypes();
+    expect(events).toEqual(['night_audit.started']);
+
+    // Disarming and retrying completes cleanly — nothing was left half-written.
+    await stub.setRollFailureForTest(null);
+    const retry = await stub.runAuditStep(behindDate, 'ROLL_BUSINESS_DATE');
+    expect(retry.status).toBe('COMPLETED');
+    expect(await stub.readBusinessDate()).toBe(originalBusinessDate);
   });
 
   it('alarm() always advances next_run_at into the future even when halted, preventing a re-fire storm', async () => {

@@ -178,6 +178,13 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
 
+  /**
+   * Set only by `setRollFailureForTest`. When non-null, `runRollStepSync` throws
+   * *after* advancing `__meta.business_date` and before reconciling the horizon —
+   * the only way to exercise a mid-roll failure without a real failing step body.
+   */
+  private rollFailureForTest: string | null = null;
+
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
     this.scheduler = new AlarmScheduler(ctx.storage.sql, ctx.storage);
@@ -196,6 +203,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }
       }
     });
+  }
+
+  /**
+   * Guard for test helpers that can corrupt the audit calendar or wedge a property
+   * (roll the business date backwards, force a permanent halt, rewrite `alarm_schedule`).
+   * Same `HOSPAI_UNSAFE_LOCAL=1` marker that gates simulate-jurisdiction / dev-actor auth,
+   * so these can never be reached on a real deploy.
+   */
+  private assertUnsafeLocal(helper: string): void {
+    if (this.env.HOSPAI_UNSAFE_LOCAL !== '1') {
+      throw new Error(`${helper} requires HOSPAI_UNSAFE_LOCAL=1 (local only)`);
+    }
   }
 
   async setRecordedJurisdiction(jurisdiction: Jurisdiction | null): Promise<void> {
@@ -394,8 +413,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
   }
 
-  /** Test helper: invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
+  /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
   async triggerAlarmForTest(): Promise<void> {
+    this.assertUnsafeLocal('triggerAlarmForTest');
     return this.alarm();
   }
 
@@ -409,13 +429,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { nextRunAt: row.next_run_at, lastError: row.last_error };
   }
 
-  /** Test helper: force a raw `alarm_schedule.next_run_at`, bypassing the scheduler API. */
+  /** Test helper (unsafe-local only): force a raw `alarm_schedule.next_run_at`, bypassing the scheduler API. */
   async setAlarmScheduleForTest(name: string, nextRunAt: number): Promise<void> {
+    this.assertUnsafeLocal('setAlarmScheduleForTest');
     this.scheduler.upsertSchedule(name, nextRunAt);
   }
 
-  /** Test helper: insert a `FAILED` `night_audit_run` row directly, to simulate a halt without needing a real failing step. */
+  /** Test helper (unsafe-local only): insert a `FAILED` `night_audit_run` row directly, to simulate a halt without needing a real failing step. */
   async forceNightAuditHaltForTest(businessDate: string): Promise<void> {
+    this.assertUnsafeLocal('forceNightAuditHaltForTest');
     const now = Date.now();
     this.ctx.storage.sql.exec(
       `INSERT INTO night_audit_run (business_date, step, status, attempt, started_at, completed_at, error)
@@ -444,8 +466,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return this.bumpAriVersionSync();
   }
 
-  /** Test helper: force `__meta.business_date`, bypassing the insert-only first-write guard. */
+  /** Test helper (unsafe-local only): force `__meta.business_date`, bypassing the insert-only first-write guard. */
   async setBusinessDateForTest(businessDate: string): Promise<void> {
+    this.assertUnsafeLocal('setBusinessDateForTest');
     this.ctx.storage.sql.exec(
       `INSERT INTO property_config (key, value_json, version, updated_at)
        VALUES ('__meta.business_date', ?, 1, ?)
@@ -489,6 +512,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * completes. Only `ROLL_BUSINESS_DATE` mutates `__meta.business_date` / the horizon —
    * every other step in this slice is a no-op stub (§4.6 cites `PRE_CHECK` specifically;
    * real provisional-queue drain+halt is future work).
+   *
+   * Three separate transactions, deliberately: the `RUNNING` bookkeeping and the
+   * `FAILED` bookkeeping must survive, while the step *body* must roll back whole.
+   * A single transaction with an inner `try/catch` commits everything the body wrote
+   * before it threw — an advanced `business_date` on a half-reconciled horizon with a
+   * `FAILED` row and a permanent halt is exactly the state the spec forbids.
    */
   async runAuditStep(
     businessDate: string,
@@ -505,7 +534,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { status: 'COMPLETED' };
     }
 
-    return this.ctx.storage.transactionSync(() => {
+    // Txn A — mark RUNNING and emit `night_audit.started` on the first step for this date.
+    this.ctx.storage.transactionSync(() => {
       const isFirstStepForDate = (
         this.ctx.storage.sql
           .exec(`SELECT COUNT(*) AS c FROM night_audit_run WHERE business_date = ?`, businessDate)
@@ -531,8 +561,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           payload: { propertyId, businessDate },
         });
       }
+    });
 
-      try {
+    try {
+      // Txn B — step body plus its COMPLETED marker: all of it, or none of it.
+      return this.ctx.storage.transactionSync(() => {
         if (step === 'ROLL_BUSINESS_DATE') {
           this.runRollStepSync(businessDate);
         } else if (step === 'ARCHIVE') {
@@ -560,17 +593,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }
 
         return { status: 'COMPLETED' as const };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
+      });
+    } catch (e) {
+      // Txn C — Txn B rolled back; only the FAILED bookkeeping persists.
+      const message = e instanceof Error ? e.message : String(e);
+      this.ctx.storage.transactionSync(() => {
         this.ctx.storage.sql.exec(
           `UPDATE night_audit_run SET status = 'FAILED', error = ? WHERE business_date = ? AND step = ?`,
           message,
           businessDate,
           step,
         );
-        return { status: 'FAILED' as const, error: message };
-      }
-    });
+      });
+      return { status: 'FAILED' as const, error: message };
+    }
+  }
+
+  /**
+   * Test helper (unsafe-local only): arm a mid-roll failure. `runRollStepSync` will throw
+   * with `message` *after* writing the advanced `__meta.business_date` and before
+   * reconciling the horizon, so tests can prove the step body rolls back. Pass `null` to disarm.
+   */
+  async setRollFailureForTest(message: string | null): Promise<void> {
+    this.assertUnsafeLocal('setRollFailureForTest');
+    this.rollFailureForTest = message;
   }
 
   /**
@@ -599,6 +645,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       JSON.stringify(newBusinessDate),
       Date.now(),
     );
+
+    if (this.rollFailureForTest) throw new Error(this.rollFailureForTest);
 
     const { insertedCount, fromDate, toDate } = reconcileHorizon(this.ctx.storage.sql, newBusinessDate);
     if (insertedCount > 0) {

@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.test.ts", "src/keystore-conformance.ts"]
+}

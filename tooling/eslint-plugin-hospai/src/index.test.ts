@@ -17,4 +17,15 @@ describe('eslint-plugin-hospai', () => {
       plugin.rules['no-reservations-import-in-bookability'],
     );
   });
+
+  it('enables all seven §11 rules in recommended', () => {
+    const rules = plugin.configs.recommended.rules;
+    expect(rules['hospai/no-id-from-name-outside-tenant-router']).toBe('error');
+    expect(rules['hospai/no-domain-config-from-kv']).toBe('error');
+    expect(rules['hospai/no-entitlement-in-domain']).toBe('error');
+    expect(rules['hospai/no-reservation-scan-availability']).toBe('error');
+    expect(rules['hospai/no-reservations-import-in-bookability']).toBe('error');
+    expect(rules['hospai/no-platform-import-in-domain']).toBe('error');
+    expect(rules['hospai/no-pms-importing-addons']).toBe('error');
+  });
 });

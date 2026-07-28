@@ -18,6 +18,7 @@ jobs:
       - run: pnpm install
       - run: pnpm build
       - run: pnpm check:ddl
+      - run: pnpm check:entitlements
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm lint

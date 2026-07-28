@@ -22,11 +22,13 @@ import {
   runIdempotent,
   IdempotencyKeyReused,
   type OutboxRow,
+  type SqlStorageLike,
 } from '@hospai/do-runtime';
 import {
   archiveBlocked,
   enumerateFromDate,
   enumerateHorizonDates,
+  HORIZON_DAYS,
   oversellDates,
   type InventoryRow,
 } from '@hospai/pms-inventory';
@@ -60,6 +62,68 @@ class ArchiveBlockedError extends Error {
     super('Room type has committed future demand and cannot be archived');
     this.name = 'ArchiveBlockedError';
   }
+}
+
+export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
+
+/** §8 night-audit step sequence. `ROLL_BUSINESS_DATE` is the only step that mutates `__meta.business_date` / the horizon. */
+export const NIGHT_AUDIT_STEPS = [
+  'PRE_CHECK',
+  'POST_ROOM_CHARGES',
+  'PROCESS_NO_SHOWS',
+  'CLOSE_CASHIER_SHIFTS',
+  'SNAPSHOT_REPORTS',
+  'ROLL_BUSINESS_DATE',
+  'ARCHIVE',
+] as const;
+
+export type NightAuditStep = (typeof NIGHT_AUDIT_STEPS)[number];
+
+/**
+ * Set-reconcile `availability_day` to `[businessDate, businessDate + (HORIZON_DAYS - 1)]`
+ * for every *active* room type: INSERT missing dates only, at `physical = room_type.room_count`
+ * (all other columns default 0). Never overwrites an existing row's `physical` / `sold` /
+ * `held` / `blocked` / `oversell`, and never inserts for an archived type. Idempotent —
+ * re-running with the same `businessDate` on an already-reconciled horizon inserts nothing.
+ */
+export function reconcileHorizon(
+  sql: SqlStorageLike,
+  businessDate: string,
+): { insertedCount: number; fromDate: string; toDate: string } {
+  const required = enumerateFromDate(businessDate, HORIZON_DAYS);
+  const fromDate = required[0]!;
+  const toDate = required[required.length - 1]!;
+
+  const activeRoomTypes = sql
+    .exec(`SELECT room_type_id, room_count FROM room_type WHERE status = 'active'`)
+    .toArray() as Array<{ room_type_id: string; room_count: number }>;
+
+  let insertedCount = 0;
+  for (const rt of activeRoomTypes) {
+    const existingRows = sql
+      .exec(
+        `SELECT stay_date FROM availability_day WHERE room_type_id = ? AND stay_date >= ? AND stay_date <= ?`,
+        rt.room_type_id,
+        fromDate,
+        toDate,
+      )
+      .toArray() as Array<{ stay_date: string }>;
+    const existingDates = new Set(existingRows.map((r) => r.stay_date));
+
+    for (const stayDate of required) {
+      if (existingDates.has(stayDate)) continue;
+      sql.exec(
+        `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
+         VALUES (?, ?, ?, 0, 0, 0, 0, 1)`,
+        rt.room_type_id,
+        stayDate,
+        rt.room_count,
+      );
+      insertedCount += 1;
+    }
+  }
+
+  return { insertedCount, fromDate, toDate };
 }
 
 /**
@@ -276,6 +340,196 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async bumpAriVersion(): Promise<number> {
     return this.bumpAriVersionSync();
+  }
+
+  /** Test helper: force `__meta.business_date`, bypassing the insert-only first-write guard. */
+  async setBusinessDateForTest(businessDate: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.business_date', ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      JSON.stringify(businessDate),
+      Date.now(),
+    );
+  }
+
+  /** Test helper: run horizon set-reconcile directly, without touching `night_audit_run` / ARI / outbox. */
+  async reconcileHorizonForTest(
+    businessDate: string,
+  ): Promise<{ insertedCount: number; fromDate: string; toDate: string }> {
+    return reconcileHorizon(this.ctx.storage.sql, businessDate);
+  }
+
+  /** Any `FAILED` `night_audit_run` row halts new audit runs — derived, not a separate flag. */
+  async isNightAuditHalted(): Promise<boolean> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM night_audit_run WHERE status = 'FAILED' LIMIT 1`)
+      .toArray() as Array<{ one: number }>;
+    return rows.length > 0;
+  }
+
+  /** Test helper: read a `night_audit_run` row's status, or null if absent. */
+  async getNightAuditStepStatus(businessDate: string, step: NightAuditStep): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT status FROM night_audit_run WHERE business_date = ? AND step = ?`,
+        businessDate,
+        step,
+      )
+      .toArray() as Array<{ status: string }>;
+    return rows[0]?.status ?? null;
+  }
+
+  /**
+   * Run one §8 audit step for `businessDate`. Idempotent per `(businessDate, step)`:
+   * a `COMPLETED` row short-circuits. Emits `night_audit.started` the first time any
+   * step for `businessDate` enters `RUNNING`, and `night_audit.completed` when `ARCHIVE`
+   * completes. Only `ROLL_BUSINESS_DATE` mutates `__meta.business_date` / the horizon —
+   * every other step in this slice is a no-op stub (§4.6 cites `PRE_CHECK` specifically;
+   * real provisional-queue drain+halt is future work).
+   */
+  async runAuditStep(
+    businessDate: string,
+    step: NightAuditStep,
+  ): Promise<{ status: 'COMPLETED' | 'FAILED'; error?: string }> {
+    const existing = this.ctx.storage.sql
+      .exec(
+        `SELECT status FROM night_audit_run WHERE business_date = ? AND step = ?`,
+        businessDate,
+        step,
+      )
+      .toArray() as Array<{ status: string }>;
+    if (existing[0]?.status === 'COMPLETED') {
+      return { status: 'COMPLETED' };
+    }
+
+    return this.ctx.storage.transactionSync(() => {
+      const isFirstStepForDate = (
+        this.ctx.storage.sql
+          .exec(`SELECT COUNT(*) AS c FROM night_audit_run WHERE business_date = ?`, businessDate)
+          .toArray() as Array<{ c: number }>
+      )[0]!.c === 0;
+
+      const now = Date.now();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO night_audit_run (business_date, step, status, attempt, started_at, completed_at, error)
+         VALUES (?, ?, 'RUNNING', 1, ?, NULL, NULL)
+         ON CONFLICT(business_date, step) DO UPDATE SET
+           status = 'RUNNING', attempt = night_audit_run.attempt + 1, started_at = excluded.started_at, error = NULL`,
+        businessDate,
+        step,
+        now,
+      );
+
+      if (isFirstStepForDate) {
+        const propertyId = this.getPropertyIdSync();
+        appendOutbox(this.ctx.storage.sql, {
+          eventId: crypto.randomUUID(),
+          eventType: 'night_audit.started',
+          payload: { propertyId, businessDate },
+        });
+      }
+
+      try {
+        if (step === 'ROLL_BUSINESS_DATE') {
+          this.runRollStepSync(businessDate);
+        } else if (step === 'ARCHIVE') {
+          // No-op stub in this slice — real archival content is future work.
+        } else {
+          // PRE_CHECK / money / ops stubs — §4.6: PRE_CHECK is provisional-only,
+          // not the finished design; always COMPLETED here.
+        }
+
+        const completedAt = Date.now();
+        this.ctx.storage.sql.exec(
+          `UPDATE night_audit_run SET status = 'COMPLETED', completed_at = ? WHERE business_date = ? AND step = ?`,
+          completedAt,
+          businessDate,
+          step,
+        );
+
+        if (step === 'ARCHIVE') {
+          const propertyId = this.getPropertyIdSync();
+          appendOutbox(this.ctx.storage.sql, {
+            eventId: crypto.randomUUID(),
+            eventType: 'night_audit.completed',
+            payload: { propertyId, businessDate },
+          });
+        }
+
+        return { status: 'COMPLETED' as const };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.ctx.storage.sql.exec(
+          `UPDATE night_audit_run SET status = 'FAILED', error = ? WHERE business_date = ? AND step = ?`,
+          message,
+          businessDate,
+          step,
+        );
+        return { status: 'FAILED' as const, error: message };
+      }
+    });
+  }
+
+  /**
+   * `ROLL_BUSINESS_DATE` body — sync, runs inside `runAuditStep`'s `transactionSync`.
+   * Refuses to advance unless `business_date < today` in the property timezone
+   * (fail closed if the timezone is missing); a no-op refusal is still COMPLETED.
+   * On advance: bump `__meta.business_date` by exactly one day, set-reconcile the
+   * horizon onto the *new* business_date, and bump ARI / emit `availability.changed`
+   * only if the reconcile actually inserted rows.
+   */
+  private runRollStepSync(businessDate: string): void {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) throw new Error(TIMEZONE_UNSET);
+
+    const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+    if (businessDate >= today) {
+      // Not due yet — no-op success so the Workflow / caller exits clean.
+      return;
+    }
+
+    const newBusinessDate = enumerateFromDate(businessDate, 2)[1]!;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.business_date', ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      JSON.stringify(newBusinessDate),
+      Date.now(),
+    );
+
+    const { insertedCount, fromDate, toDate } = reconcileHorizon(this.ctx.storage.sql, newBusinessDate);
+    if (insertedCount > 0) {
+      const propertyId = this.getPropertyIdSync();
+      const ariVersion = this.bumpAriVersionSync();
+      appendOutbox(this.ctx.storage.sql, {
+        eventId: crypto.randomUUID(),
+        eventType: 'availability.changed',
+        payload: { propertyId, fromDate, toDate, version: ariVersion },
+      });
+    }
+  }
+
+  /**
+   * Run all §8 steps inline for the business date currently being closed. Inline (not
+   * via Workflow) so DO-level tests exercise the full sequence without a Workflow binding —
+   * Task 5 switches the alarm path to `NightAuditWorkflow` while keeping this for tests.
+   * Refuses outright while halted (any `FAILED` row) — never starts a new date's run.
+   */
+  async startNightAudit(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (await this.isNightAuditHalted()) {
+      return { ok: false, error: NIGHT_AUDIT_HALTED };
+    }
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+
+    for (const step of NIGHT_AUDIT_STEPS) {
+      const result = await this.runAuditStep(businessDate, step);
+      if (result.status === 'FAILED') {
+        return { ok: false, error: result.error ?? NIGHT_AUDIT_HALTED };
+      }
+    }
+    return { ok: true };
   }
 
   /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
@@ -834,6 +1088,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       `DELETE FROM availability_day WHERE room_type_id = ? AND stay_date >= ?`,
       roomTypeId,
       fromDate,
+    );
+  }
+
+  /** Test helper: remove a single `availability_day` row — simulates a gap in the horizon. */
+  async deleteAvailabilityDay(roomTypeId: string, stayDate: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `DELETE FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+      roomTypeId,
+      stayDate,
     );
   }
 

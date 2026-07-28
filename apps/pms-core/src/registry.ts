@@ -1,4 +1,5 @@
 import type { PlanCode, PropertyRecord } from '@hospai/contracts';
+import { validateTenantId } from '@hospai/contracts';
 import { PLATFORM_ALL_STATEMENTS } from '@hospai/do-runtime';
 import type { Jurisdiction } from '@hospai/tenant-router';
 import type { PmsEnv } from './env.js';
@@ -57,6 +58,7 @@ export async function upsertOrg(
   orgId: string,
   name: string,
 ): Promise<void> {
+  validateTenantId(orgId);
   await ensurePlatformSchema(env.PLATFORM_DB);
   const existing = await env.PLATFORM_DB.prepare(`SELECT org_id FROM org WHERE org_id = ?`)
     .bind(orgId)
@@ -175,6 +177,8 @@ export async function insertProperty(
   env: PmsEnv,
   property: Omit<PropertyRecord, 'status' | 'createdAt'> & { status?: PropertyRecord['status'] },
 ): Promise<PropertyRecord> {
+  validateTenantId(property.propertyId);
+  validateTenantId(property.orgId);
   await ensurePlatformSchema(env.PLATFORM_DB);
   const createdAt = Date.now();
   const status = property.status ?? 'active';

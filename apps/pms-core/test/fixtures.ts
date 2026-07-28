@@ -60,8 +60,12 @@ export async function provisionedPropertyStub(
 
 export async function ensureEntitledMeta(
   stub: DurableObjectStub<PropertyDO>,
+  propertyId?: string,
   orgId = DEFAULT_TEST_ORG,
 ): Promise<void> {
   await seedSubscription(env, orgId, 'starter');
   await stub.ensureMetaOrgId(orgId);
+  if (propertyId) {
+    await stub.ensureMetaPropertyId(propertyId);
+  }
 }

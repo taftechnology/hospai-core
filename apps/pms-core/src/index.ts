@@ -1,4 +1,5 @@
 import type { Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import { InvalidTenantIdError, validateTenantId } from '@hospai/contracts';
 import {
   checkKillSwitch,
   EntitlementRequiredError,
@@ -72,6 +73,12 @@ export default {
       if (request.method === 'POST' && pathname === '/v1/orgs') {
         const body = (await request.json()) as { orgId: string; name: string };
         if (!body.orgId || !body.name) return json({ error: 'invalid_body' }, 400);
+        try {
+          validateTenantId(body.orgId);
+        } catch (e) {
+          if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+          throw e;
+        }
         await upsertOrg(env, body.orgId, body.name);
         const org = resolveOrgStub(env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
         await org.ensureMember(actor, 'owner');
@@ -81,6 +88,12 @@ export default {
       const propertyCreate = pathname.match(/^\/v1\/orgs\/([^/]+)\/properties$/);
       if (request.method === 'POST' && propertyCreate) {
         const orgId = decodeURIComponent(propertyCreate[1]!);
+        try {
+          validateTenantId(orgId);
+        } catch (e) {
+          if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+          throw e;
+        }
         const body = (await request.json()) as {
           propertyId: string;
           name: string;
@@ -124,7 +137,7 @@ export default {
           if (result.error === 'jurisdiction_conflict') {
             return json({ error: result.error, existing: result.existing }, 409);
           }
-          if (result.error === 'invalid_timezone' || result.error === 'invalid_currency') {
+          if (result.error === 'invalid_timezone' || result.error === 'invalid_currency' || result.error === 'invalid_tenant_id') {
             return json({ error: result.error }, 400);
           }
           return json({ error: result.error }, 400);

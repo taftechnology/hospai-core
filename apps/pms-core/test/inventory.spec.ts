@@ -63,10 +63,12 @@ describe('PropertyDO inventory commands', () => {
   });
 
   it('1c. add room type without a stored property_id rejects with property_id_unset, uncached', async () => {
-    const stub = propertyStub(`inv-no-pid-${crypto.randomUUID()}`);
-    await ensureEntitledMeta(stub);
-    const fingerprint = await fingerprintPayload({ propertyId: 'x', timeZone: 'Europe/Berlin' });
-    await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: 'provision:timezone:x', fingerprint });
+    const name = `inv-no-pid-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await ensureEntitledMeta(stub, name);
+    const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
+    await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: `provision:timezone:${name}`, fingerprint });
+    await stub.clearMetaPropertyIdForTest();
     const input = {
       roomTypeId: 'rt_king',
       code: 'KING',

@@ -295,7 +295,8 @@ export class PropertyDO extends DurableObject<Env> {
     const batch = takeWhileUnderLimit(candidates, {
       maxMessages: 100,
       maxBytes: 256 * 1024,
-      messageEnvelopeOverhead: 512,
+      // Measured JSON envelope — same as queueMessageUtf8Bytes(row, { do: 'property', id })
+      messageBytes: (row) => domainEventMessageUtf8Bytes(toDomainEvent(row, this.id)),
     });
     if (batch.length === 0) return;
 

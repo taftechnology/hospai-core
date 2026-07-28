@@ -60,8 +60,9 @@ describe('PropertyDO freeze gate', () => {
   });
 
   it('stores DOMAIN config with audit trail and config.changed outbox', async () => {
-    const stub = propertyStub(`cfg-${crypto.randomUUID()}`);
-    await ensureEntitledMeta(stub);
+    const name = `cfg-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await ensureEntitledMeta(stub, name);
     const meta = { actor: 'tester', reason: 'verification' };
     const idem = await configIdem('pms.availability.allow_overbooking', true, meta);
     const put = await stub.tryPutDomainConfig('pms.availability.allow_overbooking', true, meta, idem);
@@ -80,8 +81,9 @@ describe('PropertyDO freeze gate', () => {
   });
 
   it('replay same idempotency key does not double-write or double-emit', async () => {
-    const stub = propertyStub(`idem-${crypto.randomUUID()}`);
-    await ensureEntitledMeta(stub);
+    const name = `idem-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await ensureEntitledMeta(stub, name);
     const meta = { actor: 'tester', reason: 'replay' };
     const key = 'pms.availability.allow_overbooking';
     const idem = {
@@ -100,8 +102,9 @@ describe('PropertyDO freeze gate', () => {
   });
 
   it('fingerprint conflict returns idempotency_key_reused', async () => {
-    const stub = propertyStub(`idem-conflict-${crypto.randomUUID()}`);
-    await ensureEntitledMeta(stub);
+    const name = `idem-conflict-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await ensureEntitledMeta(stub, name);
     const meta = { actor: 'tester', reason: 'conflict' };
     const key = 'pms.availability.allow_overbooking';
     await stub.tryPutDomainConfig(key, true, meta, {
@@ -117,8 +120,9 @@ describe('PropertyDO freeze gate', () => {
   });
 
   it('drain without ack leaves rows; flush acks', async () => {
-    const stub = propertyStub(`flush-${crypto.randomUUID()}`);
-    await ensureEntitledMeta(stub);
+    const name = `flush-${crypto.randomUUID()}`;
+    const stub = propertyStub(name);
+    await ensureEntitledMeta(stub, name);
     const meta = { actor: 'tester', reason: 'flush' };
     const key = 'pms.availability.allow_overbooking';
     await stub.tryPutDomainConfig(key, true, meta, {

@@ -62,11 +62,15 @@ Cloudflare Queues `sendBatch` limits:
 | Per-message size | 128 KiB |
 | Total batch size | 256 KiB |
 
-Constants in `@hospai/do-runtime`: `QUEUE_MAX_MESSAGES`, `QUEUE_MAX_MESSAGE_BYTES`, `QUEUE_MAX_BATCH_BYTES`, `QUEUE_MESSAGE_ENVELOPE_OVERHEAD_BYTES` (512 — conservative estimate for `{ eventId, eventType, seq, source, createdAt }` beyond `outbox.payload`).
+Constants in `@hospai/do-runtime`: `QUEUE_MAX_MESSAGES`, `QUEUE_MAX_MESSAGE_BYTES`, `QUEUE_MAX_BATCH_BYTES`. Envelope types in `@hospai/contracts`: `EventSource`, `DomainEventMessage`.
 
-**`appendOutbox`** rejects payloads whose UTF-8 serialized size exceeds `MAX_OUTBOX_PAYLOAD_BYTES` (= 128 KiB − envelope overhead). A command that cannot emit a deliverable event **must fail at produce time**, not poison the sweep.
+**Measured envelope, not a reserve constant.** `domainEventMessageUtf8Bytes`, `queueMessageUtf8Bytes(row, source)`, and `outboxAppendQueueBytes({ …, source })` JSON-serialize the real Queue message body (`{ eventId, eventType, payload, seq, source, createdAt }`). Both produce-time and drain-time guards derive from the same functions — no fixed 512-byte fudge factor.
 
-**`drainOutbox`** budgets batch bytes on **full message size** (`queueMessageUtf8Bytes` = payload + envelope overhead), defaulting to `QUEUE_MAX_BATCH_BYTES`. Legacy rows that exceed the per-message cap throw `OutboxPayloadTooLargeError` at drain (alarm backoff + `last_error`) — they cannot be acked or sent and require operator intervention.
+**Tenant id bounds (provision).** `orgId` and `propertyId` are validated at provision via `validateTenantId`: `[a-zA-Z0-9_-]+`, ≤64 UTF-8 bytes. They flow into DO names, KV keys, and `source.id` in the envelope; bounding them keeps envelope measurement honest and prevents unbounded tenant-supplied strings in key spaces.
+
+**`appendOutbox`** requires `source: EventSource` and rejects rows whose measured UTF-8 size exceeds `QUEUE_MAX_MESSAGE_BYTES` (128 KiB). Append uses worst-case `seq` / `createdAt` so produce-time checks remain conservative. A command that cannot emit a deliverable event **must fail at produce time**, not poison the sweep.
+
+**`drainOutbox`** requires `opts.source` and budgets batch bytes on **full message size** via `queueMessageUtf8Bytes`, defaulting to `QUEUE_MAX_BATCH_BYTES`. Legacy rows that exceed the per-message cap throw `OutboxPayloadTooLargeError` at drain (alarm backoff + `last_error`) — they cannot be acked or sent and require operator intervention.
 
 The previous 1 MB default was harmless while nothing called `sendBatch`; wiring the queue converts it into a **permanent stall** (send rejects → no ack → alarm retries the same oversize prefix forever).
 
@@ -312,7 +316,7 @@ One integration test per family is enough for Phase 0; grep/assert payload contr
 4. Org guest create → `guest.created` delivered (requires OrgDO alarm path).
 5. Flush twice / alarm retry → consumer dedupes second delivery (`event_id` seen in KV).
 6. Mock `sendBatch` throw → rows stay unacked; second flush succeeds and delivers once (consumer dedupe still safe if send succeeded but ack missed — test both paths separately).
-7. `appendOutbox` rejects payload over `MAX_OUTBOX_PAYLOAD_BYTES`.
+7. `appendOutbox` rejects row over `QUEUE_MAX_MESSAGE_BYTES` (measured envelope via `outboxAppendQueueBytes`).
 8. `drainOutbox` default batch budget ≤ 256 KiB on envelope-sized bytes.
 9. `drainOutbox` mid-flight test (existing) unchanged — prefix ack does not ack rows appended after drain.
 10. Backlog reschedule: after full batch flush with remaining unacked rows, next `'outbox'` run is within `OUTBOX_BACKLOG_DELAY_MS`, not 30 s.

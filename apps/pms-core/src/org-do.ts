@@ -5,6 +5,7 @@ import {
   IDEM_KEY_REUSED,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
+  type EventSource,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -179,6 +180,20 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return rows.map((r) => ({ userId: r.user_id, role: r.role as 'owner' | 'admin' | 'staff' }));
   }
 
+  private outboxSourceSync(): EventSource {
+    const id = this.getOrgIdSync();
+    if (!id) throw new Error('org_id_unset');
+    return { do: 'org', id };
+  }
+
+  private appendOrgOutbox(row: {
+    eventId: string;
+    eventType: string;
+    payload: unknown;
+  }): void {
+    appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
+  }
+
   async tryCreateGuest(
     input: { guestId: string; profile: GuestProfile },
     idem: IdempotencyKey,
@@ -234,7 +249,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             now,
           );
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'guest.created',
             payload: { orgId, guestRef: input.guestId, piiKeyId: material.piiKeyId },
@@ -290,7 +305,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             input.guestId,
           );
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'guest.updated',
             payload: { orgId, guestRef: input.guestId, piiKeyId: guest.pii_key_id },
@@ -342,7 +357,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             input.guestId,
           );
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'guest.erased',
             payload: { orgId, guestRef: input.guestId, piiKeyId: guest.pii_key_id },

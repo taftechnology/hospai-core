@@ -1,5 +1,5 @@
 import type { ProvisionPropertyInput, ProvisionPropertyResult, PropertyRecord } from '@hospai/contracts';
-import { fingerprintPayload } from '@hospai/contracts';
+import { fingerprintPayload, InvalidTenantIdError, validateTenantId } from '@hospai/contracts';
 import { currencyCode, InvalidMoneyError } from '@hospai/money';
 import {
   InvalidTimeZoneError,
@@ -16,6 +16,16 @@ export async function provisionProperty(
   env: PmsEnv,
   input: ProvisionPropertyInput,
 ): Promise<ProvisionPropertyResult> {
+  try {
+    validateTenantId(input.orgId);
+    validateTenantId(input.propertyId);
+  } catch (e) {
+    if (e instanceof InvalidTenantIdError) {
+      return { ok: false, error: 'invalid_tenant_id' };
+    }
+    throw e;
+  }
+
   let locationHint: string;
   try {
     locationHint = locationHintFromTimeZone(input.timeZone);

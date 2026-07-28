@@ -190,6 +190,7 @@ describe('PropertyDO night audit', () => {
   it('8. a FAILED step halts the property; startNightAudit refuses until cleared', async () => {
     const name = `na-halt-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
+    await stub.ensureMetaPropertyId(name);
     // Deliberately unprovisioned (no timezone) — ROLL_BUSINESS_DATE fails closed.
     const result = await stub.runAuditStep('2026-01-01', 'ROLL_BUSINESS_DATE');
     expect(result.status).toBe('FAILED');

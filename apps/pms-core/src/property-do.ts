@@ -23,6 +23,7 @@ import {
   MONEY_INVALID,
   CURRENCY_UNSET,
   fingerprintPayload,
+  type EventSource,
   type IdempotencyKey,
 } from '@hospai/contracts';
 import {
@@ -639,7 +640,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     const ariVersion = this.bumpAriVersionSync();
-    appendOutbox(this.ctx.storage.sql, {
+    this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
       eventType: 'availability.changed',
       payload: {
@@ -767,6 +768,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  /** Test helper (unsafe-local only): remove stored property id to exercise unset guards. */
+  async clearMetaPropertyIdForTest(): Promise<void> {
+    this.assertUnsafeLocal('clearMetaPropertyIdForTest');
+    this.ctx.storage.sql.exec(`DELETE FROM property_config WHERE key = '__meta.property_id'`);
+  }
+
   /** Test helper: run horizon set-reconcile directly, without touching `night_audit_run` / ARI / outbox. */
   async reconcileHorizonForTest(
     businessDate: string,
@@ -848,7 +855,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
       if (isFirstStepForDate) {
         const propertyId = this.getPropertyIdSync();
-        appendOutbox(this.ctx.storage.sql, {
+        this.appendPropertyOutbox({
           eventId: crypto.randomUUID(),
           eventType: 'night_audit.started',
           payload: { propertyId, businessDate },
@@ -878,7 +885,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
         if (step === 'ARCHIVE') {
           const propertyId = this.getPropertyIdSync();
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'night_audit.completed',
             payload: { propertyId, businessDate },
@@ -949,7 +956,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (insertedCount > 0) {
       const propertyId = this.getPropertyIdSync();
       const ariVersion = this.bumpAriVersionSync();
-      appendOutbox(this.ctx.storage.sql, {
+      this.appendPropertyOutbox({
         eventId: crypto.randomUUID(),
         eventType: 'availability.changed',
         payload: { propertyId, fromDate, toDate, version: ariVersion },
@@ -1076,7 +1083,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             JSON.stringify(parsed),
             Date.now(),
           );
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'config.changed',
             payload: {
@@ -1266,12 +1273,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const fromDate = dates[0]!;
           const toDate = dates[dates.length - 1]!;
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'inventory.room_type_changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, op: 'add', at: now },
           });
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'availability.changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
@@ -1405,7 +1412,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.roomTypeId,
           );
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'inventory.room_type_changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, op: 'update', at: now },
@@ -1414,7 +1421,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           // Only writes touched availability_day rows bump the property ARI counter.
           const ariVersion = roomCountChanged ? this.bumpAriVersionSync() : this.readAriVersionSync();
           if (fromDate && toDate) {
-            appendOutbox(this.ctx.storage.sql, {
+            this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
               payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
@@ -1502,7 +1509,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.roomTypeId,
           );
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'inventory.room_type_changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, op: 'archive', at: now },
@@ -1522,7 +1529,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             ariVersion = this.bumpAriVersionSync();
             const fromDate = futureRows[0]!.stay_date;
             const toDate = futureRows[futureRows.length - 1]!.stay_date;
-            appendOutbox(this.ctx.storage.sql, {
+            this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
               payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
@@ -1667,7 +1674,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const fromDate = nights[0]!;
           const toDate = nights[nights.length - 1]!;
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'reservation.created',
             payload: {
@@ -1681,7 +1688,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               status: 'confirmed',
             },
           });
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'availability.changed',
             payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
@@ -1779,7 +1786,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const fromDate = nights[0]!;
           const toDate = nights[nights.length - 1]!;
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'reservation.status_changed',
             payload: {
@@ -1791,7 +1798,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               toStatus: 'cancelled',
             },
           });
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'availability.changed',
             payload: {
@@ -2004,7 +2011,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               ? oldNights[oldNights.length - 1]!
               : newNights[newNights.length - 1]!;
 
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'reservation.modified',
             payload: {
@@ -2026,7 +2033,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           if (oldRoomTypeId === input.roomTypeId) {
-            appendOutbox(this.ctx.storage.sql, {
+            this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
               payload: {
@@ -2038,7 +2045,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               },
             });
           } else {
-            appendOutbox(this.ctx.storage.sql, {
+            this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
               payload: {
@@ -2049,7 +2056,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 version: ariVersion,
               },
             });
-            appendOutbox(this.ctx.storage.sql, {
+            this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
               payload: {
@@ -2214,7 +2221,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.ctd ? 1 : 0,
             input.stopSell ? 1 : 0,
           );
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'restriction.changed',
             payload: {
@@ -2271,7 +2278,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.amountMinor,
             input.currency,
           );
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'rate.changed',
             payload: {
@@ -2458,7 +2465,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.businessDate ?? null,
             Date.now(),
           );
-          appendOutbox(this.ctx.storage.sql, {
+          this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'folio.line_posted',
             payload: {
@@ -2481,6 +2488,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  private outboxSourceSync(): EventSource {
+    const id = this.getPropertyIdSync();
+    if (!id) throw new Error(PROPERTY_ID_UNSET);
+    return { do: 'property', id };
+  }
+
+  private appendPropertyOutbox(row: {
+    eventId: string;
+    eventType: string;
+    payload: unknown;
+  }): void {
+    appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
   }
 
   private validateFolioLineMoney(
@@ -2525,7 +2546,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {
-    return drainOutbox(this.ctx.storage.sql, opts).rows;
+    return drainOutbox(this.ctx.storage.sql, { ...opts, source: this.outboxSourceSync() }).rows;
   }
 
   async ackOutboxThrough(seq: number): Promise<void> {
@@ -2535,7 +2556,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async flushOutbox(
     deliver?: (batch: OutboxRow[]) => Promise<void>,
   ): Promise<{ flushed: number; backlog: boolean }> {
-    const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql);
+    const { rows: batch, backlog } = drainOutbox(this.ctx.storage.sql, {
+      source: this.outboxSourceSync(),
+    });
     if (batch.length === 0) return { flushed: 0, backlog: false };
     if (deliver) await deliver(batch);
     ackOutboxThroughSql(this.ctx.storage.sql, batch[batch.length - 1]!.seq);

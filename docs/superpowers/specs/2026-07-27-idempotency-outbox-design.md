@@ -55,7 +55,7 @@ The edge must `await fingerprintPayload(...)` from the **validated request body*
 ```ts
 export class IdempotencyKeyReused extends Error { /* name set */ }
 
-export function appendOutbox(sql, { eventId, eventType, payload }): void;
+export function appendOutbox(sql, { eventId, eventType, payload, source: EventSource }): void;
 
 export function runIdempotent<T>(
   sql,
@@ -63,12 +63,13 @@ export function runIdempotent<T>(
   execute: () => T, // sync only
 ): T;
 
-export function drainOutbox(sql, opts?: { maxMessages?: number; maxBytes?: number }): OutboxRow[];
+export function drainOutbox(sql, opts: { maxMessages?: number; maxBytes?: number; source: EventSource }): DrainOutboxResult;
 export function ackOutboxThrough(sql, seq: number): void;
 ```
 
-- `drainOutbox` measures **Queue message** UTF-8 size (`payload` + envelope overhead), matching Cloudflare limits: **256 KiB batch**, **128 KiB per message**, **100 messages** — not JS string `.length`.
-- `appendOutbox` rejects payloads that cannot fit a Queue message (fail at produce time, not at sweep).
+- `drainOutbox` measures **Queue message** UTF-8 size via `queueMessageUtf8Bytes(row, source)` — full JSON envelope, not payload alone — matching Cloudflare limits: **256 KiB batch**, **128 KiB per message**, **100 messages** — not JS string `.length`.
+- `appendOutbox` rejects rows that cannot fit a Queue message using `outboxAppendQueueBytes` with the same measured envelope (worst-case `seq` / `createdAt` at produce time). Requires `source: EventSource`.
+- `orgId` / `propertyId` bounded at provision (`validateTenantId`: `[a-zA-Z0-9_-]+`, ≤64 UTF-8 bytes).
 - `runIdempotent` validates **both** `key` and `fingerprint` are non-empty before SELECT.
 - On hit + matching fingerprint: `JSON.parse(response)` and return (typed via caller).
 - On hit + mismatch: throw `IdempotencyKeyReused` (caught **inside** the same isolate, e.g. by `tryPutDomainConfig`).

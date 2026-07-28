@@ -1,3 +1,4 @@
+import type { DomainEventMessage, EventSource } from '@hospai/contracts';
 import type { SqlStorageLike } from './index.js';
 
 /** Queues caps are UTF-8 bytes — never use JS string `.length` (UTF-16 undercount for CJK). */
@@ -12,13 +13,6 @@ const utf8 = new TextEncoder();
 export const QUEUE_MAX_BATCH_BYTES = 256 * 1024;
 export const QUEUE_MAX_MESSAGE_BYTES = 128 * 1024;
 export const QUEUE_MAX_MESSAGES = 100;
-
-/** Envelope fields beyond outbox.payload ({ eventId, eventType, seq, source, createdAt }). */
-export const QUEUE_MESSAGE_ENVELOPE_OVERHEAD_BYTES = 512;
-
-/** Max UTF-8 bytes for outbox.payload — reject at append so send cannot stall. */
-export const MAX_OUTBOX_PAYLOAD_BYTES =
-  QUEUE_MAX_MESSAGE_BYTES - QUEUE_MESSAGE_ENVELOPE_OVERHEAD_BYTES;
 
 export type OutboxRow = {
   seq: number;
@@ -44,26 +38,58 @@ export class OutboxPayloadTooLargeError extends Error {
   }
 }
 
-function payloadUtf8Bytes(payload: unknown): number {
-  const serialized =
-    typeof payload === 'string' ? payload : JSON.stringify(payload);
-  return utf8.encode(serialized).length;
+function payloadForMessage(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
 }
 
-/** UTF-8 size of the Queue message body for a drained row (payload + envelope overhead). */
-export function queueMessageUtf8Bytes(row: Pick<OutboxRow, 'payload'>): number {
-  return utf8.encode(row.payload).length + QUEUE_MESSAGE_ENVELOPE_OVERHEAD_BYTES;
+/** Exact UTF-8 size of the Queue message JSON body. */
+export function domainEventMessageUtf8Bytes(message: DomainEventMessage): number {
+  return utf8.encode(JSON.stringify(message)).length;
+}
+
+/** UTF-8 size at send time — measures the real envelope, not a reserve constant. */
+export function queueMessageUtf8Bytes(row: OutboxRow, source: EventSource): number {
+  return domainEventMessageUtf8Bytes({
+    eventId: row.eventId,
+    eventType: row.eventType,
+    payload: payloadForMessage(row.payload),
+    seq: row.seq,
+    source,
+    createdAt: row.createdAt,
+  });
+}
+
+/** Conservative produce-time check — worst-case seq and createdAt still in the future. */
+export function outboxAppendQueueBytes(input: {
+  eventId: string;
+  eventType: string;
+  payload: unknown;
+  source: EventSource;
+}): number {
+  return domainEventMessageUtf8Bytes({
+    eventId: input.eventId,
+    eventType: input.eventType,
+    payload: payloadForMessage(input.payload),
+    seq: Number.MAX_SAFE_INTEGER,
+    createdAt: Number.MAX_SAFE_INTEGER,
+    source: input.source,
+  });
 }
 
 export function appendOutbox(
   sql: SqlStorageLike,
-  row: { eventId: string; eventType: string; payload: unknown },
+  row: { eventId: string; eventType: string; payload: unknown; source: EventSource },
 ): void {
   const payload =
     typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload);
-  const bytes = utf8.encode(payload).length;
-  if (bytes > MAX_OUTBOX_PAYLOAD_BYTES) {
-    throw new OutboxPayloadTooLargeError(bytes, MAX_OUTBOX_PAYLOAD_BYTES);
+  const bytes = outboxAppendQueueBytes({ ...row, payload: row.payload });
+  if (bytes > QUEUE_MAX_MESSAGE_BYTES) {
+    throw new OutboxPayloadTooLargeError(bytes, QUEUE_MAX_MESSAGE_BYTES);
   }
   sql.exec(
     `INSERT INTO outbox (event_id, event_type, payload, acked, created_at) VALUES (?, ?, ?, 0, ?)`,
@@ -76,7 +102,7 @@ export function appendOutbox(
 
 export function drainOutbox(
   sql: SqlStorageLike,
-  opts: { maxMessages?: number; maxBytes?: number } = {},
+  opts: { maxMessages?: number; maxBytes?: number; source: EventSource },
 ): DrainOutboxResult {
   const maxMessages = opts.maxMessages ?? QUEUE_MAX_MESSAGES;
   const maxBytes = opts.maxBytes ?? QUEUE_MAX_BATCH_BYTES;
@@ -103,7 +129,7 @@ export function drainOutbox(
       payload: String(row.payload),
       createdAt: Number(row.created_at),
     };
-    const messageBytes = queueMessageUtf8Bytes(outboxRow);
+    const messageBytes = queueMessageUtf8Bytes(outboxRow, opts.source);
     if (messageBytes > QUEUE_MAX_MESSAGE_BYTES) {
       throw new OutboxPayloadTooLargeError(messageBytes, QUEUE_MAX_MESSAGE_BYTES);
     }

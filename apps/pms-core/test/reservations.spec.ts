@@ -301,6 +301,48 @@ describe('PropertyDO reservations.create + availability.book', () => {
     expect(await stub.tryCreateReservation(second, await idemFor('book-cfg2', second))).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(2);
   });
+
+  it('9. invalidateAri skips archived room types — oversell stays 0 and free stays 0', async () => {
+    const name = `res-cfg-arch-${crypto.randomUUID()}`;
+    const stub = await provisionedStub(name, 'Europe/Berlin');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+
+    await stub.tryDeleteRoomType({ roomTypeId: 'rt_king' }, await idemFor('arch-cfg', { roomTypeId: 'rt_king' }));
+    expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
+
+    const activeAdded = await addRoomType(stub, 'rt_queen', 3, 'QUEEN', 'Queen Room');
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
+
+    await stub.tryPutDomainConfig(
+      'pms.availability.allow_overbooking',
+      true,
+      { actor: 'test', reason: 'oversell-arch' },
+      await idemFor('cfg-arch-over', {
+        key: 'pms.availability.allow_overbooking',
+        value: true,
+        actor: 'test',
+        reason: 'oversell-arch',
+      }),
+    );
+    await stub.tryPutDomainConfig(
+      'pms.availability.oversell_allowance',
+      2,
+      { actor: 'test', reason: 'oversell-arch' },
+      await idemFor('cfg-arch-allow', {
+        key: 'pms.availability.oversell_allowance',
+        value: 2,
+        actor: 'test',
+        reason: 'oversell-arch',
+      }),
+    );
+
+    const archivedRow = await stub.readAvailabilityDay('rt_king', arrival);
+    expect(archivedRow?.oversell).toBe(0);
+    expect(archivedRow?.free).toBe(0);
+
+    expect((await stub.readAvailabilityDay('rt_queen', activeAdded.fromDate))?.oversell).toBe(2);
+  });
 });
 
 describe('PropertyDO reservations.cancel', () => {

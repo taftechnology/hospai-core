@@ -399,18 +399,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Rematerialize ledger `oversell` from DOMAIN config on every open horizon row
-   * (`stay_date >= business_date`). Called inside `tryPutDomainConfig` when
-   * `consumers.invalidatesAri`. Bumps property ARI and emits `availability.changed`
-   * when any row is updated.
+   * (`stay_date >= business_date`) for **active** room types only — archived types
+   * keep `oversell = 0` so ledger readers see unsellable stock without joining
+   * `room_type`. Called inside `tryPutDomainConfig` when `consumers.invalidatesAri`.
    */
   private invalidateAriSync(): boolean {
     const businessDate = this.readBusinessDateSync();
     if (!businessDate) return false;
 
+    const activeOnly = `room_type_id IN (SELECT room_type_id FROM room_type WHERE status = 'active')`;
+
     const rangeRows = this.ctx.storage.sql
       .exec(
         `SELECT MIN(stay_date) AS from_date, MAX(stay_date) AS to_date, COUNT(*) AS c
-         FROM availability_day WHERE stay_date >= ?`,
+         FROM availability_day WHERE stay_date >= ? AND ${activeOnly}`,
         businessDate,
       )
       .toArray() as Array<{ from_date: string | null; to_date: string | null; c: number }>;
@@ -419,7 +421,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const ledgerOversell = this.materializedOversellAllowanceSync();
     this.ctx.storage.sql.exec(
-      `UPDATE availability_day SET oversell = ?, version = version + 1 WHERE stay_date >= ?`,
+      `UPDATE availability_day SET oversell = ?, version = version + 1
+       WHERE stay_date >= ? AND ${activeOnly}`,
       ledgerOversell,
       businessDate,
     );

@@ -10,6 +10,7 @@ import {
   OVERSELL,
   PROPERTY_ID_UNSET,
   ROOM_TYPE_EXISTS,
+  ROOM_TYPE_CODE_EXISTS,
   TIMEZONE_UNSET,
   UNBOOKABLE,
   ALREADY_CANCELLED,
@@ -98,6 +99,13 @@ class RoomTypeExistsError extends Error {
   constructor() {
     super('Room type already exists');
     this.name = 'RoomTypeExistsError';
+  }
+}
+
+class RoomTypeCodeExistsError extends Error {
+  constructor() {
+    super('Active room type code already exists');
+    this.name = 'RoomTypeCodeExistsError';
   }
 }
 
@@ -1320,9 +1328,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const exists = this.ctx.storage.sql
-            .exec(`SELECT 1 FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
-            .toArray() as Array<{ 1: number }>;
+            .exec(`SELECT room_type_id FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
+            .toArray();
           if (exists.length > 0) throw new RoomTypeExistsError();
+
+          const codeTaken = this.ctx.storage.sql
+            .exec(`SELECT room_type_id FROM room_type WHERE code = ? AND status = 'active'`, input.code)
+            .toArray();
+          if (codeTaken.length > 0) throw new RoomTypeCodeExistsError();
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
@@ -1373,6 +1386,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RoomTypeExistsError) return { ok: false, error: ROOM_TYPE_EXISTS };
+      if (e instanceof RoomTypeCodeExistsError) return { ok: false, error: ROOM_TYPE_CODE_EXISTS };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

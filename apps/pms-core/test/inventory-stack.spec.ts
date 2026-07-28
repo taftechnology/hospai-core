@@ -181,6 +181,38 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
     await setKillSwitch(env, 'pms.core', false);
   });
 
+  it('duplicate active code returns 409 with catalog error', async () => {
+    const actor = 'user_stack_dup_code';
+    const orgId = `org_dup_${crypto.randomUUID()}`;
+    const propertyId = `prop_dup_${crypto.randomUUID()}`;
+
+    expect((await postOrg(orgId, 'Dup Code Org', actor)).status).toBe(201);
+    expect((await postProperty(orgId, propertyId, actor)).status).toBe(201);
+
+    const first = await postRoomType(propertyId, actor, {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+      idempotencyKey: `idem-dup-1-${crypto.randomUUID()}`,
+    });
+    expect(first.status).toBe(201);
+
+    const second = await postRoomType(propertyId, actor, {
+      roomTypeId: 'rt_queen',
+      code: 'KING',
+      name: 'Queen Room',
+      roomCount: 8,
+      maxOccupancy: 2,
+      maxAdults: 2,
+      idempotencyKey: `idem-dup-2-${crypto.randomUUID()}`,
+    });
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ ok: false, error: 'room_type_code_exists' });
+  });
+
   it('non-member gets 404 on room-type POST', async () => {
     const owner = 'user_stack_owner';
     const stranger = 'user_stack_stranger';

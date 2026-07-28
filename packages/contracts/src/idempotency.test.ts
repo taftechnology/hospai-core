@@ -9,6 +9,7 @@ import {
   PROPERTY_ID_UNSET,
   TIMEZONE_UNSET,
   ROOM_TYPE_EXISTS,
+  ROOM_TYPE_CODE_EXISTS,
   UNBOOKABLE,
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
@@ -38,6 +39,7 @@ describe('fingerprintPayload', () => {
   it('exports inventory wire codes', () => {
     expect(TIMEZONE_UNSET).toBe('timezone_unset');
     expect(ROOM_TYPE_EXISTS).toBe('room_type_exists');
+    expect(ROOM_TYPE_CODE_EXISTS).toBe('room_type_code_exists');
     expect(OVERSELL).toBe('oversell');
     expect(ARCHIVE_BLOCKED).toBe('archive_blocked');
     expect(NOT_FOUND).toBe('not_found');

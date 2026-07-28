@@ -58,8 +58,12 @@ export {
   FREEZE_GATE_STATEMENTS,
   ROOM_TYPE_SQL,
   ROOM_TYPE_STATEMENTS,
+  ALARM_SCHEDULE_SQL,
+  ALARM_SCHEDULE_STATEMENTS,
   TYPE_WIDE_RATE_PLAN,
 } from './property-migrations.js';
+
+export { AlarmScheduler, type AlarmHandler } from './alarm-scheduler.js';
 
 export {
   ORG_MIGRATIONS,

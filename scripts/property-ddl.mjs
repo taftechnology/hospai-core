@@ -21,10 +21,11 @@ if (!mode) {
 
 let FREEZE_GATE_SQL;
 let ROOM_TYPE_SQL;
+let ALARM_SCHEDULE_SQL;
 let ORG_SPINE_SQL;
 let PLATFORM_REGISTRY_SQL;
 try {
-  ({ FREEZE_GATE_SQL, ROOM_TYPE_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
+  ({ FREEZE_GATE_SQL, ROOM_TYPE_SQL, ALARM_SCHEDULE_SQL, ORG_SPINE_SQL, PLATFORM_REGISTRY_SQL } = await import(modPath));
 } catch (e) {
   console.error(
     'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
@@ -51,6 +52,15 @@ const doPropertyTargets = [
 
 `,
     sql: ROOM_TYPE_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0003_alarm_schedule.sql'),
+    header: `-- PropertyDO alarm_schedule — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ALARM_SCHEDULE_SQL,
   },
 ];
 

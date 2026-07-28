@@ -132,6 +132,18 @@ export const ROOM_TYPE_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0002_room_type.sql */
 export const ROOM_TYPE_SQL = ROOM_TYPE_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ALARM_SCHEDULE_STATEMENTS: string[] = [
+  `CREATE TABLE alarm_schedule (
+  name TEXT PRIMARY KEY,
+  next_run_at INTEGER NOT NULL,
+  last_error TEXT,
+  updated_at INTEGER NOT NULL
+)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0003_alarm_schedule.sql */
+export const ALARM_SCHEDULE_SQL = ALARM_SCHEDULE_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -142,5 +154,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 2,
     name: 'room_type',
     statements: ROOM_TYPE_STATEMENTS,
+  },
+  {
+    version: 3,
+    name: 'alarm_schedule',
+    statements: ALARM_SCHEDULE_STATEMENTS,
   },
 ] as const;

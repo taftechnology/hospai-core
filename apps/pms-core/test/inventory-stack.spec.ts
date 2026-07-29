@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseLogLine } from '@hospai/observability';
 import type { DomainEventMessage, EventSource } from '@hospai/contracts';
 import { toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
+import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
+import type { OrgDO } from '../src/org-do.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 
@@ -233,5 +235,41 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
     });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it('staff gets 403 on room-type POST; owner succeeds', async () => {
+    const owner = 'user_rbac_owner';
+    const staff = 'user_rbac_staff';
+    const orgId = `org_rbac_${crypto.randomUUID()}`;
+    const propertyId = `prop_rbac_${crypto.randomUUID()}`;
+
+    expect((await postOrg(orgId, 'RBAC Org', owner)).status).toBe(201);
+    expect((await postProperty(orgId, propertyId, owner)).status).toBe(201);
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember(staff, 'staff');
+
+    const denied = await postRoomType(propertyId, staff, {
+      roomTypeId: 'rt_staff_try',
+      code: 'STF',
+      name: 'Staff Try',
+      roomCount: 1,
+      maxOccupancy: 2,
+      maxAdults: 2,
+      idempotencyKey: `idem-staff-${crypto.randomUUID()}`,
+    });
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: 'forbidden', permission: 'inventory:write' });
+
+    const allowed = await postRoomType(propertyId, owner, {
+      roomTypeId: 'rt_owner_ok',
+      code: 'OWN',
+      name: 'Owner OK',
+      roomCount: 2,
+      maxOccupancy: 2,
+      maxAdults: 2,
+      idempotencyKey: `idem-owner-${crypto.randomUUID()}`,
+    });
+    expect(allowed.status).toBe(201);
   });
 });

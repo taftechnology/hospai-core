@@ -1,5 +1,6 @@
 import { createClerkClient } from '@clerk/backend';
 import { resolveOrgStub } from '@hospai/tenant-router';
+import type { Permission } from '@hospai/contracts';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
 import { getOrg, getProperty } from './registry.js';
@@ -113,4 +114,21 @@ export async function requirePropertyOrgMember(
     return Response.json({ error: 'not_found' }, { status: 404 });
   }
   return requireOrgMember(env, property.orgId, userId);
+}
+
+/** Caller must have confirmed org/property exists in D1 via resolveTenant. */
+export async function requirePermission(
+  env: PmsEnv,
+  orgId: string,
+  propertyId: string | null,
+  userId: string,
+  permission: Permission,
+): Promise<Response | null> {
+  const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const result = await org.assertPermission({ userId, propertyId, permission });
+  if (result.ok) return null;
+  if (result.error === 'not_member') {
+    return Response.json({ error: 'not_found' }, { status: 404 });
+  }
+  return Response.json({ error: 'forbidden', permission }, { status: 403 });
 }

@@ -210,7 +210,7 @@ describe('Queues consumer (Phase 0)', () => {
 
   it('OrgDO migrates to schema version 3 with alarm_schedule', async () => {
     const org = await provisionedOrg(`org-migrate-${crypto.randomUUID()}`);
-    expect(await org.getSchemaVersion()).toBe(3);
+    expect(await org.getSchemaVersion()).toBe(4);
     expect(await org.getAlarmSchedule('outbox')).not.toBeNull();
   });
 });

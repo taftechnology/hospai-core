@@ -1,4 +1,5 @@
 import type { FeatureKey } from '../entitlements.js';
+import type { Permission } from '../permissions.js';
 
 export type Lane = 'INTERACTIVE' | 'BACKGROUND' | 'BULK' | 'SHELL';
 export type DegradedClass = 'READ_STALE' | 'QUEUE_PROVISIONAL' | 'FAIL_CLOSED' | 'N/A';
@@ -15,6 +16,7 @@ export type CommandEntry = {
   idempotent: boolean;
   events: string[];
   entitlement?: FeatureKey;
+  permission: Permission;
   notes?: string;
 };
 
@@ -29,8 +31,10 @@ export type PlatformGap = {
  * become a queued write (§4.6).
  */
 export const COMMAND_CATALOG: CommandEntry[] = [
-  { id: 'shell.set_role', prototypeAction: 'SET_ROLE', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [] },
-  { id: 'shell.set_property', prototypeAction: 'SET_PROPERTY', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [] },
+  { id: 'shell.set_role', prototypeAction: 'SET_ROLE', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [],
+    permission: 'shell:internal' },
+  { id: 'shell.set_property', prototypeAction: 'SET_PROPERTY', lane: 'SHELL', degraded: 'N/A', idempotent: false, events: [],
+    permission: 'shell:internal' },
   {
     id: 'reservations.create',
     prototypeAction: 'ADD_RESERVATION',
@@ -39,6 +43,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.created', 'availability.changed'],
     entitlement: 'pms.core',
+    permission: 'reservations:write',
   },
   // UPDATE_RESERVATION_STATUS split — inventory/legal transitions fail closed
   {
@@ -49,6 +54,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed'],
     notes: '§4.6 QUEUE_PROVISIONAL — check-ins commute; room conflicts → exception queue on replay.',
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.check_out',
@@ -58,6 +64,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed'],
     notes: '§4.6 QUEUE_PROVISIONAL — same admission class as check-in.',
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.cancel',
@@ -68,6 +75,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['reservation.status_changed', 'availability.changed'],
     notes: 'Inventory-affecting — must not invent stock during outage.',
     entitlement: 'pms.core',
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.no_show',
@@ -77,6 +85,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
     notes: 'Inventory-affecting — must not invent stock during outage.',
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.update_status',
@@ -86,6 +95,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed'],
     notes: 'Non-inventory status notes only (e.g. VIP flag). Check-in/out/cancel/no-show are separate.',
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.cancel_check_in',
@@ -94,6 +104,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.status_changed'],
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.assign_room',
@@ -102,6 +113,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.room_assigned'],
+    permission: 'reservations:write',
   },
   {
     id: 'reservations.modify',
@@ -111,6 +123,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.modified', 'availability.changed'],
     entitlement: 'pms.core',
+    permission: 'reservations:write',
   },
   {
     id: 'rooms.update_status',
@@ -119,6 +132,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['room.status_changed', 'availability.changed'],
+    permission: 'housekeeping:write',
   },
   {
     id: 'rooms.bulk_update_status',
@@ -127,6 +141,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['room.status_changed'],
+    permission: 'housekeeping:write',
   },
   {
     id: 'housekeeping.assign',
@@ -135,6 +150,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['housekeeping.assigned'],
+    permission: 'housekeeping:write',
   },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
@@ -146,6 +162,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['folio.line_posted'],
     notes: 'Non-payment folio lines only.',
     entitlement: 'pms.core',
+    permission: 'folio:post',
   },
   {
     id: 'folio.authorize',
@@ -155,6 +172,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['folio.payment_authorized'],
     notes: 'Payment authorization — never queue during outage (§4.6).',
+    permission: 'folio:adjust',
   },
   {
     id: 'folio.capture',
@@ -164,6 +182,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['folio.payment_captured'],
     notes: 'Payment capture — never queue during outage (§4.6).',
+    permission: 'folio:adjust',
   },
   // SPLIT_FOLIO_CHARGE split
   {
@@ -174,6 +193,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['folio.line_posted'],
     notes: 'Non-payment splits. Payment-bearing splits use folio.split_charge_payment.',
+    permission: 'folio:adjust',
   },
   {
     id: 'folio.split_charge_payment',
@@ -182,6 +202,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.line_posted'],
+    permission: 'folio:adjust',
   },
   {
     id: 'night_audit.run',
@@ -190,6 +211,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['night_audit.started', 'night_audit.completed'],
+    permission: 'night_audit:run',
   },
   {
     id: 'channels.sync',
@@ -198,6 +220,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['channel.synced'],
+    permission: 'channels:configure',
   },
   {
     id: 'channels.add',
@@ -206,6 +229,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['channel.mapping.created'],
+    permission: 'channels:configure',
   },
   {
     id: 'audit.append',
@@ -214,6 +238,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['audit.recorded'],
+    permission: 'shell:internal',
   },
   {
     id: 'guests.create',
@@ -223,6 +248,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['guest.created'],
     entitlement: 'pms.core',
+    permission: 'guests:write',
   },
   {
     id: 'guests.update',
@@ -232,6 +258,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['guest.updated'],
     entitlement: 'pms.core',
+    permission: 'guests:write',
   },
   {
     id: 'guests.erase',
@@ -242,6 +269,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['guest.erased'],
     notes: '§4.8 crypto-shred — must not queue during outage.',
     entitlement: 'pms.core',
+    permission: 'guests:erase',
   },
   {
     id: 'rates.create_plan',
@@ -250,6 +278,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    permission: 'rates:write',
   },
   {
     id: 'rates.update_plan',
@@ -258,6 +287,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    permission: 'rates:write',
   },
   {
     id: 'rates.delete_plan',
@@ -266,6 +296,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    permission: 'rates:write',
   },
   {
     id: 'rates.update_room_type_rate',
@@ -274,6 +305,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    permission: 'rates:write',
   },
   {
     id: 'rates.bulk_update',
@@ -282,6 +314,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    permission: 'rates:write',
   },
   {
     id: 'property.update_details',
@@ -290,6 +323,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['property.updated'],
+    permission: 'config:write',
   },
   {
     id: 'housekeeping.staff_add',
@@ -298,6 +332,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['staff.housekeeper_changed'],
+    permission: 'staff:write',
   },
   {
     id: 'housekeeping.staff_status',
@@ -306,6 +341,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['staff.housekeeper_changed'],
+    permission: 'staff:write',
   },
   {
     id: 'housekeeping.staff_delete',
@@ -314,6 +350,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['staff.housekeeper_changed'],
+    permission: 'staff:write',
   },
   {
     id: 'housekeeping.staff_update',
@@ -322,6 +359,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['staff.housekeeper_changed'],
+    permission: 'staff:write',
   },
   {
     id: 'inventory.add_room_type',
@@ -331,6 +369,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
     entitlement: 'pms.core',
+    permission: 'inventory:write',
   },
   {
     id: 'inventory.update_room_type',
@@ -340,6 +379,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
     entitlement: 'pms.core',
+    permission: 'inventory:write',
   },
   {
     id: 'inventory.delete_room_type',
@@ -349,6 +389,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['inventory.room_type_changed', 'availability.changed'],
     entitlement: 'pms.core',
+    permission: 'inventory:write',
   },
   {
     id: 'config.put_domain',
@@ -358,6 +399,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['config.changed'],
     entitlement: 'pms.core',
+    permission: 'inventory:configure',
     notes: 'PropertyDO tryPutDomainConfig — DOMAIN class only.',
   },
   {
@@ -368,6 +410,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['restriction.changed'],
     entitlement: 'pms.core',
+    permission: 'rates:write',
   },
   {
     id: 'rates.upsert_day',
@@ -377,6 +420,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['rate.changed'],
     entitlement: 'pms.core',
+    permission: 'rates:write',
   },
   {
     id: 'staff.add',
@@ -385,6 +429,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['staff.changed'],
+    permission: 'staff:write',
   },
   {
     id: 'staff.update',
@@ -393,6 +438,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['staff.changed'],
+    permission: 'staff:write',
   },
   {
     id: 'staff.delete',
@@ -401,6 +447,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['staff.changed'],
+    permission: 'staff:write',
   },
   {
     id: 'reservations.update_extras',
@@ -409,6 +456,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.modified'],
+    permission: 'reservations:write',
   },
 ];
 
@@ -459,6 +507,15 @@ export const PROTOTYPE_ACTIONS = [
 export function getCommand(id: string): CommandEntry {
   const entry = COMMAND_CATALOG.find((c) => c.id === id);
   if (!entry) throw new Error(`Unknown command: ${id}`);
+  return entry;
+}
+
+export const COMMAND_BY_ID = new Map(COMMAND_CATALOG.map((entry) => [entry.id, entry]));
+
+/** Throws at module load when route registry references an unknown command id. */
+export function requireCatalogEntry(commandId: string): CommandEntry {
+  const entry = COMMAND_BY_ID.get(commandId);
+  if (!entry) throw new Error(`Unknown commandId in route registry: ${commandId}`);
   return entry;
 }
 

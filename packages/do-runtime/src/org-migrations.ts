@@ -70,6 +70,19 @@ export const ORG_GUEST_PII_SQL = [...ORG_OUTBOX_IDEMPOTENCY_STATEMENTS, ...GUEST
 export { ALARM_SCHEDULE_STATEMENTS };
 export const ORG_ALARM_SCHEDULE_SQL = ALARM_SCHEDULE_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ORG_PROPERTY_MEMBER_STATEMENTS: string[] = [
+  `CREATE TABLE property_member (
+  user_id     TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user_id, property_id),
+  CHECK (role IN ('owner', 'admin', 'staff'))
+)`,
+];
+
+export const ORG_PROPERTY_MEMBER_SQL = ORG_PROPERTY_MEMBER_STATEMENTS.join(';\n\n') + ';\n';
+
 /** Never DROP/rebuild `data_key` while `guest.pii_key_id` FK references it — DO storage enforces FKs.
  *  Shred destroys material via in-place UPDATE (`wrapped_key = x''`), not table rebuild. */
 
@@ -88,5 +101,10 @@ export const ORG_MIGRATIONS = [
     version: 3,
     name: '0003_alarm_schedule',
     statements: ALARM_SCHEDULE_STATEMENTS,
+  },
+  {
+    version: 4,
+    name: '0004_property_member',
+    statements: ORG_PROPERTY_MEMBER_STATEMENTS,
   },
 ] as const;

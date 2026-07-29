@@ -5,8 +5,13 @@ import {
   IDEM_KEY_REUSED,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
+  ROLE_GRANTS,
+  isOrgScopedPermission,
+  isPropertyScopedPermission,
   type EventSource,
   type IdempotencyKey,
+  type OrgRole,
+  type Permission,
 } from '@hospai/contracts';
 import {
   ORG_MIGRATIONS,
@@ -265,12 +270,62 @@ export class OrgDO extends DurableObject<PmsEnv> {
     );
   }
 
-  async getMemberRole(userId: string): Promise<'owner' | 'admin' | 'staff' | null> {
+  async getMemberRole(userId: string): Promise<OrgRole | null> {
     const row = this.ctx.storage.sql
       .exec(`SELECT role FROM member WHERE user_id = ?`, userId)
       .toArray()[0] as { role: string } | undefined;
     if (!row) return null;
-    return row.role as 'owner' | 'admin' | 'staff';
+    return row.role as OrgRole;
+  }
+
+  async getEffectiveRole(userId: string, propertyId: string | null): Promise<OrgRole | null> {
+    const orgRole = await this.getMemberRole(userId);
+    if (!orgRole) return null;
+    if (!propertyId) return orgRole;
+
+    const row = this.ctx.storage.sql
+      .exec(`SELECT role FROM property_member WHERE user_id = ? AND property_id = ?`, userId, propertyId)
+      .toArray()[0] as { role: string } | undefined;
+    return (row?.role as OrgRole | undefined) ?? orgRole;
+  }
+
+  async assertPermission(input: {
+    userId: string;
+    propertyId: string | null;
+    permission: Permission;
+  }): Promise<
+    | { ok: true; role: OrgRole }
+    | { ok: false; error: 'not_member' | 'forbidden' | 'scope_mismatch' }
+  > {
+    if (isOrgScopedPermission(input.permission) && input.propertyId !== null) {
+      return { ok: false, error: 'scope_mismatch' };
+    }
+    if (isPropertyScopedPermission(input.permission) && input.propertyId === null) {
+      return { ok: false, error: 'scope_mismatch' };
+    }
+
+    const role = await this.getEffectiveRole(input.userId, input.propertyId);
+    if (!role) return { ok: false, error: 'not_member' };
+    if (!ROLE_GRANTS[role].includes(input.permission)) {
+      return { ok: false, error: 'forbidden' };
+    }
+    return { ok: true, role };
+  }
+
+  async upsertPropertyMember(
+    userId: string,
+    propertyId: string,
+    role: OrgRole,
+  ): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_member (user_id, property_id, role, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, property_id) DO UPDATE SET role = excluded.role`,
+      userId,
+      propertyId,
+      role,
+      Date.now(),
+    );
   }
 
   async upsertPropertyRef(input: {

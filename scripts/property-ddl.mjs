@@ -29,6 +29,7 @@ let RESERVATION_V7_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
+let ORG_PROPERTY_MEMBER_SQL;
 let PLATFORM_REGISTRY_SQL;
 let PLATFORM_ENTITLEMENT_SQL;
 let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -44,6 +45,7 @@ try {
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
+    ORG_PROPERTY_MEMBER_SQL,
     PLATFORM_REGISTRY_SQL,
     PLATFORM_ENTITLEMENT_SQL,
     PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -150,6 +152,15 @@ const targets = [
 
 `,
     sql: ORG_ALARM_SCHEDULE_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0004_property_member.sql'),
+    header: `-- OrgDO property_member — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_PROPERTY_MEMBER_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

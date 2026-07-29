@@ -73,6 +73,9 @@ describe('no-non-cloneable-boundary-types', () => {
     expect(lintTypes(`export type Handler = () => void;`, moduleFile)).toEqual([
       expect.objectContaining({ messageId: 'hardNonCloneable' }),
     ]);
+    expect(lintTypes(`export type E = { s: symbol };`, moduleFile)).toEqual([
+      expect.objectContaining({ messageId: 'hardNonCloneable', data: expect.objectContaining({ typeName: 'symbol' }) }),
+    ]);
   });
 
   it('allows DO RPC callbacks and Date; flags WeakMap and denylisted classes', () => {
@@ -99,6 +102,12 @@ describe('no-non-cloneable-boundary-types', () => {
       lintTypes(`export class PropertyDO { async bad(vault: PiiVault): Promise<void> {} }`, doFile),
     ).toEqual([
       expect.objectContaining({ messageId: 'classType', data: expect.objectContaining({ typeName: 'PiiVault' }) }),
+    ]);
+
+    expect(
+      lintTypes(`export class PropertyDO { async bad(s: symbol): Promise<void> {} }`, doFile),
+    ).toEqual([
+      expect.objectContaining({ messageId: 'hardNonCloneable', data: expect.objectContaining({ typeName: 'symbol' }) }),
     ]);
   });
 });

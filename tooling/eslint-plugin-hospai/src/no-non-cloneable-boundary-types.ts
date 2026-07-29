@@ -154,6 +154,13 @@ function walkType(
       }
       break;
     }
+    case 'TSSymbolKeyword':
+      report({
+        node,
+        messageId: 'hardNonCloneable',
+        data: { typeName: 'symbol', surface, contract: contractFor(surface) },
+      });
+      break;
     default:
       break;
   }

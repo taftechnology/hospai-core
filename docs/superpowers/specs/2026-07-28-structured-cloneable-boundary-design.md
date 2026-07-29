@@ -53,8 +53,8 @@ return stub.flushOutbox(async (batch) => { … });
 
 ### 1. Hard failures
 
-- **Module exports:** `Function`, `WeakMap`, `WeakSet`, `Symbol`, `Proxy` — direct `TSTypeReference` / `TSTypeQuery` name match; plus **`TSFunctionType`** in exported type positions (callbacks in DTOs).
-- **DO RPC:** `WeakMap`, `WeakSet`, `Symbol`, `Proxy` only — **not** `Function`, **not** `TSFunctionType` on parameters/returns.
+- **Module exports:** `Function`, `WeakMap`, `WeakSet`, `Symbol`, `Proxy`, and **`symbol`** (`TSSymbolKeyword`) — direct `TSTypeReference` / `TSTypeQuery` name match for the PascalCase forms; plus **`TSFunctionType`** in exported type positions (callbacks in DTOs).
+- **DO RPC:** `WeakMap`, `WeakSet`, `Symbol`, `Proxy`, and **`symbol`** — **not** `Function`, **not** `TSFunctionType` on parameters/returns.
 
 ### 2. Silent corruption — class prototype loss
 

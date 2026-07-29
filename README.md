@@ -1,30 +1,48 @@
 # HospAI Core
 
-Cloudflare-native multi-tenant PMS platform. Architecture: [ARCHITECTURE.md](ARCHITECTURE.md).
+Multi-tenant property management on Cloudflare: one **Durable Object per property** holds inventory, reservations, and folio state; Platform D1 holds the tenant registry and entitlement plane; domain logic lives in typed packages and `modules/pms/*` barrels consumed by the **`apps/pms-core`** Worker. The full model is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Phase 0
+**Status:** Phase 0 complete ([ARCHITECTURE.md §14](ARCHITECTURE.md#14-build-order)); Phase 1 (sellable PMS) in progress.
 
-Schema-freeze, tenancy spine, §10.1 idempotency × outbox, **`pms.inventory`**, the **night audit spine**, the full **`reservations` create/cancel/modify spine**, **`restrictions.upsert_day`**, **`rates.upsert_day`**, and **guests + crypto-shredding** (OrgDO encrypted PII, reservation `guest_ref`, §4.8 event contract) — are done.
-
-### Next (blocks bookable product)
-
-Ledger, restrictions, rates, and guest PII are proven at the DO layer; a sellable product still needs:
-
-- **Rate plan derivation graph** (OrgDO definitions → materialized `rate_day` workflow)
-- Queues `EVENTS_QUEUE` consumer path (in-DO `flushOutbox` exists; nothing drains it in production yet)
-- Real night-audit step bodies, clear-halt, folio domain
-- LaneGuard enforcement on catalog lanes
+## Get productive
 
 ```bash
 pnpm install
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm lint
-pnpm check:ddl
+pnpm test          # primary loop — vitest-pool-workers, isolated DO storage
 ```
 
-### Local-only unsafe flags
+There is no polished local HTTP workflow yet. Integration is proven in the test suite (`apps/pms-core/test/`). To hit the Worker over HTTP locally, copy [`.dev.vars.example`](apps/pms-core/.dev.vars.example) → `apps/pms-core/.dev.vars`, then `pnpm --filter @hospai/pms-core dev` and use the curls below.
+
+**CI runs these in order** (run them before pushing):
+
+| Command | What it guards |
+|---|---|
+| `pnpm build` | TypeScript compile across the monorepo |
+| `pnpm check:ddl` | Generated PropertyDO migrations match `packages/do-runtime` (edit source, then `pnpm generate:ddl`) |
+| `pnpm check:entitlements` | Catalog + D1 seed feature keys stay inside the closed `FEATURE_KEYS` union |
+| `pnpm check:class-denylist` | Every `export class` in the repo is listed for boundary lint |
+| `pnpm typecheck` | Project references / types |
+| `pnpm test` | Behaviour (275+ tests) |
+| `pnpm lint` | ESLint including `eslint-plugin-hospai` |
+
+## PR invariants (merge-blocking)
+
+These fail in CI with little context unless you know they exist:
+
+- **Seven §11 lint rules** (`tooling/eslint-plugin-hospai`) — tenant-router isolation, no DOMAIN config from KV, no entitlement client in `domain/`, no platform imports in `domain/`, bookability must not import reservation modules, PMS must not import add-ons, boundary types must be serializable on module exports / Workers-RPC-safe on DO signatures. See [ARCHITECTURE.md §11](ARCHITECTURE.md#11-repo-layout).
+- **`check:ddl`** — drift between `@hospai/do-runtime` migration source and committed SQL under `migrations/`.
+- **`check:entitlements`** — FAIL_CLOSED commands carry an entitlement; `FeatureKey` must not collapse to `| string`.
+- **`check:class-denylist`** — new `export class` without updating the plugin denylist.
+- **Schema-freeze gate** — four PropertyDO shapes (DOMAIN config register, `availability_day`, `restriction_day`, folio windows) are settled; see [ARCHITECTURE.md §14](ARCHITECTURE.md#phase-0--foundation-the-parts-you-cannot-retrofit).
+
+## Where design lives
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — storage topology, DO boundaries, build phases, lint rules.
+- **[docs/superpowers/specs/](docs/superpowers/specs/)** — decision records for each slice (auth, entitlements, queues, LaneGuard, inventory stack seam, cloneability lint, etc.). Read these when the code looks arbitrary; the argument is usually there.
+
+Workspace layout: [`pnpm-workspace.yaml`](pnpm-workspace.yaml) (`apps/*`, `packages/*`, `modules/pms/*`, `tooling/*`).
+
+## Local-only unsafe flags
 
 Copy [`apps/pms-core/.dev.vars.example`](apps/pms-core/.dev.vars.example) to `apps/pms-core/.dev.vars` (gitignored).
 
@@ -32,27 +50,28 @@ Copy [`apps/pms-core/.dev.vars.example`](apps/pms-core/.dev.vars.example) to `ap
 |-----|---------|
 | `HOSPAI_UNSAFE_LOCAL=1` | Required marker before any dangerous flag is honored |
 | `HOSPAI_JURISDICTION_MODE=simulate` | workerd lacks DO jurisdiction; prefixes `eu::prop_…` |
-| `HOSPAI_ALLOW_DEV_ACTOR=1` | Allow `X-Dev-Actor` header for `/v1/*` |
+| `HOSPAI_ALLOW_DEV_ACTOR=1` | Allow `X-Dev-Actor` for `/v1/*` in local dev |
 
-**These must never appear in top-level `wrangler.jsonc` `vars`.** A deploy that sets simulate or ALLOW_DEV_ACTOR without `HOSPAI_UNSAFE_LOCAL=1` gets HTTP 500 on every request.
+**Never put these in top-level `wrangler.jsonc` `vars`.** Without `HOSPAI_UNSAFE_LOCAL=1`, simulate or `ALLOW_DEV_ACTOR` yields HTTP 500 on every request.
 
-Dev actor auth is a stand-in until Clerk. All `/v1/*` routes (including reads) require the actor header when the flags are enabled.
+Production auth uses **Clerk** (`Authorization: Bearer …`). With the flags above, local dev accepts **`X-Dev-Actor: user_…`** instead. Org membership is always enforced in OrgDO — not Clerk Organizations.
 
-Example:
+### HTTP bootstrap (local dev)
+
+Order matters: create the org first, then provision. `currency` is required on provision.
 
 ```bash
-curl -X POST http://localhost:8787/v1/orgs/org_1/properties \
+# 1 — org (insert-only; 409 if orgId already exists)
+curl -sS -X POST http://localhost:8787/v1/orgs \
   -H 'content-type: application/json' \
   -H 'x-dev-actor: user_dev' \
-  -d '{"propertyId":"prop_1","name":"Demo","jurisdiction":null,"timeZone":"America/New_York"}'
+  -d '{"orgId":"org_demo","name":"Demo Org"}'
+
+# 2 — property (404 if org missing; 400 without currency)
+curl -sS -X POST http://localhost:8787/v1/orgs/org_demo/properties \
+  -H 'content-type: application/json' \
+  -H 'x-dev-actor: user_dev' \
+  -d '{"propertyId":"prop_demo","name":"Demo Hotel","timeZone":"America/New_York","currency":"USD"}'
 ```
 
-## Packages
-
-| Package | Role |
-|---------|------|
-| `@hospai/contracts` | Config register, command catalog, tenancy types |
-| `@hospai/kernel` | Config write validation |
-| `@hospai/do-runtime` | SQL migrate runner + Property/Org/Platform D1 migrations |
-| `@hospai/tenant-router` | Only caller of `idFromName` / `getByName` |
-| `@hospai/pms-core` | PropertyDO, OrgDO, Platform D1 registry, provision HTTP |
+Both should return **201** when `.dev.vars` is configured and `wrangler dev` is running.

@@ -8,7 +8,8 @@ import { NightAuditWorkflow } from '../src/night-audit-workflow';
 import { provisionProperty, resolvePropertyFromRegistry } from '../src/provision';
 import { ensurePlatformSchema } from '../src/registry';
 import type { NightAuditWorkflowParams, PmsEnv } from '../src/env';
-import { idemFor, provisionedPropertyStub, propertyStub } from './fixtures';
+import { idemFor, provisionedPropertyStub, propertyStub, TEST_OWNER_ACTOR } from './fixtures';
+
 
 /**
  * Synchronous stand-in for the Workflows engine: runs each `step.do` callback inline,
@@ -62,7 +63,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-catchup', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-catchup', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -104,7 +106,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-rolls', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-rolls', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
     expect(await stub.countAvailabilityDays('rt_king')).toBe(HORIZON_DAYS);
@@ -141,7 +144,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-current', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-current', addInput));
+
     expect(added.ok).toBe(true);
 
     const businessDateBefore = await stub.readBusinessDate();
@@ -169,12 +173,13 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archived', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-archived', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
     const deleteInput = { roomTypeId: 'rt_king' };
-    const archived = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-for-na', deleteInput));
+    const archived = await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, deleteInput, await idemFor('archive-for-na', deleteInput));
+
     expect(archived.ok).toBe(true);
     expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
 
@@ -220,7 +225,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-steps', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-steps', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
     await stub.flushOutbox();
@@ -384,7 +390,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    expect((await stub.tryAddRoomType(addInput, await idemFor('add-wf', addInput))).ok).toBe(true);
+    expect((await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-wf', addInput))).ok).toBe(true);
+
 
     // Put the property one day behind so ROLL_BUSINESS_DATE has real work to do.
     const originalBusinessDate = (await stub.readBusinessDate())!;
@@ -424,7 +431,8 @@ describe('PropertyDO night audit', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    expect((await stub.tryAddRoomType(addInput, await idemFor('add-rollback', addInput))).ok).toBe(true);
+    expect((await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-rollback', addInput))).ok).toBe(true);
+
 
     const originalBusinessDate = (await stub.readBusinessDate())!;
     const behindDate = subtractDays(originalBusinessDate, 1);

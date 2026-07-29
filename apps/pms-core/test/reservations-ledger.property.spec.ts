@@ -4,7 +4,8 @@ import { fingerprintPayload } from '@hospai/contracts';
 import { HORIZON_DAYS } from '@hospai/pms-inventory';
 import { enumerateStayDates } from '@hospai/pms-reservations';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub } from './fixtures';
+import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -73,7 +74,8 @@ describe('PropertyDO sold ledger property tests', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-prop', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-prop', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 

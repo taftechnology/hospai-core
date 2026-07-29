@@ -15,7 +15,8 @@ import {
   tryDeleteSubscription,
   trySetSubscriptionStatus,
 } from '../src/registry';
-import { idemFor, propertyStub, provisionedPropertyStub } from './guest-helpers';
+import { idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -42,7 +43,8 @@ describe('entitlements + kill-switch', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    expect(await stub.tryAddRoomType(addInput, await idemFor('add-unent', addInput))).toEqual({
+    expect(await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-unent', addInput))).toEqual({
+
       ok: false,
       error: ENTITLEMENT_REQUIRED,
     });

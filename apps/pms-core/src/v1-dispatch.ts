@@ -1,7 +1,9 @@
 import type { FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
 import {
+  ARCHIVE_BLOCKED,
   IDEM_KEY_REUSED,
   InvalidTenantIdError,
+  OVERSELL,
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
   fingerprintPayload,
@@ -9,6 +11,7 @@ import {
   validateTenantId,
   type Permission,
 } from '@hospai/contracts';
+
 import {
   checkKillSwitch,
   EntitlementRequiredError,
@@ -264,6 +267,7 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   if (!resolved) return json({ error: 'not_found' }, 404);
 
   const result = await resolved.stub.tryAddRoomType(
+    { kind: 'user', userId: ctx.actor.userId },
     {
       roomTypeId: body.roomTypeId,
       code: body.code,
@@ -276,9 +280,106 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   );
 
   if (!result.ok) {
+    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
   }
   return json(result, 201);
+}
+
+async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomTypeId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    code?: string;
+    name?: string;
+    roomCount?: number;
+    maxOccupancy?: number;
+    maxAdults?: number;
+    idempotencyKey: string;
+  };
+  if (!body || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const property = await getProperty(ctx.env, propertyId);
+  if (!property) return json({ error: 'not_found' }, 404);
+  ctx.observability.orgId = property.orgId;
+
+  const payload: Record<string, unknown> = { roomTypeId };
+  if (body.code !== undefined) payload.code = body.code;
+  if (body.name !== undefined) payload.name = body.name;
+  if (body.roomCount !== undefined) payload.roomCount = body.roomCount;
+  if (body.maxOccupancy !== undefined) payload.maxOccupancy = body.maxOccupancy;
+  if (body.maxAdults !== undefined) payload.maxAdults = body.maxAdults;
+
+  const fingerprint = await fingerprintPayload(payload);
+
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) return json({ error: 'not_found' }, 404);
+
+  const result = await resolved.stub.tryUpdateRoomType(
+    { kind: 'user', userId: ctx.actor.userId },
+    {
+      roomTypeId,
+      code: body.code,
+      name: body.name,
+      roomCount: body.roomCount,
+      maxOccupancy: body.maxOccupancy,
+      maxAdults: body.maxAdults,
+    },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    if (result.error === 'room_type_not_found') return json({ error: 'not_found' }, 404);
+    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === OVERSELL) {
+      return json({ ok: false, error: result.error, dates: result.dates }, 409);
+    }
+    return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
+  }
+  return json(result, 200);
+}
+
+async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomTypeId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey =
+    ctx.request.headers.get('x-idempotency-key') ??
+    ctx.url.searchParams.get('idempotencyKey') ??
+    `del-${roomTypeId}-${Date.now()}`;
+
+  const property = await getProperty(ctx.env, propertyId);
+  if (!property) return json({ error: 'not_found' }, 404);
+  ctx.observability.orgId = property.orgId;
+
+  const fingerprint = await fingerprintPayload({ roomTypeId });
+
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) return json({ error: 'not_found' }, 404);
+
+  const result = await resolved.stub.tryDeleteRoomType(
+    { kind: 'user', userId: ctx.actor.userId },
+    { roomTypeId },
+    { key: idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    if (result.error === 'room_type_not_found') return json({ error: 'not_found' }, 404);
+    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === ARCHIVE_BLOCKED) {
+      return json({ ok: false, error: result.error }, 409);
+    }
+    return json({ ok: false, error: result.error }, 422);
+  }
+  return json(result, 200);
 }
 
 export const V1_ROUTES: V1RouteDef[] = [
@@ -331,7 +432,24 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'inventory.add_room_type',
     handler: handlePostRoomTypes,
   },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)$/,
+    permission: 'inventory:write',
+    commandId: 'inventory.update_room_type',
+    handler: handlePutRoomType,
+  },
+  {
+    scope: 'property',
+    method: 'DELETE',
+    pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)$/,
+    permission: 'inventory:write',
+    commandId: 'inventory.delete_room_type',
+    handler: handleDeleteRoomType,
+  },
 ];
+
 
 for (const route of V1_ROUTES) {
   if ('commandId' in route && route.commandId) {

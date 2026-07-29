@@ -2,6 +2,19 @@
 export const PLATFORM_ONLY_PERMISSIONS = ['shell:internal'] as const;
 export type PlatformOnlyPermission = (typeof PLATFORM_ONLY_PERMISSIONS)[number];
 
+export type UserActor = {
+  kind: 'user';
+  userId: string;
+};
+
+export type SystemActor = {
+  kind: 'system';
+  reason: 'night_audit' | 'migration_sweep' | 'queue_replay';
+};
+
+export type ActorContext = UserActor | SystemActor;
+
+
 /** Org-scoped — assertPermission rejects when propertyId != null. */
 export const ORG_SCOPED_PERMISSIONS = [
   'org:read',

@@ -3,12 +3,15 @@ import { idemFor, provisionedOrg } from './fixtures.js';
 
 export {
   DEFAULT_TEST_ORG,
+  TEST_OWNER_ACTOR,
+  TEST_SYSTEM_ACTOR,
   orgStub,
   propertyStub,
   idemFor,
   provisionedOrg,
   provisionedPropertyStub,
 } from './fixtures.js';
+
 
 export type GuestRefs = { guestRef: string; piiKeyId: string };
 

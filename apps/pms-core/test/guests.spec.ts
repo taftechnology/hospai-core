@@ -2,7 +2,8 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, GUEST_ALREADY_ERASED, GUEST_NOT_FOUND } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
-import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub } from './guest-helpers';
+import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+
 
 async function provisionedProperty(name: string, orgId: string): Promise<DurableObjectStub<PropertyDO>> {
   return provisionedPropertyStub(name, 'UTC', 'USD', orgId);
@@ -122,7 +123,8 @@ describe('PropertyDO reservation.created PII contract', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor(`add-${name}`, addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor(`add-${name}`, addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 

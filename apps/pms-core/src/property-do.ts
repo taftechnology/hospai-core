@@ -24,11 +24,19 @@ import {
   LEDGER_AMOUNT_MISMATCH,
   MONEY_INVALID,
   CURRENCY_UNSET,
+  FORBIDDEN,
+  ROLE_GRANTS,
   fingerprintPayload,
+  type ActorContext,
   type EventSource,
   type IdempotencyKey,
+  type Permission,
 } from '@hospai/contracts';
+import { PermissionDoCache } from './auth.js';
+import { resolveOrgStub } from '@hospai/tenant-router';
+import type { OrgDO } from './org-do.js';
 import {
+
   PROPERTY_MIGRATIONS,
   appendOutbox,
   ackOutboxThrough as ackOutboxThroughSql,
@@ -307,6 +315,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
   private readonly entitlementCache = new EntitlementDoCache();
+  private readonly permissionCache = new PermissionDoCache();
+
 
   /**
    * Set only by `setRollFailureForTest`. When non-null, `runRollStepSync` throws
@@ -416,6 +426,26 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!result.ok) return result;
     return null;
   }
+
+  private async gatePermission(
+    actor: ActorContext,
+    permission: Permission,
+  ): Promise<{ ok: false; error: typeof FORBIDDEN | 'not_member' } | null> {
+    if (actor.kind === 'system') return null;
+
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: FORBIDDEN };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: FORBIDDEN };
+
+    const role = await this.permissionCache.getEffectiveRole(this.env, orgId, propertyId, actor.userId);
+    if (!role) return { ok: false, error: 'not_member' };
+    if (!ROLE_GRANTS[role].includes(permission)) {
+      return { ok: false, error: FORBIDDEN };
+    }
+    return null;
+  }
+
 
   async getPropertyId(): Promise<string | null> {
     return this.getPropertyIdSync();
@@ -1294,6 +1324,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint allowlist: `{ roomTypeId, code, name, roomCount, maxOccupancy, maxAdults }`.
    */
   async tryAddRoomType(
+    actor: ActorContext,
     input: {
       roomTypeId: string;
       code: string;
@@ -1323,6 +1354,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
     const businessDate = this.readBusinessDateSync();
     if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -1397,6 +1432,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint allowlist: `{ roomTypeId, code?, name?, roomCount?, maxOccupancy?, maxAdults? }`.
    */
   async tryUpdateRoomType(
+    actor: ActorContext,
     input: {
       roomTypeId: string;
       code?: string;
@@ -1421,6 +1457,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -1544,6 +1584,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint allowlist: `{ roomTypeId }`.
    */
   async tryDeleteRoomType(
+    actor: ActorContext,
     input: { roomTypeId: string },
     idem: IdempotencyKey,
   ): Promise<
@@ -1561,6 +1602,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
 
     try {
       return this.ctx.storage.transactionSync(() =>

@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, RESTRICTION_VIOLATED, RATE_MISSING } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub } from './fixtures';
+import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -25,7 +26,8 @@ describe('PropertyDO restrictions + rates', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-r', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-r', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -73,7 +75,8 @@ describe('PropertyDO restrictions + rates', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-rate', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-rate', addInput));
+
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 

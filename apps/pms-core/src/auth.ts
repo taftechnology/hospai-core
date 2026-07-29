@@ -1,6 +1,7 @@
 import { createClerkClient } from '@clerk/backend';
 import { resolveOrgStub } from '@hospai/tenant-router';
-import type { Permission } from '@hospai/contracts';
+import type { Permission, OrgRole } from '@hospai/contracts';
+
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
 import { getOrg, getProperty } from './registry.js';
@@ -132,3 +133,36 @@ export async function requirePermission(
   }
   return Response.json({ error: 'forbidden', permission }, { status: 403 });
 }
+
+/** In-DO cache for role/permission assertions — avoids per-command RPC hops to OrgDO. */
+export class PermissionDoCache {
+  private cache = new Map<string, { role: OrgRole; cachedAt: number }>();
+  static readonly MAX_AGE_MS = 60_000;
+
+  invalidate(): void {
+    this.cache.clear();
+  }
+
+  async getEffectiveRole(
+    env: PmsEnv,
+    orgId: string,
+    propertyId: string,
+    userId: string,
+  ): Promise<OrgRole | null> {
+    const key = `${userId}:${propertyId}`;
+    const now = Date.now();
+    const entry = this.cache.get(key);
+    if (entry && now - entry.cachedAt < PermissionDoCache.MAX_AGE_MS) {
+      return entry.role;
+    }
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    const res = await org.assertPermission({ userId, propertyId, permission: 'property:read' });
+    if (!res.ok) {
+      this.cache.delete(key);
+      return null;
+    }
+    this.cache.set(key, { role: res.role, cachedAt: now });
+    return res.role;
+  }
+}
+

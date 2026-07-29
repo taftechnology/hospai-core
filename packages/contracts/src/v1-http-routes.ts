@@ -20,4 +20,17 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'inventory:write',
     commandId: 'inventory.add_room_type',
   },
+  {
+    id: 'put_room_type',
+    scope: 'property',
+    permission: 'inventory:write',
+    commandId: 'inventory.update_room_type',
+  },
+  {
+    id: 'delete_room_type',
+    scope: 'property',
+    permission: 'inventory:write',
+    commandId: 'inventory.delete_room_type',
+  },
 ];
+

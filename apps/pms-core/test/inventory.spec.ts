@@ -11,7 +11,8 @@ import {
 } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, propertyStub, ensureEntitledMeta } from './fixtures';
+import { idemFor, provisionedPropertyStub, propertyStub, ensureEntitledMeta, TEST_OWNER_ACTOR } from './fixtures';
+
 
 describe('PropertyDO inventory commands', () => {
   it('1. add room type without a stored timezone rejects with timezone_unset', async () => {
@@ -25,7 +26,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(input, await idemFor('add-no-tz', input));
+    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-no-tz', input));
     expect(result).toEqual({ ok: false, error: TIMEZONE_UNSET });
   });
 
@@ -44,20 +45,20 @@ describe('PropertyDO inventory commands', () => {
     };
     const idem = await idemFor('add-no-tz-replay-fixed', input);
 
-    const first = await stub.tryAddRoomType(input, idem);
+    const first = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, idem);
     expect(first).toEqual({ ok: false, error: TIMEZONE_UNSET });
 
     // Provision the timezone only, then replay the *same* idempotency key.
     const fingerprint = await fingerprintPayload({ propertyId: name, timeZone: 'Europe/Berlin' });
     await stub.ensureTimeZoneIfAbsent('Europe/Berlin', { key: `provision:timezone:${name}`, fingerprint });
 
-    const second = await stub.tryAddRoomType(input, idem);
+    const second = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, idem);
     expect(second).toEqual({ ok: false, error: BUSINESS_DATE_UNSET });
 
     // Provision the business_date, then replay the same idempotency key again.
     await stub.ensureBusinessDateIfAbsent('Europe/Berlin', new Date());
 
-    const third = await stub.tryAddRoomType(input, idem);
+    const third = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, idem);
     expect(third.ok).toBe(true);
     expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
   });
@@ -77,7 +78,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(input, await idemFor('add-no-pid', input));
+    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-no-pid', input));
     expect(result).toEqual({ ok: false, error: PROPERTY_ID_UNSET });
   });
 
@@ -94,7 +95,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(input, await idemFor('add-berlin', input));
+    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-berlin', input));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.ariVersion).toBe(1);
@@ -131,7 +132,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(input, await idemFor('add-no-bd', input));
+    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-no-bd', input));
     expect(result).toEqual({ ok: false, error: BUSINESS_DATE_UNSET });
     expect(await stub.countAvailabilityDays('rt_king')).toBe(0);
   });
@@ -149,9 +150,10 @@ describe('PropertyDO inventory commands', () => {
     };
     const idem = await idemFor('add-replay-fixed', input);
 
-    const first = await stub.tryAddRoomType(input, idem);
+    const first = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, idem);
     expect(first.ok).toBe(true);
-    const second = await stub.tryAddRoomType(input, idem);
+    const second = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, idem);
+
     expect(second).toEqual(first);
 
     expect(await stub.countAvailabilityDays('rt_king')).toBe(365);
@@ -172,7 +174,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-oversell', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-oversell', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -185,7 +187,7 @@ describe('PropertyDO inventory commands', () => {
     });
 
     const updateInput = { roomTypeId: 'rt_king', roomCount: 5 };
-    const updated = await stub.tryUpdateRoomType(updateInput, await idemFor('update-oversell', updateInput));
+    const updated = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, await idemFor('update-oversell', updateInput));
     expect(updated).toEqual({ ok: false, error: OVERSELL, dates: [added.fromDate] });
 
     // Ledger row must be unchanged (still physical = 10).
@@ -204,7 +206,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-update-ok', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-update-ok', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -218,7 +220,7 @@ describe('PropertyDO inventory commands', () => {
     const beforeCount = await stub.countAvailabilityDays('rt_king');
 
     const updateInput = { roomTypeId: 'rt_king', roomCount: 7 };
-    const updated = await stub.tryUpdateRoomType(updateInput, await idemFor('update-ok', updateInput));
+    const updated = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, await idemFor('update-ok', updateInput));
     expect(updated.ok).toBe(true);
     if (!updated.ok) return;
     expect(updated.fromDate).toBe(added.fromDate);
@@ -252,7 +254,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-blocked', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-archive-blocked', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -264,7 +266,7 @@ describe('PropertyDO inventory commands', () => {
     });
 
     const deleteInput = { roomTypeId: 'rt_king' };
-    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-blocked', deleteInput));
+    const result = await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, deleteInput, await idemFor('archive-blocked', deleteInput));
     expect(result).toEqual({ ok: false, error: ARCHIVE_BLOCKED });
     expect(await stub.getRoomTypeStatus('rt_king')).toBe('active');
   });
@@ -280,7 +282,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-clean', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-archive-clean', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -291,7 +293,7 @@ describe('PropertyDO inventory commands', () => {
     });
 
     const deleteInput = { roomTypeId: 'rt_king' };
-    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-clean', deleteInput));
+    const result = await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, deleteInput, await idemFor('archive-clean', deleteInput));
     expect(result.ok).toBe(true);
 
     expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
@@ -321,7 +323,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-archive-empty', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-archive-empty', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -333,7 +335,7 @@ describe('PropertyDO inventory commands', () => {
     expect(await stub.countAvailabilityDays('rt_king')).toBe(0);
 
     const deleteInput = { roomTypeId: 'rt_king' };
-    const result = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-empty', deleteInput));
+    const result = await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, deleteInput, await idemFor('archive-empty', deleteInput));
     expect(result).toEqual({ ok: true, roomTypeId: 'rt_king', ariVersion: ariBefore });
 
     expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
@@ -347,7 +349,7 @@ describe('PropertyDO inventory commands', () => {
     const updateInput = { roomTypeId: 'rt_ghost', roomCount: 5 };
     const idem = await idemFor('update-not-found-fixed', updateInput);
 
-    const first = await stub.tryUpdateRoomType(updateInput, idem);
+    const first = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, idem);
     expect(first).toEqual({ ok: false, error: NOT_FOUND });
 
     const addInput = {
@@ -358,10 +360,10 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-ghost', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-ghost', addInput));
     expect(added.ok).toBe(true);
 
-    const second = await stub.tryUpdateRoomType(updateInput, idem);
+    const second = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, idem);
     expect(second.ok).toBe(true);
   });
 
@@ -376,7 +378,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-oversell-replay', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-oversell-replay', addInput));
     expect(added.ok).toBe(true);
     if (!added.ok) return;
 
@@ -389,7 +391,7 @@ describe('PropertyDO inventory commands', () => {
 
     const updateInput = { roomTypeId: 'rt_king', roomCount: 5 };
     const idem = await idemFor('update-oversell-replay-fixed', updateInput);
-    const first = await stub.tryUpdateRoomType(updateInput, idem);
+    const first = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, idem);
     expect(first).toEqual({ ok: false, error: OVERSELL, dates: [added.fromDate] });
 
     // Clear the demand that caused the oversell, then replay the same idempotency key.
@@ -399,7 +401,7 @@ describe('PropertyDO inventory commands', () => {
       physical: 10,
       sold: 0,
     });
-    const second = await stub.tryUpdateRoomType(updateInput, idem);
+    const second = await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, updateInput, idem);
     expect(second.ok).toBe(true);
   });
 
@@ -414,11 +416,11 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const added = await stub.tryAddRoomType(addInput, await idemFor('add-reuse-1', addInput));
+    const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor('add-reuse-1', addInput));
     expect(added.ok).toBe(true);
 
     const deleteInput = { roomTypeId: 'rt_king_1' };
-    const archived = await stub.tryDeleteRoomType(deleteInput, await idemFor('archive-reuse', deleteInput));
+    const archived = await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, deleteInput, await idemFor('archive-reuse', deleteInput));
     expect(archived.ok).toBe(true);
 
     const secondInput = {
@@ -429,8 +431,9 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const second = await stub.tryAddRoomType(secondInput, await idemFor('add-reuse-2', secondInput));
+    const second = await stub.tryAddRoomType(TEST_OWNER_ACTOR, secondInput, await idemFor('add-reuse-2', secondInput));
     expect(second.ok).toBe(true);
     expect(await stub.getRoomTypeStatus('rt_king_2')).toBe('active');
   });
 });
+

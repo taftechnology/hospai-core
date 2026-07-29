@@ -65,6 +65,55 @@ async function postRoomType(
   );
 }
 
+async function putRoomType(
+  propertyId: string,
+  roomTypeId: string,
+  actor: string,
+  body: {
+    code?: string;
+    name?: string;
+    roomCount?: number;
+    maxOccupancy?: number;
+    maxAdults?: number;
+    idempotencyKey: string;
+  },
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/room-types/${encodeURIComponent(roomTypeId)}`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify(body),
+      },
+    ),
+    env,
+  );
+}
+
+async function deleteRoomType(
+  propertyId: string,
+  roomTypeId: string,
+  actor: string,
+  idempotencyKey?: string,
+) {
+  const headers: Record<string, string> = { 'x-dev-actor': actor };
+  if (idempotencyKey) {
+    headers['idempotency-key'] = idempotencyKey;
+  }
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/room-types/${encodeURIComponent(roomTypeId)}`,
+      {
+        method: 'DELETE',
+        headers,
+      },
+    ),
+    env,
+  );
+}
+
+
 /** Miniflare does not auto-dispatch consumers for DO-originated sendBatch — invoke explicitly in tests. */
 async function dispatchQueueConsumer(rows: OutboxRow[], source: EventSource): Promise<void> {
   const batch = createMessageBatch(
@@ -247,6 +296,7 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
     expect((await postProperty(orgId, propertyId, owner)).status).toBe(201);
 
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+
     await org.ensureMember(staff, 'staff');
 
     const denied = await postRoomType(propertyId, staff, {
@@ -272,4 +322,90 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
     });
     expect(allowed.status).toBe(201);
   });
+
+  it('HTTP PUT and DELETE room-type endpoints enforce permissions and idempotency', async () => {
+    const owner = 'user_inv_owner';
+    const staff = 'user_inv_staff';
+    const orgId = `org_inv_http_${crypto.randomUUID()}`;
+    const propertyId = `prop_inv_http_${crypto.randomUUID()}`;
+
+    expect((await postOrg(orgId, 'Inv HTTP Org', owner)).status).toBe(201);
+    expect((await postProperty(orgId, propertyId, owner)).status).toBe(201);
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember(staff, 'staff');
+
+    // POST initial room type
+    const addRes = await postRoomType(propertyId, owner, {
+      roomTypeId: 'rt_king',
+      code: 'KING',
+      name: 'King Room',
+      roomCount: 10,
+      maxOccupancy: 2,
+      maxAdults: 2,
+      idempotencyKey: `idem-add-${crypto.randomUUID()}`,
+    });
+    expect(addRes.status).toBe(201);
+
+    // Staff PUT gets 403
+    const staffPut = await putRoomType(propertyId, 'rt_king', staff, {
+      roomCount: 8,
+      idempotencyKey: `idem-put-staff-${crypto.randomUUID()}`,
+    });
+    expect(staffPut.status).toBe(403);
+
+    // Owner PUT gets 200
+    const ownerPut = await putRoomType(propertyId, 'rt_king', owner, {
+      roomCount: 8,
+      idempotencyKey: `idem-put-owner-${crypto.randomUUID()}`,
+    });
+    expect(ownerPut.status).toBe(200);
+
+    // Staff DELETE gets 403
+    const staffDel = await deleteRoomType(propertyId, 'rt_king', staff, `idem-del-staff-${crypto.randomUUID()}`);
+    expect(staffDel.status).toBe(403);
+
+    // Owner DELETE gets 200 with roomTypeId & ariVersion
+    const ownerDel = await deleteRoomType(propertyId, 'rt_king', owner, `idem-del-owner-${crypto.randomUUID()}`);
+    expect(ownerDel.status).toBe(200);
+    expect(await ownerDel.json()).toMatchObject({ ok: true, roomTypeId: 'rt_king' });
+  });
+
+  it('DO-internal permission assertion fails closed and guarantees zero storage/outbox mutations', async () => {
+    const owner = 'user_do_owner';
+    const staff = 'user_do_staff';
+    const orgId = `org_do_gate_${crypto.randomUUID()}`;
+    const propertyId = `prop_do_gate_${crypto.randomUUID()}`;
+
+    expect((await postOrg(orgId, 'DO Gate Org', owner)).status).toBe(201);
+    expect((await postProperty(orgId, propertyId, owner)).status).toBe(201);
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember(staff, 'staff');
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    const stub = resolved!.stub;
+    const unackedBefore = await stub.outboxUnackedCount();
+
+    // Direct invocation on DO stub with staff actor (lacks inventory:write)
+    const result = await stub.tryAddRoomType(
+      { kind: 'user', userId: staff },
+      {
+        roomTypeId: 'rt_unauth',
+        code: 'UNAUTH',
+        name: 'Unauth Room',
+        roomCount: 5,
+        maxOccupancy: 2,
+        maxAdults: 2,
+      },
+      { key: 'idem-unauth', fingerprint: 'fp-unauth' },
+    );
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' });
+
+    // Assert zero room-type row mutations and un-mutated outbox count
+    expect(await stub.countAvailabilityDays('rt_unauth')).toBe(0);
+    expect(await stub.outboxUnackedCount()).toBe(unackedBefore);
+  });
 });
+

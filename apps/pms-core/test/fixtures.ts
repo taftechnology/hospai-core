@@ -5,7 +5,11 @@ import type { OrgDO } from '../src/org-do';
 import type { PropertyDO } from '../src/property-do';
 import { seedSubscription } from '../src/registry';
 
+import type { ActorContext } from '@hospai/contracts';
+
 export const DEFAULT_TEST_ORG = 'org_test';
+export const TEST_OWNER_ACTOR: ActorContext = { kind: 'user', userId: 'user_owner' };
+export const TEST_SYSTEM_ACTOR: ActorContext = { kind: 'system', reason: 'night_audit' };
 
 export function orgStub(orgId = DEFAULT_TEST_ORG) {
   return resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
@@ -27,6 +31,7 @@ export async function provisionedOrg(orgId = DEFAULT_TEST_ORG): Promise<DurableO
   await seedSubscription(env, orgId, 'starter');
   const stub = orgStub(orgId);
   await stub.ensureMetaOrgId(orgId);
+  await stub.ensureMember('user_owner', 'owner');
   return stub;
 }
 
@@ -35,13 +40,17 @@ export async function provisionedPropertyStub(
   name: string,
   timeZone: string,
   currency: string,
-  orgId = DEFAULT_TEST_ORG,
+  orgId?: string,
   opts?: { flushOutbox?: boolean },
 ): Promise<DurableObjectStub<PropertyDO>> {
-  await seedSubscription(env, orgId, 'starter');
-  const stub = propertyStub(name, orgId);
+  const targetOrgId = orgId ?? `org_prop_${name}`;
+  await seedSubscription(env, targetOrgId, 'starter');
+  const org = orgStub(targetOrgId);
+  await org.ensureMember('user_owner', 'owner');
+  const stub = propertyStub(name, targetOrgId);
   await stub.ensureMetaPropertyId(name);
-  await stub.ensureMetaOrgId(orgId);
+  await stub.ensureMetaOrgId(targetOrgId);
+
   const fingerprint = await fingerprintPayload({ propertyId: name, timeZone });
   await stub.ensureTimeZoneIfAbsent(timeZone, { key: `provision:timezone:${name}`, fingerprint });
   const currencyFp = await fingerprintPayload({
@@ -65,11 +74,18 @@ export async function provisionedPropertyStub(
 export async function ensureEntitledMeta(
   stub: DurableObjectStub<PropertyDO>,
   propertyId?: string,
-  orgId = DEFAULT_TEST_ORG,
+  orgId?: string,
 ): Promise<void> {
-  await seedSubscription(env, orgId, 'starter');
-  await stub.ensureMetaOrgId(orgId);
+  const targetOrgId = orgId ?? (propertyId ? `org_meta_${propertyId}` : `org_meta_${crypto.randomUUID()}`);
+  await seedSubscription(env, targetOrgId, 'starter');
+  const org = orgStub(targetOrgId);
+  await org.ensureMember('user_owner', 'owner');
+  await stub.ensureMetaOrgId(targetOrgId);
   if (propertyId) {
     await stub.ensureMetaPropertyId(propertyId);
   }
 }
+
+
+
+

@@ -12,7 +12,7 @@ import {
 } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, propertyStub } from './fixtures';
+import { idemFor, provisionedPropertyStub, propertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -31,7 +31,8 @@ async function addRoomType(
     maxOccupancy: 2,
     maxAdults: 2,
   };
-  const result = await stub.tryAddRoomType(input, await idemFor(`add-${roomTypeId}`, input));
+  const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor(`add-${roomTypeId}`, input));
+
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('add room type failed');
   await stub.flushOutbox();
@@ -142,7 +143,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const name = `res-arch-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     await addRoomType(stub, 'rt_king', 5);
-    await stub.tryDeleteRoomType({ roomTypeId: 'rt_king' }, await idemFor('arch', { roomTypeId: 'rt_king' }));
+    await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, { roomTypeId: 'rt_king' }, await idemFor('arch', { roomTypeId: 'rt_king' }));
+
 
     const input = {
       reservationId: 'res_arch',
@@ -304,7 +306,8 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
 
-    await stub.tryDeleteRoomType({ roomTypeId: 'rt_king' }, await idemFor('arch-cfg', { roomTypeId: 'rt_king' }));
+    await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, { roomTypeId: 'rt_king' }, await idemFor('arch-cfg', { roomTypeId: 'rt_king' }));
+
     expect(await stub.getRoomTypeStatus('rt_king')).toBe('archived');
 
     const activeAdded = await addRoomType(stub, 'rt_queen', 3, 'QUEEN', 'Queen Room');

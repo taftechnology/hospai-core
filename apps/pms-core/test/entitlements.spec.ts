@@ -31,6 +31,8 @@ describe('entitlements + kill-switch', () => {
     const orgId = `org-unent-${crypto.randomUUID()}`;
     const propName = `prop-unent-${crypto.randomUUID()}`;
     await ensureOrgRegistryRow(env, orgId, orgId);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember('user_owner', 'owner');
     const stub = propertyStub(propName, orgId);
     await stub.ensureMetaPropertyId(propName);
     await stub.ensureMetaOrgId(orgId);

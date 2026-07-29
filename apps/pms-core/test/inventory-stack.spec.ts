@@ -99,7 +99,7 @@ async function deleteRoomType(
 ) {
   const headers: Record<string, string> = { 'x-dev-actor': actor };
   if (idempotencyKey) {
-    headers['idempotency-key'] = idempotencyKey;
+    headers['x-idempotency-key'] = idempotencyKey;
   }
   return worker.fetch(
     new Request(

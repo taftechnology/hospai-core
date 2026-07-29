@@ -1,8 +1,10 @@
 import type { FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
+  FORBIDDEN,
   IDEM_KEY_REUSED,
   InvalidTenantIdError,
+  NOT_FOUND,
   OVERSELL,
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
@@ -64,7 +66,7 @@ export type V1DispatchContext = {
 };
 
 type V1RouteBase = {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   pattern: RegExp;
   handler: (ctx: V1DispatchContext) => Promise<Response>;
 };
@@ -334,8 +336,8 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   );
 
   if (!result.ok) {
-    if (result.error === 'room_type_not_found') return json({ error: 'not_found' }, 404);
-    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === FORBIDDEN) return json({ error: 'forbidden' }, 403);
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     if (result.error === OVERSELL) {
       return json({ ok: false, error: result.error, dates: result.dates }, 409);
@@ -351,9 +353,10 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   ctx.observability.propertyId = propertyId;
 
   const idempotencyKey =
-    ctx.request.headers.get('x-idempotency-key') ??
-    ctx.url.searchParams.get('idempotencyKey') ??
-    `del-${roomTypeId}-${Date.now()}`;
+    ctx.request.headers.get('x-idempotency-key') ?? ctx.url.searchParams.get('idempotencyKey');
+  if (!idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
 
   const property = await getProperty(ctx.env, propertyId);
   if (!property) return json({ error: 'not_found' }, 404);
@@ -371,8 +374,8 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   );
 
   if (!result.ok) {
-    if (result.error === 'room_type_not_found') return json({ error: 'not_found' }, 404);
-    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === FORBIDDEN) return json({ error: 'forbidden' }, 403);
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     if (result.error === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: result.error }, 409);

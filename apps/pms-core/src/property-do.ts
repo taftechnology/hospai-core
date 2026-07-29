@@ -32,9 +32,7 @@ import {
   type IdempotencyKey,
   type Permission,
 } from '@hospai/contracts';
-import { PermissionDoCache } from './auth.js';
-import { resolveOrgStub } from '@hospai/tenant-router';
-import type { OrgDO } from './org-do.js';
+import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
 import {
 
   PROPERTY_MIGRATIONS,
@@ -76,7 +74,6 @@ import {
 import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
-import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import {
   assertPostedMatches,
   currencyCode,
@@ -438,7 +435,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: FORBIDDEN };
 
-    const role = await this.permissionCache.getEffectiveRole(this.env, orgId, propertyId, actor.userId);
+    const role = await this.permissionCache.getEffectiveRole(
+      this.env.ORG_DO as unknown as DurableObjectNamespace,
+      orgId,
+      propertyId,
+      actor.userId,
+    );
     if (!role) return { ok: false, error: 'not_member' };
     if (!ROLE_GRANTS[role].includes(permission)) {
       return { ok: false, error: FORBIDDEN };
@@ -1341,6 +1343,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -1354,10 +1360,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
     const businessDate = this.readBusinessDateSync();
     if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
-
-    const permDenied = await this.gatePermission(actor, 'inventory:write');
-    if (permDenied) return permDenied;
-
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -1445,11 +1447,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; roomTypeId: string; ariVersion: number; fromDate?: string; toDate?: string }
     | { ok: false; error: typeof OVERSELL; dates: string[] }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
+    | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN }
+    | { ok: false; error: 'not_member' }
+    | { ok: false; error: typeof TIMEZONE_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: typeof ROOM_TYPE_CODE_EXISTS }
+    | { ok: false; error: 'internal_error' }
   > {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -1457,10 +1473,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
-
-    const permDenied = await this.gatePermission(actor, 'inventory:write');
-    if (permDenied) return permDenied;
-
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -1574,7 +1586,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof OversellError) return { ok: false, error: OVERSELL, dates: e.dates };
       if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: 'internal_error' };
     }
   }
 
@@ -1595,6 +1607,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -1602,10 +1618,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
-
-    const permDenied = await this.gatePermission(actor, 'inventory:write');
-    if (permDenied) return permDenied;
-
 
     try {
       return this.ctx.storage.transactionSync(() =>

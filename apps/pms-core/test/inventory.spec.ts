@@ -11,7 +11,7 @@ import {
 } from '@hospai/contracts';
 import { resolvePropertyStub } from '@hospai/tenant-router';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, propertyStub, ensureEntitledMeta, TEST_OWNER_ACTOR } from './fixtures';
+import { idemFor, provisionedPropertyStub, propertyStub, ensureEntitledMeta, TEST_OWNER_ACTOR, TEST_SYSTEM_ACTOR } from './fixtures';
 
 
 describe('PropertyDO inventory commands', () => {
@@ -26,7 +26,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-no-tz', input));
+    const result = await stub.tryAddRoomType(TEST_SYSTEM_ACTOR, input, await idemFor('add-no-tz', input));
     expect(result).toEqual({ ok: false, error: TIMEZONE_UNSET });
   });
 
@@ -78,7 +78,7 @@ describe('PropertyDO inventory commands', () => {
       maxOccupancy: 2,
       maxAdults: 2,
     };
-    const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor('add-no-pid', input));
+    const result = await stub.tryAddRoomType(TEST_SYSTEM_ACTOR, input, await idemFor('add-no-pid', input));
     expect(result).toEqual({ ok: false, error: PROPERTY_ID_UNSET });
   });
 

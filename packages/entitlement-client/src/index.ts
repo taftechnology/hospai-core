@@ -152,3 +152,4 @@ export function mapCommandEntitlement(commandId: string): FeatureKey | undefined
 }
 
 export { killKvKey, snapshotKvKey };
+export { PermissionDoCache } from './permission-cache.js';

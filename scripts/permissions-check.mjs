@@ -53,7 +53,9 @@ if (routesEnd === -1) {
 }
 
 const routesSrc = dispatchSrc.slice(routesStart, routesEnd);
+// NOTE: This parser uses simple regex over source text and assumes brace-free route literal blocks (e.g. no regex quantifiers containing braces like {2,}). A brace inside the block will break parsing and fail closed, triggering a drift check error.
 const routeBlocks = routesSrc.match(/\{[^{}]+\}/gs) || [];
+
 
 const parsedRoutes = routeBlocks.map((block) => {
   const scopeMatch = block.match(/scope:\s*'([^']+)'/);

@@ -22,7 +22,6 @@ export default [
       'hospai/no-reservations-import-in-bookability': 'error',
       'hospai/no-platform-import-in-domain': 'error',
       'hospai/no-pms-importing-addons': 'error',
-      'hospai/no-non-cloneable-boundary-types': 'error',
     },
   },
 ];

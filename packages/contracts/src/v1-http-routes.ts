@@ -21,5 +21,3 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'inventory.add_room_type',
   },
 ];
-
-

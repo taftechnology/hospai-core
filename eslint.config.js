@@ -16,13 +16,7 @@ export default [
     },
     plugins: { hospai },
     rules: {
-      'hospai/no-id-from-name-outside-tenant-router': 'error',
-      'hospai/no-domain-config-from-kv': 'error',
-      'hospai/no-entitlement-in-domain': 'error',
-      'hospai/no-reservations-import-in-bookability': 'error',
-      'hospai/no-platform-import-in-domain': 'error',
-      'hospai/no-pms-importing-addons': 'error',
+      ...hospai.configs.recommended.rules,
     },
   },
 ];
-

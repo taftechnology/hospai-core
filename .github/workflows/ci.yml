@@ -19,6 +19,7 @@ jobs:
       - run: pnpm build
       - run: pnpm check:ddl
       - run: pnpm check:entitlements
+      - run: pnpm check:class-denylist
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm lint

@@ -3,6 +3,10 @@
  * Keep this plugin dependency-light — no typescript-eslint utils.
  */
 
+import { noNonCloneableBoundaryTypes } from './no-non-cloneable-boundary-types.js';
+
+export { CLASS_DENYLIST, CLASS_DENYLIST_SET } from './class-denylist.js';
+
 type RuleContext = {
   filename: string;
   report: (r: { node: unknown; messageId: string; data?: Record<string, string> }) => void;
@@ -281,6 +285,7 @@ export const rules = {
   'no-reservations-import-in-bookability': noReservationsImportInBookability,
   'no-platform-import-in-domain': noPlatformImportInDomain,
   'no-pms-importing-addons': noPmsImportingAddons,
+  'no-non-cloneable-boundary-types': noNonCloneableBoundaryTypes,
 };
 
 const plugin = {
@@ -296,6 +301,7 @@ const plugin = {
         'hospai/no-reservations-import-in-bookability': 'error',
         'hospai/no-platform-import-in-domain': 'error',
         'hospai/no-pms-importing-addons': 'error',
+        'hospai/no-non-cloneable-boundary-types': 'error',
       },
     },
   },

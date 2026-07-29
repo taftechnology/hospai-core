@@ -13,7 +13,8 @@
     "typecheck": "turbo run typecheck",
     "generate:ddl": "pnpm --filter @hospai/do-runtime build && node scripts/property-ddl.mjs --write",
     "check:ddl": "node scripts/property-ddl.mjs --check",
-    "check:entitlements": "pnpm --filter @hospai/contracts build && pnpm --filter @hospai/do-runtime build && node scripts/entitlements-check.mjs"
+    "check:entitlements": "pnpm --filter @hospai/contracts build && pnpm --filter @hospai/do-runtime build && node scripts/entitlements-check.mjs",
+    "check:class-denylist": "pnpm --filter eslint-plugin-hospai build && node scripts/class-denylist-check.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.26.0",

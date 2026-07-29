@@ -3,8 +3,10 @@ import hospai from 'eslint-plugin-hospai';
 
 export default [
   {
-    files: ['**/*.{ts,tsx}'],
     ignores: ['**/dist/**', '**/node_modules/**', '**/.wrangler/**', '**/coverage/**'],
+  },
+  {
+    files: ['**/*.{ts,tsx}'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -24,3 +26,4 @@ export default [
     },
   },
 ];
+

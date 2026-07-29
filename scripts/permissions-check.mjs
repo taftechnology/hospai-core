@@ -37,6 +37,57 @@ const allowed = new Set(PERMISSIONS);
 const platformOnly = new Set(PLATFORM_ONLY_PERMISSIONS);
 let failed = false;
 
+// --- Drift check: verify V1_HTTP_ROUTE_AUDIT matches V1_ROUTES in v1-dispatch.ts ---
+const dispatchPath = join(root, 'apps/pms-core/src/v1-dispatch.ts');
+const dispatchSrc = readFileSync(dispatchPath, 'utf8');
+
+const routesStart = dispatchSrc.indexOf('export const V1_ROUTES: V1RouteDef[] = [');
+if (routesStart === -1) {
+  console.error('Could not find V1_ROUTES in v1-dispatch.ts');
+  process.exit(1);
+}
+const routesEnd = dispatchSrc.indexOf('];', routesStart);
+if (routesEnd === -1) {
+  console.error('Could not find end of V1_ROUTES in v1-dispatch.ts');
+  process.exit(1);
+}
+
+const routesSrc = dispatchSrc.slice(routesStart, routesEnd);
+const routeBlocks = routesSrc.match(/\{[^{}]+\}/gs) || [];
+
+const parsedRoutes = routeBlocks.map((block) => {
+  const scopeMatch = block.match(/scope:\s*'([^']+)'/);
+  const permissionMatch = block.match(/permission:\s*'([^']+)'/);
+  const commandIdMatch = block.match(/commandId:\s*'([^']+)'/);
+  const entitlementMatch = block.match(/entitlement:\s*'([^']+)'/);
+
+  const res = {
+    scope: scopeMatch ? scopeMatch[1] : undefined,
+  };
+  if (permissionMatch) res.permission = permissionMatch[1];
+  if (commandIdMatch) res.commandId = commandIdMatch[1];
+  if (entitlementMatch) res.entitlement = entitlementMatch[1];
+  return res;
+});
+
+if (parsedRoutes.length !== V1_HTTP_ROUTE_AUDIT.length) {
+  console.error(`Drift detected: V1_ROUTES in v1-dispatch.ts has ${parsedRoutes.length} entries, but V1_HTTP_ROUTE_AUDIT has ${V1_HTTP_ROUTE_AUDIT.length} entries.`);
+  failed = true;
+} else {
+  for (let i = 0; i < parsedRoutes.length; i++) {
+    const parsed = parsedRoutes[i];
+    const audit = V1_HTTP_ROUTE_AUDIT[i];
+    const keys = ['scope', 'permission', 'commandId', 'entitlement'];
+    for (const key of keys) {
+      if (parsed[key] !== audit[key]) {
+        console.error(`Drift detected at route index ${i} (audit id: '${audit.id}'): field '${key}' mismatch. Dispatch: '${parsed[key]}', Audit: '${audit[key]}'`);
+        failed = true;
+      }
+    }
+  }
+}
+
+
 for (const entry of COMMAND_CATALOG) {
   if (!entry.permission) {
     console.error(`Catalog entry missing permission: ${entry.id}`);

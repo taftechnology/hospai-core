@@ -1,5 +1,7 @@
 import type { DomainEventMessage } from '@hospai/contracts';
 import { logInfo, type ObservabilityContext } from '@hospai/observability';
+import type { PmsEnv } from './env.js';
+import { resolvePropertyFromRegistry } from './provision.js';
 
 /**
  * Must remain ≥ idempotency retention when a purge policy exists.
@@ -154,7 +156,7 @@ export async function putBounded(
 }
 
 export async function handleAvailabilityChanged(
-  env: import('./env.js').PmsEnv,
+  env: PmsEnv,
   message: DomainEventMessage,
 ): Promise<void> {
   const payload = assertRecord(message.payload, message.eventType);
@@ -167,7 +169,6 @@ export async function handleAvailabilityChanged(
   const roomTypeId =
     typeof payload['roomTypeId'] === 'string' ? payload['roomTypeId'] : undefined;
 
-  const { resolvePropertyFromRegistry } = await import('./provision.js');
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
   if (!resolved) {
     throw new Error(`availability.changed: property ${propertyId} not found in registry`);

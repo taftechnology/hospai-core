@@ -1320,6 +1320,49 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ...row, free: freeAvailability(row) };
   }
 
+  async readAvailabilityRange(
+    fromDate: string,
+    toDate: string,
+    roomTypeId?: string,
+  ): Promise<{
+    ariVersion: number;
+    rows: Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+    }>;
+  }> {
+    const ariVersion = this.readAriVersionSync();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id AS roomTypeId, stay_date AS stayDate,
+                physical, blocked, held, sold, oversell
+           FROM availability_day
+          WHERE stay_date >= ? AND stay_date <= ?
+            AND (? IS NULL OR room_type_id = ?)
+          ORDER BY room_type_id, stay_date`,
+        fromDate,
+        toDate,
+        roomTypeId ?? null,
+        roomTypeId ?? null,
+      )
+      .toArray() as Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+    }>;
+
+    return { ariVersion, rows };
+  }
+
   /**
    * Insert an active `room_type` row and seed the horizon (365 days from "today" in
    * the property's stored timezone) with `availability_day` rows at `physical = roomCount`.

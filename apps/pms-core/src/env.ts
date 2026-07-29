@@ -19,6 +19,8 @@ export type PmsEnv = {
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
   MIGRATION_SWEEP_WORKFLOW: Workflow<MigrationSweepParams>;
   PLATFORM_DB: D1Database;
+  /** ARI projection — availability_day rows projected by the event consumer. */
+  ARI_KV: KVNamespace;
   /**
    * Must be `1` for any local-only unsafe flags (simulate jurisdiction, dev actor).
    * Set only via `.dev.vars` / vitest bindings — never top-level wrangler `vars`.

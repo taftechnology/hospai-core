@@ -12,6 +12,7 @@ import { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import {
   DEDUPE_TTL_SEC,
+  handleAvailabilityChanged,
   handleDomainEvent,
   logEventConsumed,
   logEventDedupeSkip,
@@ -92,6 +93,14 @@ export default {
         logEventDedupeSkip(body);
         msg.ack();
         continue;
+      }
+      if (body.eventType === 'availability.changed') {
+        try {
+          await handleAvailabilityChanged(env, body);
+        } catch {
+          msg.retry();
+          continue;
+        }
       }
       try {
         handleDomainEvent(body);

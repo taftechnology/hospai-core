@@ -117,3 +117,84 @@ export function logEventDedupeSkip(body: DomainEventMessage): void {
     source_id: body.source.id,
   });
 }
+
+export const ARI_PROJECTION_TTL_SEC = 60;
+
+export type AriProjectionEntry = {
+  physical: number;
+  blocked: number;
+  held: number;
+  sold: number;
+  oversell: number;
+  free: number;
+  ariVersion: number;
+  writtenAt: number;
+};
+
+/** Compute date string N days after fromDate (ISO YYYY-MM-DD). */
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function putBounded(
+  kv: KVNamespace,
+  entries: Array<{ key: string; value: string }>,
+  ttl: number,
+  limit = 5,
+): Promise<void> {
+  for (let i = 0; i < entries.length; i += limit) {
+    await Promise.all(
+      entries.slice(i, i + limit).map(({ key, value }) =>
+        kv.put(key, value, { expirationTtl: ttl }),
+      ),
+    );
+  }
+}
+
+export async function handleAvailabilityChanged(
+  env: import('./env.js').PmsEnv,
+  message: DomainEventMessage,
+): Promise<void> {
+  const payload = assertRecord(message.payload, message.eventType);
+  const propertyId = assertStringField(payload, 'propertyId', message.eventType);
+  const fromDate = assertStringField(payload, 'fromDate', message.eventType);
+  const toDate = assertStringField(payload, 'toDate', message.eventType);
+  if (typeof payload['version'] !== 'number') {
+    throw new Error('availability.changed: missing version');
+  }
+  const roomTypeId =
+    typeof payload['roomTypeId'] === 'string' ? payload['roomTypeId'] : undefined;
+
+  const { resolvePropertyFromRegistry } = await import('./provision.js');
+  const resolved = await resolvePropertyFromRegistry(env, propertyId);
+  if (!resolved) {
+    throw new Error(`availability.changed: property ${propertyId} not found in registry`);
+  }
+
+  // Uniform 90-day booking horizon cap across all events
+  const horizonCapDate = addDays(fromDate, 89);
+  const effectiveToDate = toDate < horizonCapDate ? toDate : horizonCapDate;
+
+  const { ariVersion: currentAriVersion, rows } =
+    await resolved.stub.readAvailabilityRange(fromDate, effectiveToDate, roomTypeId);
+  if (rows.length === 0) return;
+
+  const now = Date.now();
+  const entries: Array<{ key: string; value: string }> = rows.map((row) => ({
+    key: `ari:${propertyId}:${row.roomTypeId}:${row.stayDate}`,
+    value: JSON.stringify({
+      physical: row.physical,
+      blocked: row.blocked,
+      held: row.held,
+      sold: row.sold,
+      oversell: row.oversell,
+      free: row.physical - row.blocked - row.held - row.sold + row.oversell,
+      ariVersion: currentAriVersion,
+      writtenAt: now,
+    } satisfies AriProjectionEntry),
+  }));
+
+  await putBounded(env.ARI_KV, entries, ARI_PROJECTION_TTL_SEC, 5);
+}

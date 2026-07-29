@@ -8,8 +8,10 @@ Multi-tenant property management on Cloudflare: one **Durable Object per propert
 
 ```bash
 pnpm install
-pnpm test          # primary loop — vitest-pool-workers, isolated DO storage
+pnpm test          # primary loop
 ```
+
+`pnpm test` uses `vitest-pool-workers` with **shared** DO/D1 storage across the run (`isolatedStorage: false`), so tests must scope assertions to fixtures they create rather than to global state.
 
 There is no polished local HTTP workflow yet. Integration is proven in the test suite (`apps/pms-core/test/`). To hit the Worker over HTTP locally, copy [`.dev.vars.example`](apps/pms-core/.dev.vars.example) → `apps/pms-core/.dev.vars`, then `pnpm --filter @hospai/pms-core dev` and use the curls below.
 
@@ -29,7 +31,7 @@ There is no polished local HTTP workflow yet. Integration is proven in the test 
 
 These fail in CI with little context unless you know they exist:
 
-- **Seven §11 lint rules** (`tooling/eslint-plugin-hospai`) — tenant-router isolation, no DOMAIN config from KV, no entitlement client in `domain/`, no platform imports in `domain/`, bookability must not import reservation modules, PMS must not import add-ons, boundary types must be serializable on module exports / Workers-RPC-safe on DO signatures. See [ARCHITECTURE.md §11](ARCHITECTURE.md#11-repo-layout).
+- **Seven §11 lint rules** (`tooling/eslint-plugin-hospai`) — tenant-router isolation, no DOMAIN config from KV, no entitlement client in `domain/`, no platform imports in `domain/`, bookability must not import reservation modules, PMS must not import add-ons, boundary types must be serializable on module exports / Workers-RPC-safe on DO signatures. See [ARCHITECTURE.md §11](ARCHITECTURE.md#11-repository-layout).
 - **`check:ddl`** — drift between `@hospai/do-runtime` migration source and committed SQL under `migrations/`.
 - **`check:entitlements`** — FAIL_CLOSED commands carry an entitlement; `FeatureKey` must not collapse to `| string`.
 - **`check:class-denylist`** — new `export class` without updating the plugin denylist.

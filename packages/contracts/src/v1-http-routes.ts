@@ -32,5 +32,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'inventory:write',
     commandId: 'inventory.delete_room_type',
   },
+  {
+    id: 'get_property_availability',
+    scope: 'property',
+    permission: 'inventory:read',
+    entitlement: 'pms.core',
+  },
 ];
 

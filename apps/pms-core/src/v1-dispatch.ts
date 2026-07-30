@@ -451,7 +451,198 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'inventory.delete_room_type',
     handler: handleDeleteRoomType,
   },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/availability$/,
+    permission: 'inventory:read',
+    entitlement: 'pms.core',
+    handler: handleGetAvailability,
+  },
 ];
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function enumerateDaysInclusive(fromDate: string, toDate: string): string[] {
+  const days: string[] = [];
+  let curr = fromDate;
+  while (curr <= toDate) {
+    days.push(curr);
+    curr = addDays(curr, 1);
+  }
+  return days;
+}
+
+async function getKvBulkBounded(
+  kv: KVNamespace,
+  keys: string[],
+): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>();
+  const limit = 100;
+  for (let i = 0; i < keys.length; i += limit) {
+    const chunk = keys.slice(i, i + limit);
+    if (typeof (kv as any).get === 'function') {
+      try {
+        const batchRes = await (kv as any).get(chunk);
+        if (batchRes instanceof Map) {
+          for (const [k, v] of batchRes.entries()) {
+            result.set(k, v);
+          }
+        } else if (batchRes && typeof batchRes === 'object') {
+          for (const k of chunk) {
+            result.set(k, (batchRes as Record<string, string | null>)[k] ?? null);
+          }
+        } else {
+          await Promise.all(
+            chunk.map(async (k) => {
+              const val = await kv.get(k);
+              result.set(k, val);
+            }),
+          );
+        }
+      } catch {
+        await Promise.all(
+          chunk.map(async (k) => {
+            const val = await kv.get(k);
+            result.set(k, val);
+          }),
+        );
+      }
+    } else {
+      await Promise.all(
+        chunk.map(async (k) => {
+          const val = await kv.get(k);
+          result.set(k, val);
+        }),
+      );
+    }
+  }
+  return result;
+}
+
+async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const fromDate = ctx.url.searchParams.get('fromDate');
+  const toDate = ctx.url.searchParams.get('toDate');
+  const roomTypeId = ctx.url.searchParams.get('roomTypeId') || undefined;
+
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!fromDate || !toDate || !dateRe.test(fromDate) || !dateRe.test(toDate)) {
+    return json({ error: 'invalid_date' }, 400);
+  }
+  if (fromDate > toDate) {
+    return json({ error: 'invalid_date_range' }, 400);
+  }
+  const horizonCapDate = addDays(fromDate, 89);
+  if (toDate > horizonCapDate) {
+    return json({ error: 'date_range_exceeds_max' }, 400);
+  }
+
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) {
+    return json({ error: 'not_found' }, 404);
+  }
+
+  // Branch 1: roomTypeId supplied -> Attempt KV Bulk Read
+  if (roomTypeId) {
+    const stayDates = enumerateDaysInclusive(fromDate, toDate);
+    const keys = stayDates.map((date) => `ari:${propertyId}:${roomTypeId}:${date}`);
+    const kvMap = await getKvBulkBounded(ctx.env.ARI_KV, keys);
+
+    const items: Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+      free: number;
+    }> = [];
+    const versions: number[] = [];
+    const now = Date.now();
+    let allFresh = true;
+
+    for (const key of keys) {
+      const val = kvMap.get(key);
+      if (!val) {
+        allFresh = false;
+        break;
+      }
+      try {
+        const parsed = JSON.parse(val) as {
+          physical: number;
+          blocked: number;
+          held: number;
+          sold: number;
+          oversell: number;
+          free: number;
+          ariVersion: number;
+          writtenAt: number;
+        };
+        if (now - parsed.writtenAt >= 60_000) {
+          allFresh = false;
+          break;
+        }
+        const stayDate = key.split(':').pop()!;
+        items.push({
+          roomTypeId,
+          stayDate,
+          physical: parsed.physical,
+          blocked: parsed.blocked,
+          held: parsed.held,
+          sold: parsed.sold,
+          oversell: parsed.oversell,
+          free: parsed.free,
+        });
+        versions.push(parsed.ariVersion);
+      } catch {
+        allFresh = false;
+        break;
+      }
+    }
+
+    if (allFresh && items.length === keys.length) {
+      return json({
+        propertyId,
+        fromDate,
+        toDate,
+        ariVersion: Math.min(...versions),
+        source: 'kv',
+        cache: 'hit',
+        items,
+      });
+    }
+  }
+
+  // Branch 2: roomTypeId omitted OR KV cache miss/expired -> Fallback to PropertyDO
+  const { ariVersion, rows } = await resolved.stub.readAvailabilityRange(fromDate, toDate, roomTypeId);
+
+  const items = rows.map((row) => ({
+    roomTypeId: row.roomTypeId,
+    stayDate: row.stayDate,
+    physical: row.physical,
+    blocked: row.blocked,
+    held: row.held,
+    sold: row.sold,
+    oversell: row.oversell,
+    free: row.physical - row.blocked - row.held - row.sold + row.oversell,
+  }));
+
+  return json({
+    propertyId,
+    fromDate,
+    toDate,
+    ariVersion,
+    source: 'do',
+    cache: 'miss',
+    items,
+  });
+}
 
 
 for (const route of V1_ROUTES) {

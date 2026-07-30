@@ -3,7 +3,15 @@ import hospai from 'eslint-plugin-hospai';
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.wrangler/**', '**/coverage/**'],
+    ignores: [
+      '**/dist/**',
+      '**/dist/*',
+      '**/dist',
+      'dist/**',
+      '**/node_modules/**',
+      '**/.wrangler/**',
+      '**/coverage/**',
+    ],
   },
   {
     files: ['**/*.{ts,tsx}'],

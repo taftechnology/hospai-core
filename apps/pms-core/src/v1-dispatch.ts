@@ -21,7 +21,7 @@ import {
   loadSnapshot,
   require,
 } from '@hospai/entitlement-client';
-import type { ObservabilityContext } from '@hospai/observability';
+import { logError, type ObservabilityContext } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
@@ -485,34 +485,18 @@ async function getKvBulkBounded(
   const limit = 100;
   for (let i = 0; i < keys.length; i += limit) {
     const chunk = keys.slice(i, i + limit);
-    if (typeof (kv as any).get === 'function') {
-      try {
-        const batchRes = await (kv as any).get(chunk);
-        if (batchRes instanceof Map) {
-          for (const [k, v] of batchRes.entries()) {
-            result.set(k, v);
-          }
-        } else if (batchRes && typeof batchRes === 'object') {
-          for (const k of chunk) {
-            result.set(k, (batchRes as Record<string, string | null>)[k] ?? null);
-          }
-        } else {
-          await Promise.all(
-            chunk.map(async (k) => {
-              const val = await kv.get(k);
-              result.set(k, val);
-            }),
-          );
+    try {
+      const batchRes = await (kv as { get(k: string[]): Promise<Map<string, string | null>> }).get(chunk);
+      if (batchRes instanceof Map) {
+        for (const [k, v] of batchRes.entries()) {
+          result.set(k, v);
         }
-      } catch {
-        await Promise.all(
-          chunk.map(async (k) => {
-            const val = await kv.get(k);
-            result.set(k, val);
-          }),
-        );
+      } else if (batchRes && typeof batchRes === 'object') {
+        for (const k of chunk) {
+          result.set(k, (batchRes as Record<string, string | null>)[k] ?? null);
+        }
       }
-    } else {
+    } catch {
       await Promise.all(
         chunk.map(async (k) => {
           const val = await kv.get(k);
@@ -542,12 +526,7 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'date_range_exceeds_max' }, 400);
   }
 
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
-  if (!resolved) {
-    return json({ error: 'not_found' }, 404);
-  }
-
-  // Branch 1: roomTypeId supplied -> Attempt KV Bulk Read
+  // Branch 1: roomTypeId supplied -> Attempt KV Bulk Read (Pure KV path - zero D1 reads)
   if (roomTypeId) {
     const stayDates = enumerateDaysInclusive(fromDate, toDate);
     const keys = stayDates.map((date) => `ari:${propertyId}:${roomTypeId}:${date}`);
@@ -600,7 +579,12 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
           free: parsed.free,
         });
         versions.push(parsed.ariVersion);
-      } catch {
+      } catch (err) {
+        logError(ctx.observability, {
+          msg: 'ari.projection.parse_error',
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
         allFresh = false;
         break;
       }
@@ -620,6 +604,11 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
   }
 
   // Branch 2: roomTypeId omitted OR KV cache miss/expired -> Fallback to PropertyDO
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) {
+    return json({ error: 'not_found' }, 404);
+  }
+
   const { ariVersion, rows } = await resolved.stub.readAvailabilityRange(fromDate, toDate, roomTypeId);
 
   const items = rows.map((row) => ({

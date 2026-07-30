@@ -250,6 +250,10 @@ importers:
         version: 3.2.7(@types/node@22.20.1)
 
   tooling/eslint-plugin-hospai:
+    dependencies:
+      eslint:
+        specifier: '>=9'
+        version: 9.39.5
     devDependencies:
       '@types/node':
         specifier: ^22.13.10
@@ -257,9 +261,6 @@ importers:
       '@typescript-eslint/parser':
         specifier: ^8.26.0
         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
-      eslint:
-        specifier: ^9.22.0
-        version: 9.39.5
       typescript:
         specifier: ^5.8.2
         version: 5.9.3

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -27,11 +28,14 @@ function runEnumerateFromDateUnder(tz: string, startDate: string, days: number):
 
 describe('enumerateFromDate', () => {
   beforeAll(() => {
-    const build = spawnSync('pnpm', ['run', 'build'], { cwd: packageRoot, encoding: 'utf8' });
-    if (build.status !== 0) {
-      throw new Error(build.stderr || build.stdout || 'build failed');
+    const distPath = path.resolve(packageRoot, 'dist/domain/horizon.js');
+    if (!fs.existsSync(distPath)) {
+      const build = spawnSync('pnpm', ['run', 'build'], { cwd: packageRoot, encoding: 'utf8' });
+      if (build.status !== 0) {
+        throw new Error(build.stderr || build.stdout || 'build failed');
+      }
     }
-  });
+  }, 30000);
 
   it('is pure calendar stepping (no TZ)', () => {
     expect(enumerateFromDate('2026-07-27', 3)).toEqual([

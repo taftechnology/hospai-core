@@ -491,10 +491,6 @@ async function getKvBulkBounded(
         for (const [k, v] of batchRes.entries()) {
           result.set(k, v);
         }
-      } else if (batchRes && typeof batchRes === 'object') {
-        for (const k of chunk) {
-          result.set(k, (batchRes as Record<string, string | null>)[k] ?? null);
-        }
       }
     } catch {
       await Promise.all(

@@ -29,7 +29,10 @@ function runEnumerateFromDateUnder(tz: string, startDate: string, days: number):
 describe('enumerateFromDate', () => {
   beforeAll(() => {
     const distPath = path.resolve(packageRoot, 'dist/domain/horizon.js');
-    if (!fs.existsSync(distPath)) {
+    const srcPath = path.resolve(packageRoot, 'src/domain/horizon.ts');
+    const isStale =
+      !fs.existsSync(distPath) || fs.statSync(distPath).mtimeMs < fs.statSync(srcPath).mtimeMs;
+    if (isStale) {
       const build = spawnSync('pnpm', ['run', 'build'], { cwd: packageRoot, encoding: 'utf8' });
       if (build.status !== 0) {
         throw new Error(build.stderr || build.stdout || 'build failed');

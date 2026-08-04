@@ -85,6 +85,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
     notes: 'Inventory-affecting — must not invent stock during outage.',
+    entitlement: 'pms.core',
     permission: 'reservations:write',
   },
   {

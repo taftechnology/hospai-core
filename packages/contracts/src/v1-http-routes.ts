@@ -38,5 +38,65 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'inventory:read',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_reservations',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.create',
+  },
+  {
+    id: 'get_reservation',
+    scope: 'property',
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'patch_reservation',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.modify',
+  },
+  {
+    id: 'post_reservation_cancel',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.cancel',
+  },
+  {
+    id: 'post_reservation_check_in',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.check_in',
+  },
+  {
+    id: 'post_reservation_check_out',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.check_out',
+  },
+  {
+    id: 'post_reservation_no_show',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.no_show',
+  },
+  {
+    id: 'post_reservation_cancel_check_in',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.cancel_check_in',
+  },
+  {
+    id: 'put_rate_days',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.upsert_day',
+  },
+  {
+    id: 'put_restriction_days',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'restrictions.upsert_day',
+  },
 ];
 

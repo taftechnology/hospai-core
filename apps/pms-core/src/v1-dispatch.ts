@@ -1,19 +1,29 @@
 import type { FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
+  ALREADY_CANCELLED,
+  BUSINESS_DATE_UNSET,
   FORBIDDEN,
   IDEM_KEY_REUSED,
+  INVALID_STATUS_TRANSITION,
+  LEDGER_INCONSISTENT,
+  NO_AVAILABILITY,
+  NO_SHOW_BEFORE_ARRIVAL,
+  NOT_MODIFIABLE,
   InvalidTenantIdError,
   NOT_FOUND,
   OVERSELL,
+  RESTRICTION_VIOLATED,
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
+  UNBOOKABLE,
   fingerprintPayload,
   requireCatalogEntry,
   validateTenantId,
   type Permission,
+  type IdempotencyKey,
 } from '@hospai/contracts';
-
+import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import {
   checkKillSwitch,
   EntitlementRequiredError,
@@ -21,11 +31,12 @@ import {
   loadSnapshot,
   require,
 } from '@hospai/entitlement-client';
-import { logError, type ObservabilityContext } from '@hospai/observability';
+import { logError, logWarn, type ObservabilityContext } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import { OrgDO } from './org-do.js';
+import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { createOrg, getOrg, getProperty } from './registry.js';
 
@@ -38,6 +49,61 @@ function mapAddRoomTypeErrorStatus(error: string): number {
     return 409;
   }
   return 422;
+}
+
+function mapReservationCommandErrorStatus(error: string): number {
+  if (error === IDEM_KEY_REUSED || error === ALREADY_CANCELLED || error === LEDGER_INCONSISTENT) {
+    return 409;
+  }
+  if (error === NO_AVAILABILITY) return 409;
+  if (
+    error === UNBOOKABLE ||
+    error === RESTRICTION_VIOLATED ||
+    error === NOT_MODIFIABLE ||
+    error === INVALID_STATUS_TRANSITION ||
+    error === NO_SHOW_BEFORE_ARRIVAL
+  ) {
+    return 422;
+  }
+  if (error === BUSINESS_DATE_UNSET) return 500;
+  return mapAddRoomTypeErrorStatus(error);
+}
+
+function requireIdempotencyHeader(request: Request): string | Response {
+  const key = request.headers.get('x-idempotency-key');
+  if (!key) return json({ error: 'invalid_body' }, 400);
+  return key;
+}
+
+function logAriRejectOnCommit(
+  observability: ObservabilityContext,
+  quoteAriVersion: number | undefined,
+  result: { error: typeof NO_AVAILABILITY; date: string; ariVersion: number },
+  roomTypeId: string,
+): void {
+  if (quoteAriVersion === undefined) return;
+  const classification =
+    quoteAriVersion < result.ariVersion ? 'stale_projection' : 'genuine_race';
+  logWarn(observability, {
+    msg: 'ari.reject_on_commit',
+    classification,
+    quote_ari_version: quoteAriVersion,
+    current_ari_version: result.ariVersion,
+    room_type_id: roomTypeId,
+    date: result.date,
+  });
+}
+
+async function resolvePropertyContext(
+  ctx: V1DispatchContext,
+  propertyId: string,
+): Promise<{ property: NonNullable<Awaited<ReturnType<typeof getProperty>>>; resolved: NonNullable<Awaited<ReturnType<typeof resolvePropertyFromRegistry>>> } | Response> {
+  const property = await getProperty(ctx.env, propertyId);
+  if (!property) return json({ error: 'not_found' }, 404);
+  ctx.observability.orgId = property.orgId;
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) return json({ error: 'not_found' }, 404);
+  return { property, resolved };
 }
 
 async function gateEntitlement(env: PmsEnv, orgId: string, feature: FeatureKey): Promise<Response | null> {
@@ -66,7 +132,7 @@ export type V1DispatchContext = {
 };
 
 type V1RouteBase = {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   pattern: RegExp;
   handler: (ctx: V1DispatchContext) => Promise<Response>;
 };
@@ -385,6 +451,376 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+async function handlePostReservations(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    reservationId: string;
+    roomTypeId: string;
+    guestRef: string;
+    piiKeyId: string;
+    arrivalDate: string;
+    departureDate: string;
+    idempotencyKey: string;
+    quoteAriVersion?: number;
+  };
+  if (
+    !body.reservationId ||
+    !body.roomTypeId ||
+    !body.guestRef ||
+    !body.piiKeyId ||
+    !body.arrivalDate ||
+    !body.departureDate ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({
+    reservationId: body.reservationId,
+    roomTypeId: body.roomTypeId,
+    arrivalDate: body.arrivalDate,
+    departureDate: body.departureDate,
+    guestRef: body.guestRef,
+    piiKeyId: body.piiKeyId,
+  });
+
+  const result = await resolvedCtx.resolved.stub.tryCreateReservation(
+    {
+      reservationId: body.reservationId,
+      roomTypeId: body.roomTypeId,
+      guestRef: body.guestRef,
+      piiKeyId: body.piiKeyId,
+      arrivalDate: body.arrivalDate,
+      departureDate: body.departureDate,
+    },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NO_AVAILABILITY) {
+      const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
+      logAriRejectOnCommit(ctx.observability, body.quoteAriVersion, fail, body.roomTypeId);
+      return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
+    }
+    if (err === RESTRICTION_VIOLATED) {
+      const fail = result as {
+        ok: false;
+        error: typeof RESTRICTION_VIOLATED;
+        rule: string;
+        date: string;
+        required?: number;
+      };
+      return json(
+        {
+          ok: false,
+          error: fail.error,
+          rule: fail.rule,
+          date: fail.date,
+          ...(fail.required !== undefined ? { required: fail.required } : {}),
+        },
+        422,
+      );
+    }
+    if (err === UNBOOKABLE) {
+      const fail = result as { ok: false; error: typeof UNBOOKABLE; date: string };
+      return json({ ok: false, error: fail.error, date: fail.date }, 422);
+    }
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 201);
+}
+
+async function handleGetReservation(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const result = await resolvedCtx.resolved.stub.readReservation(reservationId);
+  if (!result.ok) {
+    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: result.error }, 422);
+  }
+  return json(result.reservation, 200);
+}
+
+async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomTypeId: string;
+    arrivalDate: string;
+    departureDate: string;
+    idempotencyKey: string;
+    quoteAriVersion?: number;
+  };
+  if (!body.roomTypeId || !body.arrivalDate || !body.departureDate || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({
+    reservationId,
+    roomTypeId: body.roomTypeId,
+    arrivalDate: body.arrivalDate,
+    departureDate: body.departureDate,
+  });
+
+  const result = await resolvedCtx.resolved.stub.tryModifyReservation(
+    {
+      reservationId,
+      roomTypeId: body.roomTypeId,
+      arrivalDate: body.arrivalDate,
+      departureDate: body.departureDate,
+    },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NO_AVAILABILITY) {
+      const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
+      logAriRejectOnCommit(ctx.observability, body.quoteAriVersion, fail, body.roomTypeId);
+      return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
+    }
+    if (err === RESTRICTION_VIOLATED) {
+      const fail = result as {
+        ok: false;
+        error: typeof RESTRICTION_VIOLATED;
+        rule: string;
+        date: string;
+        required?: number;
+      };
+      return json(
+        {
+          ok: false,
+          error: fail.error,
+          rule: fail.rule,
+          date: fail.date,
+          ...(fail.required !== undefined ? { required: fail.required } : {}),
+        },
+        422,
+      );
+    }
+    if (err === UNBOOKABLE || err === LEDGER_INCONSISTENT) {
+      const fail = result as { ok: false; error: typeof UNBOOKABLE | typeof LEDGER_INCONSISTENT; date: string };
+      return json({ ok: false, error: fail.error, date: fail.date }, mapReservationCommandErrorStatus(fail.error));
+    }
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { idempotencyKey: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ reservationId });
+  const result = await resolvedCtx.resolved.stub.tryCancelReservation(
+    { reservationId },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === LEDGER_INCONSISTENT) {
+      const fail = result as { ok: false; error: typeof LEDGER_INCONSISTENT; date: string };
+      return json({ ok: false, error: fail.error, date: fail.date }, 409);
+    }
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationStatusAction(
+  ctx: V1DispatchContext,
+  reservationId: string,
+  action: (
+    stub: DurableObjectStub<PropertyDO>,
+    idem: IdempotencyKey,
+  ) => Promise<{ ok: boolean; error?: string; date?: string }>,
+): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ reservationId });
+  const result = await action(resolvedCtx.resolved.stub, {
+    key: idempotencyKey,
+    fingerprint,
+  });
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === LEDGER_INCONSISTENT) {
+      return json({ ok: false, error: err, date: result.date }, 409);
+    }
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
+    stub.tryCheckIn({ reservationId }, idem),
+  );
+}
+
+async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
+    stub.tryCheckOut({ reservationId }, idem),
+  );
+}
+
+async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
+    stub.tryNoShow({ reservationId }, idem),
+  );
+}
+
+async function handlePostReservationCancelCheckIn(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
+    stub.tryCancelCheckIn({ reservationId }, idem),
+  );
+}
+
+async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomTypeId: string;
+    ratePlanId?: string;
+    stayDate: string;
+    amountMinor: number;
+    currency: string;
+    idempotencyKey: string;
+  };
+  if (
+    !body.roomTypeId ||
+    !body.stayDate ||
+    typeof body.amountMinor !== 'number' ||
+    !body.currency ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const ratePlanId = body.ratePlanId ?? 'BAR';
+  const fingerprint = await fingerprintPayload({
+    roomTypeId: body.roomTypeId,
+    ratePlanId,
+    stayDate: body.stayDate,
+    amountMinor: body.amountMinor,
+    currency: body.currency,
+  });
+
+  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
+    {
+      roomTypeId: body.roomTypeId,
+      ratePlanId,
+      stayDate: body.stayDate,
+      amountMinor: body.amountMinor,
+      currency: body.currency,
+    },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
+  }
+  return json(result, 200);
+}
+
+async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomTypeId: string;
+    ratePlanId?: string;
+    stayDate: string;
+    minLos?: number | null;
+    maxLos?: number | null;
+    cta?: boolean;
+    ctd?: boolean;
+    stopSell?: boolean;
+    idempotencyKey: string;
+  };
+  if (!body.roomTypeId || !body.stayDate || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const ratePlanId = body.ratePlanId ?? TYPE_WIDE_RATE_PLAN;
+  const fingerprint = await fingerprintPayload({
+    roomTypeId: body.roomTypeId,
+    ratePlanId,
+    stayDate: body.stayDate,
+    minLos: body.minLos ?? null,
+    maxLos: body.maxLos ?? null,
+    cta: body.cta ?? false,
+    ctd: body.ctd ?? false,
+    stopSell: body.stopSell ?? false,
+  });
+
+  const result = await resolvedCtx.resolved.stub.tryUpsertRestrictionDay(
+    {
+      roomTypeId: body.roomTypeId,
+      ratePlanId,
+      stayDate: body.stayDate,
+      minLos: body.minLos ?? null,
+      maxLos: body.maxLos ?? null,
+      cta: body.cta ?? false,
+      ctd: body.ctd ?? false,
+      stopSell: body.stopSell ?? false,
+    },
+    { key: body.idempotencyKey, fingerprint },
+  );
+
+  if (!result.ok) {
+    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
+  }
+  return json(result, 200);
+}
+
 export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'bootstrap',
@@ -458,6 +894,86 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'inventory:read',
     entitlement: 'pms.core',
     handler: handleGetAvailability,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.create',
+    handler: handlePostReservations,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservation,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.modify',
+    handler: handlePatchReservation,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/cancel$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.cancel',
+    handler: handlePostReservationCancel,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/check-in$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.check_in',
+    handler: handlePostReservationCheckIn,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/check-out$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.check_out',
+    handler: handlePostReservationCheckOut,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/no-show$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.no_show',
+    handler: handlePostReservationNoShow,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/cancel-check-in$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.cancel_check_in',
+    handler: handlePostReservationCancelCheckIn,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-days$/,
+    permission: 'rates:write',
+    commandId: 'rates.upsert_day',
+    handler: handlePutRateDays,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/restriction-days$/,
+    permission: 'rates:write',
+    commandId: 'restrictions.upsert_day',
+    handler: handlePutRestrictionDays,
   },
 ];
 

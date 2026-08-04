@@ -37,7 +37,7 @@ describe('tenancy spine', () => {
     expect(resolved).not.toBeNull();
     expect(resolved!.property.jurisdiction).toBe('eu');
     expect(await resolved!.stub.getRecordedJurisdiction()).toBe('eu');
-    expect(await resolved!.stub.getSchemaVersion()).toBe(7);
+    expect(await resolved!.stub.getSchemaVersion()).toBe(8);
 
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     const refs = await org.listPropertyRefs();

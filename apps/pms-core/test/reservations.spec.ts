@@ -8,6 +8,8 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  INVALID_STATUS_TRANSITION,
+  NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
 } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
@@ -88,7 +90,12 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
     const second = { ...first, reservationId: 'res_b' };
     const result = await stub.tryCreateReservation(second, await idemFor('book-b', second));
-    expect(result).toEqual({ ok: false, error: NO_AVAILABILITY, date: arrival });
+    expect(result).toMatchObject({
+      ok: false,
+      error: NO_AVAILABILITY,
+      date: arrival,
+      ariVersion: expect.any(Number),
+    });
   });
 
   it('3. rejects unbookable gap in horizon', async () => {
@@ -243,7 +250,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
     expect(await stub.tryCreateReservation(second, await idemFor('book-l2', second))).toMatchObject({ ok: true });
 
     const third = { ...first, reservationId: 'res_l3' };
-    expect(await stub.tryCreateReservation(third, await idemFor('book-l3', third))).toEqual({
+    expect(await stub.tryCreateReservation(third, await idemFor('book-l3', third))).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
       date: arrival,
@@ -621,7 +628,12 @@ describe('PropertyDO reservations.modify', () => {
       departureDate: extendedDeparture,
     };
     const result = await stub.tryModifyReservation(modifyInput, await idemFor('mod-full', modifyInput));
-    expect(result).toEqual({ ok: false, error: NO_AVAILABILITY, date: extensionNight });
+    expect(result).toMatchObject({
+      ok: false,
+      error: NO_AVAILABILITY,
+      date: extensionNight,
+      ariVersion: expect.any(Number),
+    });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
     expect((await stub.readAvailabilityDay('rt_king', extensionNight))?.sold).toBe(1);
   });
@@ -731,7 +743,7 @@ describe('PropertyDO reservation precondition replay', () => {
       departureDate: departure,
     };
     const idem = await idemFor('book-guest-replay-fixed', guestInput);
-    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
       date: arrival,
@@ -822,5 +834,128 @@ describe('PropertyDO reservation precondition replay', () => {
     });
 
     expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+  });
+});
+
+describe('PropertyDO front-desk status machine', () => {
+  async function bookConfirmed(
+    stub: DurableObjectStub<PropertyDO>,
+    reservationId: string,
+    roomTypeId: string,
+    arrival: string,
+    departure: string,
+  ) {
+    const input = {
+      reservationId,
+      roomTypeId,
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(await stub.tryCreateReservation(input, await idemFor(`book-${reservationId}`, input))).toMatchObject({
+      ok: true,
+    });
+    await stub.flushOutbox();
+    return input;
+  }
+
+  it('check_in on confirmed sets checked_in without availability.changed', async () => {
+    const stub = await provisionedPropertyStub(`status-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_ci', 'rt_king', added.fromDate, departure);
+
+    const result = await stub.tryCheckIn({ reservationId: 'res_ci' }, await idemFor('ci', { reservationId: 'res_ci' }));
+    expect(result).toMatchObject({ ok: true, reservationId: 'res_ci' });
+    expect(await stub.getReservationStatus('res_ci')).toBe('checked_in');
+    expect(await stub.listOutboxEventTypes()).toEqual(['reservation.status_changed']);
+  });
+
+  it('check_in on checked_in returns invalid_status_transition', async () => {
+    const stub = await provisionedPropertyStub(`status-ci2-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_ci2', 'rt_king', added.fromDate, departure);
+    const idem1 = await idemFor('ci2', { reservationId: 'res_ci2' });
+    expect(await stub.tryCheckIn({ reservationId: 'res_ci2' }, idem1)).toMatchObject({ ok: true });
+    const idem2 = await idemFor('ci2-dup', { reservationId: 'res_ci2' });
+    expect(await stub.tryCheckIn({ reservationId: 'res_ci2' }, idem2)).toMatchObject({
+      ok: false,
+      error: INVALID_STATUS_TRANSITION,
+    });
+  });
+
+  it('check_out on checked_in sets checked_out', async () => {
+    const stub = await provisionedPropertyStub(`status-co-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_co', 'rt_king', added.fromDate, departure);
+    await stub.tryCheckIn({ reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
+
+    const result = await stub.tryCheckOut({ reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
+    expect(result).toMatchObject({ ok: true, reservationId: 'res_co' });
+    expect(await stub.getReservationStatus('res_co')).toBe('checked_out');
+  });
+
+  it('cancel_check_in reverts checked_in to confirmed', async () => {
+    const stub = await provisionedPropertyStub(`status-cci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_cci', 'rt_king', added.fromDate, departure);
+    await stub.tryCheckIn({ reservationId: 'res_cci' }, await idemFor('ci-cci', { reservationId: 'res_cci' }));
+
+    const result = await stub.tryCancelCheckIn(
+      { reservationId: 'res_cci' },
+      await idemFor('cci', { reservationId: 'res_cci' }),
+    );
+    expect(result).toMatchObject({ ok: true, reservationId: 'res_cci' });
+    expect(await stub.getReservationStatus('res_cci')).toBe('confirmed');
+  });
+
+  it('no_show releases ledger and emits availability.changed', async () => {
+    const stub = await provisionedPropertyStub(`status-ns-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_ns', 'rt_king', added.fromDate, departure);
+    expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.sold).toBe(1);
+
+    const result = await stub.tryNoShow({ reservationId: 'res_ns' }, await idemFor('ns', { reservationId: 'res_ns' }));
+    expect(result).toMatchObject({ ok: true, reservationId: 'res_ns' });
+    expect(await stub.getReservationStatus('res_ns')).toBe('no_show');
+    expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.sold).toBe(0);
+    expect(await stub.listOutboxEventTypes()).toEqual(['reservation.status_changed', 'availability.changed']);
+  });
+
+  it('no_show before arrival returns no_show_before_arrival', async () => {
+    const stub = await provisionedPropertyStub(`status-ns-early-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const futureArrival = addDays(added.fromDate, 5);
+    const futureDeparture = addDays(futureArrival, 2);
+    await bookConfirmed(stub, 'res_ns_early', 'rt_king', futureArrival, futureDeparture);
+
+    const result = await stub.tryNoShow(
+      { reservationId: 'res_ns_early' },
+      await idemFor('ns-early', { reservationId: 'res_ns_early' }),
+    );
+    expect(result).toEqual({ ok: false, error: NO_SHOW_BEFORE_ARRIVAL });
+  });
+
+  it('readReservation returns reservation row', async () => {
+    const stub = await provisionedPropertyStub(`status-read-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_read', 'rt_king', added.fromDate, departure);
+
+    const result = await stub.readReservation('res_read');
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('read failed');
+    expect(result.reservation).toMatchObject({
+      reservationId: 'res_read',
+      roomTypeId: 'rt_king',
+      status: 'confirmed',
+      arrivalDate: added.fromDate,
+      departureDate: departure,
+    });
   });
 });

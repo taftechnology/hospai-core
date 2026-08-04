@@ -16,6 +16,8 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  INVALID_STATUS_TRANSITION,
+  NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
   ENTITLEMENT_REQUIRED,
@@ -1764,7 +1766,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
-    | { ok: false; error: typeof NO_AVAILABILITY; date: string }
+    | { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number }
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
@@ -1905,6 +1907,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
+      if (e instanceof NoAvailabilityError) {
+        return {
+          ok: false,
+          error: NO_AVAILABILITY,
+          date: e.date,
+          ariVersion: this.readAriVersionSync(),
+        };
+      }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -2043,7 +2053,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
-    | { ok: false; error: typeof NO_AVAILABILITY; date: string }
+    | { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number }
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof NOT_MODIFIABLE }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
@@ -2282,10 +2292,388 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
+      if (e instanceof NoAvailabilityError) {
+        return {
+          ok: false,
+          error: NO_AVAILABILITY,
+          date: e.date,
+          ariVersion: this.readAriVersionSync(),
+        };
+      }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Check in a confirmed reservation. Implements catalog `reservations.check_in`.
+   * Fingerprint: `{ reservationId }`. No ledger mutation.
+   */
+  async tryCheckIn(
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: string }
+  > {
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ guest_ref: string; pii_key_id: string; status: string }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'confirmed') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'checked_in', updated_at = ? WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'confirmed',
+              toStatus: 'checked_in',
+            },
+          });
+
+          return { ok: true as const, reservationId: input.reservationId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Check out a checked-in reservation. Implements catalog `reservations.check_out`.
+   * Fingerprint: `{ reservationId }`. No ledger mutation.
+   */
+  async tryCheckOut(
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: string }
+  > {
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ guest_ref: string; pii_key_id: string; status: string }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'checked_in') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'checked_out', updated_at = ? WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'checked_in',
+              toStatus: 'checked_out',
+            },
+          });
+
+          return { ok: true as const, reservationId: input.reservationId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Reverse an accidental check-in. Implements catalog `reservations.cancel_check_in`.
+   * Fingerprint: `{ reservationId }`. No ledger mutation.
+   */
+  async tryCancelCheckIn(
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: string }
+  > {
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ guest_ref: string; pii_key_id: string; status: string }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'checked_in') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'confirmed', updated_at = ? WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'checked_in',
+              toStatus: 'confirmed',
+            },
+          });
+
+          return { ok: true as const, reservationId: input.reservationId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Mark a confirmed reservation as no-show and release sold inventory.
+   * Implements catalog `reservations.no_show`. Fingerprint: `{ reservationId }`.
+   */
+  async tryNoShow(
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof NO_SHOW_BEFORE_ARRIVAL }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+    | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+    | { ok: false; error: string }
+  > {
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'confirmed') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+          if (businessDate < reservation.arrival_date) {
+            return { ok: false as const, error: NO_SHOW_BEFORE_ARRIVAL };
+          }
+
+          const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+          for (const stayDate of nights) {
+            const rows = this.ctx.storage.sql
+              .exec(
+                `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                reservation.room_type_id,
+                stayDate,
+              )
+              .toArray() as Array<{ sold: number }>;
+            if (rows.length === 0 || rows[0]!.sold < 1) {
+              throw new LedgerInconsistentError(stayDate);
+            }
+          }
+
+          for (const stayDate of nights) {
+            this.ctx.storage.sql.exec(
+              `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+              reservation.room_type_id,
+              stayDate,
+            );
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'no_show', updated_at = ? WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          const ariVersion = this.bumpAriVersionSync();
+          const fromDate = nights[0]!;
+          const toDate = nights[nights.length - 1]!;
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'confirmed',
+              toStatus: 'no_show',
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: {
+              propertyId,
+              roomTypeId: reservation.room_type_id,
+              fromDate,
+              toDate,
+              version: ariVersion,
+            },
+          });
+
+          return {
+            ok: true as const,
+            reservationId: input.reservationId,
+            ariVersion,
+            fromDate,
+            toDate,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Read a single reservation row. No idempotency — plain read RPC. */
+  async readReservation(reservationId: string): Promise<
+    | {
+        ok: true;
+        reservation: {
+          reservationId: string;
+          roomTypeId: string;
+          guestRef: string;
+          piiKeyId: string;
+          arrivalDate: string;
+          departureDate: string;
+          status: string;
+          createdAt: number;
+          updatedAt: number;
+        };
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      pii_key_id: string;
+      arrival_date: string;
+      departure_date: string;
+      status: string;
+      created_at: number;
+      updated_at: number;
+    }>;
+    const row = rows[0];
+    if (!row) return { ok: false, error: NOT_FOUND };
+    return {
+      ok: true,
+      reservation: {
+        reservationId: row.reservation_id,
+        roomTypeId: row.room_type_id,
+        guestRef: row.guest_ref,
+        piiKeyId: row.pii_key_id,
+        arrivalDate: row.arrival_date,
+        departureDate: row.departure_date,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+    };
   }
 
   /** Test helper: read reservation status, or null if absent. */

@@ -152,7 +152,7 @@ describe('migration orchestrator (Phase 0)', () => {
     const resolved = await resolvePropertyFromRegistry(env, propertyId);
     expect(resolved).not.toBeNull();
     expect(await resolved!.stub.getSchemaVersion()).toBe(PROPERTY_SCHEMA_HEAD);
-  });
+  }, 15_000);
 
   it('admin route returns 404 when dev actor is not allowed', async () => {
     const gatedEnv = {

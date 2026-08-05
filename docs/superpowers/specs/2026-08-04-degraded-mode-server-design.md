@@ -226,13 +226,14 @@ Human-readable `503` reason strings come from `CommandEntry.notes` or a small `D
 }
 ```
 
-**`503 Service Unavailable`** — three distinct variants exist in the codebase today. Clients must not treat all `503`s as retryable:
+**`503 Service Unavailable`** — four distinct variants exist in the codebase today. Clients must not treat all `503`s as retryable:
 
 | Variant | Body | `Retry-After` | Retry? |
 |---|---|---|---|
 | Kill-switch | empty body | no | no — shed load |
 | Entitlement plane down | `{ error: 'entitlement_unavailable' }` | no | yes, after backoff |
 | **Degraded fail-closed** (this slice) | `{ error: 'property_unreachable', degraded: 'FAIL_CLOSED', commandId, reason }` | **yes** — `Retry-After: 30` (seconds) | only while outage persists; not a queue hint |
+| **Queue producer failure** (this slice) | `{ error: 'queue_unavailable' }` | no | yes — nothing was queued; safe to retry admission |
 
 Degraded **`503`** carries **`Retry-After: 30`**. A naive client that retries every `503` will still hammer a `FAIL_CLOSED` command during a prolonged outage, but the header gives well-behaved clients a throttle and distinguishes degraded refusal from kill-switch (empty body, no header).
 

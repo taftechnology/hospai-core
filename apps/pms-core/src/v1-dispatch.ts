@@ -504,7 +504,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     departureDate: body.departureDate,
   };
 
-  const invoked = await invokePropertyDo({
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateReservation']>>>({
     env: ctx.env,
     commandId: 'reservations.create',
     routeId: 'post_reservations',

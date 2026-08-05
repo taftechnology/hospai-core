@@ -1,6 +1,6 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PendingCommandMessage } from '@hospai/contracts';
+import type { PendingCommandMessage, ProvisionalExceptionRow } from '@hospai/contracts';
 import { BUSINESS_DATE_CLOSED } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
@@ -122,6 +122,20 @@ async function dispatchPendingBatch(messages: PendingCommandMessage[]): Promise<
   await worker.queue(batch, env);
 }
 
+function mockQueueSendResponse(id = crypto.randomUUID()) {
+  return {
+    id,
+    metadata: { metrics: { backlogCount: 0, backlogBytes: 0 } },
+  } as Awaited<ReturnType<typeof env.PENDING_COMMANDS_QUEUE.send>>;
+}
+
+function mockQueueSendCapture(sent: PendingCommandMessage[]) {
+  return vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async (body) => {
+    sent.push(body);
+    return mockQueueSendResponse();
+  });
+}
+
 async function provisionHotel(actor: string) {
   const orgId = `org_deg_${crypto.randomUUID()}`;
   const propertyId = `prop_deg_${crypto.randomUUID()}`;
@@ -159,9 +173,7 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await postReservation(propertyId, actor, 'res_deg_1', arrival, departure)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
-    vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async (body) => {
-      sent.push(body);
-    });
+    mockQueueSendCapture(sent);
 
     await stub.setTransportBlockedForTest(true);
     const idemKey = 'idem-ci-deg-1';
@@ -181,9 +193,7 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await postReservation(propertyId, actor, 'res_deg_2', arrival, departure)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
-    vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async (body) => {
-      sent.push(body);
-    });
+    mockQueueSendCapture(sent);
 
     await stub.setTransportBlockedForTest(true);
     const idemKey = 'idem-ci-deg-2';
@@ -211,9 +221,7 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await postReservation(propertyId, actor, 'res_deg_3', arrival, departure)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
-    vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async (body) => {
-      sent.push(body);
-    });
+    mockQueueSendCapture(sent);
 
     const idemKey = 'idem-ci-deg-3';
     await stub.setTransportBlockedForTest(true);
@@ -254,9 +262,7 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await postReservation(propertyId, actor, 'res_deg_5a', arrival, departure)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
-    vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async (body) => {
-      sent.push(body);
-    });
+    mockQueueSendCapture(sent);
 
     await stub.setTransportBlockedForTest(true);
     expect((await postCheckIn(propertyId, actor, 'res_deg_5a', 'idem-5a')).status).toBe(202);
@@ -266,8 +272,10 @@ describe('degraded mode §4.6 fault injection', () => {
     await stub.setBusinessDateForTest(closedDate);
     await dispatchPendingBatch(sent);
 
-    const { exceptions } = await stub.listProvisionalExceptions();
-    expect(exceptions).toHaveLength(1);
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions.length).toBe(1);
     expect(exceptions[0]!.reason).toBe('business_date_closed');
     expect(await stub.getReservationStatus('res_deg_5a')).toBe('confirmed');
   });
@@ -379,6 +387,7 @@ describe('degraded mode §4.6 fault injection', () => {
     vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async () => {
       calls += 1;
       if (calls === 1) throw new Error('send_failed');
+      return mockQueueSendResponse();
     });
 
     await stub.setTransportBlockedForTest(true);

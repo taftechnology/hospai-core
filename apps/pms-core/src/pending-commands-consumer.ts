@@ -135,7 +135,14 @@ export async function handlePendingCommandsBatch(
         msg.retry();
         continue;
       }
-      throw e;
+      logWarn(ctx, {
+        msg: 'degraded.replay_error',
+        propertyId: provisional.propertyId,
+        commandId: provisional.command.type,
+        idempotencyKey: provisional.idempotencyKey,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      msg.retry();
     }
   }
 }

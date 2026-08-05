@@ -866,7 +866,7 @@ describe('PropertyDO front-desk status machine', () => {
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, 'res_ci', 'rt_king', added.fromDate, departure);
 
-    const result = await stub.tryCheckIn({ reservationId: 'res_ci' }, await idemFor('ci', { reservationId: 'res_ci' }));
+    const result = await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci' }, await idemFor('ci', { reservationId: 'res_ci' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_ci' });
     expect(await stub.getReservationStatus('res_ci')).toBe('checked_in');
     expect(await stub.listOutboxEventTypes()).toEqual(['reservation.status_changed']);
@@ -878,9 +878,9 @@ describe('PropertyDO front-desk status machine', () => {
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, 'res_ci2', 'rt_king', added.fromDate, departure);
     const idem1 = await idemFor('ci2', { reservationId: 'res_ci2' });
-    expect(await stub.tryCheckIn({ reservationId: 'res_ci2' }, idem1)).toMatchObject({ ok: true });
+    expect(await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci2' }, idem1)).toMatchObject({ ok: true });
     const idem2 = await idemFor('ci2-dup', { reservationId: 'res_ci2' });
-    expect(await stub.tryCheckIn({ reservationId: 'res_ci2' }, idem2)).toMatchObject({
+    expect(await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci2' }, idem2)).toMatchObject({
       ok: false,
       error: INVALID_STATUS_TRANSITION,
     });
@@ -891,9 +891,9 @@ describe('PropertyDO front-desk status machine', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, 'res_co', 'rt_king', added.fromDate, departure);
-    await stub.tryCheckIn({ reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
+    await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
 
-    const result = await stub.tryCheckOut({ reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
+    const result = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_co' });
     expect(await stub.getReservationStatus('res_co')).toBe('checked_out');
   });
@@ -903,14 +903,32 @@ describe('PropertyDO front-desk status machine', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, 'res_cci', 'rt_king', added.fromDate, departure);
-    await stub.tryCheckIn({ reservationId: 'res_cci' }, await idemFor('ci-cci', { reservationId: 'res_cci' }));
+    await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_cci' }, await idemFor('ci-cci', { reservationId: 'res_cci' }));
 
     const result = await stub.tryCancelCheckIn(
+      TEST_OWNER_ACTOR,
       { reservationId: 'res_cci' },
       await idemFor('cci', { reservationId: 'res_cci' }),
     );
     expect(result).toMatchObject({ ok: true, reservationId: 'res_cci' });
     expect(await stub.getReservationStatus('res_cci')).toBe('confirmed');
+  });
+
+  it('check_in with non-member actor returns not_member without mutation', async () => {
+    const stub = await provisionedPropertyStub(`status-gate-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const departure = addDays(added.fromDate, 2);
+    await bookConfirmed(stub, 'res_gate', 'rt_king', added.fromDate, departure);
+    const unackedBefore = await stub.outboxUnackedCount();
+
+    const result = await stub.tryCheckIn(
+      { kind: 'user', userId: 'user_non_member' },
+      { reservationId: 'res_gate' },
+      await idemFor('ci-gate', { reservationId: 'res_gate' }),
+    );
+    expect(result).toEqual({ ok: false, error: 'not_member' });
+    expect(await stub.getReservationStatus('res_gate')).toBe('confirmed');
+    expect(await stub.outboxUnackedCount()).toBe(unackedBefore);
   });
 
   it('no_show releases ledger and emits availability.changed', async () => {

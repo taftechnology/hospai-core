@@ -659,6 +659,7 @@ async function handlePostReservationStatusAction(
   reservationId: string,
   action: (
     stub: DurableObjectStub<PropertyDO>,
+    actor: { kind: 'user'; userId: string },
     idem: IdempotencyKey,
   ) => Promise<{ ok: boolean; error?: string; date?: string }>,
 ): Promise<Response> {
@@ -672,14 +673,16 @@ async function handlePostReservationStatusAction(
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await fingerprintPayload({ reservationId });
-  const result = await action(resolvedCtx.resolved.stub, {
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const result = await action(resolvedCtx.resolved.stub, actor, {
     key: idempotencyKey,
     fingerprint,
   });
 
   if (!result.ok) {
     const err = result.error;
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
     if (err === LEDGER_INCONSISTENT) {
       return json({ ok: false, error: err, date: result.date }, 409);
     }
@@ -690,29 +693,29 @@ async function handlePostReservationStatusAction(
 
 async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
-    stub.tryCheckIn({ reservationId }, idem),
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
+    stub.tryCheckIn(actor, { reservationId }, idem),
   );
 }
 
 async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
-    stub.tryCheckOut({ reservationId }, idem),
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
+    stub.tryCheckOut(actor, { reservationId }, idem),
   );
 }
 
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, _actor, idem) =>
     stub.tryNoShow({ reservationId }, idem),
   );
 }
 
 async function handlePostReservationCancelCheckIn(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, idem) =>
-    stub.tryCancelCheckIn({ reservationId }, idem),
+  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
+    stub.tryCancelCheckIn(actor, { reservationId }, idem),
   );
 }
 

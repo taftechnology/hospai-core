@@ -38,4 +38,9 @@ export class PermissionDoCache {
     this.cache.set(key, { role, cachedAt: now });
     return role;
   }
+
+  /** Clears cached roles — test-only; see degraded-mode spec test 6b. */
+  invalidate(): void {
+    this.cache.clear();
+  }
 }

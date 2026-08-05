@@ -821,6 +821,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes = new LaneGuard(opts);
   }
 
+  /** Test helper (unsafe-local only): clear PermissionDoCache (degraded-mode test 6b). */
+  async clearPermissionCacheForTest(): Promise<void> {
+    this.assertUnsafeLocal('clearPermissionCacheForTest');
+    this.permissionCache.invalidate();
+  }
+
   /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
   async triggerAlarmForTest(): Promise<void> {
     this.assertUnsafeLocal('triggerAlarmForTest');
@@ -2311,12 +2317,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint: `{ reservationId }`. No ledger mutation.
    */
   async tryCheckIn(
+    actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
@@ -2325,6 +2333,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -2375,12 +2386,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint: `{ reservationId }`. No ledger mutation.
    */
   async tryCheckOut(
+    actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
@@ -2389,6 +2402,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -2439,12 +2455,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint: `{ reservationId }`. No ledger mutation.
    */
   async tryCancelCheckIn(
+    actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
@@ -2453,6 +2471,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
 
     try {
       return this.ctx.storage.transactionSync(() =>

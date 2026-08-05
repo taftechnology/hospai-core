@@ -253,6 +253,23 @@ export const RESERVATION_V8_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0008_reservation_status_machine.sql */
 export const RESERVATION_V8_SQL = RESERVATION_V8_STATEMENTS.join(';\n\n') + ';\n';
 
+export const PROVISIONAL_EXCEPTION_V9_STATEMENTS = [
+  `CREATE TABLE provisional_exception (
+  exception_id      TEXT PRIMARY KEY,
+  idempotency_key   TEXT NOT NULL UNIQUE,
+  command_type      TEXT NOT NULL,
+  payload           TEXT NOT NULL,
+  issued_at         TEXT NOT NULL,
+  business_date     TEXT NOT NULL,
+  reason            TEXT NOT NULL,
+  detail            TEXT,
+  created_at        INTEGER NOT NULL
+)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0009_provisional_exception.sql */
+export const PROVISIONAL_EXCEPTION_V9_SQL = PROVISIONAL_EXCEPTION_V9_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -293,5 +310,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 8,
     name: 'reservation_status_machine',
     statements: RESERVATION_V8_STATEMENTS,
+  },
+  {
+    version: 9,
+    name: 'provisional_exception',
+    statements: PROVISIONAL_EXCEPTION_V9_STATEMENTS,
   },
 ] as const;

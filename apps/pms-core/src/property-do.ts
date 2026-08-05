@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ARCHIVE_BLOCKED,
+  BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
   domainConfigKeys,
   getConfigEntry,
@@ -33,6 +34,9 @@ import {
   type EventSource,
   type IdempotencyKey,
   type Permission,
+  type ProvisionalCommand,
+  type ProvisionalContext,
+  type ProvisionalExceptionRow,
 } from '@hospai/contracts';
 import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
 import {
@@ -86,6 +90,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
+import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 
 /**
@@ -162,9 +167,20 @@ class LedgerInconsistentError extends Error {
   }
 }
 
+class ProvisionalBusinessDateClosedError extends Error {
+  constructor(
+    public readonly businessDate: string,
+    public readonly openDate: string,
+  ) {
+    super(`Business date ${businessDate} closed; open date is ${openDate}`);
+    this.name = 'ProvisionalBusinessDateClosedError';
+  }
+}
+
 function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof IDEM_KEY_REUSED }
   | { ok: false; error: typeof NOT_FOUND }
+  | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
   | { ok: false; error: typeof NO_AVAILABILITY; date: string }
   | { ok: false; error: typeof UNBOOKABLE; date: string }
   | {
@@ -177,6 +193,9 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+  if (e instanceof ProvisionalBusinessDateClosedError) {
+    return { ok: false, error: BUSINESS_DATE_CLOSED };
+  }
   if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
   if (e instanceof NoAvailabilityError) return { ok: false, error: NO_AVAILABILITY, date: e.date };
   if (e instanceof UnbookableError) return { ok: false, error: UNBOOKABLE, date: e.date };
@@ -323,6 +342,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * the only way to exercise a mid-roll failure without a real failing step body.
    */
   private rollFailureForTest: string | null = null;
+  private transportBlockedForTest = false;
+  private simulateBugForTest = false;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -448,6 +469,32 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: FORBIDDEN };
     }
     return null;
+  }
+
+  private assertRpcAvailable(): void {
+    if (this.simulateBugForTest) {
+      throw new Error('simulated_internal_bug');
+    }
+    if (this.transportBlockedForTest) {
+      throw new Error(PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE);
+    }
+  }
+
+  private assertProvisionalBusinessDateOpen(provisional?: ProvisionalContext): void {
+    if (!provisional) return;
+    const openDate = this.readBusinessDateSync();
+    if (openDate && provisional.businessDate < openDate) {
+      throw new ProvisionalBusinessDateClosedError(provisional.businessDate, openDate);
+    }
+  }
+
+  private statusChangeOutboxExtras(provisional?: ProvisionalContext): Record<string, unknown> {
+    if (!provisional) return {};
+    return {
+      issuedAt: provisional.issuedAt,
+      replayedAt: new Date().toISOString(),
+      provisional: true,
+    };
   }
 
 
@@ -825,6 +872,83 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async clearPermissionCacheForTest(): Promise<void> {
     this.assertUnsafeLocal('clearPermissionCacheForTest');
     this.permissionCache.invalidate();
+  }
+
+  /** Vitest fault injection — throws transport-allowlisted error on subsequent command RPCs. */
+  async setTransportBlockedForTest(blocked: boolean): Promise<void> {
+    this.assertUnsafeLocal('setTransportBlockedForTest');
+    this.transportBlockedForTest = blocked;
+  }
+
+  /** Vitest fault injection — throws non-transport error on subsequent command RPCs. */
+  async setSimulateBugForTest(enabled: boolean): Promise<void> {
+    this.assertUnsafeLocal('setSimulateBugForTest');
+    this.simulateBugForTest = enabled;
+  }
+
+  async recordProvisionalException(
+    cmd: ProvisionalCommand,
+    reason: string,
+    detail: unknown | null,
+  ): Promise<void> {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO provisional_exception (
+        exception_id, idempotency_key, command_type, payload,
+        issued_at, business_date, reason, detail, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      crypto.randomUUID(),
+      cmd.idempotencyKey,
+      cmd.command.type,
+      JSON.stringify(cmd.command.payload),
+      cmd.issuedAt,
+      cmd.businessDate,
+      reason,
+      detail === null ? null : JSON.stringify(detail),
+      now,
+    );
+  }
+
+  async listProvisionalExceptions(): Promise<{ exceptions: ProvisionalExceptionRow[] }> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT exception_id, idempotency_key, command_type, payload,
+                issued_at, business_date, reason, detail, created_at
+         FROM provisional_exception
+         ORDER BY created_at DESC`,
+      )
+      .toArray() as Array<{
+        exception_id: string;
+        idempotency_key: string;
+        command_type: string;
+        payload: string;
+        issued_at: string;
+        business_date: string;
+        reason: string;
+        detail: string | null;
+        created_at: number;
+      }>;
+
+    return {
+      exceptions: rows.map((row) => ({
+        exceptionId: row.exception_id,
+        idempotencyKey: row.idempotency_key,
+        commandType: row.command_type,
+        payload: JSON.parse(row.payload) as unknown,
+        issuedAt: row.issued_at,
+        businessDate: row.business_date,
+        reason: row.reason,
+        detail: row.detail === null ? null : (JSON.parse(row.detail) as unknown),
+        createdAt: row.created_at,
+      })),
+    };
+  }
+
+  async countProvisionalExceptions(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM provisional_exception`)
+      .toArray() as Array<{ n: number }>;
+    return rows[0]?.n ?? 0;
   }
 
   /** Test helper (unsafe-local only): invoke the `alarm()` lifecycle callback directly (no real DO alarm clock in vitest-pool-workers). */
@@ -1344,6 +1468,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       oversell: number;
     }>;
   }> {
+    this.assertRpcAvailable();
     const ariVersion = this.readAriVersionSync();
     const rows = this.ctx.storage.sql
       .exec(
@@ -1777,6 +1902,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -2320,13 +2446,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -2340,6 +2469,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -2369,6 +2499,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId: reservation.pii_key_id,
               fromStatus: 'confirmed',
               toStatus: 'checked_in',
+              ...this.statusChangeOutboxExtras(provisional),
             },
           });
 
@@ -2377,6 +2508,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -2389,13 +2522,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -2409,6 +2545,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -2438,6 +2575,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId: reservation.pii_key_id,
               fromStatus: 'checked_in',
               toStatus: 'checked_out',
+              ...this.statusChangeOutboxExtras(provisional),
             },
           });
 
@@ -2446,6 +2584,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -2458,13 +2598,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -2478,6 +2621,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -2507,6 +2651,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId: reservation.pii_key_id,
               fromStatus: 'checked_in',
               toStatus: 'confirmed',
+              ...this.statusChangeOutboxExtras(provisional),
             },
           });
 
@@ -2515,6 +2660,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

@@ -48,3 +48,8 @@ export function enumerateHorizonDates(
 
   return enumerateFromDate(local, days);
 }
+
+/** Calendar date (YYYY-MM-DD) for `instant` in `timeZone` — single derivation for edge + DO. */
+export function businessDateForInstant(timeZone: string, instant: Date = new Date()): string {
+  return enumerateHorizonDates(timeZone, instant, 1)[0]!;
+}

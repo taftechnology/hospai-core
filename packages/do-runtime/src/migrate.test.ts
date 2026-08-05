@@ -20,6 +20,7 @@ import {
   RESERVATION_V5_SQL,
   RESERVATION_V7_SQL,
   RESERVATION_V8_SQL,
+  PROVISIONAL_EXCEPTION_V9_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -78,14 +79,14 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 8', () => {
+  it('applies property migrations through version 9', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(8);
+    expect(v1).toBe(9);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(8);
-    expect(sql.schemaVersion).toHaveLength(8);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(v2).toBe(9);
+    expect(sql.schemaVersion).toHaveLength(9);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(10);
   });
 });
@@ -187,6 +188,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(RESERVATION_V8_SQL.trim());
   });
 
+  it('migrations/do-property/0009_provisional_exception.sql matches PROVISIONAL_EXCEPTION_V9_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0009_provisional_exception.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PROVISIONAL_EXCEPTION_V9_SQL.trim());
+  });
+
   it('migrations/do-org/0001_org_spine.sql matches ORG_SPINE_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-org/0001_org_spine.sql');
@@ -284,7 +297,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(8);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(9);
     expect(ORG_SCHEMA_HEAD).toBe(4);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });

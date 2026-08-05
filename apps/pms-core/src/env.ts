@@ -14,6 +14,8 @@ export type PmsEnv = {
   ENTITLEMENT_KV: KVNamespace;
   /** Domain event bus — outbox drain target. */
   EVENTS_QUEUE: Queue<import('@hospai/contracts').DomainEventMessage>;
+  /** Tier-1 degraded mode — provisional command replay queue. */
+  PENDING_COMMANDS_QUEUE: Queue<import('@hospai/contracts').PendingCommandMessage>;
   /** Advisory consumer dedupe — side-effect handlers must also use DO idempotency. */
   EVENT_DEDUPE_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;

@@ -35,6 +35,12 @@ import { logError, logWarn, type ObservabilityContext } from '@hospai/observabil
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
+import {
+  degradedFailClosedReadResponse,
+  degradedReadStaleResponse,
+  invokePropertyDo,
+} from './invoke-property-do.js';
+import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
@@ -489,17 +495,36 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     piiKeyId: body.piiKeyId,
   });
 
-  const result = await resolvedCtx.resolved.stub.tryCreateReservation(
-    {
-      reservationId: body.reservationId,
-      roomTypeId: body.roomTypeId,
-      guestRef: body.guestRef,
-      piiKeyId: body.piiKeyId,
-      arrivalDate: body.arrivalDate,
-      departureDate: body.departureDate,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  const commandPayload = {
+    reservationId: body.reservationId,
+    roomTypeId: body.roomTypeId,
+    guestRef: body.guestRef,
+    piiKeyId: body.piiKeyId,
+    arrivalDate: body.arrivalDate,
+    departureDate: body.departureDate,
+  };
+
+  const invoked = await invokePropertyDo({
+    env: ctx.env,
+    commandId: 'reservations.create',
+    routeId: 'post_reservations',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryCreateReservation(commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;
@@ -545,12 +570,19 @@ async function handleGetReservation(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const result = await resolvedCtx.resolved.stub.readReservation(reservationId);
-  if (!result.ok) {
-    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, 422);
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservation(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result.reservation, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
   }
-  return json(result.reservation, 200);
 }
 
 async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response> {
@@ -657,6 +689,8 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
 async function handlePostReservationStatusAction(
   ctx: V1DispatchContext,
   reservationId: string,
+  commandId: string,
+  routeId: string,
   action: (
     stub: DurableObjectStub<PropertyDO>,
     actor: { kind: 'user'; userId: string },
@@ -674,10 +708,26 @@ async function handlePostReservationStatusAction(
 
   const fingerprint = await fingerprintPayload({ reservationId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const result = await action(resolvedCtx.resolved.stub, actor, {
-    key: idempotencyKey,
-    fingerprint,
+  const idem = { key: idempotencyKey, fingerprint };
+  const commandPayload = { reservationId };
+
+  const invoked = await invokePropertyDo({
+    env: ctx.env,
+    commandId,
+    routeId,
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => action(resolvedCtx.resolved.stub, actor, idem),
   });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;
@@ -693,30 +743,68 @@ async function handlePostReservationStatusAction(
 
 async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
-    stub.tryCheckIn(actor, { reservationId }, idem),
+  return handlePostReservationStatusAction(
+    ctx,
+    reservationId,
+    'reservations.check_in',
+    'post_reservation_check_in',
+    (stub, actor, idem) => stub.tryCheckIn(actor, { reservationId }, idem),
   );
 }
 
 async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
-    stub.tryCheckOut(actor, { reservationId }, idem),
+  return handlePostReservationStatusAction(
+    ctx,
+    reservationId,
+    'reservations.check_out',
+    'post_reservation_check_out',
+    (stub, actor, idem) => stub.tryCheckOut(actor, { reservationId }, idem),
   );
 }
 
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, _actor, idem) =>
-    stub.tryNoShow({ reservationId }, idem),
+  return handlePostReservationStatusAction(
+    ctx,
+    reservationId,
+    'reservations.no_show',
+    'post_reservation_no_show',
+    (stub, _actor, idem) => stub.tryNoShow({ reservationId }, idem),
   );
 }
 
 async function handlePostReservationCancelCheckIn(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(ctx, reservationId, (stub, actor, idem) =>
-    stub.tryCancelCheckIn(actor, { reservationId }, idem),
+  return handlePostReservationStatusAction(
+    ctx,
+    reservationId,
+    'reservations.cancel_check_in',
+    'post_reservation_cancel_check_in',
+    (stub, actor, idem) => stub.tryCancelCheckIn(actor, { reservationId }, idem),
   );
+}
+
+async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const result = await resolvedCtx.resolved.stub.listProvisionalExceptions();
+  return json(result, 200);
+}
+
+async function handleGetDegradedStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const exceptionCount = await resolvedCtx.resolved.stub.countProvisionalExceptions();
+  return json({ propertyId, exceptionCount }, 200);
 }
 
 async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
@@ -964,6 +1052,20 @@ export const V1_ROUTES: V1RouteDef[] = [
   },
   {
     scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/degraded-status$/,
+    permission: 'property:read',
+    handler: handleGetDegradedStatus,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions$/,
+    permission: 'property:read',
+    handler: handleGetProvisionalExceptions,
+  },
+  {
+    scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-days$/,
     permission: 'rates:write',
@@ -1021,6 +1123,75 @@ async function getKvBulkBounded(
     }
   }
   return result;
+}
+
+async function serveStaleKvAvailability(
+  ctx: V1DispatchContext,
+  propertyId: string,
+  fromDate: string,
+  toDate: string,
+  roomTypeId: string,
+): Promise<Response | null> {
+  const stayDates = enumerateDaysInclusive(fromDate, toDate);
+  const keys = stayDates.map((date) => `ari:${propertyId}:${roomTypeId}:${date}`);
+  const kvMap = await getKvBulkBounded(ctx.env.ARI_KV, keys);
+  const items: Array<{
+    roomTypeId: string;
+    stayDate: string;
+    physical: number;
+    blocked: number;
+    held: number;
+    sold: number;
+    oversell: number;
+    free: number;
+  }> = [];
+  const versions: number[] = [];
+  const now = Date.now();
+  let oldestWrittenAt = now;
+
+  for (const key of keys) {
+    const val = kvMap.get(key);
+    if (!val) return null;
+    try {
+      const parsed = JSON.parse(val) as {
+        physical: number;
+        blocked: number;
+        held: number;
+        sold: number;
+        oversell: number;
+        free: number;
+        ariVersion: number;
+        writtenAt: number;
+      };
+      oldestWrittenAt = Math.min(oldestWrittenAt, parsed.writtenAt);
+      const stayDate = key.split(':').pop()!;
+      items.push({
+        roomTypeId,
+        stayDate,
+        physical: parsed.physical,
+        blocked: parsed.blocked,
+        held: parsed.held,
+        sold: parsed.sold,
+        oversell: parsed.oversell,
+        free: parsed.free,
+      });
+      versions.push(parsed.ariVersion);
+    } catch {
+      return null;
+    }
+  }
+
+  return json({
+    propertyId,
+    fromDate,
+    toDate,
+    ariVersion: Math.min(...versions),
+    source: 'kv',
+    cache: 'stale',
+    degraded: true,
+    projectionAgeMs: now - oldestWrittenAt,
+    items,
+  });
 }
 
 async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> {
@@ -1124,28 +1295,37 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'not_found' }, 404);
   }
 
-  const { ariVersion, rows } = await resolved.stub.readAvailabilityRange(fromDate, toDate, roomTypeId);
+  try {
+    const { ariVersion, rows } = await resolved.stub.readAvailabilityRange(fromDate, toDate, roomTypeId);
 
-  const items = rows.map((row) => ({
-    roomTypeId: row.roomTypeId,
-    stayDate: row.stayDate,
-    physical: row.physical,
-    blocked: row.blocked,
-    held: row.held,
-    sold: row.sold,
-    oversell: row.oversell,
-    free: row.physical - row.blocked - row.held - row.sold + row.oversell,
-  }));
+    const items = rows.map((row) => ({
+      roomTypeId: row.roomTypeId,
+      stayDate: row.stayDate,
+      physical: row.physical,
+      blocked: row.blocked,
+      held: row.held,
+      sold: row.sold,
+      oversell: row.oversell,
+      free: row.physical - row.blocked - row.held - row.sold + row.oversell,
+    }));
 
-  return json({
-    propertyId,
-    fromDate,
-    toDate,
-    ariVersion,
-    source: 'do',
-    cache: 'miss',
-    items,
-  });
+    return json({
+      propertyId,
+      fromDate,
+      toDate,
+      ariVersion,
+      source: 'do',
+      cache: 'miss',
+      items,
+    });
+  } catch (e) {
+    if (!isPropertyDoTransportFailure(e)) throw e;
+    if (roomTypeId) {
+      const stale = await serveStaleKvAvailability(ctx, propertyId, fromDate, toDate, roomTypeId);
+      if (stale) return stale;
+    }
+    return degradedReadStaleResponse();
+  }
 }
 
 

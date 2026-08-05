@@ -159,7 +159,7 @@ export type ProvisionalCommand = {
 };
 ```
 
-**No `roleAt` in Phase 1.** ARCHITECTURE §4.6 shows `{ userId, roleAt }`, but replay uses the system actor and nothing reads `roleAt` on the replay path. Capturing it would require a second OrgDO RPC at admission (`requirePermission` → `assertPermission` returns only `{ ok }`, not the role — [auth.ts:129](apps/pms-core/src/auth.ts:129)). **`userId` is the audit anchor.** If effective role at admission becomes needed (exception screen, warehouse), add it when `assertPermission` returns `{ ok: true, role }` on success — one RPC, OrgDO scope — rather than a separate `getEffectiveRole` on the degraded path.
+**No `roleAt` in Phase 1.** ARCHITECTURE §4.6 shows `{ userId, roleAt }`, but replay uses the system actor and nothing reads `roleAt` on the replay path. **`userId` is the audit anchor.** If effective role at admission becomes needed (exception screen, warehouse), `OrgDO.assertPermission` already returns `{ ok: true, role }` on success ([org-do.ts:297](apps/pms-core/src/org-do.ts:297)) — `requirePermission` discards it at [auth.ts:130](apps/pms-core/src/auth.ts:130). Adding `roleAt` to the envelope is then a one-line change in `auth.ts`, not OrgDO scope.
 
 **`issuedAt` authority (normative):** Night-audit attribution, occupancy statistics, and room-revenue postings use `issuedAt`, not replay time. A check-in at 23:58 that replays at 00:04 belongs to the **previous** business date.
 

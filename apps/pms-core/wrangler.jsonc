@@ -52,6 +52,10 @@
       {
         "binding": "EVENTS_QUEUE",
         "queue": "hospai-events"
+      },
+      {
+        "binding": "PENDING_COMMANDS_QUEUE",
+        "queue": "hospai-pending-commands"
       }
     ],
     "consumers": [
@@ -61,6 +65,13 @@
         "max_batch_timeout": 5,
         "max_retries": 3,
         "dead_letter_queue": "hospai-events-dlq"
+      },
+      {
+        "queue": "hospai-pending-commands",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "hospai-pending-commands-dlq"
       }
     ]
   },

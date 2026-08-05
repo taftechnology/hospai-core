@@ -328,6 +328,16 @@ export class OrgDO extends DurableObject<PmsEnv> {
     );
   }
 
+  /** Test helper (unsafe-local only): remove property-scoped membership. */
+  async removePropertyMemberForTest(userId: string, propertyId: string): Promise<void> {
+    this.assertUnsafeLocal('removePropertyMemberForTest');
+    this.ctx.storage.sql.exec(
+      `DELETE FROM property_member WHERE user_id = ? AND property_id = ?`,
+      userId,
+      propertyId,
+    );
+  }
+
   async upsertPropertyRef(input: {
     propertyId: string;
     name: string;

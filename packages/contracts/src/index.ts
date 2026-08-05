@@ -4,6 +4,7 @@ export * from './tenancy/types.js';
 export * from './tenancy/ids.js';
 export * from './events.js';
 export * from './idempotency.js';
+export * from './provisional-command.js';
 export * from './availability.js';
 export * from './entitlements.js';
 export * from './permissions.js';

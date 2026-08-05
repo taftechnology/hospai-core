@@ -1,11 +1,19 @@
 import type { FeatureKey } from './entitlements.js';
 import type { Permission } from './permissions.js';
 
+export type DegradedReadClass = 'READ_STALE' | 'FAIL_CLOSED';
+
 /** HTTP /v1 route permission audit — validated by check:permissions; consumed by pms-core dispatcher. */
 export type V1HttpRouteAudit =
   | { scope: 'bootstrap' | 'dev' }
   | { scope: 'org'; permission: Permission; entitlement?: FeatureKey }
-  | { scope: 'property'; permission: Permission; commandId?: string; entitlement?: FeatureKey };
+  | {
+      scope: 'property';
+      permission: Permission;
+      commandId?: string;
+      entitlement?: FeatureKey;
+      degradedRead?: DegradedReadClass;
+    };
 
 export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   { id: 'post_orgs', scope: 'bootstrap' },
@@ -37,6 +45,7 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     scope: 'property',
     permission: 'inventory:read',
     entitlement: 'pms.core',
+    degradedRead: 'READ_STALE',
   },
   {
     id: 'post_reservations',
@@ -49,6 +58,7 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     scope: 'property',
     permission: 'reservations:read',
     entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
   },
   {
     id: 'patch_reservation',
@@ -87,6 +97,16 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'reservations.cancel_check_in',
   },
   {
+    id: 'get_provisional_exceptions',
+    scope: 'property',
+    permission: 'property:read',
+  },
+  {
+    id: 'get_degraded_status',
+    scope: 'property',
+    permission: 'property:read',
+  },
+  {
     id: 'put_rate_days',
     scope: 'property',
     permission: 'rates:write',
@@ -99,4 +119,3 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'restrictions.upsert_day',
   },
 ];
-

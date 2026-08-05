@@ -16,6 +16,8 @@ export const ARCHIVE_BLOCKED = 'archive_blocked' as const;
 export const NOT_FOUND = 'not_found' as const;
 export const PROPERTY_ID_UNSET = 'property_id_unset' as const;
 export const BUSINESS_DATE_UNSET = 'business_date_unset' as const;
+/** Replay rejected — operator's believed business date is before the DO open date. */
+export const BUSINESS_DATE_CLOSED = 'business_date_closed' as const;
 
 /** Reservations wire codes */
 export const NO_AVAILABILITY = 'no_availability' as const;

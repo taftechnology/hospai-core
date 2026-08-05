@@ -27,6 +27,7 @@ let RESERVATION_V5_SQL;
 let RATE_DAY_SQL;
 let RESERVATION_V7_SQL;
 let RESERVATION_V8_SQL;
+let PROVISIONAL_EXCEPTION_V9_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -44,6 +45,7 @@ try {
     RATE_DAY_SQL,
     RESERVATION_V7_SQL,
     RESERVATION_V8_SQL,
+    PROVISIONAL_EXCEPTION_V9_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -132,6 +134,15 @@ const doPropertyTargets = [
 
 `,
     sql: RESERVATION_V8_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0009_provisional_exception.sql'),
+    header: `-- PropertyDO provisional_exception — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: PROVISIONAL_EXCEPTION_V9_SQL,
   },
 ];
 

@@ -1,4 +1,4 @@
-import type { DomainEventMessage } from '@hospai/contracts';
+import type { DomainEventMessage, PendingCommandMessage } from '@hospai/contracts';
 import { logError, logInfo, type ObservabilityContext } from '@hospai/observability';
 import {
   assertEnvSafeForRequest,
@@ -17,6 +17,7 @@ import {
   logEventConsumed,
   logEventDedupeSkip,
 } from './event-consumer.js';
+import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
 import { handleV1 } from './v1-handler.js';
 
 export type { PmsEnv } from './env.js';
@@ -86,8 +87,14 @@ export default {
     return json({ error: 'not_found' }, 404);
   },
 
-  async queue(batch: MessageBatch<DomainEventMessage>, env: PmsEnv): Promise<void> {
-    for (const msg of batch.messages) {
+  async queue(batch: MessageBatch<unknown>, env: PmsEnv): Promise<void> {
+    if (batch.queue === 'hospai-pending-commands') {
+      await handlePendingCommandsBatch(batch as MessageBatch<PendingCommandMessage>, env);
+      return;
+    }
+
+    const eventBatch = batch as MessageBatch<DomainEventMessage>;
+    for (const msg of eventBatch.messages) {
       const body = msg.body;
       if (await env.EVENT_DEDUPE_KV.get(`seen:${body.eventId}`)) {
         logEventDedupeSkip(body);

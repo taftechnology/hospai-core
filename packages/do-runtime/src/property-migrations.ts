@@ -2,6 +2,9 @@
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
+/** Default rate plan id — seeded per property; readers/writers must use this constant. */
+export const DEFAULT_RATE_PLAN_ID = 'BAR' as const;
+
 export const FREEZE_GATE_STATEMENTS: string[] = [
   `CREATE TABLE availability_day (
   room_type_id  TEXT NOT NULL,
@@ -338,6 +341,25 @@ export const ROOM_AND_HOUSEKEEPING_V11_STATEMENTS: string[] = [
 export const ROOM_AND_HOUSEKEEPING_V11_SQL =
   ROOM_AND_HOUSEKEEPING_V11_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v12 — rate_plan entity + seed DEFAULT_RATE_PLAN_ID. No FK from rate_day. */
+export const RATE_PLAN_V12_STATEMENTS: string[] = [
+  `CREATE TABLE rate_plan (
+  rate_plan_id   TEXT PRIMARY KEY,
+  code           TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'active'
+                 CHECK (status IN ('active', 'archived')),
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+)`,
+  `CREATE UNIQUE INDEX rate_plan_code_active ON rate_plan(code) WHERE status = 'active'`,
+  `INSERT INTO rate_plan (rate_plan_id, code, name, status, created_at, updated_at)
+   VALUES ('BAR', 'BAR', 'Best Available Rate', 'active', 0, 0)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0012_rate_plan.sql */
+export const RATE_PLAN_V12_SQL = RATE_PLAN_V12_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -393,5 +415,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 11,
     name: 'room_and_housekeeping',
     statements: ROOM_AND_HOUSEKEEPING_V11_STATEMENTS,
+  },
+  {
+    version: 12,
+    name: 'rate_plan',
+    statements: RATE_PLAN_V12_STATEMENTS,
   },
 ] as const;

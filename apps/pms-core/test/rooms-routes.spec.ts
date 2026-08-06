@@ -169,7 +169,6 @@ async function postReservation(
         reservationId,
         roomTypeId,
         guestRef,
-        piiKeyId: 'unused',
         arrivalDate: arrival,
         departureDate: departure,
         idempotencyKey: `idem-res-${reservationId}`,

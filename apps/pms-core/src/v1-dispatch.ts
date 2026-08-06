@@ -4,6 +4,9 @@ import {
   ALREADY_CANCELLED,
   BUSINESS_DATE_UNSET,
   FORBIDDEN,
+  GUEST_ALREADY_ERASED,
+  GUEST_EXISTS,
+  GUEST_NOT_FOUND,
   IDEM_KEY_REUSED,
   INVALID_STATUS_TRANSITION,
   LEDGER_INCONSISTENT,
@@ -62,8 +65,8 @@ import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { createOrg, getOrg, getProperty } from './registry.js';
 
-function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+function json(data: unknown, status = 200, headers?: HeadersInit): Response {
+  return Response.json(data, { status, headers });
 }
 
 function mapAddRoomTypeErrorStatus(error: string): number {
@@ -105,6 +108,17 @@ function mapReservationCommandErrorStatus(error: string): number {
   if (error === RATE_PLAN_NOT_FOUND) return 404;
   if (error === BUSINESS_DATE_UNSET) return 500;
   return mapAddRoomTypeErrorStatus(error);
+}
+
+/** Shared by the four guest handlers + `POST /reservations` guestRef lookup. */
+function mapGuestCommandErrorStatus(error: string): number {
+  if (error === GUEST_NOT_FOUND) return 404;
+  if (error === GUEST_ALREADY_ERASED) return 409;
+  if (error === GUEST_EXISTS) return 409;
+  if (error === IDEM_KEY_REUSED) return 409;
+  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
+  if (error === 'not_member') return 404;
+  return 422;
 }
 
 /** Resolve optional wire ratePlanId before fingerprint + DO call (§2.5a). */
@@ -259,6 +273,7 @@ async function handlePostOrgs(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'org_exists' }, 409);
   }
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
+  await org.ensureMetaOrgId(body.orgId);
   await org.ensureMember(ctx.actor.userId, 'owner');
   return json({ orgId: body.orgId, name: body.name }, 201);
 }
@@ -506,6 +521,194 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    guestId: string;
+    displayName: string;
+    email?: string;
+    phone?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.guestId || !body.displayName || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
+  if (body.email !== undefined) profile.email = body.email;
+  if (body.phone !== undefined) profile.phone = body.phone;
+  const fingerprint = await fingerprintPayload({ guestId: body.guestId, ...profile });
+
+  try {
+    const result = await org.tryCreateGuest(
+      actor,
+      propertyId,
+      { guestId: body.guestId, profile },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'guests:write' }, 403);
+      }
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (e instanceof Error) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.create' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    displayName: string;
+    email?: string;
+    phone?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.displayName || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
+  if (body.email !== undefined) profile.email = body.email;
+  if (body.phone !== undefined) profile.phone = body.phone;
+  const fingerprint = await fingerprintPayload({ guestId, ...profile });
+
+  try {
+    const result = await org.tryUpdateGuest(
+      actor,
+      propertyId,
+      { guestId, profile },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'guests:write' }, 403);
+      }
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (e instanceof Error) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.update' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { idempotencyKey: string };
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const fingerprint = await fingerprintPayload({ guestId });
+
+  try {
+    const result = await org.tryEraseGuest(
+      actor,
+      propertyId,
+      { guestId },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'guests:erase' }, 403);
+      }
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (e instanceof Error) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.erase' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    const result = await org.readGuest(actor, propertyId, guestId);
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'guests:read' }, 403);
+      }
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    if (e instanceof Error) {
+      logError(ctx.observability, {
+        msg: 'guests.read.decrypt_incident',
+        error: e.message,
+      });
+      return json({ error: 'internal_error' }, 500);
+    }
+    throw e;
+  }
+}
+
 async function handlePostReservations(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -514,7 +717,6 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     reservationId: string;
     roomTypeId: string;
     guestRef: string;
-    piiKeyId: string;
     arrivalDate: string;
     departureDate: string;
     idempotencyKey: string;
@@ -524,7 +726,6 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     !body.reservationId ||
     !body.roomTypeId ||
     !body.guestRef ||
-    !body.piiKeyId ||
     !body.arrivalDate ||
     !body.departureDate ||
     !body.idempotencyKey
@@ -541,17 +742,16 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
     guestRef: body.guestRef,
-    piiKeyId: body.piiKeyId,
   });
 
   const commandPayload = {
     reservationId: body.reservationId,
     roomTypeId: body.roomTypeId,
     guestRef: body.guestRef,
-    piiKeyId: body.piiKeyId,
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
   };
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateReservation']>>>({
     env: ctx.env,
@@ -566,7 +766,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     commandPayload,
     observability: ctx.observability,
     invoke: () =>
-      resolvedCtx.resolved.stub.tryCreateReservation(commandPayload, {
+      resolvedCtx.resolved.stub.tryCreateReservation(actor, commandPayload, {
         key: body.idempotencyKey,
         fingerprint,
       }),
@@ -606,6 +806,9 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
       return json({ ok: false, error: fail.error, date: fail.date }, 422);
     }
     if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === GUEST_NOT_FOUND || err === GUEST_ALREADY_ERASED) {
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
   }
   return json(result, 201);
@@ -1995,6 +2198,38 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'rates:write',
     commandId: 'rates.bulk_update',
     handler: handlePostRatesBulk,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests$/,
+    permission: 'guests:write',
+    commandId: 'guests.create',
+    handler: handlePostGuests,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)$/,
+    permission: 'guests:write',
+    commandId: 'guests.update',
+    handler: handlePatchGuest,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/erase$/,
+    permission: 'guests:erase',
+    commandId: 'guests.erase',
+    handler: handlePostGuestErase,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuest,
   },
 ];
 

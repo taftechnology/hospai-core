@@ -16,6 +16,12 @@ import {
   RESTRICTION_VIOLATED,
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
+  ROOM_CODE_EXISTS,
+  ROOM_COUNT_EXCEEDED,
+  ROOM_UNITS_EXCEED_COUNT,
+  ROOM_TYPE_MISMATCH,
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_NOT_ASSIGNABLE,
   UNBOOKABLE,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
@@ -79,7 +85,13 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === LEDGER_AMOUNT_MISMATCH ||
     error === MONEY_INVALID ||
     error === CROSS_CURRENCY_UNSUPPORTED ||
-    error === SPLIT_AMOUNT_MISMATCH
+    error === SPLIT_AMOUNT_MISMATCH ||
+    error === ROOM_CODE_EXISTS ||
+    error === ROOM_COUNT_EXCEEDED ||
+    error === ROOM_UNITS_EXCEED_COUNT ||
+    error === ROOM_TYPE_MISMATCH ||
+    error === ROOM_ALREADY_ASSIGNED ||
+    error === ROOM_NOT_ASSIGNABLE
   ) {
     return 422;
   }
@@ -1002,6 +1014,352 @@ async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomId: string;
+    roomTypeId: string;
+    code: string;
+    floor?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.roomId || !body.roomTypeId || !body.code || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload: { roomId: string; roomTypeId: string; code: string; floor?: string } = {
+    roomId: body.roomId,
+    roomTypeId: body.roomTypeId,
+    code: body.code,
+  };
+  if (body.floor !== undefined) commandPayload.floor = body.floor;
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateRoom']>>>({
+    env: ctx.env,
+    commandId: 'rooms.create',
+    routeId: 'post_rooms',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCreateRoom(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    code?: string;
+    floor?: string;
+    roomTypeId?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.roomTypeId !== undefined) {
+    return json({ error: 'invalid_body', detail: 'room_type_id_immutable' }, 422);
+  }
+  if (body.code === undefined && body.floor === undefined) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload: { roomId: string; code?: string; floor?: string } = { roomId };
+  if (body.code !== undefined) commandPayload.code = body.code;
+  if (body.floor !== undefined) commandPayload.floor = body.floor;
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoom']>>>({
+    env: ctx.env,
+    commandId: 'rooms.update',
+    routeId: 'patch_room',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateRoom(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleGetRooms(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const url = new URL(ctx.request.url);
+  const roomTypeId = url.searchParams.get('roomTypeId') ?? undefined;
+  const status = url.searchParams.get('status') ?? undefined;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listRooms({ roomTypeId, status });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { status: string; idempotencyKey: string };
+  if (!body?.status || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { roomId, status: body.status };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomStatus']>>>({
+    env: ctx.env,
+    commandId: 'rooms.update_status',
+    routeId: 'post_room_status',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateRoomStatus(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    updates: Array<{ roomId: string; status: string }>;
+    idempotencyKey: string;
+  };
+  if (!body?.updates?.length || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const updates = [...body.updates].sort((a, b) => a.roomId.localeCompare(b.roomId));
+  const commandPayload = { updates };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryBulkUpdateRoomStatus']>>>({
+    env: ctx.env,
+    commandId: 'rooms.bulk_update_status',
+    routeId: 'post_rooms_bulk_status',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRoomStatus(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { roomId: string; idempotencyKey: string };
+  if (!body?.roomId || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId, roomId: body.roomId };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAssignRoom']>>>({
+    env: ctx.env,
+    commandId: 'reservations.assign_room',
+    routeId: 'post_reservation_assign_room',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryAssignRoom(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomId: string;
+    businessDate: string;
+    assigneeRef: string;
+    idempotencyKey: string;
+  };
+  if (!body?.roomId || !body.businessDate || !body.assigneeRef || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    roomId: body.roomId,
+    businessDate: body.businessDate,
+    assigneeRef: body.assigneeRef,
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAssignHousekeeping']>>>({
+    env: ctx.env,
+    commandId: 'housekeeping.assign',
+    routeId: 'post_housekeeping_assign',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryAssignHousekeeping(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const businessDate = new URL(ctx.request.url).searchParams.get('businessDate');
+  if (!businessDate) {
+    return json({ error: 'invalid_body', detail: 'businessDate_required' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingAssignments(businessDate);
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
@@ -1241,6 +1599,70 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:adjust',
     commandId: 'folio.split_charge',
     handler: handlePostFolioSplit,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms$/,
+    permission: 'inventory:write',
+    commandId: 'rooms.create',
+    handler: handlePostRooms,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)$/,
+    permission: 'inventory:write',
+    commandId: 'rooms.update',
+    handler: handlePatchRoom,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetRooms,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/status$/,
+    permission: 'housekeeping:write',
+    commandId: 'rooms.update_status',
+    handler: handlePostRoomStatus,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/bulk-status$/,
+    permission: 'housekeeping:write',
+    commandId: 'rooms.bulk_update_status',
+    handler: handlePostRoomsBulkStatus,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/assign-room$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.assign_room',
+    handler: handlePostReservationAssignRoom,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/assignments$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.assign',
+    handler: handlePostHousekeepingAssign,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/assignments$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingAssignments,
   },
 ];
 

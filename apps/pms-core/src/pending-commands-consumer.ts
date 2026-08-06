@@ -57,6 +57,36 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
         ctx,
       ),
   },
+  'rooms.update_status': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, payload, idem, ctx) =>
+      stub.tryUpdateRoomStatus(
+        REPLAY_ACTOR,
+        payload as { roomId: string; status: string },
+        idem,
+        ctx,
+      ),
+  },
+  'rooms.bulk_update_status': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, payload, idem, ctx) =>
+      stub.tryBulkUpdateRoomStatus(
+        REPLAY_ACTOR,
+        payload as { updates: Array<{ roomId: string; status: string }> },
+        idem,
+        ctx,
+      ),
+  },
+  'housekeeping.assign': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, payload, idem, ctx) =>
+      stub.tryAssignHousekeeping(
+        REPLAY_ACTOR,
+        payload as { roomId: string; businessDate: string; assigneeRef: string },
+        idem,
+        ctx,
+      ),
+  },
 };
 
 export const REPLAY_COMMAND_IDS = Object.keys(REPLAY_DISPATCH);

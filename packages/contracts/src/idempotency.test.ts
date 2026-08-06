@@ -22,6 +22,10 @@ import {
   ROOM_TYPE_MISMATCH,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_ASSIGNABLE,
+  RATE_PLAN_NOT_FOUND,
+  RATE_PLAN_CODE_EXISTS,
+  RATE_PLAN_ID_EXISTS,
+  DEFAULT_RATE_PLAN_PROTECTED,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -63,6 +67,10 @@ describe('fingerprintPayload', () => {
     expect(ROOM_TYPE_MISMATCH).toBe('room_type_mismatch');
     expect(ROOM_ALREADY_ASSIGNED).toBe('room_already_assigned');
     expect(ROOM_NOT_ASSIGNABLE).toBe('room_not_assignable');
+    expect(RATE_PLAN_NOT_FOUND).toBe('rate_plan_not_found');
+    expect(RATE_PLAN_CODE_EXISTS).toBe('rate_plan_code_exists');
+    expect(RATE_PLAN_ID_EXISTS).toBe('rate_plan_id_exists');
+    expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

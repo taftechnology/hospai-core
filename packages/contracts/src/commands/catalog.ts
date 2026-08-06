@@ -311,6 +311,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    entitlement: 'pms.core',
     permission: 'rates:write',
   },
   {
@@ -320,6 +321,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    entitlement: 'pms.core',
     permission: 'rates:write',
   },
   {
@@ -329,7 +331,9 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate_plan.changed'],
+    entitlement: 'pms.core',
     permission: 'rates:write',
+    notes: 'Archives (status=archived); never hard-deletes. BAR is not archivable.',
   },
   {
     id: 'rates.update_room_type_rate',
@@ -337,7 +341,8 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['rate_plan.changed'],
+    events: ['rate.changed'],
+    entitlement: 'pms.core',
     permission: 'rates:write',
   },
   {
@@ -346,7 +351,8 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'BULK',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['rate_plan.changed'],
+    events: ['rate.changed'],
+    entitlement: 'pms.core',
     permission: 'rates:write',
   },
   {

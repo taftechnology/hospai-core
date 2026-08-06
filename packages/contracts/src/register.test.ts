@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONFIG_REGISTER,
   COMMAND_CATALOG,
+  ENTITLEMENT_FAIL_CLOSED_OPT_OUT,
   EXCLUDED_PROTOTYPE_KEYS,
   PLATFORM_GAPS,
   PROTOTYPE_ACTIONS,
@@ -216,6 +217,35 @@ describe('command catalog', () => {
       expect(c?.permission).toBe('inventory:write');
       expect(c?.prototypeAction).toBeNull();
       expect(c?.notes).toMatch(/net-new surface/i);
+    }
+  });
+
+  it('rates plan commands are FAIL_CLOSED with pms.core and no opt-out', () => {
+    const ids = [
+      'rates.create_plan',
+      'rates.update_plan',
+      'rates.delete_plan',
+      'rates.update_room_type_rate',
+      'rates.bulk_update',
+    ] as const;
+    for (const id of ids) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('rates:write');
+      expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.some((r) => r.id === id)).toBe(false);
+    }
+  });
+
+  it('rates.update_room_type_rate and rates.bulk_update emit rate.changed', () => {
+    for (const id of ['rates.update_room_type_rate', 'rates.bulk_update'] as const) {
+      expect(COMMAND_CATALOG.find((x) => x.id === id)?.events).toEqual(['rate.changed']);
+    }
+  });
+
+  it('rates.create_plan / update_plan / delete_plan emit rate_plan.changed', () => {
+    for (const id of ['rates.create_plan', 'rates.update_plan', 'rates.delete_plan'] as const) {
+      expect(COMMAND_CATALOG.find((x) => x.id === id)?.events).toEqual(['rate_plan.changed']);
     }
   });
 });

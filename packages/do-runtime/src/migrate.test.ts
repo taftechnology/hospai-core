@@ -22,6 +22,7 @@ import {
   RESERVATION_V8_SQL,
   PROVISIONAL_EXCEPTION_V9_SQL,
   FOLIO_WINDOW_RESERVATION_INDEX_SQL,
+  ROOM_AND_HOUSEKEEPING_V11_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -63,6 +64,9 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO reservation_v8')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('INSERT INTO reservation_v11')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('DROP TABLE reservation')) {
       return { toArray: () => [] };
     }
@@ -75,20 +79,23 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE reservation_v8 RENAME TO reservation')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE reservation_v11 RENAME TO reservation')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 10', () => {
+  it('applies property migrations through version 11', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(10);
+    expect(v1).toBe(11);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(10);
-    expect(sql.schemaVersion).toHaveLength(10);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(sql.tables.size).toBeGreaterThanOrEqual(10);
+    expect(v2).toBe(11);
+    expect(sql.schemaVersion).toHaveLength(11);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(sql.tables.size).toBeGreaterThanOrEqual(11);
   });
 });
 
@@ -213,6 +220,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(FOLIO_WINDOW_RESERVATION_INDEX_SQL.trim());
   });
 
+  it('migrations/do-property/0011_room_and_housekeeping.sql matches ROOM_AND_HOUSEKEEPING_V11_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0011_room_and_housekeeping.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ROOM_AND_HOUSEKEEPING_V11_SQL.trim());
+  });
+
   it('migrations/do-org/0001_org_spine.sql matches ORG_SPINE_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-org/0001_org_spine.sql');
@@ -310,7 +329,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(10);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(11);
     expect(ORG_SCHEMA_HEAD).toBe(4);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });

@@ -29,6 +29,7 @@ let RESERVATION_V7_SQL;
 let RESERVATION_V8_SQL;
 let PROVISIONAL_EXCEPTION_V9_SQL;
 let FOLIO_WINDOW_RESERVATION_INDEX_SQL;
+let ROOM_AND_HOUSEKEEPING_V11_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -48,6 +49,7 @@ try {
     RESERVATION_V8_SQL,
     PROVISIONAL_EXCEPTION_V9_SQL,
     FOLIO_WINDOW_RESERVATION_INDEX_SQL,
+    ROOM_AND_HOUSEKEEPING_V11_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -154,6 +156,16 @@ const doPropertyTargets = [
 
 `,
     sql: FOLIO_WINDOW_RESERVATION_INDEX_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0011_room_and_housekeeping.sql'),
+    header: `-- PropertyDO room + reservation.room_id + housekeeping_assignment — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE room BEFORE reservation rebuild (outbound FK).
+
+`,
+    sql: ROOM_AND_HOUSEKEEPING_V11_SQL,
   },
 ];
 

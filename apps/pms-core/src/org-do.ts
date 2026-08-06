@@ -67,12 +67,14 @@ class GuestNotFoundError extends Error {
 
 /**
  * Pre-probe for the hybrid idempotency contract (see `runIdempotent` in `@hospai/do-runtime`).
- * `runIdempotent` itself checks-and-inserts atomically inside `transactionSync`, but create/update
- * need to know about a replay *before* running crypto `await`s (vault key mint / seal) — otherwise
- * a replayed create would mint a second `data_key` for the same subject. This performs the same
- * lookup `runIdempotent` will redo inside the transaction; on a genuine replay it short-circuits the
- * caller before any vault work happens, and `runIdempotent`'s in-transaction check remains the
- * source of truth for correctness (this is an optimization, not a substitute).
+ * `runIdempotent` itself checks-and-inserts atomically inside `transactionSync`, and the
+ * `INSERT INTO data_key` for create/update happens inside that same `execute` callback, so
+ * `runIdempotent` alone already prevents a replay from minting a second `data_key` — this
+ * pre-probe is not what makes that correct. What this buys us is avoiding the vault `await`s
+ * (key mint / seal, which run before `runIdempotent` is even called) on a replay: without it, a
+ * replayed create/update would still burn crypto CPU on work whose result gets discarded once
+ * `runIdempotent`'s in-transaction check finds the prior row. `runIdempotent` remains the sole
+ * source of truth for not-inserting-twice; this is a latency/CPU optimization, not a substitute.
  */
 function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem: IdempotencyKey): T | null {
   const prior = sql

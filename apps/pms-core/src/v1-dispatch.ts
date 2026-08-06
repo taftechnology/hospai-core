@@ -107,6 +107,7 @@ function mapReservationCommandErrorStatus(error: string): number {
   }
   if (error === RATE_PLAN_NOT_FOUND) return 404;
   if (error === BUSINESS_DATE_UNSET) return 500;
+  if (error === 'org_id_unset') return 500;
   return mapAddRoomTypeErrorStatus(error);
 }
 
@@ -118,6 +119,7 @@ function mapGuestCommandErrorStatus(error: string): number {
   if (error === IDEM_KEY_REUSED) return 409;
   if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
   if (error === 'not_member') return 404;
+  if (error === 'org_id_unset') return 500;
   return 422;
 }
 
@@ -547,6 +549,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const fingerprint = await fingerprintPayload({ guestId: body.guestId, ...profile });
 
   try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.tryCreateGuest(
       actor,
       propertyId,
@@ -563,7 +566,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (e instanceof Error) {
+    if (isPropertyDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.create' },
         503,
@@ -600,6 +603,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
   const fingerprint = await fingerprintPayload({ guestId, ...profile });
 
   try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.tryUpdateGuest(
       actor,
       propertyId,
@@ -616,7 +620,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (e instanceof Error) {
+    if (isPropertyDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.update' },
         503,
@@ -645,6 +649,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
   const fingerprint = await fingerprintPayload({ guestId });
 
   try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.tryEraseGuest(
       actor,
       propertyId,
@@ -661,7 +666,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (e instanceof Error) {
+    if (isPropertyDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.erase' },
         503,

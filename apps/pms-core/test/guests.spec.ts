@@ -139,7 +139,13 @@ describe('OrgDO guests + crypto-shredding', () => {
     expect(again).toEqual({ ok: false, error: GUEST_EXISTS });
   });
 
-  it('M3: idempotent replay of create does not mint a second data_key', async () => {
+  it('M3: idempotent replay of create returns identical response and leaves key material intact', async () => {
+    // Note: this does NOT verify that a replay avoids minting a second `data_key` — the
+    // `INSERT INTO data_key` runs inside `runIdempotent`'s in-transaction execute, so
+    // `runIdempotent` alone already guarantees a single row regardless of the pre-probe
+    // (see `readIdempotentReplay` doc comment in org-do.ts). What this asserts is the
+    // observable idempotency contract: replaying the same key+fingerprint returns the exact
+    // same response and the guest's key material still round-trips afterward.
     const org = await provisionedOrg(`org-m3-${crypto.randomUUID()}`);
     const propertyId = 'prop_m3';
     const guestId = 'guest_m3';

@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +20,25 @@ jobs:
       - run: pnpm check:ddl
       - run: pnpm check:entitlements
       - run: pnpm check:permissions
+      - run: pnpm check:degraded
       - run: pnpm check:class-denylist
       - run: pnpm typecheck
-      - run: pnpm test
+      # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).
+      - run: pnpm exec turbo run test --filter=!@hospai/pms-core
       - run: pnpm lint
+
+  test-pms-core:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm build
+      - run: pnpm --filter @hospai/pms-core test -- --shard=${{ matrix.shard }}/3

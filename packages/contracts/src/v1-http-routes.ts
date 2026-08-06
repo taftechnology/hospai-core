@@ -187,4 +187,41 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_rate_plans',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.create_plan',
+  },
+  {
+    id: 'patch_rate_plan',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.update_plan',
+  },
+  {
+    id: 'delete_rate_plan',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.delete_plan',
+  },
+  {
+    id: 'get_rate_plans',
+    scope: 'property',
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'put_room_type_rate',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.update_room_type_rate',
+  },
+  {
+    id: 'post_rates_bulk',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.bulk_update',
+  },
 ];

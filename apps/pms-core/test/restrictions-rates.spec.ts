@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, RESTRICTION_VIOLATED, RATE_MISSING } from '@hospai/contracts';
-import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
+import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
@@ -88,12 +88,14 @@ describe('PropertyDO restrictions + rates', () => {
     ] as const) {
       const rate = {
         roomTypeId: 'rt_king',
-        ratePlanId: 'BAR',
+        ratePlanId: DEFAULT_RATE_PLAN_ID,
         stayDate,
         amountMinor,
         currency: 'EUR',
       };
-      expect(await stub.tryUpsertRateDay(rate, await idemFor(`rate-${stayDate}`, rate))).toMatchObject({
+      expect(
+        await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor(`rate-${stayDate}`, rate)),
+      ).toMatchObject({
         ok: true,
       });
     }

@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
@@ -34,12 +35,18 @@ async function seedRate(
 ) {
   const input = {
     roomTypeId,
-    ratePlanId: 'BAR',
+    ratePlanId: DEFAULT_RATE_PLAN_ID,
     stayDate,
     amountMinor,
     currency: 'USD',
   };
-  expect(await stub.tryUpsertRateDay(input, await idemFor(`rate-${roomTypeId}-${stayDate}`, input))).toEqual({
+  expect(
+    await stub.tryUpsertRateDay(
+      TEST_OWNER_ACTOR,
+      input,
+      await idemFor(`rate-${roomTypeId}-${stayDate}`, input),
+    ),
+  ).toEqual({
     ok: true,
   });
 }

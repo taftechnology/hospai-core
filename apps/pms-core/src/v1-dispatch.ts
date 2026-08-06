@@ -22,6 +22,10 @@ import {
   ROOM_TYPE_MISMATCH,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_ASSIGNABLE,
+  RATE_PLAN_NOT_FOUND,
+  RATE_PLAN_CODE_EXISTS,
+  RATE_PLAN_ID_EXISTS,
+  DEFAULT_RATE_PLAN_PROTECTED,
   UNBOOKABLE,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
@@ -35,7 +39,7 @@ import {
   type Permission,
   type IdempotencyKey,
 } from '@hospai/contracts';
-import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
+import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import {
   checkKillSwitch,
   EntitlementRequiredError,
@@ -91,12 +95,33 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_UNITS_EXCEED_COUNT ||
     error === ROOM_TYPE_MISMATCH ||
     error === ROOM_ALREADY_ASSIGNED ||
-    error === ROOM_NOT_ASSIGNABLE
+    error === ROOM_NOT_ASSIGNABLE ||
+    error === RATE_PLAN_CODE_EXISTS ||
+    error === RATE_PLAN_ID_EXISTS ||
+    error === DEFAULT_RATE_PLAN_PROTECTED
   ) {
     return 422;
   }
+  if (error === RATE_PLAN_NOT_FOUND) return 404;
   if (error === BUSINESS_DATE_UNSET) return 500;
   return mapAddRoomTypeErrorStatus(error);
+}
+
+/** Resolve optional wire ratePlanId before fingerprint + DO call (§2.5a). */
+export function normalizeRateDayCell(input: {
+  roomTypeId: string;
+  ratePlanId?: string;
+  stayDate: string;
+  amountMinor: number;
+  currency: string;
+}) {
+  return {
+    roomTypeId: input.roomTypeId,
+    ratePlanId: input.ratePlanId ?? DEFAULT_RATE_PLAN_ID,
+    stayDate: input.stayDate,
+    amountMinor: input.amountMinor,
+    currency: input.currency,
+  };
 }
 
 function requireIdempotencyHeader(request: Request): string | Response {
@@ -856,28 +881,20 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const ratePlanId = body.ratePlanId ?? 'BAR';
-  const fingerprint = await fingerprintPayload({
-    roomTypeId: body.roomTypeId,
-    ratePlanId,
-    stayDate: body.stayDate,
-    amountMinor: body.amountMinor,
-    currency: body.currency,
+  const cell = normalizeRateDayCell(body);
+  const fingerprint = await fingerprintPayload(cell);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(actor, cell, {
+    key: body.idempotencyKey,
+    fingerprint,
   });
 
-  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
-    {
-      roomTypeId: body.roomTypeId,
-      ratePlanId,
-      stayDate: body.stayDate,
-      amountMinor: body.amountMinor,
-      currency: body.currency,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
-
   if (!result.ok) {
-    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
   }
   return json(result, 200);
 }
@@ -1360,6 +1377,273 @@ async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise
   }
 }
 
+async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    ratePlanId: string;
+    code: string;
+    name: string;
+    idempotencyKey: string;
+  };
+  if (!body?.ratePlanId || !body.code || !body.name || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    ratePlanId: body.ratePlanId,
+    code: body.code,
+    name: body.name,
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateRatePlan']>>>({
+    env: ctx.env,
+    commandId: 'rates.create_plan',
+    routeId: 'post_rate_plans',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCreateRatePlan(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ratePlanId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    code?: string;
+    name?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.idempotencyKey || (body.code === undefined && body.name === undefined)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { ratePlanId, code: body.code, name: body.name };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRatePlan']>>>({
+    env: ctx.env,
+    commandId: 'rates.update_plan',
+    routeId: 'patch_rate_plan',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateRatePlan(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ratePlanId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey =
+    ctx.request.headers.get('x-idempotency-key') ?? ctx.url.searchParams.get('idempotencyKey');
+  if (!idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { ratePlanId };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRatePlan']>>>({
+    env: ctx.env,
+    commandId: 'rates.delete_plan',
+    routeId: 'delete_rate_plan',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryDeleteRatePlan(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const plans = await resolvedCtx.resolved.stub.listRatePlans();
+    return json({ ok: true, plans }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomTypeId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    ratePlanId?: string;
+    stayDate: string;
+    amountMinor: number;
+    currency: string;
+    idempotencyKey: string;
+  };
+  if (!body.stayDate || typeof body.amountMinor !== 'number' || !body.currency || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const cell = normalizeRateDayCell({
+    roomTypeId,
+    ratePlanId: body.ratePlanId,
+    stayDate: body.stayDate,
+    amountMinor: body.amountMinor,
+    currency: body.currency,
+  });
+  const fingerprint = await fingerprintPayload(cell);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(actor, cell, {
+    key: body.idempotencyKey,
+    fingerprint,
+  });
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    updates: Array<{
+      roomTypeId: string;
+      ratePlanId?: string;
+      stayDate: string;
+      amountMinor: number;
+      currency: string;
+    }>;
+    idempotencyKey: string;
+  };
+  if (!Array.isArray(body.updates) || body.updates.length === 0 || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const normalized = body.updates
+    .map((u) => normalizeRateDayCell(u))
+    .sort((a, b) => {
+      const c1 = a.roomTypeId.localeCompare(b.roomTypeId);
+      if (c1 !== 0) return c1;
+      const c2 = a.ratePlanId.localeCompare(b.ratePlanId);
+      if (c2 !== 0) return c2;
+      return a.stayDate.localeCompare(b.stayDate);
+    });
+  const fingerprint = await fingerprintPayload({ updates: normalized });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { updates: normalized };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryBulkUpdateRates']>>>({
+    env: ctx.env,
+    commandId: 'rates.bulk_update',
+    routeId: 'post_rates_bulk',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRates(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
@@ -1663,6 +1947,54 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingAssignments,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-plans$/,
+    permission: 'rates:write',
+    commandId: 'rates.create_plan',
+    handler: handlePostRatePlans,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-plans\/([^/]+)$/,
+    permission: 'rates:write',
+    commandId: 'rates.update_plan',
+    handler: handlePatchRatePlan,
+  },
+  {
+    scope: 'property',
+    method: 'DELETE',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-plans\/([^/]+)$/,
+    permission: 'rates:write',
+    commandId: 'rates.delete_plan',
+    handler: handleDeleteRatePlan,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-plans$/,
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    handler: handleGetRatePlans,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)\/rates$/,
+    permission: 'rates:write',
+    commandId: 'rates.update_room_type_rate',
+    handler: handlePutRoomTypeRate,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rates\/bulk$/,
+    permission: 'rates:write',
+    commandId: 'rates.bulk_update',
+    handler: handlePostRatesBulk,
   },
 ];
 

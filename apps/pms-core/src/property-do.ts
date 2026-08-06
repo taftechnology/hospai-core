@@ -27,6 +27,10 @@ import {
   ROOM_TYPE_MISMATCH,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_ASSIGNABLE,
+  RATE_PLAN_NOT_FOUND,
+  RATE_PLAN_CODE_EXISTS,
+  RATE_PLAN_ID_EXISTS,
+  DEFAULT_RATE_PLAN_PROTECTED,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   FX_RATE_INVALID,
@@ -62,6 +66,7 @@ import {
   runIdempotent,
   IdempotencyKeyReused,
   TYPE_WIDE_RATE_PLAN,
+  DEFAULT_RATE_PLAN_ID,
   toQueueBatchEntry,
   OUTBOX_BACKLOG_DELAY_MS,
   OUTBOX_SWEEP_INTERVAL_MS,
@@ -189,6 +194,34 @@ class RateMissingError extends Error {
   constructor(public readonly date: string) {
     super(`${RATE_MISSING} for ${date}`);
     this.name = 'RateMissingError';
+  }
+}
+
+class RatePlanNotFoundError extends Error {
+  constructor() {
+    super('Rate plan not found');
+    this.name = 'RatePlanNotFoundError';
+  }
+}
+
+class RatePlanCodeExistsError extends Error {
+  constructor() {
+    super('Rate plan code already exists');
+    this.name = 'RatePlanCodeExistsError';
+  }
+}
+
+class RatePlanIdExistsError extends Error {
+  constructor() {
+    super('Rate plan id already exists');
+    this.name = 'RatePlanIdExistsError';
+  }
+}
+
+class DefaultRatePlanProtectedError extends Error {
+  constructor() {
+    super('Default rate plan is protected');
+    this.name = 'DefaultRatePlanProtectedError';
   }
 }
 
@@ -957,6 +990,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setSimulateBugForTest(enabled: boolean): Promise<void> {
     this.assertUnsafeLocal('setSimulateBugForTest');
     this.simulateBugForTest = enabled;
+  }
+
+  /** Test-only: insert rate_day without plan validation (orphan / pre-slice data). */
+  async seedOrphanRateDayForTest(row: {
+    roomTypeId: string;
+    ratePlanId: string;
+    stayDate: string;
+    amountMinor: number;
+    currency: string;
+  }): Promise<void> {
+    this.assertUnsafeLocal('seedOrphanRateDayForTest');
+    this.ctx.storage.sql.exec(
+      `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
+       VALUES (?, ?, ?, ?, ?, 1)
+       ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+         amount_minor = excluded.amount_minor,
+         currency = excluded.currency,
+         version = rate_day.version + 1`,
+      row.roomTypeId,
+      row.ratePlanId,
+      row.stayDate,
+      row.amountMinor,
+      row.currency,
+    );
   }
 
   async recordProvisionalException(
@@ -3764,23 +3821,56 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /** Belt-and-braces seed for DEFAULT_RATE_PLAN_ID (migration also inserts BAR). */
+  private ensureDefaultRatePlanSync(): void {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO rate_plan (rate_plan_id, code, name, status, created_at, updated_at)
+       VALUES (?, ?, 'Best Available Rate', 'active', ?, ?)`,
+      DEFAULT_RATE_PLAN_ID,
+      DEFAULT_RATE_PLAN_ID,
+      now,
+      now,
+    );
+  }
+
+  private assertActiveRatePlanSync(ratePlanId: string): void {
+    if (ratePlanId === DEFAULT_RATE_PLAN_ID) this.ensureDefaultRatePlanSync();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT status FROM rate_plan WHERE rate_plan_id = ?`, ratePlanId)
+      .toArray() as Array<{ status: string }>;
+    if (!rows[0] || rows[0].status !== 'active') {
+      throw new RatePlanNotFoundError();
+    }
+  }
+
   /**
-   * Materialize a nightly rate. Implements catalog `rates.upsert_day`.
-   * Fingerprint: `{ roomTypeId, ratePlanId, stayDate, amountMinor, currency }`.
+   * Create a rate plan. Implements catalog `rates.create_plan`.
+   * Fingerprint allowlist: `{ ratePlanId, code, name }`.
    */
-  async tryUpsertRateDay(
-    input: {
-      roomTypeId: string;
-      ratePlanId: string;
-      stayDate: string;
-      amountMinor: number;
-      currency: string;
-    },
+  async tryCreateRatePlan(
+    actor: ActorContext,
+    input: { ratePlanId: string; code: string; name: string },
     idem: IdempotencyKey,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; ratePlanId: string }
+    | { ok: false; error: typeof RATE_PLAN_ID_EXISTS }
+    | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -3790,6 +3880,304 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT status FROM rate_plan WHERE rate_plan_id = ?`, input.ratePlanId)
+            .toArray();
+          if (existing.length > 0) throw new RatePlanIdExistsError();
+
+          const codeTaken = this.ctx.storage.sql
+            .exec(
+              `SELECT rate_plan_id FROM rate_plan WHERE code = ? AND status = 'active'`,
+              input.code,
+            )
+            .toArray();
+          if (codeTaken.length > 0) throw new RatePlanCodeExistsError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO rate_plan (rate_plan_id, code, name, status, created_at, updated_at)
+             VALUES (?, ?, ?, 'active', ?, ?)`,
+            input.ratePlanId,
+            input.code,
+            input.name,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_plan.changed',
+            payload: {
+              propertyId,
+              ratePlanId: input.ratePlanId,
+              op: 'create',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, ratePlanId: input.ratePlanId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RatePlanIdExistsError) return { ok: false, error: RATE_PLAN_ID_EXISTS };
+      if (e instanceof RatePlanCodeExistsError) return { ok: false, error: RATE_PLAN_CODE_EXISTS };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update an active rate plan's code/name. Implements catalog `rates.update_plan`.
+   * Fingerprint allowlist: `{ ratePlanId, code?, name? }`.
+   */
+  async tryUpdateRatePlan(
+    actor: ActorContext,
+    input: { ratePlanId: string; code?: string; name?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; ratePlanId: string }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
+    | { ok: false; error: typeof DEFAULT_RATE_PLAN_PROTECTED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT code, name, status FROM rate_plan WHERE rate_plan_id = ?`,
+              input.ratePlanId,
+            )
+            .toArray() as Array<{ code: string; name: string; status: string }>;
+          const existing = rows[0];
+          if (!existing || existing.status !== 'active') {
+            throw new RatePlanNotFoundError();
+          }
+
+          const nextCode = input.code ?? existing.code;
+          const nextName = input.name ?? existing.name;
+
+          if (
+            input.ratePlanId === DEFAULT_RATE_PLAN_ID &&
+            input.code !== undefined &&
+            input.code !== DEFAULT_RATE_PLAN_ID
+          ) {
+            throw new DefaultRatePlanProtectedError();
+          }
+
+          if (nextCode !== existing.code) {
+            const codeTaken = this.ctx.storage.sql
+              .exec(
+                `SELECT rate_plan_id FROM rate_plan
+                 WHERE code = ? AND status = 'active' AND rate_plan_id != ?`,
+                nextCode,
+                input.ratePlanId,
+              )
+              .toArray();
+            if (codeTaken.length > 0) throw new RatePlanCodeExistsError();
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE rate_plan SET code = ?, name = ?, updated_at = ? WHERE rate_plan_id = ?`,
+            nextCode,
+            nextName,
+            now,
+            input.ratePlanId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_plan.changed',
+            payload: {
+              propertyId,
+              ratePlanId: input.ratePlanId,
+              op: 'update',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, ratePlanId: input.ratePlanId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+      if (e instanceof RatePlanCodeExistsError) return { ok: false, error: RATE_PLAN_CODE_EXISTS };
+      if (e instanceof DefaultRatePlanProtectedError) {
+        return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
+      }
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Archive a rate plan. Implements catalog `rates.delete_plan`.
+   * Fingerprint allowlist: `{ ratePlanId }`. Never hard-deletes. BAR is not archivable.
+   */
+  async tryDeleteRatePlan(
+    actor: ActorContext,
+    input: { ratePlanId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; ratePlanId: string }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof DEFAULT_RATE_PLAN_PROTECTED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          if (input.ratePlanId === DEFAULT_RATE_PLAN_ID) {
+            throw new DefaultRatePlanProtectedError();
+          }
+
+          const rows = this.ctx.storage.sql
+            .exec(`SELECT status FROM rate_plan WHERE rate_plan_id = ?`, input.ratePlanId)
+            .toArray() as Array<{ status: string }>;
+          if (!rows[0] || rows[0].status !== 'active') {
+            throw new RatePlanNotFoundError();
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE rate_plan SET status = 'archived', updated_at = ? WHERE rate_plan_id = ?`,
+            now,
+            input.ratePlanId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_plan.changed',
+            payload: {
+              propertyId,
+              ratePlanId: input.ratePlanId,
+              op: 'archive',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, ratePlanId: input.ratePlanId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+      if (e instanceof DefaultRatePlanProtectedError) {
+        return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
+      }
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Active rate plans only. */
+  async listRatePlans(): Promise<
+    Array<{ ratePlanId: string; code: string; name: string; status: string }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT rate_plan_id, code, name, status FROM rate_plan
+         WHERE status = 'active' ORDER BY code`,
+      )
+      .toArray() as Array<{
+      rate_plan_id: string;
+      code: string;
+      name: string;
+      status: string;
+    }>;
+    return rows.map((r) => ({
+      ratePlanId: r.rate_plan_id,
+      code: r.code,
+      name: r.name,
+      status: r.status,
+    }));
+  }
+
+  /**
+   * Materialize a nightly rate. Implements catalog `rates.upsert_day` and
+   * `rates.update_room_type_rate`. Fingerprint: `{ roomTypeId, ratePlanId, stayDate, amountMinor, currency }`
+   * with ratePlanId already resolved (DEFAULT_RATE_PLAN_ID when omitted).
+   */
+  async tryUpsertRateDay(
+    actor: ActorContext,
+    input: {
+      roomTypeId: string;
+      ratePlanId?: string;
+      stayDate: string;
+      amountMinor: number;
+      currency: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const ratePlanId = input.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertActiveRatePlanSync(ratePlanId);
           this.ctx.storage.sql.exec(
             `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
              VALUES (?, ?, ?, ?, ?, 1)
@@ -3798,7 +4186,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                currency = excluded.currency,
                version = rate_day.version + 1`,
             input.roomTypeId,
-            input.ratePlanId,
+            ratePlanId,
             input.stayDate,
             input.amountMinor,
             input.currency,
@@ -3809,7 +4197,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: {
               propertyId,
               roomTypeId: input.roomTypeId,
-              ratePlanId: input.ratePlanId,
+              ratePlanId,
               stayDate: input.stayDate,
             },
           });
@@ -3818,6 +4206,104 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Bulk rate_day upserts. Implements catalog `rates.bulk_update`.
+   * Fingerprint: `{ updates }` with each cell's ratePlanId resolved and updates
+   * sorted by (roomTypeId, ratePlanId, stayDate).
+   */
+  async tryBulkUpdateRates(
+    actor: ActorContext,
+    input: {
+      updates: Array<{
+        roomTypeId: string;
+        ratePlanId?: string;
+        stayDate: string;
+        amountMinor: number;
+        currency: string;
+      }>;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; count: number }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const normalized = input.updates
+            .map((u) => ({
+              roomTypeId: u.roomTypeId,
+              ratePlanId: u.ratePlanId ?? DEFAULT_RATE_PLAN_ID,
+              stayDate: u.stayDate,
+              amountMinor: u.amountMinor,
+              currency: u.currency,
+            }))
+            .sort((a, b) => {
+              const c1 = a.roomTypeId.localeCompare(b.roomTypeId);
+              if (c1 !== 0) return c1;
+              const c2 = a.ratePlanId.localeCompare(b.ratePlanId);
+              if (c2 !== 0) return c2;
+              return a.stayDate.localeCompare(b.stayDate);
+            });
+
+          for (const cell of normalized) {
+            this.assertActiveRatePlanSync(cell.ratePlanId);
+            this.ctx.storage.sql.exec(
+              `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
+               VALUES (?, ?, ?, ?, ?, 1)
+               ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+                 amount_minor = excluded.amount_minor,
+                 currency = excluded.currency,
+                 version = rate_day.version + 1`,
+              cell.roomTypeId,
+              cell.ratePlanId,
+              cell.stayDate,
+              cell.amountMinor,
+              cell.currency,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'rate.changed',
+              payload: {
+                propertyId,
+                roomTypeId: cell.roomTypeId,
+                ratePlanId: cell.ratePlanId,
+                stayDate: cell.stayDate,
+              },
+            });
+          }
+
+          return { ok: true as const, count: normalized.length };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -3839,7 +4325,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch {
       return { ok: false, error: 'invalid_stay_range' };
     }
-    const ratePlanId = input.ratePlanId ?? 'BAR';
+    const ratePlanId = input.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
     const amounts = new Map<string, number>();
     let currency = 'USD';
     for (const stayDate of nights) {
@@ -3997,7 +4483,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           `SELECT amount_minor FROM rate_day
            WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
           reservation.room_type_id,
-          'BAR',
+          DEFAULT_RATE_PLAN_ID,
           businessDate,
         )
         .toArray() as Array<{ amount_minor: number }>;

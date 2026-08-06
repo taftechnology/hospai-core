@@ -127,7 +127,9 @@ Create/update already use a hybrid PropertyDO does not need:
 gateCoreEntitlement → readIdempotentReplay → await vault prep → transactionSync(runIdempotent(…))
 ```
 
-The pre-probe exists so crypto `await`s never run on a replay (and so a replayed create does not mint a second `data_key`). Erase has no async prep and skips the pre-probe. Unifying onto PropertyDO's single-`runIdempotent` shape would force vault prep *before* the idempotency lookup — a regression.
+The pre-probe exists to **avoid wasted crypto on replay** — vault `await`s (key mint / seal) run before `runIdempotent` is called, and without the probe a replayed create/update would still burn that CPU on work whose result gets discarded once the in-transaction check finds the prior row. It is **not** what prevents a second `data_key`: `INSERT INTO data_key` lives inside `runIdempotent`'s `execute` callback, so `runIdempotent` alone already guarantees a single row (see `guests.spec.ts` M3 comment and the `readIdempotentReplay` doc comment in `org-do.ts`). Erase has no async prep and skips the pre-probe.
+
+The hybrid is **unguarded**: there is no lint, type, or runtime check that vault prep stays outside `transactionSync` or that every create/update path keeps the pre-probe. That is accepted — the contract is local convention plus the file-local comment, not an enforced invariant. Unifying onto PropertyDO's single-`runIdempotent` shape would force vault prep *before* the idempotency lookup — a latency/CPU regression, not a correctness one.
 
 **Resolution:** keep the hybrid. Signature-pass order:
 
@@ -142,7 +144,7 @@ lanes → orgId precondition
 
 OrgDO `gatePermission` is **in-process** (`assertPermission`) — no `PermissionDoCache` / RPC. System-actor short-circuit for PropertyDO symmetry even though `FAIL_CLOSED` means no replay actor reaches guest commands today.
 
-`readIdempotentReplay` stays file-local at `org-do.ts`; add a comment pointing at `runIdempotent` in `@hospai/do-runtime` and why the pre-probe exists. Extraction to the package is correctly out of scope.
+`readIdempotentReplay` stays file-local at `org-do.ts`; its comment must state the optimization rationale (avoid wasted crypto) and that `runIdempotent` alone owns single-`data_key` correctness — not the pre-probe. Extraction to the package is correctly out of scope.
 
 ### 2.5 Erase with live reservations — allow; define the read
 
@@ -359,7 +361,7 @@ calling `tryCreateGuest(actor, propertyId, input, idem)`. Keep returning `{ gues
 
 ### 5.2 Capacity
 
-CI shards pms-core `1/3`–`3/3` (`.github/workflows/ci.yml`). Real `tryCreateGuest` on ~88 sites adds OrgDO crypto under `singleWorker` + `isolatedStorage: false`. **Same PR:** run the suite; if wall time / flake risk warrants it, bump the matrix to **4 shards** (`shard: [1,2,3,4]`, `--shard=N/4`). Do not land fixture migration without checking shard load.
+CI / local `pnpm test` shard pms-core `1/4`–`4/4`. `isolatedStorage: false` is a Workflows pool hard-requirement (not a shared-state preference); capacity is handled by sharding, not isolation. Guests fixture crypto rides that baseline — no further bump in this vertical.
 
 ### 5.3 `guests-routes.spec.ts`
 
@@ -429,7 +431,7 @@ No `pending-commands-consumer` / `REPLAY_DISPATCH` changes.
 3. Wrong client `piiKeyId` on book → stored key is OrgDO’s (test 13).
 4. Erase → GET tombstone via `erased_at`; shred-without-`erased_at` → 5xx (M4).
 5. Replay create → one `data_key` row (M3).
-6. Catalog create/update `FAIL_CLOSED` + revisit notes; checks green; shard bump only if suite demands it.
+6. Catalog create/update `FAIL_CLOSED` + revisit notes; checks green.
 
 ### 6.3 Adjacent cleanup (logged, not this slice)
 
@@ -455,5 +457,5 @@ None. Settled in design: FAIL_CLOSED vs `invokeOrgDo`; validation locus; deploy-
 - [ ] Four route-audit rows + four handlers; `get_guest` → `degradedRead: 'FAIL_CLOSED'`.
 - [ ] `POST /reservations` drops `piiKeyId` from body/fingerprint; passes actor.
 - [ ] `guest-helpers` + ~88 real-path fixture sites; M1–M4; `guests-routes.spec.ts`.
-- [ ] Run suite; bump CI shards to 4 in the same PR only if warranted.
+- [ ] Run suite sharded (`1/4`–`4/4`).
 - [ ] `check:entitlements` / `check:degraded` / `check:permissions` green.

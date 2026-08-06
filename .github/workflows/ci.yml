@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -44,4 +44,6 @@ jobs:
       - run: pnpm build
       # Do not put `--` before --shard: pnpm forwards a bare `--`, and vitest
       # then treats --shard as a file filter — every matrix job runs the full suite.
-      - run: pnpm --filter @hospai/pms-core run test --shard=${{ matrix.shard }}/3
+      # Four shards: singleWorker + isolatedStorage:false (Workflows-forced) accumulates
+      # D1/DO state across the suite; unsharded local runs segfault workerd.
+      - run: pnpm --filter @hospai/pms-core exec vitest run --shard=${{ matrix.shard }}/4

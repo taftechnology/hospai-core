@@ -64,7 +64,9 @@ function installLogCapture() {
   return { lines, restore: () => spy.mockRestore() };
 }
 
-/** Per-tenant sweep issues — scoped checks for shared D1/DO fixtures (`isolatedStorage: false`). */
+/** Per-tenant sweep issues — scoped checks for shared D1/DO fixtures.
+ * `isolatedStorage: false` is required by Workflows in wrangler (pool hard-error if true),
+ * not merely a shared-fixture preference; filter by tenant id so cross-test residue is ignored. */
 function sweepIssuesForTenants(lines: Record<string, unknown>[], tenantIds: Set<string>) {
   return lines.filter(
     (l) =>

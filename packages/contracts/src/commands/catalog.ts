@@ -190,10 +190,11 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'folio.split_charge',
     prototypeAction: 'SPLIT_FOLIO_CHARGE',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.line_posted'],
     notes: 'Non-payment splits. Payment-bearing splits use folio.split_charge_payment.',
+    entitlement: 'pms.core',
     permission: 'folio:adjust',
   },
   {

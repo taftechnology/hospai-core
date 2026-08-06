@@ -109,6 +109,55 @@ async function postCheckIn(propertyId: string, actor: string, reservationId: str
   );
 }
 
+async function postFolioLine(
+  propertyId: string,
+  actor: string,
+  reservationId: string,
+  idemKey: string,
+  body?: { chargeCode?: string; amountMinor?: number },
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/lines`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          chargeCode: body?.chargeCode ?? 'MISC',
+          amountMinor: body?.amountMinor ?? 1000,
+          idempotencyKey: idemKey,
+        }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postFolioSplit(
+  propertyId: string,
+  actor: string,
+  sourceFolioLineId: string,
+  idemKey: string,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/${encodeURIComponent(sourceFolioLineId)}/split`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          splits: [
+            { folioLineId: 'split_1', amountMinor: 500 },
+            { folioLineId: 'split_2', amountMinor: 500 },
+          ],
+          idempotencyKey: idemKey,
+        }),
+      },
+    ),
+    env,
+  );
+}
+
 async function dispatchPendingBatch(messages: PendingCommandMessage[]): Promise<void> {
   const batch = createMessageBatch(
     'hospai-pending-commands',
@@ -448,5 +497,89 @@ describe('degraded mode §4.6 fault injection', () => {
     expect(result).toEqual({ ok: false, error: 'not_member' });
     expect(await stub.getReservationStatus('res_gate_11')).toBe('confirmed');
     expect(await stub.outboxUnackedCount()).toBe(unackedBefore);
+  });
+
+  it('13 (= degraded-suite 8): folio.add_item queues while blocked and replays once', async () => {
+    const actor = 'user_deg_folio13';
+    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_deg_folio13';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await postFolioLine(propertyId, actor, reservationId, 'idem-folio-13');
+    expect(blocked.status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.provisional.command.type).toBe('folio.add_item');
+    await dispatchPendingBatch(sent);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
+    expect(await stub.listOutboxEventTypes()).toContain('folio.line_posted');
+  });
+
+  it('14: folio.split_charge while blocked returns FAIL_CLOSED 503 and does not queue', async () => {
+    const actor = 'user_deg_folio14';
+    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_deg_folio14';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    const sourceId = `${reservationId}:item:source-14`;
+    expect((await postFolioLine(propertyId, actor, reservationId, 'source-14')).status).toBe(201);
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await postFolioSplit(propertyId, actor, sourceId, 'idem-split-14');
+    expect(blocked.status).toBe(503);
+    const body = (await blocked.json()) as { degraded?: string; commandId?: string };
+    expect(body.degraded).toBe('FAIL_CLOSED');
+    expect(body.commandId).toBe('folio.split_charge');
+    expect(sent).toHaveLength(0);
+    await stub.setTransportBlockedForTest(false);
+  });
+
+  it('15: duplicate folio.add_item replay applies once', async () => {
+    const actor = 'user_deg_folio15';
+    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_deg_folio15';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-folio-15',
+        requestFingerprint: (
+          await idemFor('idem-folio-15', {
+            reservationId,
+            folioLineId: `${reservationId}:item:idem-folio-15`,
+            chargeCode: 'MISC',
+            amountMinor: 1000,
+          })
+        ).fingerprint,
+        propertyId,
+        orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: {
+          type: 'folio.add_item',
+          payload: {
+            reservationId,
+            folioLineId: `${reservationId}:item:idem-folio-15`,
+            chargeCode: 'MISC',
+            amountMinor: 1000,
+          },
+        },
+        routeId: 'post_folio_lines',
+      },
+    };
+
+    await dispatchPendingBatch([msg, msg]);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
   });
 });

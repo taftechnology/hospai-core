@@ -29,6 +29,7 @@ export const INVALID_STATUS_TRANSITION = 'invalid_status_transition' as const;
 export const NO_SHOW_BEFORE_ARRIVAL = 'no_show_before_arrival' as const;
 export const RESTRICTION_VIOLATED = 'restriction_violated' as const;
 export const RATE_MISSING = 'rate_missing' as const;
+export const SPLIT_AMOUNT_MISMATCH = 'split_amount_mismatch' as const;
 
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;

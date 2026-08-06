@@ -118,4 +118,23 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'rates:write',
     commandId: 'restrictions.upsert_day',
   },
+  {
+    id: 'post_folio_lines',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.add_item',
+  },
+  {
+    id: 'get_folio',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_folio_split',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.split_charge',
+  },
 ];

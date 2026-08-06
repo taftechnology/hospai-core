@@ -270,6 +270,14 @@ export const PROVISIONAL_EXCEPTION_V9_STATEMENTS = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0009_provisional_exception.sql */
 export const PROVISIONAL_EXCEPTION_V9_SQL = PROVISIONAL_EXCEPTION_V9_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v10-additive — index for per-reservation folio window lookup (POST .../folio/lines). */
+export const FOLIO_WINDOW_RESERVATION_INDEX_STATEMENTS: string[] = [
+  `CREATE INDEX folio_window_reservation_idx ON folio_window (reservation_id)`,
+];
+
+export const FOLIO_WINDOW_RESERVATION_INDEX_SQL =
+  FOLIO_WINDOW_RESERVATION_INDEX_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -315,5 +323,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 9,
     name: 'provisional_exception',
     statements: PROVISIONAL_EXCEPTION_V9_STATEMENTS,
+  },
+  {
+    version: 10,
+    name: 'folio_window_reservation_idx',
+    statements: FOLIO_WINDOW_RESERVATION_INDEX_STATEMENTS,
   },
 ] as const;

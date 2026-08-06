@@ -17,6 +17,12 @@ import {
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
   UNBOOKABLE,
+  CURRENCY_UNSET,
+  CROSS_CURRENCY_UNSUPPORTED,
+  FX_RATE_INVALID,
+  LEDGER_AMOUNT_MISMATCH,
+  MONEY_INVALID,
+  SPLIT_AMOUNT_MISMATCH,
   fingerprintPayload,
   requireCatalogEntry,
   validateTenantId,
@@ -67,7 +73,13 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === RESTRICTION_VIOLATED ||
     error === NOT_MODIFIABLE ||
     error === INVALID_STATUS_TRANSITION ||
-    error === NO_SHOW_BEFORE_ARRIVAL
+    error === NO_SHOW_BEFORE_ARRIVAL ||
+    error === CURRENCY_UNSET ||
+    error === FX_RATE_INVALID ||
+    error === LEDGER_AMOUNT_MISMATCH ||
+    error === MONEY_INVALID ||
+    error === CROSS_CURRENCY_UNSUPPORTED ||
+    error === SPLIT_AMOUNT_MISMATCH
   ) {
     return 422;
   }
@@ -912,6 +924,132 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
   return json(result, 200);
 }
 
+async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    chargeCode: string;
+    amountMinor: number;
+    idempotencyKey: string;
+  };
+  if (!body?.chargeCode || body.amountMinor == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const folioLineId = `${reservationId}:item:${body.idempotencyKey}`;
+  const commandPayload = {
+    reservationId,
+    folioLineId,
+    chargeCode: body.chargeCode,
+    amountMinor: body.amountMinor,
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddFolioLine']>>>({
+    env: ctx.env,
+    commandId: 'folio.add_item',
+    routeId: 'post_folio_lines',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryAddFolioLine(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readFolio(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    splits: Array<{ folioLineId: string; amountMinor: number }>;
+    idempotencyKey: string;
+  };
+  if (!body?.splits?.length || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { sourceFolioLineId, splits: body.splits };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySplitFolioLine']>>>({
+    env: ctx.env,
+    commandId: 'folio.split_charge',
+    routeId: 'post_folio_split',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.trySplitFolioLine(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'bootstrap',
@@ -1079,6 +1217,30 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'rates:write',
     commandId: 'restrictions.upsert_day',
     handler: handlePutRestrictionDays,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/lines$/,
+    permission: 'folio:post',
+    commandId: 'folio.add_item',
+    handler: handlePostFolioLines,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFolio,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.split_charge',
+    handler: handlePostFolioSplit,
   },
 ];
 

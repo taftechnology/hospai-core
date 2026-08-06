@@ -27,6 +27,8 @@ import {
   LEDGER_AMOUNT_MISMATCH,
   MONEY_INVALID,
   CURRENCY_UNSET,
+  CROSS_CURRENCY_UNSUPPORTED,
+  SPLIT_AMOUNT_MISMATCH,
   FORBIDDEN,
   ROLE_GRANTS,
   fingerprintPayload,
@@ -174,6 +176,13 @@ class ProvisionalBusinessDateClosedError extends Error {
   ) {
     super(`Business date ${businessDate} closed; open date is ${openDate}`);
     this.name = 'ProvisionalBusinessDateClosedError';
+  }
+}
+
+class RateMissingError extends Error {
+  constructor(public readonly date: string) {
+    super(`${RATE_MISSING} for ${date}`);
+    this.name = 'RateMissingError';
   }
 }
 
@@ -342,6 +351,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * the only way to exercise a mid-roll failure without a real failing step body.
    */
   private rollFailureForTest: string | null = null;
+  private postRoomChargesFailureAfterCountForTest: number | null = null;
   private transportBlockedForTest = false;
   private simulateBugForTest = false;
 
@@ -874,6 +884,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.permissionCache.invalidate();
   }
 
+  async clearEntitlementCacheForTest(): Promise<void> {
+    this.assertUnsafeLocal('clearEntitlementCacheForTest');
+    this.entitlementCache.invalidate();
+  }
+
   /** Vitest fault injection — throws transport-allowlisted error on subsequent command RPCs. */
   async setTransportBlockedForTest(blocked: boolean): Promise<void> {
     this.assertUnsafeLocal('setTransportBlockedForTest');
@@ -1118,9 +1133,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.runRollStepSync(businessDate);
         } else if (step === 'ARCHIVE') {
           // No-op stub in this slice — real archival content is future work.
+        } else if (step === 'POST_ROOM_CHARGES') {
+          this.postRoomChargesSync(businessDate);
         } else {
-          // PRE_CHECK / money / ops stubs — §4.6: PRE_CHECK is provisional-only,
-          // not the finished design; always COMPLETED here.
+          // PRE_CHECK / PROCESS_NO_SHOWS / CLOSE_CASHIER_SHIFTS / SNAPSHOT_REPORTS — still stubs.
         }
 
         const completedAt = Date.now();
@@ -1165,6 +1181,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setRollFailureForTest(message: string | null): Promise<void> {
     this.assertUnsafeLocal('setRollFailureForTest');
     this.rollFailureForTest = message;
+  }
+
+  async setPostRoomChargesFailureAfterCountForTest(count: number | null): Promise<void> {
+    this.assertUnsafeLocal('setPostRoomChargesFailureAfterCountForTest');
+    this.postRoomChargesFailureAfterCountForTest = count;
   }
 
   /**
@@ -2004,6 +2025,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             now,
           );
+          this.ensureGuestFolioWindowSync(input.reservationId);
 
           const ariVersion = this.bumpAriVersionSync();
           const fromDate = nights[0]!;
@@ -3137,16 +3159,151 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  private guestFolioWindowId(reservationId: string): string {
+    return `${reservationId}:GUEST`;
+  }
+
+  private ensureGuestFolioWindowSync(reservationId: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO folio_window (folio_window_id, reservation_id, kind, status)
+       VALUES (?, ?, 'GUEST', 'OPEN')`,
+      this.guestFolioWindowId(reservationId),
+      reservationId,
+    );
+  }
+
+  private readGuestFolioWindowIdSync(reservationId: string): string {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id FROM folio_window WHERE reservation_id = ? AND kind = 'GUEST'`,
+        reservationId,
+      )
+      .toArray() as Array<{ folio_window_id: string }>;
+    return rows[0]!.folio_window_id;
+  }
+
+  private insertFolioLineSync(input: {
+    folioLineId: string;
+    folioWindowId: string;
+    reservationId: string;
+    chargeCode: string;
+    posted: PostedLineAmount;
+    source?: string;
+    businessDate?: string;
+    splitOf?: string;
+  }): void {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO folio_line (
+         folio_line_id, folio_window_id, reservation_id, charge_code,
+         amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+         source, business_date, split_of, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      input.folioLineId,
+      input.folioWindowId,
+      input.reservationId,
+      input.chargeCode,
+      input.posted.amountMinor,
+      input.posted.txnCurrency,
+      input.posted.ledgerAmountMinor,
+      input.posted.fxRate,
+      input.posted.fxRateAt,
+      input.source ?? null,
+      input.businessDate ?? null,
+      input.splitOf ?? null,
+      Date.now(),
+    );
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'folio.line_posted',
+      payload: {
+        propertyId,
+        folioLineId: input.folioLineId,
+        folioWindowId: input.folioWindowId,
+        reservationId: input.reservationId,
+        chargeCode: input.chargeCode,
+        amountMinor: input.posted.amountMinor,
+        txnCurrency: input.posted.txnCurrency,
+        ledgerAmountMinor: input.posted.ledgerAmountMinor,
+        fxRate: input.posted.fxRate,
+        fxRateAt: input.posted.fxRateAt,
+      },
+    });
+  }
+
+  private postRoomChargesSync(businessDate: string): void {
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+
+    const reservations = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id
+         FROM reservation
+         WHERE status IN ('confirmed', 'checked_in')
+           AND arrival_date <= ? AND departure_date > ?`,
+        businessDate,
+        businessDate,
+      )
+      .toArray() as Array<{ reservation_id: string; room_type_id: string }>;
+
+    let postedCount = 0;
+    for (const reservation of reservations) {
+      const rateRows = this.ctx.storage.sql
+        .exec(
+          `SELECT amount_minor FROM rate_day
+           WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+          reservation.room_type_id,
+          'BAR',
+          businessDate,
+        )
+        .toArray() as Array<{ amount_minor: number }>;
+      if (!rateRows[0]) {
+        throw new RateMissingError(businessDate);
+      }
+
+      this.ensureGuestFolioWindowSync(reservation.reservation_id);
+      const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
+      const amountMinor = rateRows[0].amount_minor;
+      const fxRateAt = Date.now();
+      const posted: PostedLineAmount = {
+        amountMinor,
+        txnCurrency: ledgerCurrency,
+        ledgerAmountMinor: amountMinor,
+        fxRate: '1',
+        fxRateAt,
+      };
+
+      this.insertFolioLineSync({
+        folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
+        folioWindowId,
+        reservationId: reservation.reservation_id,
+        chargeCode: 'ROOM',
+        posted,
+        source: 'NIGHT_AUDIT',
+        businessDate,
+      });
+      postedCount += 1;
+
+      if (
+        this.postRoomChargesFailureAfterCountForTest !== null &&
+        postedCount >= this.postRoomChargesFailureAfterCountForTest
+      ) {
+        throw new Error('simulated_post_room_charges_failure');
+      }
+    }
+  }
+
   async addFolioLine(
     input: {
       folioLineId: string;
-      folioWindowId: string;
       reservationId: string;
       chargeCode: string;
       amountMinor: number;
-      txnCurrency: string;
-      ledgerAmountMinor: number;
-      fxRate: string;
+      txnCurrency?: string;
+      ledgerAmountMinor?: number;
+      fxRate?: string;
       fxRateAt?: number;
       source?: string;
       businessDate?: string;
@@ -3157,7 +3314,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       key: `folio-line:${input.folioLineId}`,
       fingerprint: await fingerprintPayload({
         folioLineId: input.folioLineId,
-        folioWindowId: input.folioWindowId,
         reservationId: input.reservationId,
         chargeCode: input.chargeCode,
         amountMinor: input.amountMinor,
@@ -3169,26 +3325,41 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         businessDate: input.businessDate,
       }),
     };
-    const result = await this.tryAddFolioLine(input, key);
+    const result = await this.tryAddFolioLine({ kind: 'system', reason: 'night_audit' }, input, key);
     if (!result.ok) throw new Error(result.error);
   }
 
   async tryAddFolioLine(
+    actor: ActorContext,
     input: {
       folioLineId: string;
-      folioWindowId: string;
       reservationId: string;
       chargeCode: string;
       amountMinor: number;
-      txnCurrency: string;
-      ledgerAmountMinor: number;
-      fxRate: string;
+      txnCurrency?: string;
+      ledgerAmountMinor?: number;
+      fxRate?: string;
       fxRateAt?: number;
       source?: string;
       businessDate?: string;
     },
     idem: IdempotencyKey,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; folioLineId: string; ledgerAmountMinor: number }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof FX_RATE_INVALID }
+    | { ok: false; error: typeof LEDGER_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof CROSS_CURRENCY_UNSUPPORTED }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -3198,58 +3369,346 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
     if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
 
-    const fxRateAt = input.fxRateAt ?? Date.now();
-    const moneyCheck = this.validateFolioLineMoney(input, ledgerCurrency, fxRateAt);
+    const moneyCheck = this.resolveFolioLineMoney(input, ledgerCurrency);
     if (!moneyCheck.ok) return moneyCheck;
 
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          this.ctx.storage.sql.exec(
-            `INSERT INTO folio_line (
-               folio_line_id, folio_window_id, reservation_id, charge_code,
-               amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-               source, business_date, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            input.folioLineId,
-            input.folioWindowId,
-            input.reservationId,
-            input.chargeCode,
-            moneyCheck.posted.amountMinor,
-            moneyCheck.posted.txnCurrency,
-            moneyCheck.posted.ledgerAmountMinor,
-            moneyCheck.posted.fxRate,
-            moneyCheck.posted.fxRateAt,
-            input.source ?? null,
-            input.businessDate ?? null,
-            Date.now(),
-          );
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'folio.line_posted',
-            payload: {
-              propertyId,
-              folioLineId: input.folioLineId,
-              folioWindowId: input.folioWindowId,
-              reservationId: input.reservationId,
-              chargeCode: input.chargeCode,
-              amountMinor: moneyCheck.posted.amountMinor,
-              txnCurrency: moneyCheck.posted.txnCurrency,
-              ledgerAmountMinor: moneyCheck.posted.ledgerAmountMinor,
-              fxRate: moneyCheck.posted.fxRate,
-              fxRateAt: moneyCheck.posted.fxRateAt,
-            },
+          this.assertProvisionalBusinessDateOpen(provisional);
+
+          const resRows = this.ctx.storage.sql
+            .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, input.reservationId)
+            .toArray() as Array<{ reservation_id: string }>;
+          if (!resRows[0]) return { ok: false as const, error: NOT_FOUND };
+
+          this.ensureGuestFolioWindowSync(input.reservationId);
+          const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+
+          this.insertFolioLineSync({
+            folioLineId: input.folioLineId,
+            folioWindowId,
+            reservationId: input.reservationId,
+            chargeCode: input.chargeCode,
+            posted: moneyCheck.posted,
+            source: input.source,
+            businessDate: input.businessDate,
           });
-          return { ok: true as const };
+
+          return {
+            ok: true as const,
+            folioLineId: input.folioLineId,
+            ledgerAmountMinor: moneyCheck.posted.ledgerAmountMinor,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async trySplitFolioLine(
+    actor: ActorContext,
+    input: {
+      sourceFolioLineId: string;
+      splits: Array<{ folioLineId: string; amountMinor: number }>;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioLineIds: string[] }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const sourceRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at
+               FROM folio_line WHERE folio_line_id = ?`,
+              input.sourceFolioLineId,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            folio_window_id: string;
+            reservation_id: string;
+            charge_code: string;
+            amount_minor: number;
+            txn_currency: string;
+            ledger_amount_minor: number;
+            fx_rate: string;
+            fx_rate_at: number;
+          }>;
+          const source = sourceRows[0];
+          if (!source) return { ok: false as const, error: NOT_FOUND };
+
+          const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
+          if (splitTotal !== source.amount_minor) {
+            return { ok: false as const, error: SPLIT_AMOUNT_MISMATCH };
+          }
+
+          const folioLineIds: string[] = [];
+          for (const split of input.splits) {
+            const posted: PostedLineAmount = {
+              amountMinor: split.amountMinor,
+              txnCurrency: currencyCode(source.txn_currency),
+              ledgerAmountMinor: split.amountMinor,
+              fxRate: source.fx_rate,
+              fxRateAt: source.fx_rate_at,
+            };
+            this.insertFolioLineSync({
+              folioLineId: split.folioLineId,
+              folioWindowId: source.folio_window_id,
+              reservationId: source.reservation_id,
+              chargeCode: source.charge_code,
+              posted,
+              splitOf: source.folio_line_id,
+            });
+            folioLineIds.push(split.folioLineId);
+          }
+
+          return { ok: true as const, folioLineIds };
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  async readFolio(reservationId: string): Promise<
+    | {
+        ok: true;
+        window: { folioWindowId: string; kind: string; status: string } | null;
+        lines: Array<{
+          folioLineId: string;
+          chargeCode: string;
+          amountMinor: number;
+          ledgerAmountMinor: number;
+          txnCurrency: string;
+          source: string | null;
+          businessDate: string | null;
+          splitOf: string | null;
+          createdAt: number;
+        }>;
+        balanceMinor: number;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const reservationRows = this.ctx.storage.sql
+      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ reservation_id: string }>;
+    if (!reservationRows[0]) return { ok: false, error: NOT_FOUND };
+
+    const windowRows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, kind, status FROM folio_window WHERE reservation_id = ? AND kind = 'GUEST'`,
+        reservationId,
+      )
+      .toArray() as Array<{ folio_window_id: string; kind: string; status: string }>;
+
+    const lineRows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
+                source, business_date, split_of, created_at
+         FROM folio_line WHERE reservation_id = ?
+         ORDER BY created_at ASC`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      charge_code: string;
+      amount_minor: number;
+      ledger_amount_minor: number;
+      txn_currency: string;
+      source: string | null;
+      business_date: string | null;
+      split_of: string | null;
+      created_at: number;
+    }>;
+
+    const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
+    const windowRow = windowRows[0];
+
+    return {
+      ok: true,
+      window: windowRow
+        ? { folioWindowId: windowRow.folio_window_id, kind: windowRow.kind, status: windowRow.status }
+        : null,
+      lines: lineRows.map((row) => ({
+        folioLineId: row.folio_line_id,
+        chargeCode: row.charge_code,
+        amountMinor: row.amount_minor,
+        ledgerAmountMinor: row.ledger_amount_minor,
+        txnCurrency: row.txn_currency,
+        source: row.source,
+        businessDate: row.business_date,
+        splitOf: row.split_of,
+        createdAt: row.created_at,
+      })),
+      balanceMinor,
+    };
+  }
+
+  async insertReservationForTest(input: {
+    reservationId: string;
+    roomTypeId: string;
+    guestRef: string;
+    piiKeyId: string;
+    arrivalDate: string;
+    departureDate: string;
+    status?: string;
+  }): Promise<void> {
+    this.assertUnsafeLocal('insertReservationForTest');
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      input.reservationId,
+      input.roomTypeId,
+      input.guestRef,
+      input.piiKeyId,
+      input.arrivalDate,
+      input.departureDate,
+      input.status ?? 'confirmed',
+      now,
+      now,
+    );
+  }
+
+  async countFolioLinesForReservation(reservationId: string): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM folio_line WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async countFolioLines(): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM folio_line`)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async readGuestFolioWindowForTest(
+    reservationId: string,
+  ): Promise<{ folioWindowId: string; kind: string; status: string } | null> {
+    this.assertUnsafeLocal('readGuestFolioWindowForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, kind, status FROM folio_window WHERE reservation_id = ? AND kind = 'GUEST'`,
+        reservationId,
+      )
+      .toArray() as Array<{ folio_window_id: string; kind: string; status: string }>;
+    const row = rows[0];
+    return row ? { folioWindowId: row.folio_window_id, kind: row.kind, status: row.status } : null;
+  }
+
+  async readNightAuditRunError(businessDate: string, step: NightAuditStep): Promise<string | null> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT error FROM night_audit_run WHERE business_date = ? AND step = ?`,
+        businessDate,
+        step,
+      )
+      .toArray() as Array<{ error: string | null }>;
+    return rows[0]?.error ?? null;
+  }
+
+  async listFolioLinesForReservation(
+    reservationId: string,
+  ): Promise<
+    Array<{
+      folioLineId: string;
+      chargeCode: string;
+      amountMinor: number;
+      source: string | null;
+      businessDate: string | null;
+      splitOf: string | null;
+    }>
+  > {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, charge_code, amount_minor, source, business_date, split_of
+         FROM folio_line WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      charge_code: string;
+      amount_minor: number;
+      source: string | null;
+      business_date: string | null;
+      split_of: string | null;
+    }>;
+    return rows.map((row) => ({
+      folioLineId: row.folio_line_id,
+      chargeCode: row.charge_code,
+      amountMinor: row.amount_minor,
+      source: row.source,
+      businessDate: row.business_date,
+      splitOf: row.split_of,
+    }));
+  }
+
+  private resolveFolioLineMoney(
+    input: {
+      amountMinor: number;
+      txnCurrency?: string;
+      ledgerAmountMinor?: number;
+      fxRate?: string;
+      fxRateAt?: number;
+    },
+    ledgerCurrency: CurrencyCode,
+  ):
+    | { ok: true; posted: PostedLineAmount }
+    | { ok: false; error: typeof CROSS_CURRENCY_UNSUPPORTED }
+    | { ok: false; error: typeof FX_RATE_INVALID }
+    | { ok: false; error: typeof LEDGER_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof MONEY_INVALID } {
+    const fxRateAt = input.fxRateAt ?? Date.now();
+    if (input.txnCurrency !== undefined && input.txnCurrency !== ledgerCurrency) {
+      return { ok: false, error: CROSS_CURRENCY_UNSUPPORTED };
+    }
+    const normalized = {
+      amountMinor: input.amountMinor,
+      txnCurrency: input.txnCurrency ?? ledgerCurrency,
+      ledgerAmountMinor: input.ledgerAmountMinor ?? input.amountMinor,
+      fxRate: input.fxRate ?? '1',
+      fxRateAt,
+    };
+    const validated = this.validateFolioLineMoney(normalized, ledgerCurrency, fxRateAt);
+    if (!validated.ok) {
+      if (validated.error === FX_RATE_INVALID) return { ok: false, error: FX_RATE_INVALID };
+      if (validated.error === LEDGER_AMOUNT_MISMATCH) return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+      return { ok: false, error: MONEY_INVALID };
+    }
+    return validated;
   }
 
   private outboxSourceSync(): EventSource {

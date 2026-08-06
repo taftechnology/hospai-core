@@ -9,7 +9,7 @@ import {
   MONEY_INVALID,
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
-import { ensureEntitledMeta, idemFor, propertyStub, provisionedPropertyStub } from './fixtures';
+import { ensureEntitledMeta, idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
 async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
   const fingerprint = await fingerprintPayload({
@@ -22,9 +22,9 @@ async function configIdem(key: string, value: unknown, meta: { actor: string; re
 }
 
 describe('PropertyDO freeze gate', () => {
-  it('migrates to schema version 9', async () => {
+  it('migrates to schema version 10', async () => {
     const stub = propertyStub(`migrate-${crypto.randomUUID()}`);
-    expect(await stub.getSchemaVersion()).toBe(9);
+    expect(await stub.getSchemaVersion()).toBe(10);
   });
 
   it('defaults held to 0 and computes free', async () => {
@@ -167,61 +167,44 @@ describe('PropertyDO freeze gate', () => {
     expect(await stub.countRestrictionDays('rt_king', '2026-08-01')).toBe(1);
   });
 
-  it('requires folio_window for folio_line FK', async () => {
+  it('returns NOT_FOUND when reservation is missing', async () => {
     const name = `folio-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
-    await stub.createFolioWindow({
-      folioWindowId: 'fw_1',
-      reservationId: 'res_1',
-      kind: 'GUEST',
-    });
-    await stub.addFolioLine({
-      folioLineId: 'fl_1',
-      folioWindowId: 'fw_1',
-      reservationId: 'res_1',
-      chargeCode: 'ROOM',
-      amountMinor: 10000,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 10000,
-      fxRate: '1',
-      fxRateAt: 1_700_000_000_000,
-    });
-
-    const missingWindow = {
+    const missingReservation = {
       folioLineId: 'fl_2',
-      folioWindowId: 'fw_missing',
-      reservationId: 'res_1',
+      reservationId: 'res_missing',
       chargeCode: 'ROOM',
       amountMinor: 100,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 100,
-      fxRate: '1',
     };
-    const result = await stub.tryAddFolioLine(missingWindow, await idemFor('folio-missing-fw', missingWindow));
-    expect(result.ok).toBe(false);
+    const result = await stub.tryAddFolioLine(
+      TEST_OWNER_ACTOR,
+      missingReservation,
+      await idemFor('folio-missing-res', missingReservation),
+    );
+    expect(result).toEqual({ ok: false, error: 'not_found' });
   });
 
   it('night-audit lines require business_date (CHECK) and unique index', async () => {
     const name = `audit-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
-    await stub.createFolioWindow({
-      folioWindowId: 'fw_a',
+    await stub.insertReservationForTest({
       reservationId: 'RES1',
-      kind: 'GUEST',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest',
+      piiKeyId: 'pii',
+      arrivalDate: '2026-08-01',
+      departureDate: '2026-08-05',
     });
 
     const missingDateInput = {
       folioLineId: 'fl_na_1',
-      folioWindowId: 'fw_a',
       reservationId: 'RES1',
       chargeCode: 'ROOM',
       amountMinor: 20000,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 20000,
-      fxRate: '1',
       source: 'NIGHT_AUDIT',
     };
     const missingDate = await stub.tryAddFolioLine(
+      TEST_OWNER_ACTOR,
       missingDateInput,
       await idemFor('folio-na-missing-date', missingDateInput),
     );
@@ -229,43 +212,45 @@ describe('PropertyDO freeze gate', () => {
 
     const firstInput = {
       folioLineId: 'fl_na_2',
-      folioWindowId: 'fw_a',
       reservationId: 'RES1',
       chargeCode: 'ROOM',
       amountMinor: 20000,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 20000,
-      fxRate: '1',
       source: 'NIGHT_AUDIT',
       businessDate: '2026-08-01',
     };
-    const first = await stub.tryAddFolioLine(firstInput, await idemFor('folio-na-first', firstInput));
+    const first = await stub.tryAddFolioLine(
+      TEST_OWNER_ACTOR,
+      firstInput,
+      await idemFor('folio-na-first', firstInput),
+    );
     expect(first.ok).toBe(true);
 
     const dupInput = {
       folioLineId: 'fl_na_3',
-      folioWindowId: 'fw_a',
       reservationId: 'RES1',
       chargeCode: 'ROOM',
       amountMinor: 20000,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 20000,
-      fxRate: '1',
       source: 'NIGHT_AUDIT',
       businessDate: '2026-08-01',
     };
-    const dup = await stub.tryAddFolioLine(dupInput, await idemFor('folio-na-dup', dupInput));
+    const dup = await stub.tryAddFolioLine(
+      TEST_OWNER_ACTOR,
+      dupInput,
+      await idemFor('folio-na-dup', dupInput),
+    );
     expect(dup.ok).toBe(false);
   });
 
   it('folio line money validation returns wire codes before storage', async () => {
     const name = `money-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
-    await stub.ensureMetaPropertyId(name);
-    await stub.createFolioWindow({
-      folioWindowId: 'fw_m',
+    await stub.insertReservationForTest({
       reservationId: 'res_m',
-      kind: 'GUEST',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest',
+      piiKeyId: 'pii',
+      arrivalDate: '2026-08-01',
+      departureDate: '2026-08-02',
     });
 
     const unsetName = `unset-${crypto.randomUUID()}`;
@@ -274,7 +259,6 @@ describe('PropertyDO freeze gate', () => {
     await unsetStub.ensureMetaPropertyId(unsetName);
     const unsetInput = {
       folioLineId: 'fl_unset',
-      folioWindowId: 'fw_any',
       reservationId: 'res_any',
       chargeCode: 'ROOM',
       amountMinor: 100,
@@ -282,14 +266,15 @@ describe('PropertyDO freeze gate', () => {
       ledgerAmountMinor: 100,
       fxRate: '1',
     };
-    expect(await unsetStub.tryAddFolioLine(unsetInput, await idemFor('folio-unset', unsetInput))).toEqual({
+    expect(
+      await unsetStub.tryAddFolioLine(TEST_OWNER_ACTOR, unsetInput, await idemFor('folio-unset', unsetInput)),
+    ).toEqual({
       ok: false,
       error: CURRENCY_UNSET,
     });
 
     const badFxInput = {
       folioLineId: 'fl_bad_fx',
-      folioWindowId: 'fw_m',
       reservationId: 'res_m',
       chargeCode: 'ROOM',
       amountMinor: 100,
@@ -297,14 +282,13 @@ describe('PropertyDO freeze gate', () => {
       ledgerAmountMinor: 100,
       fxRate: 'not-a-rate',
     };
-    expect(await stub.tryAddFolioLine(badFxInput, await idemFor('folio-bad-fx', badFxInput))).toEqual({
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, badFxInput, await idemFor('folio-bad-fx', badFxInput))).toEqual({
       ok: false,
       error: FX_RATE_INVALID,
     });
 
     const mismatchInput = {
       folioLineId: 'fl_mismatch',
-      folioWindowId: 'fw_m',
       reservationId: 'res_m',
       chargeCode: 'ROOM',
       amountMinor: 100,
@@ -312,14 +296,15 @@ describe('PropertyDO freeze gate', () => {
       ledgerAmountMinor: 999,
       fxRate: '1',
     };
-    expect(await stub.tryAddFolioLine(mismatchInput, await idemFor('folio-mismatch', mismatchInput))).toEqual({
+    expect(
+      await stub.tryAddFolioLine(TEST_OWNER_ACTOR, mismatchInput, await idemFor('folio-mismatch', mismatchInput)),
+    ).toEqual({
       ok: false,
       error: LEDGER_AMOUNT_MISMATCH,
     });
 
     const invalidInput = {
       folioLineId: 'fl_invalid',
-      folioWindowId: 'fw_m',
       reservationId: 'res_m',
       chargeCode: 'ROOM',
       amountMinor: 1.5,
@@ -327,7 +312,9 @@ describe('PropertyDO freeze gate', () => {
       ledgerAmountMinor: 2,
       fxRate: '1',
     };
-    expect(await stub.tryAddFolioLine(invalidInput, await idemFor('folio-invalid', invalidInput))).toEqual({
+    expect(
+      await stub.tryAddFolioLine(TEST_OWNER_ACTOR, invalidInput, await idemFor('folio-invalid', invalidInput)),
+    ).toEqual({
       ok: false,
       error: MONEY_INVALID,
     });
@@ -336,27 +323,26 @@ describe('PropertyDO freeze gate', () => {
   it('folio line post is idempotent and emits folio.line_posted', async () => {
     const name = `folio-idem-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
-    await stub.createFolioWindow({
-      folioWindowId: 'fw_i',
+    await stub.insertReservationForTest({
       reservationId: 'res_i',
-      kind: 'GUEST',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest',
+      piiKeyId: 'pii',
+      arrivalDate: '2026-08-01',
+      departureDate: '2026-08-02',
     });
 
     const input = {
       folioLineId: 'fl_idem',
-      folioWindowId: 'fw_i',
       reservationId: 'res_i',
       chargeCode: 'ROOM',
       amountMinor: 5000,
-      txnCurrency: 'USD',
-      ledgerAmountMinor: 5000,
-      fxRate: '1',
     };
     const idem = await idemFor('folio-idem-post', input);
-    expect(await stub.tryAddFolioLine(input, idem)).toEqual({ ok: true });
-    expect(await stub.tryAddFolioLine(input, idem)).toEqual({ ok: true });
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
 
-    const replayWrong = await stub.tryAddFolioLine(input, {
+    const replayWrong = await stub.tryAddFolioLine(TEST_OWNER_ACTOR, input, {
       key: idem.key,
       fingerprint: 'different-fingerprint',
     });

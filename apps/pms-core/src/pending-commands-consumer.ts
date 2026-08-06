@@ -42,6 +42,21 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
     invoke: (stub, payload, idem, ctx) =>
       stub.tryCancelCheckIn(REPLAY_ACTOR, payload as { reservationId: string }, idem, ctx),
   },
+  'folio.add_item': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, payload, idem, ctx) =>
+      stub.tryAddFolioLine(
+        REPLAY_ACTOR,
+        payload as {
+          folioLineId: string;
+          reservationId: string;
+          chargeCode: string;
+          amountMinor: number;
+        },
+        idem,
+        ctx,
+      ),
+  },
 };
 
 export const REPLAY_COMMAND_IDS = Object.keys(REPLAY_DISPATCH);

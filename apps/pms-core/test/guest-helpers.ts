@@ -1,6 +1,7 @@
 import type { ActorContext } from '@hospai/contracts';
 import type { OrgDO } from '../src/org-do.js';
-import { idemFor, provisionedOrg, TEST_OWNER_ACTOR } from './fixtures.js';
+import type { PropertyDO } from '../src/property-do.js';
+import { idemFor, orgStub, provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
 
 export {
   DEFAULT_TEST_ORG,
@@ -32,4 +33,18 @@ export async function createGuest(
   );
   if (!result.ok) throw new Error(`create guest failed: ${result.error}`);
   return { guestRef: guestId, piiKeyId: result.piiKeyId };
+}
+
+/** Provisions org + property (with an explicit, derived `orgId`) and mints one org guest. */
+export async function provisionedPropertyWithGuest(
+  name: string,
+  timeZone = 'UTC',
+  currency = 'USD',
+): Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string; guestRef: string }> {
+  const orgId = `org_prop_${name}`;
+  const stub = await provisionedPropertyStub(name, timeZone, currency, orgId);
+  const org = orgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
+  return { stub, orgId, guestRef: guest.guestRef };
 }

@@ -6,7 +6,7 @@ import worker from '../src/index.js';
 import type { AriProjectionEntry } from '../src/event-consumer.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate } from '../src/registry.js';
-import { TEST_OWNER_ACTOR, idemFor } from './fixtures.js';
+import { createGuest, idemFor, orgStub } from './guest-helpers.js';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -220,15 +220,19 @@ describe('ARI KV Projection', () => {
     // Book a stay
     const today = await stub.readBusinessDate();
     expect(today).not.toBeNull();
+    const actorCtx = { kind: 'user' as const, userId: actor };
+    const org = orgStub(orgId);
+    await org.ensureMetaOrgId(orgId);
+    const guest = await createGuest(org, propertyId, 'g_test', 'Test Guest', actorCtx);
     const bookInput = {
       reservationId: `res_${crypto.randomUUID()}`,
       roomTypeId: 'rt_standard',
       arrivalDate: today!,
       departureDate: addDays(today!, 1), // 1-night stay
-      guestRef: 'g_test',
-      piiKeyId: 'pk_test',
+      guestRef: guest.guestRef,
     };
     const bookRes = await stub.tryCreateReservation(
+      actorCtx,
       bookInput,
       await idemFor('book-test', bookInput),
     );

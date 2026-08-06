@@ -17,9 +17,6 @@ import {
 } from '../src/registry';
 import { idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR, TEST_SYSTEM_ACTOR } from './guest-helpers';
 
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
-
 describe('entitlements + kill-switch', () => {
   beforeEach(async () => {
     resetPlatformSchemaGate();
@@ -54,11 +51,13 @@ describe('entitlements + kill-switch', () => {
     const bookInput = {
       reservationId: 'res_unent',
       roomTypeId: 'rt_king',
-      ...LEGACY_GUEST,
+      guestRef: 'legacy',
       arrivalDate: '2026-08-01',
       departureDate: '2026-08-02',
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-unent', bookInput))).toEqual({
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-unent', bookInput)),
+    ).toEqual({
       ok: false,
       error: ENTITLEMENT_REQUIRED,
     });

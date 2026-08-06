@@ -16,8 +16,8 @@ import {
   resetPlatformSchemaGate,
   setKillSwitch,
 } from '../src/registry.js';
+import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 const A = { arrival: '2026-08-10', departure: '2026-08-12' };
 const B_overlap = { arrival: '2026-08-11', departure: '2026-08-13' };
 const B_adjacent = { arrival: '2026-08-12', departure: '2026-08-14' };
@@ -158,6 +158,7 @@ async function postReservation(
   reservationId: string,
   arrival: string,
   departure: string,
+  guestRef: string,
   roomTypeId = 'rt_king',
 ) {
   return worker.fetch(
@@ -167,8 +168,8 @@ async function postReservation(
       body: JSON.stringify({
         reservationId,
         roomTypeId,
-        guestRef: LEGACY_GUEST.guestRef,
-        piiKeyId: LEGACY_GUEST.piiKeyId,
+        guestRef,
+        piiKeyId: 'unused',
         arrivalDate: arrival,
         departureDate: departure,
         idempotencyKey: `idem-res-${reservationId}`,
@@ -204,7 +205,13 @@ async function provisionHotel(actor: string, roomCount = 10) {
   expect((await postRoomType(propertyId, actor, { roomCount })).status).toBe(201);
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
   if (resolved) await resolved.stub.flushOutbox();
-  return { orgId, propertyId, actor, stub: resolved!.stub };
+  const org = testOrgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {
+    kind: 'user',
+    userId: actor,
+  });
+  return { orgId, propertyId, actor, stub: resolved!.stub, guestRef: guest.guestRef };
 }
 
 describe('rooms & housekeeping HTTP routes', () => {
@@ -335,7 +342,7 @@ describe('rooms & housekeeping HTTP routes', () => {
 
   it('9/10/11: assign type mismatch, overlap, adjacent half-open', async () => {
     const actor = 'user_rooms_911';
-    const { propertyId } = await provisionHotel(actor);
+    const { propertyId, guestRef } = await provisionHotel(actor);
     expect(
       (await postRoomType(propertyId, actor, { roomTypeId: 'rt_twin', code: 'TWN', roomCount: 5 }))
         .status,
@@ -361,15 +368,15 @@ describe('rooms & housekeeping HTTP routes', () => {
       ).status,
     ).toBe(201);
 
-    expect((await postReservation(propertyId, actor, 'res_k', A.arrival, A.departure)).status).toBe(
-      201,
-    );
+    expect(
+      (await postReservation(propertyId, actor, 'res_k', A.arrival, A.departure, guestRef)).status,
+    ).toBe(201);
     const mm = await postAssignRoom(propertyId, actor, 'res_k', 'room_twin', 'idem-mm');
     expect(mm.status).toBe(422);
     expect(await mm.json()).toMatchObject({ error: ROOM_TYPE_MISMATCH });
 
     expect(
-      (await postReservation(propertyId, actor, 'res_a', A.arrival, A.departure)).status,
+      (await postReservation(propertyId, actor, 'res_a', A.arrival, A.departure, guestRef)).status,
     ).toBe(201);
     expect(
       (
@@ -379,6 +386,7 @@ describe('rooms & housekeeping HTTP routes', () => {
           'res_ov',
           B_overlap.arrival,
           B_overlap.departure,
+          guestRef,
         )
       ).status,
     ).toBe(201);
@@ -397,6 +405,7 @@ describe('rooms & housekeeping HTTP routes', () => {
           'res_adj',
           B_adjacent.arrival,
           B_adjacent.departure,
+          guestRef,
         )
       ).status,
     ).toBe(201);

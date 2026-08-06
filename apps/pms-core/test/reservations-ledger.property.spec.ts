@@ -5,9 +5,7 @@ import { HORIZON_DAYS } from '@hospai/pms-inventory';
 import { enumerateStayDates } from '@hospai/pms-reservations';
 import type { PropertyDO } from '../src/property-do';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
-
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+import { createGuest, orgStub } from './guest-helpers';
 
 function mulberry32(seed: number) {
   return () => {
@@ -63,7 +61,11 @@ describe('PropertyDO sold ledger property tests', () => {
     'random create/cancel/modify sequences keep sold aligned (seed $label)',
     async ({ seed }) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const orgId = `org_${name}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+    const org = orgStub(orgId);
+    await org.ensureMetaOrgId(orgId);
+    const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
     const rand = mulberry32(seed);
 
     const addInput = {
@@ -94,12 +96,15 @@ describe('PropertyDO sold ledger property tests', () => {
         const input = {
           reservationId: id,
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef: guest.guestRef,
           arrivalDate: arrival,
           departureDate: departure,
         };
-        const result = await stub.tryCreateReservation(input, await idemFor(`c-${step}-${id}`, input));
+        const result = await stub.tryCreateReservation(
+          TEST_OWNER_ACTOR,
+          input,
+          await idemFor(`c-${step}-${id}`, input),
+        );
         if (result.ok) live.push({ id, roomTypeId: 'rt_king', arrival, departure });
       } else if (op < 0.7) {
         const idx = Math.floor(rand() * live.length);

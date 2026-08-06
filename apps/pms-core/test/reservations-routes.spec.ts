@@ -11,8 +11,7 @@ import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -88,7 +87,13 @@ async function provisionHotel(actor: string, roomCount = 10) {
   const roomTypeData = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
   if (resolved) await resolved.stub.flushOutbox();
-  return { orgId, propertyId, actor, arrival: roomTypeData.fromDate };
+  const org = testOrgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {
+    kind: 'user',
+    userId: actor,
+  });
+  return { orgId, propertyId, actor, arrival: roomTypeData.fromDate, guestRef: guest.guestRef };
 }
 
 describe('reservations vertical HTTP routes', () => {
@@ -104,7 +109,7 @@ describe('reservations vertical HTTP routes', () => {
 
   it('Test 1: POST /reservations creates reservation and bumps ariVersion', async () => {
     const actor = 'user_res_owner1';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
 
     const res = await worker.fetch(
@@ -114,8 +119,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_http_1',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-book-1-${crypto.randomUUID()}`,
@@ -137,7 +142,7 @@ describe('reservations vertical HTTP routes', () => {
 
   it('Test 2–4: ari.reject_on_commit classification on POST /reservations', async () => {
     const actor = 'user_res_owner2';
-    const { propertyId, arrival } = await provisionHotel(actor, 1);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor, 1);
     const departure = addDays(arrival, 1);
 
     const resolved = await resolvePropertyFromRegistry(env, propertyId);
@@ -151,8 +156,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_full_a',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-full-a-${crypto.randomUUID()}`,
@@ -174,8 +179,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_full_b',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-full-b-${crypto.randomUUID()}`,
@@ -198,8 +203,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_full_c',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-full-c-${crypto.randomUUID()}`,
@@ -220,8 +225,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_full_d',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-full-d-${crypto.randomUUID()}`,
@@ -236,7 +241,7 @@ describe('reservations vertical HTTP routes', () => {
 
   it('Test 5–6: GET /reservations/:rid', async () => {
     const actor = 'user_res_owner5';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_get_1';
 
@@ -249,8 +254,8 @@ describe('reservations vertical HTTP routes', () => {
             body: JSON.stringify({
               reservationId,
               roomTypeId: 'rt_king',
-              guestRef: LEGACY_GUEST.guestRef,
-              piiKeyId: LEGACY_GUEST.piiKeyId,
+              guestRef,
+              piiKeyId: 'unused',
               arrivalDate: arrival,
               departureDate: departure,
               idempotencyKey: `idem-get-book-${crypto.randomUUID()}`,
@@ -287,7 +292,7 @@ describe('reservations vertical HTTP routes', () => {
 
   it('Test 9–16: front-desk status routes over HTTP', async () => {
     const actor = 'user_res_owner9';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_status_1';
 
@@ -298,8 +303,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId,
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-status-book-${crypto.randomUUID()}`,
@@ -360,8 +365,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_status_2',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-status-book2-${crypto.randomUUID()}`,
@@ -390,8 +395,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_status_3',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-status-book3-${crypto.randomUUID()}`,
@@ -430,8 +435,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_status_4',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-status-book4-${crypto.randomUUID()}`,
@@ -461,8 +466,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_status_5',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: futureArrival,
           departureDate: addDays(futureArrival, 2),
           idempotencyKey: `idem-status-book5-${crypto.randomUUID()}`,
@@ -504,8 +509,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_status_6',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-status-book6-${crypto.randomUUID()}`,
@@ -588,7 +593,7 @@ describe('reservations vertical HTTP routes', () => {
     const owner = 'user_res_owner19';
     const stranger = 'user_res_stranger';
     const staff = 'user_res_staff';
-    const { orgId, propertyId, arrival } = await provisionHotel(owner);
+    const { orgId, propertyId, arrival, guestRef } = await provisionHotel(owner);
     const departure = addDays(arrival, 2);
 
     const orgStub = resolveOrgStub(env.ORG_DO, { orgId }) as {
@@ -603,8 +608,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_rbac',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-rbac-book-${crypto.randomUUID()}`,
@@ -641,7 +646,7 @@ describe('reservations vertical HTTP routes', () => {
 
   it('Test 21–21a: kill-switch gates no_show but not check_in', async () => {
     const actor = 'user_res_owner21';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
 
     await worker.fetch(
@@ -651,8 +656,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_ks_1',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-ks-book1-${crypto.randomUUID()}`,
@@ -667,8 +672,8 @@ describe('reservations vertical HTTP routes', () => {
         body: JSON.stringify({
           reservationId: 'res_ks_2',
           roomTypeId: 'rt_king',
-          guestRef: LEGACY_GUEST.guestRef,
-          piiKeyId: LEGACY_GUEST.piiKeyId,
+          guestRef,
+          piiKeyId: 'unused',
           arrivalDate: arrival,
           departureDate: departure,
           idempotencyKey: `idem-ks-book2-${crypto.randomUUID()}`,

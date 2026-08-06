@@ -11,8 +11,7 @@ import {
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { idemFor } from './fixtures';
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+import { createGuest, orgStub as testOrgStub } from './guest-helpers';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -72,6 +71,7 @@ async function postReservation(
   reservationId: string,
   arrival: string,
   departure: string,
+  guestRef: string,
 ) {
   return worker.fetch(
     new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
@@ -80,8 +80,8 @@ async function postReservation(
       body: JSON.stringify({
         reservationId,
         roomTypeId: 'rt_king',
-        guestRef: LEGACY_GUEST.guestRef,
-        piiKeyId: LEGACY_GUEST.piiKeyId,
+        guestRef,
+        piiKeyId: 'unused',
         arrivalDate: arrival,
         departureDate: departure,
         idempotencyKey: `idem-res-${reservationId}`,
@@ -195,7 +195,13 @@ async function provisionHotel(actor: string) {
   const { fromDate: arrival } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
   if (resolved) await resolved.stub.flushOutbox();
-  return { orgId, propertyId, actor, arrival, stub: resolved!.stub };
+  const org = testOrgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {
+    kind: 'user',
+    userId: actor,
+  });
+  return { orgId, propertyId, actor, arrival, stub: resolved!.stub, guestRef: guest.guestRef };
 }
 
 describe('degraded mode §4.6 fault injection', () => {
@@ -217,9 +223,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('1: check-in while blocked returns 202 and leaves DO state unchanged', async () => {
     const actor = 'user_deg_1';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_1', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_1', arrival, departure, guestRef)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -237,9 +243,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('2: unblock and consumer replay checks in with issuedAt/replayedAt on outbox', async () => {
     const actor = 'user_deg_2';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_2', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_2', arrival, departure, guestRef)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -265,9 +271,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('3: same idempotency key provisional then live yields one mutation', async () => {
     const actor = 'user_deg_3';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_3', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_3', arrival, departure, guestRef)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -288,11 +294,11 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('4: FAIL_CLOSED create reservation while blocked returns degraded 503 without ledger mutation', async () => {
     const actor = 'user_deg_4';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
 
     await stub.setTransportBlockedForTest(true);
-    const res = await postReservation(propertyId, actor, 'res_deg_4', arrival, departure);
+    const res = await postReservation(propertyId, actor, 'res_deg_4', arrival, departure, guestRef);
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({
       error: 'property_unreachable',
@@ -306,9 +312,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('5a: replay before apply after business date rolled records business_date_closed exception', async () => {
     const actor = 'user_deg_5a';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_5a', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_5a', arrival, departure, guestRef)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -331,9 +337,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('5b: replay after successful apply with rolled date returns cached idempotency without exception', async () => {
     const actor = 'user_deg_5b';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_5b', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_5b', arrival, departure, guestRef)).status).toBe(201);
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -368,9 +374,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('6: duplicate queue delivery applies once', async () => {
     const actor = 'user_deg_6';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_6', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_6', arrival, departure, guestRef)).status).toBe(201);
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -398,9 +404,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('6b: duplicate delivery after offboard does not create false exception', async () => {
     const actor = 'user_deg_6b';
-    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_6b', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_6b', arrival, departure, guestRef)).status).toBe(201);
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -428,9 +434,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('7: queue.send failure does not return 202', async () => {
     const actor = 'user_deg_7';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_7', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_7', arrival, departure, guestRef)).status).toBe(201);
 
     let calls = 0;
     vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send').mockImplementation(async () => {
@@ -452,9 +458,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('9: missing idempotency key while blocked still returns 400', async () => {
     const actor = 'user_deg_9';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_9', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_9', arrival, departure, guestRef)).status).toBe(201);
     await stub.setTransportBlockedForTest(true);
     const res = await worker.fetch(
       new Request(
@@ -469,9 +475,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('10: unknown DO throw returns 500 and does not queue', async () => {
     const actor = 'user_deg_10';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_10', arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_10', arrival, departure, guestRef)).status).toBe(201);
 
     const sendSpy = vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send');
     await stub.setSimulateBugForTest(true);
@@ -482,9 +488,9 @@ describe('degraded mode §4.6 fault injection', () => {
   });
 
   it('11: direct DO tryCheckIn with non-member actor returns not_member without mutation', async () => {
-    const { propertyId, arrival, stub } = await provisionHotel('user_deg_11');
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel('user_deg_11');
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, 'user_deg_11', 'res_gate_11', arrival, departure)).status).toBe(
+    expect((await postReservation(propertyId, 'user_deg_11', 'res_gate_11', arrival, departure, guestRef)).status).toBe(
       201,
     );
     const unackedBefore = await stub.outboxUnackedCount();
@@ -501,10 +507,10 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('13 (= degraded-suite 8): folio.add_item queues while blocked and replays once', async () => {
     const actor = 'user_deg_folio13';
-    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_deg_folio13';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -522,10 +528,10 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('14: folio.split_charge while blocked returns FAIL_CLOSED 503 and does not queue', async () => {
     const actor = 'user_deg_folio14';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_deg_folio14';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
     const sourceId = `${reservationId}:item:source-14`;
     expect((await postFolioLine(propertyId, actor, reservationId, 'source-14')).status).toBe(201);
 
@@ -543,10 +549,10 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('15: duplicate folio.add_item replay applies once', async () => {
     const actor = 'user_deg_folio15';
-    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_deg_folio15';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -633,7 +639,7 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('23: housekeeping.assign queues while blocked and replays once', async () => {
     const actor = 'user_deg_room23';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     expect(
       (
         await worker.fetch(
@@ -681,7 +687,7 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('24: assign-room while blocked returns FAIL_CLOSED 503', async () => {
     const actor = 'user_deg_room24';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect(
       (
@@ -700,7 +706,7 @@ describe('degraded mode §4.6 fault injection', () => {
         )
       ).status,
     ).toBe(201);
-    expect((await postReservation(propertyId, actor, 'res_deg_24', arrival, departure)).status).toBe(
+    expect((await postReservation(propertyId, actor, 'res_deg_24', arrival, departure, guestRef)).status).toBe(
       201,
     );
 
@@ -782,9 +788,9 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('26: check-in while blocked with no room_id still queues and replays', async () => {
     const actor = 'user_deg_room26';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_26', arrival, departure)).status).toBe(
+    expect((await postReservation(propertyId, actor, 'res_deg_26', arrival, departure, guestRef)).status).toBe(
       201,
     );
     const before = await stub.readReservation('res_deg_26');

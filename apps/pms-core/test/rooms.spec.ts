@@ -9,8 +9,7 @@ import {
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+import { provisionedPropertyWithGuest } from './guest-helpers';
 
 /** Half-open [arrival, departure) adversarial fixtures from the plan. */
 const A = { arrival: '2026-08-10', departure: '2026-08-12' };
@@ -197,19 +196,18 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('9: assign room of wrong room_type_id → room_type_mismatch', async () => {
-    const stub = await provisionedPropertyStub(`rm-mm-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-mm-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5, 'KING');
     await addRoomType(stub, 'rt_twin', 5, 'TWIN');
     expect(await createRoom(stub, 'room_twin', 'rt_twin', '201')).toMatchObject({ ok: true });
     const book = {
       reservationId: 'res_king',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: A.arrival,
       departureDate: A.departure,
     };
-    expect(await stub.tryCreateReservation(book, await idemFor('book-k', book))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor('book-k', book))).toMatchObject({
       ok: true,
     });
     const assign = { reservationId: 'res_king', roomId: 'room_twin' };
@@ -219,7 +217,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('10: overlapping stays on same room → room_already_assigned', async () => {
-    const stub = await provisionedPropertyStub(`rm-ov-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-ov-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     for (const [id, dates] of [
@@ -229,12 +227,13 @@ describe('PropertyDO rooms + housekeeping', () => {
       const book = {
         reservationId: id,
         roomTypeId: 'rt_king',
-        guestRef: LEGACY_GUEST.guestRef,
-        piiKeyId: LEGACY_GUEST.piiKeyId,
+        guestRef,
         arrivalDate: dates.arrival,
         departureDate: dates.departure,
       };
-      expect(await stub.tryCreateReservation(book, await idemFor(`book-${id}`, book))).toMatchObject({
+      expect(
+        await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor(`book-${id}`, book)),
+      ).toMatchObject({
         ok: true,
       });
     }
@@ -250,7 +249,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('11: adjacent half-open stays on same room both succeed', async () => {
-    const stub = await provisionedPropertyStub(`rm-adj-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-adj-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     for (const [id, dates] of [
@@ -260,12 +259,13 @@ describe('PropertyDO rooms + housekeeping', () => {
       const book = {
         reservationId: id,
         roomTypeId: 'rt_king',
-        guestRef: LEGACY_GUEST.guestRef,
-        piiKeyId: LEGACY_GUEST.piiKeyId,
+        guestRef,
         arrivalDate: dates.arrival,
         departureDate: dates.departure,
       };
-      expect(await stub.tryCreateReservation(book, await idemFor(`book-${id}`, book))).toMatchObject({
+      expect(
+        await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor(`book-${id}`, book)),
+      ).toMatchObject({
         ok: true,
       });
     }
@@ -280,18 +280,17 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('assign on cancelled → room_not_assignable', async () => {
-    const stub = await provisionedPropertyStub(`rm-can-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-can-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     const book = {
       reservationId: 'res_c',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: A.arrival,
       departureDate: A.departure,
     };
-    expect(await stub.tryCreateReservation(book, await idemFor('book-c', book))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor('book-c', book))).toMatchObject({
       ok: true,
     });
     expect(
@@ -307,17 +306,16 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('27: tryCheckIn with room_id NULL still ok', async () => {
-    const stub = await provisionedPropertyStub(`rm-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-ci-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     const book = {
       reservationId: 'res_ci',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: A.arrival,
       departureDate: A.departure,
     };
-    expect(await stub.tryCreateReservation(book, await idemFor('book-ci', book))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor('book-ci', book))).toMatchObject({
       ok: true,
     });
     const read = await stub.readReservation('res_ci');
@@ -332,18 +330,17 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('28: readReservation roomId null then set', async () => {
-    const stub = await provisionedPropertyStub(`rm-rr-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-rr-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     const book = {
       reservationId: 'res_rr',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: A.arrival,
       departureDate: A.departure,
     };
-    expect(await stub.tryCreateReservation(book, await idemFor('book-rr', book))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor('book-rr', book))).toMatchObject({
       ok: true,
     });
     const before = await stub.readReservation('res_rr');

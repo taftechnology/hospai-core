@@ -12,6 +12,7 @@ import {
   setKillSwitch,
 } from '../src/registry.js';
 import { idemFor } from './fixtures.js';
+import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
 
@@ -73,6 +74,7 @@ async function postReservation(
   reservationId: string,
   arrival: string,
   departure: string,
+  guestRef: string,
 ) {
   return worker.fetch(
     new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
@@ -81,8 +83,8 @@ async function postReservation(
       body: JSON.stringify({
         reservationId,
         roomTypeId: 'rt_king',
-        guestRef: LEGACY_GUEST.guestRef,
-        piiKeyId: LEGACY_GUEST.piiKeyId,
+        guestRef,
+        piiKeyId: 'unused',
         arrivalDate: arrival,
         departureDate: departure,
         idempotencyKey: `idem-res-${reservationId}`,
@@ -150,7 +152,13 @@ async function provisionHotel(actor: string) {
   const { fromDate: arrival } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
   if (resolved) await resolved.stub.flushOutbox();
-  return { orgId, propertyId, actor, arrival, stub: resolved!.stub };
+  const org = testOrgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {
+    kind: 'user',
+    userId: actor,
+  });
+  return { orgId, propertyId, actor, arrival, stub: resolved!.stub, guestRef: guest.guestRef };
 }
 
 describe('folio vertical HTTP routes', () => {
@@ -166,10 +174,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 1: POST /reservations creates GUEST folio_window', async () => {
     const actor = 'user_folio_owner1';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_folio_window_1';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const window = await stub.readGuestFolioWindowForTest(reservationId);
     expect(window).toEqual({
@@ -181,10 +189,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 2: POST .../folio/lines posts charge with Phase 1 identity money', async () => {
     const actor = 'user_folio_owner2';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_folio_charge_1';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const res = await postFolioLine(propertyId, actor, reservationId, {
       chargeCode: 'MISC',
@@ -204,7 +212,7 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 3: lazy folio_window creation for pre-slice reservation on first charge', async () => {
     const actor = 'user_folio_owner3';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 3);
     const reservationId = 'res_preslice_1';
     await stub.insertReservationForTest({
@@ -232,10 +240,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 4: GET .../folio returns balance and lines after two charges', async () => {
     const actor = 'user_folio_owner4';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_folio_read_1';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     expect(
       (
@@ -269,7 +277,7 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 5: GET .../folio on reservation with no window yet returns window null', async () => {
     const actor = 'user_folio_owner5';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_empty_folio';
     await stub.insertReservationForTest({
@@ -296,10 +304,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 6: POST .../folio/split creates split lines and keeps source', async () => {
     const actor = 'user_folio_owner6';
-    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_split_1';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const sourceId = `${reservationId}:item:source-line`;
     expect(
@@ -329,10 +337,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 7: split with non-conserving amounts returns 422 split_amount_mismatch', async () => {
     const actor = 'user_folio_owner7';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_split_bad';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
     const sourceId = `${reservationId}:item:bad-source`;
     expect(
       (
@@ -359,10 +367,10 @@ describe('folio vertical HTTP routes', () => {
   it('Test 8: non-member on folio routes gets 404', async () => {
     const owner = 'user_folio_owner8';
     const outsider = 'user_folio_outsider';
-    const { propertyId, arrival } = await provisionHotel(owner);
+    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_rbac_1';
-    expect((await postReservation(propertyId, owner, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, owner, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     expect((await getFolio(propertyId, outsider, reservationId)).status).toBe(404);
     expect(
@@ -387,10 +395,10 @@ describe('folio vertical HTTP routes', () => {
   it('Test 9: staff can POST .../folio/lines', async () => {
     const owner = 'user_folio_owner9';
     const staff = 'user_folio_staff9';
-    const { orgId, propertyId, arrival } = await provisionHotel(owner);
+    const { orgId, propertyId, arrival, guestRef } = await provisionHotel(owner);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_staff_post';
-    expect((await postReservation(propertyId, owner, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, owner, reservationId, arrival, departure, guestRef)).status).toBe(201);
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     await org.ensureMember(staff, 'staff');
 
@@ -405,10 +413,10 @@ describe('folio vertical HTTP routes', () => {
   it('Test 10: staff cannot POST .../folio/split', async () => {
     const owner = 'user_folio_owner10';
     const staff = 'user_folio_staff10';
-    const { orgId, propertyId, arrival } = await provisionHotel(owner);
+    const { orgId, propertyId, arrival, guestRef } = await provisionHotel(owner);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_staff_split';
-    expect((await postReservation(propertyId, owner, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, owner, reservationId, arrival, departure, guestRef)).status).toBe(201);
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     await org.ensureMember(staff, 'staff');
 
@@ -421,10 +429,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 11: kill-switch returns 503 on all folio routes', async () => {
     const actor = 'user_folio_owner11';
-    const { propertyId, arrival } = await provisionHotel(actor);
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_kill';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
     await setKillSwitch(env, 'pms.core', true);
 
     for (const res of [
@@ -446,10 +454,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 11a: unentitled org gets 402 at HTTP edge for folio POST', async () => {
     const actor = 'user_folio_owner11a';
-    const { orgId, propertyId, arrival } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_unent_http';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
     await cancelSubscription(env, orgId);
 
     const res = await postFolioLine(propertyId, actor, reservationId, {
@@ -463,10 +471,10 @@ describe('folio vertical HTTP routes', () => {
 
   it('Test 11b: unentitled org gets ENTITLEMENT_REQUIRED on direct DO tryAddFolioLine', async () => {
     const actor = 'user_folio_owner11b';
-    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     const reservationId = 'res_unent_do';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
     await cancelSubscription(env, orgId);
     await stub.clearEntitlementCacheForTest();
 

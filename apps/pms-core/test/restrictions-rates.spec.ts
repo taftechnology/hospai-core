@@ -4,9 +4,7 @@ import { fingerprintPayload, RESTRICTION_VIOLATED, RATE_MISSING } from '@hospai/
 import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
-
-
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+import { createGuest, orgStub } from './guest-helpers';
 
 function addDays(iso: string, days: number): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)!;
@@ -17,7 +15,11 @@ function addDays(iso: string, days: number): string {
 describe('PropertyDO restrictions + rates', () => {
   it('1. min_los on arrival blocks create in the book txn', async () => {
     const name = `restrict-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const orgId = `org_${name}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+    const org = orgStub(orgId);
+    await org.ensureMetaOrgId(orgId);
+    const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',
@@ -49,12 +51,11 @@ describe('PropertyDO restrictions + rates', () => {
     const book = {
       reservationId: 'res_min',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef: guest.guestRef,
       arrivalDate: arrival,
       departureDate: addDays(arrival, 2),
     };
-    expect(await stub.tryCreateReservation(book, await idemFor('book-min', book))).toEqual({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, book, await idemFor('book-min', book))).toEqual({
       ok: false,
       error: RESTRICTION_VIOLATED,
       rule: 'min_los',

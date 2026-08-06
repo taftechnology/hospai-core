@@ -689,6 +689,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.readGuest(actor, propertyId, guestId);
     if (!result.ok) {
       const err = result.error;

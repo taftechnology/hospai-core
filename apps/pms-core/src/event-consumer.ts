@@ -89,11 +89,26 @@ export function handleDomainEvent(message: DomainEventMessage): void {
     case 'inventory.room_type_changed':
     case 'reservation.status_changed':
     case 'reservation.modified':
+    case 'reservation.room_assigned':
     case 'restriction.changed':
     case 'rate.changed':
+    case 'rate_plan.changed':
+    case 'room.created':
+    case 'room.updated':
+    case 'room.status_changed':
+    case 'housekeeping.assigned':
     case 'night_audit.started':
     case 'night_audit.completed':
+    case 'folio.payment_authorized':
+    case 'folio.payment_captured':
+    case 'channel.synced':
+    case 'channel.mapping.created':
+    case 'audit.recorded':
+    case 'property.updated':
+    case 'staff.changed':
+    case 'staff.housekeeper_changed':
       // Shape pinned in producer tests; presence + deliverability is sufficient for Phase 0.
+      // Every COMMAND_CATALOG `events[]` entry must appear here — see events-queue catalog allowlist test.
       break;
     default:
       throw new Error(`unknown event type: ${message.eventType}`);

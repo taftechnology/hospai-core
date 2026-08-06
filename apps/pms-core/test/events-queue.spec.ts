@@ -1,7 +1,7 @@
 import { env, createMessageBatch, createExecutionContext, getQueueResult } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import type { DomainEventMessage, EventSource } from '@hospai/contracts';
-import { fingerprintPayload } from '@hospai/contracts';
+import { COMMAND_CATALOG, fingerprintPayload } from '@hospai/contracts';
 import { OUTBOX_BACKLOG_DELAY_MS, toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
 import { handleDomainEvent } from '../src/event-consumer.js';
@@ -251,5 +251,65 @@ describe('handleDomainEvent contract assertions', () => {
         createdAt: Date.now(),
       }),
     ).not.toThrow();
+  });
+
+  it('accepts rooms/housekeeping event types that PropertyDO emits today', () => {
+    for (const eventType of [
+      'room.created',
+      'room.updated',
+      'room.status_changed',
+      'reservation.room_assigned',
+      'housekeeping.assigned',
+    ] as const) {
+      expect(() =>
+        handleDomainEvent({
+          eventId: `rooms-${eventType}`,
+          eventType,
+          payload: { propertyId: 'p' },
+          seq: 1,
+          source: { do: 'property', id: 'p' },
+          createdAt: Date.now(),
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  /**
+   * Catalog `events` is not decorative: every declared type must be accepted by
+   * handleDomainEvent. Shape validation may still reject an empty payload — the
+   * forbid is only the unknown-event default that DLQs flushed outbox rows.
+   */
+  it('accepts every COMMAND_CATALOG event type (no unknown-event throw)', () => {
+    const types = [...new Set(COMMAND_CATALOG.flatMap((c) => c.events))];
+    expect(types.length).toBeGreaterThan(0);
+
+    for (const eventType of types) {
+      try {
+        handleDomainEvent({
+          eventId: 'catalog-allowlist',
+          eventType,
+          payload: {},
+          seq: 1,
+          source: { do: 'property', id: 'p' },
+          createdAt: Date.now(),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        expect(msg, `catalog event ${eventType}`).not.toMatch(/^unknown event type:/);
+      }
+    }
+  });
+
+  it('still rejects truly unknown event types', () => {
+    expect(() =>
+      handleDomainEvent({
+        eventId: 'e-unknown',
+        eventType: 'not.in.catalog',
+        payload: {},
+        seq: 1,
+        source: { do: 'property', id: 'p' },
+        createdAt: Date.now(),
+      }),
+    ).toThrow(/^unknown event type:/);
   });
 });

@@ -16,6 +16,12 @@ import {
   NOT_MODIFIABLE,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
+  ROOM_CODE_EXISTS,
+  ROOM_COUNT_EXCEEDED,
+  ROOM_UNITS_EXCEED_COUNT,
+  ROOM_TYPE_MISMATCH,
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_NOT_ASSIGNABLE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -51,6 +57,12 @@ describe('fingerprintPayload', () => {
     expect(NOT_MODIFIABLE).toBe('not_modifiable');
     expect(RESTRICTION_VIOLATED).toBe('restriction_violated');
     expect(RATE_MISSING).toBe('rate_missing');
+    expect(ROOM_CODE_EXISTS).toBe('room_code_exists');
+    expect(ROOM_COUNT_EXCEEDED).toBe('room_count_exceeded');
+    expect(ROOM_UNITS_EXCEED_COUNT).toBe('room_units_exceed_count');
+    expect(ROOM_TYPE_MISMATCH).toBe('room_type_mismatch');
+    expect(ROOM_ALREADY_ASSIGNED).toBe('room_already_assigned');
+    expect(ROOM_NOT_ASSIGNABLE).toBe('room_not_assignable');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

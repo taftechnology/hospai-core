@@ -192,6 +192,28 @@ describe('command catalog', () => {
     const c = COMMAND_CATALOG.find((x) => x.id === 'inventory.delete_room_type');
     expect(c?.events).toEqual(['inventory.room_type_changed', 'availability.changed']);
   });
+
+  it('rooms.update_status does not claim availability.changed', () => {
+    const c = COMMAND_CATALOG.find((x) => x.id === 'rooms.update_status');
+    expect(c?.events).toEqual(['room.status_changed']);
+  });
+
+  it('reservations.assign_room is FAIL_CLOSED with pms.core', () => {
+    const c = COMMAND_CATALOG.find((x) => x.id === 'reservations.assign_room');
+    expect(c?.degraded).toBe('FAIL_CLOSED');
+    expect(c?.entitlement).toBe('pms.core');
+  });
+
+  it('rooms.create and rooms.update are FAIL_CLOSED net-new surface', () => {
+    for (const id of ['rooms.create', 'rooms.update'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('inventory:write');
+      expect(c?.prototypeAction).toBeNull();
+      expect(c?.notes).toMatch(/net-new surface/i);
+    }
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

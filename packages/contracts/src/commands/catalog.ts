@@ -111,9 +111,10 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'reservations.assign_room',
     prototypeAction: 'ASSIGN_ROOM',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.room_assigned'],
+    entitlement: 'pms.core',
     permission: 'reservations:write',
   },
   {
@@ -127,12 +128,39 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'reservations:write',
   },
   {
+    id: 'rooms.create',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['room.created'],
+    entitlement: 'pms.core',
+    permission: 'inventory:write',
+    notes:
+      'prototypeAction null: net-new surface — the prototype never had CREATE_ROOM. ' +
+      'Null here is not a platform-only split of a compound action (the field\'s documented meaning); ' +
+      'it records that no prototype action exists to cite.',
+  },
+  {
+    id: 'rooms.update',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['room.updated'],
+    entitlement: 'pms.core',
+    permission: 'inventory:write',
+    notes:
+      'prototypeAction null: net-new surface (no prototype UPDATE_ROOM). ' +
+      'code/floor only — room_type_id is immutable after create.',
+  },
+  {
     id: 'rooms.update_status',
     prototypeAction: 'UPDATE_ROOM_STATUS',
     lane: 'INTERACTIVE',
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
-    events: ['room.status_changed', 'availability.changed'],
+    events: ['room.status_changed'],
     permission: 'housekeeping:write',
   },
   {
@@ -152,6 +180,9 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['housekeeping.assigned'],
     permission: 'housekeeping:write',
+    notes:
+      'Client businessDate is the scheduling target, deliberately unbounded vs the DO open ' +
+      'business date. Format-validated only; GET filters by businessDate.',
   },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {

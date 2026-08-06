@@ -31,6 +31,14 @@ export const RESTRICTION_VIOLATED = 'restriction_violated' as const;
 export const RATE_MISSING = 'rate_missing' as const;
 export const SPLIT_AMOUNT_MISMATCH = 'split_amount_mismatch' as const;
 
+/** Room / housekeeping wire codes */
+export const ROOM_CODE_EXISTS = 'room_code_exists' as const;
+export const ROOM_COUNT_EXCEEDED = 'room_count_exceeded' as const;
+export const ROOM_UNITS_EXCEED_COUNT = 'room_units_exceed_count' as const;
+export const ROOM_TYPE_MISMATCH = 'room_type_mismatch' as const;
+export const ROOM_ALREADY_ASSIGNED = 'room_already_assigned' as const;
+export const ROOM_NOT_ASSIGNABLE = 'room_not_assignable' as const;
+
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;

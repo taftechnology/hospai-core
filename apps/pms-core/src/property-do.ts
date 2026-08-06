@@ -40,6 +40,8 @@ import {
   CROSS_CURRENCY_UNSUPPORTED,
   SPLIT_AMOUNT_MISMATCH,
   FORBIDDEN,
+  GUEST_NOT_FOUND,
+  GUEST_ALREADY_ERASED,
   ROLE_GRANTS,
   fingerprintPayload,
   type ActorContext,
@@ -92,7 +94,7 @@ import {
 } from '@hospai/pms-restrictions';
 import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
-import { assertJurisdictionMatch, type Jurisdiction } from '@hospai/tenant-router';
+import { assertJurisdictionMatch, resolveOrgStub, type Jurisdiction } from '@hospai/tenant-router';
 import {
   assertPostedMatches,
   currencyCode,
@@ -103,6 +105,7 @@ import {
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
+import type { OrgDO } from './org-do.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 
@@ -570,6 +573,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: FORBIDDEN };
     }
     return null;
+  }
+
+  /**
+   * Look up `guestRef` in the org's guest registry — create-only referential integrity check.
+   * Never caches; returns the current `piiKeyId` so callers store the looked-up value rather
+   * than trusting a client-supplied one.
+   */
+  private async gateGuestRef(
+    orgId: string,
+    guestRef: string,
+  ): Promise<
+    | { ok: true; piiKeyId: string }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
+  > {
+    const org = resolveOrgStub(this.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    return org.assertGuestRef(guestRef);
   }
 
   private assertRpcAvailable(): void {
@@ -2700,14 +2719,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /**
    * Create a confirmed reservation and increment `sold` on every stay night in one atomic
    * write. Implements catalog `reservations.create` / platform gap `availability.book`.
-   * Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate, guestRef, piiKeyId }`.
+   * Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate, guestRef }`.
+   * `piiKeyId` is never accepted from the caller — it is looked up via `gateGuestRef`.
    */
   async tryCreateReservation(
+    actor: ActorContext,
     input: {
       reservationId: string;
       roomTypeId: string;
       guestRef: string;
-      piiKeyId: string;
       arrivalDate: string;
       departureDate: string;
     },
@@ -2717,12 +2737,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number }
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -2735,7 +2759,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!dateRe.test(input.arrivalDate) || !dateRe.test(input.departureDate)) {
       return { ok: false, error: 'invalid_date' };
     }
-    if (!input.guestRef || !input.piiKeyId) {
+    if (!input.guestRef) {
       return { ok: false, error: 'guest_ref_required' };
     }
     if (input.arrivalDate >= input.departureDate) {
@@ -2748,6 +2772,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch {
       return { ok: false, error: 'invalid_stay_range' };
     }
+
+    const guestGate = await this.gateGuestRef(orgId, input.guestRef);
+    if (!guestGate.ok) return guestGate;
+    const piiKeyId = guestGate.piiKeyId;
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -2815,7 +2843,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
-            input.piiKeyId,
+            piiKeyId,
             input.arrivalDate,
             input.departureDate,
             now,
@@ -2835,7 +2863,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               reservationId: input.reservationId,
               roomTypeId: input.roomTypeId,
               guestRef: input.guestRef,
-              piiKeyId: input.piiKeyId,
+              piiKeyId,
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
               status: 'confirmed',

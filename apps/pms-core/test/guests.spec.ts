@@ -212,11 +212,12 @@ describe('PropertyDO reservation.created PII contract', () => {
       reservationId: 'res_pii',
       roomTypeId: 'rt_king',
       guestRef: guest.guestRef,
-      piiKeyId: guest.piiKeyId,
       arrivalDate: arrival,
       departureDate,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-pii', bookInput))).toMatchObject({
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-pii', bookInput)),
+    ).toMatchObject({
       ok: true,
     });
 

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import {
   fingerprintPayload,
+  GUEST_NOT_FOUND,
   NO_AVAILABILITY,
   NOT_FOUND,
   UNBOOKABLE,
@@ -14,9 +15,21 @@ import {
 } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, propertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { createGuest, idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
 
-const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+/** Provisions org + property, then mints one org guest and returns its `guestRef`. */
+async function provisionedPropertyWithGuest(
+  name: string,
+  timeZone: string,
+  currency: string,
+): Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string; guestRef: string }> {
+  const orgId = `org_prop_${name}`;
+  const stub = await provisionedPropertyStub(name, timeZone, currency, orgId);
+  const org = orgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
+  return { stub, orgId, guestRef: guest.guestRef };
+}
 
 async function addRoomType(
   stub: DurableObjectStub<PropertyDO>,
@@ -44,7 +57,7 @@ async function addRoomType(
 describe('PropertyDO reservations.create + availability.book', () => {
   it('1. books a 2-night stay and increments sold on each night', async () => {
     const name = `res-book-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -56,12 +69,11 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_1',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate,
     };
-    const result = await stub.tryCreateReservation(input, await idemFor('book-1', input));
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor('book-1', input));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_1' });
 
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
@@ -71,7 +83,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('2. rejects when sold already at physical', async () => {
     const name = `res-full-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -81,15 +93,14 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_a',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(first, await idemFor('book-a', first))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, first, await idemFor('book-a', first))).toMatchObject({ ok: true });
 
     const second = { ...first, reservationId: 'res_b' };
-    const result = await stub.tryCreateReservation(second, await idemFor('book-b', second));
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, second, await idemFor('book-b', second));
     expect(result).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
@@ -100,7 +111,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('3. rejects unbookable gap in horizon', async () => {
     const name = `res-gap-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -114,18 +125,17 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_gap',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    const result = await stub.tryCreateReservation(input, await idemFor('book-gap', input));
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor('book-gap', input));
     expect(result).toEqual({ ok: false, error: UNBOOKABLE, date: gapDate });
   });
 
   it('4. idempotency replay does not double-sell', async () => {
     const name = `res-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -135,20 +145,19 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_idem',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
     const idem = await idemFor('book-idem', input);
-    expect(await stub.tryCreateReservation(input, idem)).toMatchObject({ ok: true });
-    expect(await stub.tryCreateReservation(input, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
   });
 
   it('5. rejects archived room type', async () => {
     const name = `res-arch-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     await addRoomType(stub, 'rt_king', 5);
     await stub.tryDeleteRoomType(TEST_OWNER_ACTOR, { roomTypeId: 'rt_king' }, await idemFor('arch', { roomTypeId: 'rt_king' }));
 
@@ -156,18 +165,17 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const input = {
       reservationId: 'res_arch',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: '2026-08-01',
       departureDate: '2026-08-02',
     };
-    const result = await stub.tryCreateReservation(input, await idemFor('book-arch', input));
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor('book-arch', input));
     expect(result).toEqual({ ok: false, error: NOT_FOUND });
   });
 
   it('6. allow_overbooking materializes into ledger and permits one unit over physical', async () => {
     const name = `res-oversell-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
 
     await stub.tryPutDomainConfig(
       'pms.availability.allow_overbooking',
@@ -193,21 +201,20 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_o1',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(first, await idemFor('book-o1', first))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, first, await idemFor('book-o1', first))).toMatchObject({ ok: true });
 
     const second = { ...first, reservationId: 'res_o2' };
-    expect(await stub.tryCreateReservation(second, await idemFor('book-o2', second))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, second, await idemFor('book-o2', second))).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(2);
   });
 
   it('7. book uses ledger oversell only — non-zero column is not double-counted with config', async () => {
     const name = `res-ledger-os-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 10);
     const arrival = added.fromDate;
 
@@ -239,18 +246,17 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_l1',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(first, await idemFor('book-l1', first))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, first, await idemFor('book-l1', first))).toMatchObject({ ok: true });
 
     const second = { ...first, reservationId: 'res_l2' };
-    expect(await stub.tryCreateReservation(second, await idemFor('book-l2', second))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, second, await idemFor('book-l2', second))).toMatchObject({ ok: true });
 
     const third = { ...first, reservationId: 'res_l3' };
-    expect(await stub.tryCreateReservation(third, await idemFor('book-l3', third))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, third, await idemFor('book-l3', third))).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
       date: arrival,
@@ -259,7 +265,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('8. enabling overbooking after seed rematerializes oversell on existing horizon rows', async () => {
     const name = `res-cfg-after-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
@@ -295,21 +301,20 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const first = {
       reservationId: 'res_cfg1',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(first, await idemFor('book-cfg1', first))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, first, await idemFor('book-cfg1', first))).toMatchObject({ ok: true });
 
     const second = { ...first, reservationId: 'res_cfg2' };
-    expect(await stub.tryCreateReservation(second, await idemFor('book-cfg2', second))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, second, await idemFor('book-cfg2', second))).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(2);
   });
 
   it('9. invalidateAri skips archived room types — oversell stays 0 and free stays 0', async () => {
     const name = `res-cfg-arch-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
 
@@ -349,12 +354,30 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
     expect((await stub.readAvailabilityDay('rt_queen', activeAdded.fromDate))?.oversell).toBe(2);
   });
+
+  it('create reservation rejects unknown guestRef', async () => {
+    const name = `res-ghost-${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+
+    const input = {
+      reservationId: 'res_ghost',
+      roomTypeId: 'rt_king',
+      guestRef: 'ghost_guest_never_created',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor('book-ghost', input));
+    expect(result).toEqual({ ok: false, error: GUEST_NOT_FOUND });
+  });
 });
 
 describe('PropertyDO reservations.cancel', () => {
   it('1. create then cancel returns sold to 0 and emits both events', async () => {
     const name = `res-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -366,12 +389,11 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_cancel_1',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-cancel-1', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-cancel-1', bookInput))).toMatchObject({
       ok: true,
     });
     await stub.flushOutbox();
@@ -387,7 +409,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('2. double cancel returns already_cancelled without changing sold', async () => {
     const name = `res-dbl-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -397,12 +419,11 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_dbl',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-dbl', bookInput))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-dbl', bookInput))).toMatchObject({ ok: true });
 
     const cancelInput = { reservationId: 'res_dbl' };
     expect(await stub.tryCancelReservation(cancelInput, await idemFor('cancel-dbl-1', cancelInput))).toMatchObject({
@@ -416,7 +437,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('3. idempotency replay does not double-decrement sold', async () => {
     const name = `res-cancel-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -426,12 +447,11 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_idem_cancel',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-idem-cancel', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-idem-cancel', bookInput))).toMatchObject({
       ok: true,
     });
 
@@ -444,7 +464,7 @@ describe('PropertyDO reservations.cancel', () => {
 
   it('4. refuses cancel when sold would underflow', async () => {
     const name = `res-underflow-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -454,12 +474,11 @@ describe('PropertyDO reservations.cancel', () => {
     const bookInput = {
       reservationId: 'res_under',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-under', bookInput))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-under', bookInput))).toMatchObject({ ok: true });
 
     await stub.seedAvailabilityDay({
       roomTypeId: 'rt_king',
@@ -485,7 +504,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('1. extend stay increments sold on the new night only', async () => {
     const name = `res-mod-ext-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -494,12 +513,11 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_ext',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-ext', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-ext', bookInput))).toMatchObject({
       ok: true,
     });
     await stub.flushOutbox();
@@ -519,7 +537,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('2. shorten stay decrements sold on the dropped night', async () => {
     const name = `res-mod-short-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 2);
@@ -529,12 +547,11 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_short',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-short', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-short', bookInput))).toMatchObject({
       ok: true,
     });
 
@@ -553,7 +570,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('3. room type change moves sold between ledgers', async () => {
     const name = `res-mod-rt-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     await addRoomType(stub, 'rt_queen', 5, 'QUEEN', 'Queen Room');
     const arrival = added.fromDate;
@@ -562,12 +579,11 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_rt',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-rt', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-rt', bookInput))).toMatchObject({
       ok: true,
     });
     await stub.flushOutbox();
@@ -592,7 +608,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('4. refuses modify when extension night has no availability', async () => {
     const name = `res-mod-full-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -602,22 +618,20 @@ describe('PropertyDO reservations.modify', () => {
     const first = {
       reservationId: 'res_keep',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(first, await idemFor('book-keep', first))).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, first, await idemFor('book-keep', first))).toMatchObject({ ok: true });
 
     const blocker = {
       reservationId: 'res_block',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: extensionNight,
       departureDate: addDays(extensionNight, 1),
     };
-    expect(await stub.tryCreateReservation(blocker, await idemFor('book-block', blocker))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, blocker, await idemFor('book-block', blocker))).toMatchObject({
       ok: true,
     });
 
@@ -640,7 +654,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('5. idempotency replay does not double-touch sold', async () => {
     const name = `res-mod-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -649,12 +663,11 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_idem_mod',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-idem-mod', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-idem-mod', bookInput))).toMatchObject({
       ok: true,
     });
 
@@ -672,7 +685,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('6. cancelled reservation returns not_modifiable', async () => {
     const name = `res-mod-cancel-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -680,12 +693,11 @@ describe('PropertyDO reservations.modify', () => {
     const bookInput = {
       reservationId: 'res_mod_cancel',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(bookInput, await idemFor('book-mod-cancel', bookInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-mod-cancel', bookInput))).toMatchObject({
       ok: true,
     });
     expect(
@@ -706,6 +718,40 @@ describe('PropertyDO reservations.modify', () => {
       error: NOT_MODIFIABLE,
     });
   });
+
+  it('M2: modify of legacy guest_ref reservation does not require OrgDO guest', async () => {
+    const name = `legacy-mod-${crypto.randomUUID()}`;
+    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 3);
+    await stub.insertReservationForTest({
+      reservationId: 'res_legacy',
+      roomTypeId: 'rt_king',
+      guestRef: 'legacy',
+      piiKeyId: 'legacy',
+      arrivalDate: added.fromDate,
+      departureDate: addDays(added.fromDate, 2),
+      status: 'confirmed',
+    });
+    // insertReservationForTest bypasses availability accounting — seed sold to reflect the
+    // legacy reservation's existing nights so tryModifyReservation's ledger check is satisfied.
+    await stub.seedAvailabilityDay({ roomTypeId: 'rt_king', stayDate: added.fromDate, physical: 3, sold: 1 });
+    await stub.seedAvailabilityDay({
+      roomTypeId: 'rt_king',
+      stayDate: addDays(added.fromDate, 1),
+      physical: 3,
+      sold: 1,
+    });
+    const modInput = {
+      reservationId: 'res_legacy',
+      roomTypeId: 'rt_king',
+      arrivalDate: added.fromDate,
+      departureDate: addDays(added.fromDate, 3),
+    };
+    // tryModifyReservation still ungated for actor in this slice — call as today
+    expect(await stub.tryModifyReservation(modInput, await idemFor('mod-legacy', modInput))).toMatchObject({
+      ok: true,
+    });
+  });
 });
 
 function addDays(iso: string, days: number): string {
@@ -717,7 +763,7 @@ function addDays(iso: string, days: number): string {
 describe('PropertyDO reservation precondition replay', () => {
   it('no_availability is never cached: after demand clears, retrying the same idempotency key succeeds', async () => {
     const name = `res-noavail-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 1);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -725,25 +771,23 @@ describe('PropertyDO reservation precondition replay', () => {
     const blockInput = {
       reservationId: 'res_block',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(blockInput, await idemFor('book-block', blockInput))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, blockInput, await idemFor('book-block', blockInput))).toMatchObject({
       ok: true,
     });
 
     const guestInput = {
       reservationId: 'res_guest',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
     const idem = await idemFor('book-guest-replay-fixed', guestInput);
-    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
       date: arrival,
@@ -754,12 +798,12 @@ describe('PropertyDO reservation precondition replay', () => {
       await idemFor('cancel-block', { reservationId: 'res_block' }),
     );
 
-    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toMatchObject({ ok: true });
   });
 
   it('unbookable is never cached: after restoring the missing horizon row, retrying the same idempotency key succeeds', async () => {
     const name = `res-unbookable-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const gapDate = addDays(arrival, 1);
@@ -769,13 +813,12 @@ describe('PropertyDO reservation precondition replay', () => {
     const guestInput = {
       reservationId: 'res_gap',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
     const idem = await idemFor('book-gap-replay-fixed', guestInput);
-    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toEqual({
       ok: false,
       error: UNBOOKABLE,
       date: gapDate,
@@ -788,12 +831,12 @@ describe('PropertyDO reservation precondition replay', () => {
       sold: 0,
     });
 
-    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toMatchObject({ ok: true });
   });
 
   it('restriction_violated is never cached: after relaxing the rule, retrying the same idempotency key succeeds', async () => {
     const name = `res-restrict-replay-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
 
@@ -814,13 +857,12 @@ describe('PropertyDO reservation precondition replay', () => {
     const guestInput = {
       reservationId: 'res_restrict',
       roomTypeId: 'rt_king',
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: addDays(arrival, 2),
     };
     const idem = await idemFor('book-restrict-replay-fixed', guestInput);
-    expect(await stub.tryCreateReservation(guestInput, idem)).toEqual({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toEqual({
       ok: false,
       error: RESTRICTION_VIOLATED,
       rule: 'min_los',
@@ -833,13 +875,14 @@ describe('PropertyDO reservation precondition replay', () => {
       ok: true,
     });
 
-    expect(await stub.tryCreateReservation(guestInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, guestInput, idem)).toMatchObject({ ok: true });
   });
 });
 
 describe('PropertyDO front-desk status machine', () => {
   async function bookConfirmed(
     stub: DurableObjectStub<PropertyDO>,
+    guestRef: string,
     reservationId: string,
     roomTypeId: string,
     arrival: string,
@@ -848,12 +891,11 @@ describe('PropertyDO front-desk status machine', () => {
     const input = {
       reservationId,
       roomTypeId,
-      guestRef: LEGACY_GUEST.guestRef,
-      piiKeyId: LEGACY_GUEST.piiKeyId,
+      guestRef,
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryCreateReservation(input, await idemFor(`book-${reservationId}`, input))).toMatchObject({
+    expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor(`book-${reservationId}`, input))).toMatchObject({
       ok: true,
     });
     await stub.flushOutbox();
@@ -861,10 +903,10 @@ describe('PropertyDO front-desk status machine', () => {
   }
 
   it('check_in on confirmed sets checked_in without availability.changed', async () => {
-    const stub = await provisionedPropertyStub(`status-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_ci', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_ci', 'rt_king', added.fromDate, departure);
 
     const result = await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci' }, await idemFor('ci', { reservationId: 'res_ci' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_ci' });
@@ -873,10 +915,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('check_in on checked_in returns invalid_status_transition', async () => {
-    const stub = await provisionedPropertyStub(`status-ci2-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-ci2-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_ci2', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_ci2', 'rt_king', added.fromDate, departure);
     const idem1 = await idemFor('ci2', { reservationId: 'res_ci2' });
     expect(await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci2' }, idem1)).toMatchObject({ ok: true });
     const idem2 = await idemFor('ci2-dup', { reservationId: 'res_ci2' });
@@ -887,10 +929,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('check_out on checked_in sets checked_out', async () => {
-    const stub = await provisionedPropertyStub(`status-co-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-co-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_co', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_co', 'rt_king', added.fromDate, departure);
     await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
 
     const result = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
@@ -899,10 +941,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('cancel_check_in reverts checked_in to confirmed', async () => {
-    const stub = await provisionedPropertyStub(`status-cci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-cci-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_cci', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_cci', 'rt_king', added.fromDate, departure);
     await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_cci' }, await idemFor('ci-cci', { reservationId: 'res_cci' }));
 
     const result = await stub.tryCancelCheckIn(
@@ -915,10 +957,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('check_in with non-member actor returns not_member without mutation', async () => {
-    const stub = await provisionedPropertyStub(`status-gate-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-gate-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_gate', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_gate', 'rt_king', added.fromDate, departure);
     const unackedBefore = await stub.outboxUnackedCount();
 
     const result = await stub.tryCheckIn(
@@ -932,10 +974,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('no_show releases ledger and emits availability.changed', async () => {
-    const stub = await provisionedPropertyStub(`status-ns-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-ns-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_ns', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_ns', 'rt_king', added.fromDate, departure);
     expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.sold).toBe(1);
 
     const result = await stub.tryNoShow({ reservationId: 'res_ns' }, await idemFor('ns', { reservationId: 'res_ns' }));
@@ -946,11 +988,11 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('no_show before arrival returns no_show_before_arrival', async () => {
-    const stub = await provisionedPropertyStub(`status-ns-early-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-ns-early-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const futureArrival = addDays(added.fromDate, 5);
     const futureDeparture = addDays(futureArrival, 2);
-    await bookConfirmed(stub, 'res_ns_early', 'rt_king', futureArrival, futureDeparture);
+    await bookConfirmed(stub, guestRef, 'res_ns_early', 'rt_king', futureArrival, futureDeparture);
 
     const result = await stub.tryNoShow(
       { reservationId: 'res_ns_early' },
@@ -960,10 +1002,10 @@ describe('PropertyDO front-desk status machine', () => {
   });
 
   it('readReservation returns reservation row', async () => {
-    const stub = await provisionedPropertyStub(`status-read-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`status-read-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
-    await bookConfirmed(stub, 'res_read', 'rt_king', added.fromDate, departure);
+    await bookConfirmed(stub, guestRef, 'res_read', 'rt_king', added.fromDate, departure);
 
     const result = await stub.readReservation('res_read');
     expect(result.ok).toBe(true);

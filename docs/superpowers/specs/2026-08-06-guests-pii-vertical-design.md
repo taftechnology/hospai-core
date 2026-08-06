@@ -1,7 +1,7 @@
 # Guests / PII Vertical — Routes, Validation, Erasure Reads
 
 **Date:** 2026-08-06  
-**Status:** Draft (pending user review)  
+**Status:** Revised (v2 — fingerprint deploy-day accepted; create/update notes equality guard; route indices 39–42; `GUEST_EXISTS` in `idempotency.ts`; M2 homes in `reservations.spec.ts`)  
 **Sources:** ARCHITECTURE.md §4.3 (permission projection), §4.6 (degraded mode), §4.8 (crypto-shredding), §15 Rule 3 (edge is an optimization, never the only check); [command catalog](../../../packages/contracts/src/commands/catalog.ts); [guests + crypto-shredding Phase 0](./2026-07-28-guests-crypto-shredding-design.md); [degraded-mode server](./2026-08-04-degraded-mode-server-design.md); [folio charges vertical](./2026-08-05-folio-charges-vertical-design.md) (`FAIL_CLOSED` reclassification + `degradedRead` honesty); [rate plans vertical](./2026-08-05-rate-plans-vertical-design.md) (deploy-day write-path-only gate; `RATE_PLAN_ID_EXISTS` / never-un-archive shape this repeats for `GUEST_EXISTS`)
 
 ---
@@ -76,7 +76,13 @@ Three structural arguments reject that fork for Phase 1:
 +    notes: /* identical revisit-condition string as guests.create */,
    },
 ```
-Copy the same `notes` string onto both entries — do not paraphrase one of them.
+Copy the same `notes` string onto both entries — do not paraphrase one of them. Guard in `packages/contracts/src/register.test.ts` (same class as the room-status `events` assertion in `17bb052`):
+
+```ts
+expect(
+  COMMAND_CATALOG.find((c) => c.id === 'guests.create')?.notes,
+).toBe(COMMAND_CATALOG.find((c) => c.id === 'guests.update')?.notes);
+```
 
 No entitlement pairing — both already carry `pms.core`. Neither appears in `REPLAY_DISPATCH`, so `check:degraded` stays green. `guests.erase` is already `FAIL_CLOSED`.
 
@@ -102,6 +108,8 @@ PropertyDO never decrypts with `pii_key_id` — it only stores and re-emits it i
 **Resolution: (b).** `POST /reservations` and `tryCreateReservation` drop `piiKeyId` from the client contract. Fingerprint drops it too (keeps `guestRef`). `assertGuestRef(guestRef)` returns `{ ok: true; piiKeyId }`; PropertyDO inserts that value. **No silent overwrite** — never accept a client key and replace it.
 
 Cheap now: no working HTTP create-guest → book consumers exist yet.
+
+**Deploy-day — fingerprint shape change (accepted).** Dropping `piiKeyId` from the fingerprint means a client retrying a booking **across the deploy boundary** with the same idempotency key computes a different fingerprint than the row stored under the old shape and gets `IdempotencyKeyReused` (409) instead of the cached success — an error for a booking that actually succeeded. Unlike the guest routes, this path is reachable today: `POST /reservations` already accepts arbitrary `guestRef`/`piiKeyId` strings and succeeds, so real `idempotency` rows with the old fingerprint can exist. The window is narrow (retries spanning the deploy, within the client's retry window). **Accepted rather than versioning the fingerprint** — same honesty class as rate-plans' orphan-adoption and create-only guest validation leaving `'legacy'` rows readable. Do not discover this via a support ticket; operators / clients that retry across deploy with a reused key may see 409 once.
 
 Also in this edit: `actor` + `gatePermission(actor, 'reservations:write')` on `tryCreateReservation`. The other five ungated `try*` methods are §6.3, not this slice.
 
@@ -192,6 +200,8 @@ All four routes are `scope: 'property'`. Handlers resolve property → `orgId`, 
 | `get_guest` | `GET /v1/properties/:propertyId/guests/:guestId` | `guests:read` | — | `entitlement: 'pms.core'`, `degradedRead: 'FAIL_CLOSED'` |
 
 `get_guest` follows `get_folio` / `get_rooms` / `get_rate_plans`: no profile projection, so `READ_STALE` would claim a capability the route lacks. No `commandId` (satisfies `check:degraded` exclusivity). No list route this slice.
+
+**Route indices 39–42.** `V1_HTTP_ROUTE_AUDIT` has 39 rows today (0–38; last is `post_rates_bulk`). Append the four guest rows at indices **39–42** in this order: `post_guests`, `patch_guest`, `post_guest_erase`, `get_guest`. `V1_ROUTES` in `v1-dispatch.ts` must append in the **identical order** in the same commit — `check:permissions` compares audit vs dispatcher **element-wise by index**.
 
 ### 3.2 Request / response bodies
 
@@ -379,7 +389,7 @@ CI shards pms-core `1/3`–`3/3` (`.github/workflows/ci.yml`). Real `tryCreateGu
 | # | Mutation | Expected catch |
 |---|---|---|
 | M1 | Drop `gateGuestRef` from `tryCreateReservation` | Tests 11 / 12 fail — ghost / erased book succeeds |
-| M2 | Apply `gateGuestRef` to `tryModifyReservation` | SQL-insert `'legacy'` reservation → modify dates → must stay `200`. Catches deploy-day brick |
+| M2 | Apply `gateGuestRef` to `tryModifyReservation` | New case in **`reservations.spec.ts`**: SQL-insert `'legacy'` reservation → `tryModifyReservation` dates → must stay `ok: true`. Catches deploy-day brick |
 | M3 | Move vault prep before `readIdempotentReplay` | Create guest → replay same idem key → `COUNT(data_key)` for that subject stays 1. Deliberate new case in `guests.spec.ts` — invariant has no coverage today |
 | M4 | Catch decrypt failure and treat as erased | Create guest → `testShredGuestKey(piiKeyId)` (key gone, `erased_at` still NULL) → `GET …/guests/:id` → **5xx incident**, not `{ erased: true }`. Discriminates §2.5’s normative line; test 6 alone does not |
 
@@ -400,8 +410,9 @@ CI shards pms-core `1/3`–`3/3` (`.github/workflows/ci.yml`). Real `tryCreateGu
 
 | Area | Touch |
 |---|---|
-| `packages/contracts/src/idempotency.ts` (or sibling) | `GUEST_EXISTS` |
-| `packages/contracts/src/commands/catalog.ts` | create/update → `FAIL_CLOSED` + revisit `notes` |
+| `packages/contracts/src/idempotency.ts` | `GUEST_EXISTS` next to `GUEST_NOT_FOUND` / `GUEST_ALREADY_ERASED` (lines 48–49) |
+| `packages/contracts/src/commands/catalog.ts` | create/update → `FAIL_CLOSED` + identical revisit `notes` |
+| `packages/contracts/src/register.test.ts` | `guests.create.notes === guests.update.notes`; both `FAIL_CLOSED` |
 | `packages/contracts/src/v1-http-routes.ts` | Four route-audit rows |
 | `apps/pms-core/src/org-do.ts` | Signature pass; `GUEST_EXISTS` collapse; `readGuest`; `assertGuestRef`; `readIdempotentReplay` comment |
 | `apps/pms-core/src/property-do.ts` | `gateGuestRef`; `tryCreateReservation(actor, …)` drops input `piiKeyId` |
@@ -437,8 +448,8 @@ None. Settled in design: FAIL_CLOSED vs `invokeOrgDo`; validation locus; deploy-
 
 ## 7. Implementation checklist
 
-- [ ] `GUEST_EXISTS` constant; create collision → both live and erased map to it (never un-erase).
-- [ ] Catalog: `guests.create` / `guests.update` → `FAIL_CLOSED` + revisit `notes`.
+- [ ] `GUEST_EXISTS` in `idempotency.ts`; create collision → both live and erased map to it (never un-erase).
+- [ ] Catalog: `guests.create` / `guests.update` → `FAIL_CLOSED` + identical revisit `notes`; `register.test.ts` equality guard.
 - [ ] OrgDO: `actor` + `propertyId` + `gatePermission`; hybrid order preserved; `readGuest`; `assertGuestRef`; comment on `readIdempotentReplay`.
 - [ ] PropertyDO: `gateGuestRef`; `tryCreateReservation(actor, …)` looks up `piiKeyId`; no guest cache; no gate on modify.
 - [ ] Four route-audit rows + four handlers; `get_guest` → `degradedRead: 'FAIL_CLOSED'`.

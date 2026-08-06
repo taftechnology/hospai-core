@@ -52,8 +52,11 @@ describe('night audit POST_ROOM_CHARGES', () => {
 
     await seedRoomType(stub, 'rt_a', 'RTA');
     await seedRoomType(stub, 'rt_b', 'RTB');
-    await seedRate(stub, 'rt_a', businessDate, 10000);
-    await seedRate(stub, 'rt_b', businessDate, 15000);
+    for (let n = 0; n < 3; n++) {
+      const stayDate = addDays(businessDate, n);
+      await seedRate(stub, 'rt_a', stayDate, 10000);
+      await seedRate(stub, 'rt_b', stayDate, 15000);
+    }
 
     await stub.insertReservationForTest({
       reservationId: 'res_confirmed',

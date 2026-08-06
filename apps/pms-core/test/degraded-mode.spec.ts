@@ -582,4 +582,220 @@ describe('degraded mode §4.6 fault injection', () => {
     await dispatchPendingBatch([msg, msg]);
     expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
   });
+
+  it('22: room status queues while blocked and replays once', async () => {
+    const actor = 'user_deg_room22';
+    const { propertyId, stub } = await provisionHotel(actor);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              roomId: 'room_deg_22',
+              roomTypeId: 'rt_king',
+              code: '622',
+              idempotencyKey: 'idem-create-22',
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    await stub.flushOutbox();
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms/room_deg_22/status`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ status: 'dirty', idempotencyKey: 'idem-st-22' }),
+        },
+      ),
+      env,
+    );
+    expect(blocked.status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.provisional.command.type).toBe('rooms.update_status');
+    await dispatchPendingBatch(sent);
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'room_deg_22')?.status).toBe(
+      'dirty',
+    );
+    expect(await stub.listOutboxEventTypes()).toEqual(['room.status_changed']);
+  });
+
+  it('23: housekeeping.assign queues while blocked and replays once', async () => {
+    const actor = 'user_deg_room23';
+    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              roomId: 'room_deg_23',
+              roomTypeId: 'rt_king',
+              code: '623',
+              idempotencyKey: 'idem-create-23',
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/housekeeping/assignments`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            roomId: 'room_deg_23',
+            businessDate: arrival,
+            assigneeRef: 'hk_deg',
+            idempotencyKey: 'idem-hk-23',
+          }),
+        },
+      ),
+      env,
+    );
+    expect(blocked.status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+    expect(sent[0]!.provisional.command.type).toBe('housekeeping.assign');
+    await dispatchPendingBatch(sent);
+    const listed = await stub.readHousekeepingAssignments(arrival);
+    expect(listed.ok && listed.assignments).toHaveLength(1);
+  });
+
+  it('24: assign-room while blocked returns FAIL_CLOSED 503', async () => {
+    const actor = 'user_deg_room24';
+    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              roomId: 'room_deg_24',
+              roomTypeId: 'rt_king',
+              code: '624',
+              idempotencyKey: 'idem-create-24',
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_24', arrival, departure)).status).toBe(
+      201,
+    );
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_deg_24/assign-room`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ roomId: 'room_deg_24', idempotencyKey: 'idem-as-24' }),
+        },
+      ),
+      env,
+    );
+    expect(blocked.status).toBe(503);
+    const body = (await blocked.json()) as { degraded?: string; commandId?: string };
+    expect(body.degraded).toBe('FAIL_CLOSED');
+    expect(body.commandId).toBe('reservations.assign_room');
+    expect(sent).toHaveLength(0);
+    await stub.setTransportBlockedForTest(false);
+  });
+
+  it('25: POST /rooms and PATCH while blocked return 503', async () => {
+    const actor = 'user_deg_room25';
+    const { propertyId, stub } = await provisionHotel(actor);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              roomId: 'room_deg_25',
+              roomTypeId: 'rt_king',
+              code: '625',
+              idempotencyKey: 'idem-create-25',
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const createBlocked = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          roomId: 'room_deg_25b',
+          roomTypeId: 'rt_king',
+          code: '626',
+          idempotencyKey: 'idem-create-25b',
+        }),
+      }),
+      env,
+    );
+    expect(createBlocked.status).toBe(503);
+    const patchBlocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms/room_deg_25`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ code: '627', idempotencyKey: 'idem-patch-25' }),
+        },
+      ),
+      env,
+    );
+    expect(patchBlocked.status).toBe(503);
+    expect(sent).toHaveLength(0);
+    await stub.setTransportBlockedForTest(false);
+  });
+
+  it('26: check-in while blocked with no room_id still queues and replays', async () => {
+    const actor = 'user_deg_room26';
+    const { propertyId, arrival, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_deg_26', arrival, departure)).status).toBe(
+      201,
+    );
+    const before = await stub.readReservation('res_deg_26');
+    expect(before.ok && before.reservation.roomId).toBeNull();
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    expect((await postCheckIn(propertyId, actor, 'res_deg_26', 'idem-ci-26')).status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+    await dispatchPendingBatch(sent);
+    expect(await stub.getReservationStatus('res_deg_26')).toBe('checked_in');
+  });
 });

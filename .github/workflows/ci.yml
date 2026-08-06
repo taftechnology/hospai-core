@@ -30,6 +30,7 @@ jobs:
   test-pms-core:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         shard: [1, 2, 3]
     steps:
@@ -41,4 +42,6 @@ jobs:
           cache: pnpm
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm --filter @hospai/pms-core test -- --shard=${{ matrix.shard }}/3
+      # Do not put `--` before --shard: pnpm forwards a bare `--`, and vitest
+      # then treats --shard as a file filter — every matrix job runs the full suite.
+      - run: pnpm --filter @hospai/pms-core run test --shard=${{ matrix.shard }}/3

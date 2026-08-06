@@ -1,7 +1,7 @@
 # Rooms & Housekeeping Vertical
 
 **Date:** 2026-08-05
-**Status:** Revised (v2 — `rooms.update` for code/floor correction; `prototypeAction: null` notes on create/update; `tryUpdateRoomType` gate deploy-safety rationale; `housekeeping.assign` `businessDate` deliberately unbounded; catalog line cite + migration FK order comment)
+**Status:** Revised (v2 — `rooms.update` for code/floor correction; `prototypeAction: null` notes on create/update; `tryUpdateRoomType` gate deploy-safety rationale; `housekeeping.assign` `businessDate` deliberately unbounded; catalog line cite + migration FK order comment; test 4c locked to `422`)
 **Sources:** ARCHITECTURE.md §4.6 (degraded mode — *may never create an obligation the property cannot honour*), §7.1 (availability ledger / OOO → `blocked`); [command catalog](../../../packages/contracts/src/commands/catalog.ts); [reservations vertical](./2026-08-04-reservations-vertical-design.md) (explicitly deferred `reservations.assign_room` and the physical-room schema to this slice); [degraded-mode server slice](./2026-08-04-degraded-mode-server-design.md) (§7.3 actor/`gatePermission`, §7.4 `REPLAY_DISPATCH`); [folio charges vertical](./2026-08-05-folio-charges-vertical-design.md) (commutativity → `FAIL_CLOSED` reclassification precedent; lazy-creation / deploy-day hazard class)
 
 ---

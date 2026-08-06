@@ -193,9 +193,13 @@ describe('command catalog', () => {
     expect(c?.events).toEqual(['inventory.room_type_changed', 'availability.changed']);
   });
 
-  it('rooms.update_status does not claim availability.changed', () => {
-    const c = COMMAND_CATALOG.find((x) => x.id === 'rooms.update_status');
-    expect(c?.events).toEqual(['room.status_changed']);
+  it('room status commands declare only room.status_changed (no availability.changed)', () => {
+    // Catalog events[] is documentation-only today (entitlements-check reads emptiness,
+    // not names). This assertion is what makes the §2.1 honesty fix survive the next edit.
+    for (const id of ['rooms.update_status', 'rooms.bulk_update_status'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.events, id).toEqual(['room.status_changed']);
+    }
   });
 
   it('reservations.assign_room is FAIL_CLOSED with pms.core', () => {

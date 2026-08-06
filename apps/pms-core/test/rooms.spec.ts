@@ -1,0 +1,400 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_CODE_EXISTS,
+  ROOM_COUNT_EXCEEDED,
+  ROOM_NOT_ASSIGNABLE,
+  ROOM_TYPE_MISMATCH,
+  ROOM_UNITS_EXCEED_COUNT,
+} from '@hospai/contracts';
+import type { PropertyDO } from '../src/property-do';
+import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+
+const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
+
+/** Half-open [arrival, departure) adversarial fixtures from the plan. */
+const A = { arrival: '2026-08-10', departure: '2026-08-12' };
+const B_overlap = { arrival: '2026-08-11', departure: '2026-08-13' };
+const B_adjacent = { arrival: '2026-08-12', departure: '2026-08-14' };
+
+async function addRoomType(
+  stub: DurableObjectStub<PropertyDO>,
+  roomTypeId: string,
+  roomCount: number,
+  code = 'KING',
+) {
+  const input = {
+    roomTypeId,
+    code,
+    name: `${code} Room`,
+    roomCount,
+    maxOccupancy: 2,
+    maxAdults: 2,
+  };
+  const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor(`add-${roomTypeId}`, input));
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error('add room type failed');
+  await stub.flushOutbox();
+  return result;
+}
+
+async function createRoom(
+  stub: DurableObjectStub<PropertyDO>,
+  roomId: string,
+  roomTypeId: string,
+  code: string,
+  floor?: string,
+) {
+  const input = { roomId, roomTypeId, code, ...(floor !== undefined ? { floor } : {}) };
+  return stub.tryCreateRoom(TEST_OWNER_ACTOR, input, await idemFor(`create-${roomId}`, input));
+}
+
+describe('PropertyDO rooms + housekeeping', () => {
+  it('creates a room and emits room.created without availability.changed', async () => {
+    const stub = await provisionedPropertyStub(`rm-create-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    const ariBefore = await stub.readAriVersion();
+
+    const result = await createRoom(stub, 'room_101', 'rt_king', '101', '1');
+    expect(result).toEqual({ ok: true, roomId: 'room_101' });
+    expect(await stub.listOutboxEventTypes()).toContain('room.created');
+    expect(await stub.listOutboxEventTypes()).not.toContain('availability.changed');
+    expect(await stub.readAriVersion()).toBe(ariBefore);
+
+    const listed = await stub.listRooms({ roomTypeId: 'rt_king' });
+    expect(listed.rooms).toHaveLength(1);
+    expect(listed.rooms[0]).toMatchObject({
+      roomId: 'room_101',
+      code: '101',
+      status: 'clean',
+      floor: '1',
+    });
+  });
+
+  it('rejects duplicate room code', async () => {
+    const stub = await provisionedPropertyStub(`rm-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_b', 'rt_king', '101')).toEqual({
+      ok: false,
+      error: ROOM_CODE_EXISTS,
+    });
+  });
+
+  it('rejects create when COUNT(room) == room_count', async () => {
+    const stub = await provisionedPropertyStub(`rm-full-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 1);
+    expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toEqual({
+      ok: false,
+      error: ROOM_COUNT_EXCEEDED,
+    });
+  });
+
+  it('rejects create on archived room type as not_found', async () => {
+    const stub = await provisionedPropertyStub(`rm-arch-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    const del = await stub.tryDeleteRoomType(
+      TEST_OWNER_ACTOR,
+      { roomTypeId: 'rt_king' },
+      await idemFor('del-rt', { roomTypeId: 'rt_king' }),
+    );
+    expect(del.ok).toBe(true);
+    expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
+  it('updates room code and floor; count unchanged', async () => {
+    const stub = await provisionedPropertyStub(`rm-upd-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_typo', 'rt_king', '10I')).toMatchObject({ ok: true });
+    const input = { roomId: 'room_typo', code: '101' };
+    const result = await stub.tryUpdateRoom(TEST_OWNER_ACTOR, input, await idemFor('upd-code', input));
+    expect(result).toEqual({ ok: true, roomId: 'room_typo' });
+    expect(await stub.listOutboxEventTypes()).toContain('room.updated');
+    const listed = await stub.listRooms();
+    expect(listed.rooms[0]?.code).toBe('101');
+    expect(listed.rooms).toHaveLength(1);
+  });
+
+  it('update to taken code → room_code_exists', async () => {
+    const stub = await provisionedPropertyStub(`rm-upd-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_b', 'rt_king', '102')).toMatchObject({ ok: true });
+    const input = { roomId: 'room_b', code: '101' };
+    expect(await stub.tryUpdateRoom(TEST_OWNER_ACTOR, input, await idemFor('upd-dup', input))).toEqual({
+      ok: false,
+      error: ROOM_CODE_EXISTS,
+    });
+  });
+
+  it('lowering room_count below COUNT(room) → room_units_exceed_count', async () => {
+    const stub = await provisionedPropertyStub(`rm-units-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 3);
+    expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toMatchObject({ ok: true });
+    const input = { roomTypeId: 'rt_king', roomCount: 1 };
+    const result = await stub.tryUpdateRoomType(
+      TEST_OWNER_ACTOR,
+      input,
+      await idemFor('lower-count', input),
+    );
+    expect(result).toEqual({ ok: false, error: ROOM_UNITS_EXCEED_COUNT });
+  });
+
+  it('count invariant after filling to room_count', async () => {
+    const stub = await provisionedPropertyStub(`rm-inv-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 2);
+    expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toMatchObject({ ok: true });
+    const listed = await stub.listRooms({ roomTypeId: 'rt_king' });
+    expect(listed.rooms).toHaveLength(2);
+  });
+
+  it('status update emits room.status_changed only; ARI unchanged', async () => {
+    const stub = await provisionedPropertyStub(`rm-st-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+    const ariBefore = await stub.readAriVersion();
+    const input = { roomId: 'room_101', status: 'dirty' };
+    expect(
+      await stub.tryUpdateRoomStatus(TEST_OWNER_ACTOR, input, await idemFor('st-dirty', input)),
+    ).toMatchObject({ ok: true, status: 'dirty' });
+    expect(await stub.listOutboxEventTypes()).toEqual(['room.status_changed']);
+    expect(await stub.readAriVersion()).toBe(ariBefore);
+  });
+
+  it('bulk status is all-or-nothing', async () => {
+    const stub = await provisionedPropertyStub(`rm-bulk-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_b', 'rt_king', '102')).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+    const bad = {
+      updates: [
+        { roomId: 'room_a', status: 'dirty' },
+        { roomId: 'missing', status: 'dirty' },
+      ],
+    };
+    expect(
+      await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, bad, await idemFor('bulk-bad', bad)),
+    ).toMatchObject({ ok: false, error: 'not_found' });
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'room_a')?.status).toBe('clean');
+
+    const good = {
+      updates: [
+        { roomId: 'room_a', status: 'dirty' },
+        { roomId: 'room_b', status: 'inspected' },
+      ],
+    };
+    expect(
+      await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, good, await idemFor('bulk-ok', good)),
+    ).toMatchObject({ ok: true, roomIds: ['room_a', 'room_b'] });
+  });
+
+  it('9: assign room of wrong room_type_id → room_type_mismatch', async () => {
+    const stub = await provisionedPropertyStub(`rm-mm-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5, 'KING');
+    await addRoomType(stub, 'rt_twin', 5, 'TWIN');
+    expect(await createRoom(stub, 'room_twin', 'rt_twin', '201')).toMatchObject({ ok: true });
+    const book = {
+      reservationId: 'res_king',
+      roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
+      arrivalDate: A.arrival,
+      departureDate: A.departure,
+    };
+    expect(await stub.tryCreateReservation(book, await idemFor('book-k', book))).toMatchObject({
+      ok: true,
+    });
+    const assign = { reservationId: 'res_king', roomId: 'room_twin' };
+    expect(
+      await stub.tryAssignRoom(TEST_OWNER_ACTOR, assign, await idemFor('assign-mm', assign)),
+    ).toEqual({ ok: false, error: ROOM_TYPE_MISMATCH });
+  });
+
+  it('10: overlapping stays on same room → room_already_assigned', async () => {
+    const stub = await provisionedPropertyStub(`rm-ov-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    for (const [id, dates] of [
+      ['res_a', A],
+      ['res_b', B_overlap],
+    ] as const) {
+      const book = {
+        reservationId: id,
+        roomTypeId: 'rt_king',
+        guestRef: LEGACY_GUEST.guestRef,
+        piiKeyId: LEGACY_GUEST.piiKeyId,
+        arrivalDate: dates.arrival,
+        departureDate: dates.departure,
+      };
+      expect(await stub.tryCreateReservation(book, await idemFor(`book-${id}`, book))).toMatchObject({
+        ok: true,
+      });
+    }
+    const a = { reservationId: 'res_a', roomId: 'room_101' };
+    expect(await stub.tryAssignRoom(TEST_OWNER_ACTOR, a, await idemFor('as-a', a))).toMatchObject({
+      ok: true,
+    });
+    const b = { reservationId: 'res_b', roomId: 'room_101' };
+    expect(await stub.tryAssignRoom(TEST_OWNER_ACTOR, b, await idemFor('as-b', b))).toEqual({
+      ok: false,
+      error: ROOM_ALREADY_ASSIGNED,
+    });
+  });
+
+  it('11: adjacent half-open stays on same room both succeed', async () => {
+    const stub = await provisionedPropertyStub(`rm-adj-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    for (const [id, dates] of [
+      ['res_a', A],
+      ['res_b', B_adjacent],
+    ] as const) {
+      const book = {
+        reservationId: id,
+        roomTypeId: 'rt_king',
+        guestRef: LEGACY_GUEST.guestRef,
+        piiKeyId: LEGACY_GUEST.piiKeyId,
+        arrivalDate: dates.arrival,
+        departureDate: dates.departure,
+      };
+      expect(await stub.tryCreateReservation(book, await idemFor(`book-${id}`, book))).toMatchObject({
+        ok: true,
+      });
+    }
+    const a = { reservationId: 'res_a', roomId: 'room_101' };
+    const b = { reservationId: 'res_b', roomId: 'room_101' };
+    expect(await stub.tryAssignRoom(TEST_OWNER_ACTOR, a, await idemFor('as-a', a))).toMatchObject({
+      ok: true,
+    });
+    expect(await stub.tryAssignRoom(TEST_OWNER_ACTOR, b, await idemFor('as-b', b))).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('assign on cancelled → room_not_assignable', async () => {
+    const stub = await provisionedPropertyStub(`rm-can-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    const book = {
+      reservationId: 'res_c',
+      roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
+      arrivalDate: A.arrival,
+      departureDate: A.departure,
+    };
+    expect(await stub.tryCreateReservation(book, await idemFor('book-c', book))).toMatchObject({
+      ok: true,
+    });
+    expect(
+      await stub.tryCancelReservation(
+        { reservationId: 'res_c' },
+        await idemFor('cancel-c', { reservationId: 'res_c' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const assign = { reservationId: 'res_c', roomId: 'room_101' };
+    expect(
+      await stub.tryAssignRoom(TEST_OWNER_ACTOR, assign, await idemFor('as-c', assign)),
+    ).toEqual({ ok: false, error: ROOM_NOT_ASSIGNABLE });
+  });
+
+  it('27: tryCheckIn with room_id NULL still ok', async () => {
+    const stub = await provisionedPropertyStub(`rm-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    const book = {
+      reservationId: 'res_ci',
+      roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
+      arrivalDate: A.arrival,
+      departureDate: A.departure,
+    };
+    expect(await stub.tryCreateReservation(book, await idemFor('book-ci', book))).toMatchObject({
+      ok: true,
+    });
+    const read = await stub.readReservation('res_ci');
+    expect(read.ok && read.reservation.roomId).toBeNull();
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_ci' },
+        await idemFor('ci', { reservationId: 'res_ci' }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('28: readReservation roomId null then set', async () => {
+    const stub = await provisionedPropertyStub(`rm-rr-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    const book = {
+      reservationId: 'res_rr',
+      roomTypeId: 'rt_king',
+      guestRef: LEGACY_GUEST.guestRef,
+      piiKeyId: LEGACY_GUEST.piiKeyId,
+      arrivalDate: A.arrival,
+      departureDate: A.departure,
+    };
+    expect(await stub.tryCreateReservation(book, await idemFor('book-rr', book))).toMatchObject({
+      ok: true,
+    });
+    const before = await stub.readReservation('res_rr');
+    expect(before.ok).toBe(true);
+    if (before.ok) expect(before.reservation.roomId).toBeNull();
+    const assign = { reservationId: 'res_rr', roomId: 'room_101' };
+    expect(
+      await stub.tryAssignRoom(TEST_OWNER_ACTOR, assign, await idemFor('as-rr', assign)),
+    ).toMatchObject({ ok: true });
+    const after = await stub.readReservation('res_rr');
+    expect(after.ok).toBe(true);
+    if (after.ok) expect(after.reservation.roomId).toBe('room_101');
+  });
+
+  it('housekeeping assign upserts; far-future businessDate allowed', async () => {
+    const stub = await provisionedPropertyStub(`rm-hk-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+
+    const first = {
+      roomId: 'room_101',
+      businessDate: '2026-09-01',
+      assigneeRef: 'hk_alice',
+    };
+    const r1 = await stub.tryAssignHousekeeping(
+      TEST_OWNER_ACTOR,
+      first,
+      await idemFor('hk-1', first),
+    );
+    expect(r1).toMatchObject({ ok: true });
+    const second = { ...first, assigneeRef: 'hk_bob' };
+    const r2 = await stub.tryAssignHousekeeping(
+      TEST_OWNER_ACTOR,
+      second,
+      await idemFor('hk-2', second),
+    );
+    expect(r2).toMatchObject({ ok: true });
+    if (r1.ok && r2.ok) {
+      expect(r2.assignmentId).toBe(r1.assignmentId);
+    }
+    expect(await stub.listOutboxEventTypes()).toEqual([
+      'housekeeping.assigned',
+      'housekeeping.assigned',
+    ]);
+
+    const listed = await stub.readHousekeepingAssignments('2026-09-01');
+    expect(listed.ok && listed.assignments).toEqual([
+      expect.objectContaining({ roomId: 'room_101', assigneeRef: 'hk_bob' }),
+    ]);
+    const empty = await stub.readHousekeepingAssignments('2026-09-02');
+    expect(empty.ok && empty.assignments).toEqual([]);
+  });
+});

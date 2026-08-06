@@ -6,6 +6,7 @@ import {
   resetPlatformSchemaGate,
   tryUpdatePropertyJurisdiction,
 } from '../src/registry';
+import { PROPERTY_SCHEMA_HEAD } from '@hospai/do-runtime';
 import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
 import type { PropertyDO } from '../src/property-do';
@@ -37,7 +38,7 @@ describe('tenancy spine', () => {
     expect(resolved).not.toBeNull();
     expect(resolved!.property.jurisdiction).toBe('eu');
     expect(await resolved!.stub.getRecordedJurisdiction()).toBe('eu');
-    expect(await resolved!.stub.getSchemaVersion()).toBe(10);
+    expect(await resolved!.stub.getSchemaVersion()).toBe(PROPERTY_SCHEMA_HEAD);
 
     const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     const refs = await org.listPropertyRefs();

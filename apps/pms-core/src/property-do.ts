@@ -21,6 +21,12 @@ import {
   NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
+  ROOM_CODE_EXISTS,
+  ROOM_COUNT_EXCEEDED,
+  ROOM_UNITS_EXCEED_COUNT,
+  ROOM_TYPE_MISMATCH,
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_NOT_ASSIGNABLE,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   FX_RATE_INVALID,
@@ -185,6 +191,58 @@ class RateMissingError extends Error {
     this.name = 'RateMissingError';
   }
 }
+
+class RoomCodeExistsError extends Error {
+  constructor() {
+    super('Room code already exists');
+    this.name = 'RoomCodeExistsError';
+  }
+}
+
+class RoomCountExceededError extends Error {
+  constructor() {
+    super('Room count would exceed room_type.room_count');
+    this.name = 'RoomCountExceededError';
+  }
+}
+
+class RoomUnitsExceedCountError extends Error {
+  constructor() {
+    super('room_count below existing room unit count');
+    this.name = 'RoomUnitsExceedCountError';
+  }
+}
+
+class RoomTypeMismatchError extends Error {
+  constructor() {
+    super('Room type does not match reservation');
+    this.name = 'RoomTypeMismatchError';
+  }
+}
+
+class RoomAlreadyAssignedError extends Error {
+  constructor() {
+    super('Room already assigned to an overlapping reservation');
+    this.name = 'RoomAlreadyAssignedError';
+  }
+}
+
+class RoomNotAssignableError extends Error {
+  constructor() {
+    super('Reservation status does not allow room assignment');
+    this.name = 'RoomNotAssignableError';
+  }
+}
+
+class RoomNotFoundError extends Error {
+  constructor() {
+    super('Room not found');
+    this.name = 'RoomNotFoundError';
+  }
+}
+
+const ROOM_STATUSES = new Set(['clean', 'dirty', 'inspected', 'out_of_order']);
+const STAY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -1654,6 +1712,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
     | { ok: false; error: 'org_id_unset' }
     | { ok: false; error: typeof ROOM_TYPE_CODE_EXISTS }
+    | { ok: false; error: typeof ROOM_UNITS_EXCEED_COUNT }
     | { ok: false; error: 'internal_error' }
   > {
     this.lanes.touchInteractive();
@@ -1697,6 +1756,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
           const nextRoomCount = input.roomCount ?? existing.room_count;
           const roomCountChanged = input.roomCount !== undefined && input.roomCount !== existing.room_count;
+
+          if (roomCountChanged && nextRoomCount < existing.room_count) {
+            const unitCount = Number(
+              (
+                this.ctx.storage.sql
+                  .exec(`SELECT COUNT(*) AS c FROM room WHERE room_type_id = ?`, input.roomTypeId)
+                  .toArray() as Array<{ c: number }>
+              )[0]?.c ?? 0,
+            );
+            if (nextRoomCount < unitCount) {
+              throw new RoomUnitsExceedCountError();
+            }
+          }
 
           let fromDate: string | undefined;
           let toDate: string | undefined;
@@ -1782,6 +1854,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof OversellError) return { ok: false, error: OVERSELL, dates: e.dates };
+      if (e instanceof RoomUnitsExceedCountError) {
+        return { ok: false, error: ROOM_UNITS_EXCEED_COUNT };
+      }
       if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
       return { ok: false, error: 'internal_error' };
     }
@@ -1899,6 +1974,670 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Create a physical room unit. Implements catalog `rooms.create`.
+   * Fingerprint allowlist: `{ roomId, roomTypeId, code, floor? }`.
+   * Never touches availability_day / ARI.
+   */
+  async tryCreateRoom(
+    actor: ActorContext,
+    input: { roomId: string; roomTypeId: string; code: string; floor?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ROOM_CODE_EXISTS }
+    | { ok: false; error: typeof ROOM_COUNT_EXCEEDED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
+    | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const typeRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_count, status FROM room_type WHERE room_type_id = ?`,
+              input.roomTypeId,
+            )
+            .toArray() as Array<{ room_count: number; status: string }>;
+          const roomType = typeRows[0];
+          if (!roomType || roomType.status !== 'active') {
+            throw new RoomTypeNotFoundError();
+          }
+
+          const codeTaken = this.ctx.storage.sql
+            .exec(`SELECT room_id FROM room WHERE code = ?`, input.code)
+            .toArray();
+          if (codeTaken.length > 0) throw new RoomCodeExistsError();
+
+          const unitCount = Number(
+            (
+              this.ctx.storage.sql
+                .exec(`SELECT COUNT(*) AS c FROM room WHERE room_type_id = ?`, input.roomTypeId)
+                .toArray() as Array<{ c: number }>
+            )[0]?.c ?? 0,
+          );
+          if (unitCount >= roomType.room_count) {
+            throw new RoomCountExceededError();
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO room (room_id, room_type_id, code, status, floor, created_at, updated_at)
+             VALUES (?, ?, ?, 'clean', ?, ?, ?)`,
+            input.roomId,
+            input.roomTypeId,
+            input.code,
+            input.floor ?? null,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'room.created',
+            payload: {
+              propertyId,
+              roomId: input.roomId,
+              roomTypeId: input.roomTypeId,
+              code: input.code,
+              floor: input.floor ?? null,
+            },
+          });
+
+          return { ok: true as const, roomId: input.roomId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof RoomCodeExistsError) return { ok: false, error: ROOM_CODE_EXISTS };
+      if (e instanceof RoomCountExceededError) return { ok: false, error: ROOM_COUNT_EXCEEDED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update room code/floor only. Implements catalog `rooms.update`.
+   * Fingerprint allowlist: `{ roomId, code?, floor? }`.
+   * Never accepts roomTypeId — room_type_id is immutable after create.
+   */
+  async tryUpdateRoom(
+    actor: ActorContext,
+    input: { roomId: string; code?: string; floor?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ROOM_CODE_EXISTS }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
+    | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(`SELECT code, floor FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ code: string; floor: string | null }>;
+          const existing = rows[0];
+          if (!existing) throw new RoomNotFoundError();
+
+          const nextCode = input.code ?? existing.code;
+          const nextFloor = input.floor !== undefined ? input.floor : existing.floor;
+
+          if (input.code !== undefined && input.code !== existing.code) {
+            const codeTaken = this.ctx.storage.sql
+              .exec(`SELECT room_id FROM room WHERE code = ? AND room_id != ?`, input.code, input.roomId)
+              .toArray();
+            if (codeTaken.length > 0) throw new RoomCodeExistsError();
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE room SET code = ?, floor = ?, updated_at = ? WHERE room_id = ?`,
+            nextCode,
+            nextFloor,
+            now,
+            input.roomId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'room.updated',
+            payload: {
+              propertyId,
+              roomId: input.roomId,
+              code: nextCode,
+              floor: nextFloor,
+            },
+          });
+
+          return { ok: true as const, roomId: input.roomId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof RoomCodeExistsError) return { ok: false, error: ROOM_CODE_EXISTS };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update a single room's housekeeping status. Implements `rooms.update_status`.
+   * Fingerprint allowlist: `{ roomId, status }`.
+   * QUEUE_PROVISIONAL — no entitlement gate.
+   */
+  async tryUpdateRoomStatus(
+    actor: ActorContext,
+    input: { roomId: string; status: string },
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; roomId: string; status: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' | 'invalid_status' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (!ROOM_STATUSES.has(input.status)) {
+      return { ok: false, error: 'invalid_status' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
+          const rows = this.ctx.storage.sql
+            .exec(`SELECT status FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ status: string }>;
+          if (!rows[0]) throw new RoomNotFoundError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
+            input.status,
+            now,
+            input.roomId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'room.status_changed',
+            payload: {
+              propertyId,
+              roomId: input.roomId,
+              fromStatus: rows[0].status,
+              toStatus: input.status,
+              ...this.statusChangeOutboxExtras(provisional),
+            },
+          });
+
+          return { ok: true as const, roomId: input.roomId, status: input.status };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Bulk room status update. Implements `rooms.bulk_update_status`.
+   * Fingerprint allowlist: `{ updates }` with updates sorted by roomId at the edge.
+   * Catalog lane BULK — still uses touchInteractive (no touchBulk on LaneGuard).
+   */
+  async tryBulkUpdateRoomStatus(
+    actor: ActorContext,
+    input: { updates: Array<{ roomId: string; status: string }> },
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; roomIds: string[] }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' | 'invalid_status' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    for (const u of input.updates) {
+      if (!ROOM_STATUSES.has(u.status)) {
+        return { ok: false, error: 'invalid_status' };
+      }
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
+          const now = Date.now();
+          const roomIds: string[] = [];
+          for (const u of input.updates) {
+            const rows = this.ctx.storage.sql
+              .exec(`SELECT status FROM room WHERE room_id = ?`, u.roomId)
+              .toArray() as Array<{ status: string }>;
+            if (!rows[0]) throw new RoomNotFoundError();
+
+            this.ctx.storage.sql.exec(
+              `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
+              u.status,
+              now,
+              u.roomId,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'room.status_changed',
+              payload: {
+                propertyId,
+                roomId: u.roomId,
+                fromStatus: rows[0].status,
+                toStatus: u.status,
+                ...this.statusChangeOutboxExtras(provisional),
+              },
+            });
+            roomIds.push(u.roomId);
+          }
+          return { ok: true as const, roomIds };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Assign a physical room to a reservation. Implements `reservations.assign_room`.
+   * Fingerprint allowlist: `{ reservationId, roomId }`.
+   * FAIL_CLOSED — no provisional parameter. Overlap uses half-open [arrival, departure).
+   */
+  async tryAssignRoom(
+    actor: ActorContext,
+    input: { reservationId: string; roomId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; roomId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
+    | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
+    | { ok: false; error: typeof ROOM_NOT_ASSIGNABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
+    | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, arrival_date, departure_date, status, room_id
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+            room_id: string | null;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) throw new RoomNotFoundError();
+
+          if (reservation.status !== 'confirmed' && reservation.status !== 'checked_in') {
+            throw new RoomNotAssignableError();
+          }
+
+          const roomRows = this.ctx.storage.sql
+            .exec(`SELECT room_type_id FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ room_type_id: string }>;
+          const room = roomRows[0];
+          if (!room) throw new RoomNotFoundError();
+
+          if (room.room_type_id !== reservation.room_type_id) {
+            throw new RoomTypeMismatchError();
+          }
+
+          const conflict = this.ctx.storage.sql
+            .exec(
+              `SELECT reservation_id FROM reservation
+               WHERE room_id = ?
+                 AND reservation_id != ?
+                 AND status IN ('confirmed', 'checked_in')
+                 AND arrival_date < ?
+                 AND departure_date > ?
+               LIMIT 1`,
+              input.roomId,
+              input.reservationId,
+              reservation.departure_date,
+              reservation.arrival_date,
+            )
+            .toArray();
+          if (conflict.length > 0) throw new RoomAlreadyAssignedError();
+
+          const now = Date.now();
+          const previousRoomId = reservation.room_id;
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET room_id = ?, updated_at = ? WHERE reservation_id = ?`,
+            input.roomId,
+            now,
+            input.reservationId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.room_assigned',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              roomId: input.roomId,
+              previousRoomId,
+            },
+          });
+
+          return {
+            ok: true as const,
+            reservationId: input.reservationId,
+            roomId: input.roomId,
+          };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
+      if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
+      if (e instanceof RoomNotAssignableError) return { ok: false, error: ROOM_NOT_ASSIGNABLE };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Assign a room to a housekeeper for a business date. Implements `housekeeping.assign`.
+   * Fingerprint allowlist: `{ roomId, businessDate, assigneeRef }`.
+   * businessDate is format-validated only — deliberately unbounded vs open business date.
+   */
+  async tryAssignHousekeeping(
+    actor: ActorContext,
+    input: { roomId: string; businessDate: string; assigneeRef: string },
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; assignmentId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' | 'invalid_business_date' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (!STAY_DATE_RE.test(input.businessDate)) {
+      return { ok: false, error: 'invalid_business_date' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
+          const roomRows = this.ctx.storage.sql
+            .exec(`SELECT room_id FROM room WHERE room_id = ?`, input.roomId)
+            .toArray();
+          if (!roomRows[0]) throw new RoomNotFoundError();
+
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT assignment_id FROM housekeeping_assignment
+               WHERE room_id = ? AND business_date = ?`,
+              input.roomId,
+              input.businessDate,
+            )
+            .toArray() as Array<{ assignment_id: string }>;
+
+          const now = Date.now();
+          const assignmentId = existing[0]?.assignment_id ?? crypto.randomUUID();
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO housekeeping_assignment (
+               assignment_id, room_id, business_date, assignee_ref, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(room_id, business_date) DO UPDATE SET
+               assignee_ref = excluded.assignee_ref,
+               updated_at = excluded.updated_at`,
+            assignmentId,
+            input.roomId,
+            input.businessDate,
+            input.assigneeRef,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'housekeeping.assigned',
+            payload: {
+              propertyId,
+              assignmentId,
+              roomId: input.roomId,
+              businessDate: input.businessDate,
+              assigneeRef: input.assigneeRef,
+              ...this.statusChangeOutboxExtras(provisional),
+            },
+          });
+
+          return { ok: true as const, assignmentId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async listRooms(filters?: {
+    roomTypeId?: string;
+    status?: string;
+  }): Promise<{
+    ok: true;
+    rooms: Array<{
+      roomId: string;
+      roomTypeId: string;
+      code: string;
+      status: string;
+      floor: string | null;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+  }> {
+    this.assertRpcAvailable();
+    const roomTypeId = filters?.roomTypeId ?? null;
+    const status = filters?.status ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_id, room_type_id, code, status, floor, created_at, updated_at
+         FROM room
+         WHERE (? IS NULL OR room_type_id = ?)
+           AND (? IS NULL OR status = ?)
+         ORDER BY code`,
+        roomTypeId,
+        roomTypeId,
+        status,
+        status,
+      )
+      .toArray() as Array<{
+      room_id: string;
+      room_type_id: string;
+      code: string;
+      status: string;
+      floor: string | null;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    return {
+      ok: true,
+      rooms: rows.map((r) => ({
+        roomId: r.room_id,
+        roomTypeId: r.room_type_id,
+        code: r.code,
+        status: r.status,
+        floor: r.floor,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+    };
+  }
+
+  async readHousekeepingAssignments(businessDate: string): Promise<
+    | {
+        ok: true;
+        assignments: Array<{
+          assignmentId: string;
+          roomId: string;
+          businessDate: string;
+          assigneeRef: string;
+          createdAt: number;
+          updatedAt: number;
+        }>;
+      }
+    | { ok: false; error: 'invalid_business_date' }
+  > {
+    this.assertRpcAvailable();
+    if (!STAY_DATE_RE.test(businessDate)) {
+      return { ok: false, error: 'invalid_business_date' };
+    }
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT assignment_id, room_id, business_date, assignee_ref, created_at, updated_at
+         FROM housekeeping_assignment WHERE business_date = ?
+         ORDER BY room_id`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      assignment_id: string;
+      room_id: string;
+      business_date: string;
+      assignee_ref: string;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    return {
+      ok: true,
+      assignments: rows.map((r) => ({
+        assignmentId: r.assignment_id,
+        roomId: r.room_id,
+        businessDate: r.business_date,
+        assigneeRef: r.assignee_ref,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+    };
   }
 
   /**
@@ -2826,6 +3565,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           arrivalDate: string;
           departureDate: string;
           status: string;
+          roomId: string | null;
           createdAt: number;
           updatedAt: number;
         };
@@ -2834,7 +3574,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   > {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
       .toArray() as Array<{
@@ -2845,6 +3585,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       arrival_date: string;
       departure_date: string;
       status: string;
+      room_id: string | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -2860,6 +3601,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         arrivalDate: row.arrival_date,
         departureDate: row.departure_date,
         status: row.status,
+        roomId: row.room_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },

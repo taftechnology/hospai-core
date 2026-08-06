@@ -1,6 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
+  FORBIDDEN,
   GUEST_ALREADY_ERASED,
+  GUEST_EXISTS,
   GUEST_NOT_FOUND,
   IDEM_KEY_REUSED,
   ENTITLEMENT_REQUIRED,
@@ -8,6 +10,7 @@ import {
   ROLE_GRANTS,
   isOrgScopedPermission,
   isPropertyScopedPermission,
+  type ActorContext,
   type EventSource,
   type IdempotencyKey,
   type OrgRole,
@@ -62,6 +65,15 @@ class GuestNotFoundError extends Error {
   }
 }
 
+/**
+ * Pre-probe for the hybrid idempotency contract (see `runIdempotent` in `@hospai/do-runtime`).
+ * `runIdempotent` itself checks-and-inserts atomically inside `transactionSync`, but create/update
+ * need to know about a replay *before* running crypto `await`s (vault key mint / seal) — otherwise
+ * a replayed create would mint a second `data_key` for the same subject. This performs the same
+ * lookup `runIdempotent` will redo inside the transaction; on a genuine replay it short-circuits the
+ * caller before any vault work happens, and `runIdempotent`'s in-transaction check remains the
+ * source of truth for correctness (this is an optimization, not a substitute).
+ */
 function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem: IdempotencyKey): T | null {
   const prior = sql
     .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
@@ -260,6 +272,19 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return null;
   }
 
+  /** System actor short-circuits (no replay path reaches guest commands today; kept for PropertyDO symmetry). */
+  private async gatePermission(
+    actor: ActorContext,
+    propertyId: string,
+    permission: Permission,
+  ): Promise<{ ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' } | null> {
+    if (actor.kind === 'system') return null;
+
+    const result = await this.assertPermission({ userId: actor.userId, propertyId, permission });
+    if (!result.ok) return { ok: false, error: result.error };
+    return null;
+  }
+
   async ensureMember(userId: string, role: 'owner' | 'admin' | 'staff' = 'owner'): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO member (user_id, role, created_at) VALUES (?, ?, ?)
@@ -396,15 +421,24 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   async tryCreateGuest(
+    actor: ActorContext,
+    propertyId: string,
     input: { guestId: string; profile: GuestProfile },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | string }
+    | { ok: false; error: typeof GUEST_EXISTS | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -417,8 +451,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       const existing = this.ctx.storage.sql
         .exec(`SELECT erased_at FROM guest WHERE guest_id = ?`, input.guestId)
         .toArray() as Array<{ erased_at: number | null }>;
-      if (existing[0]?.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
-      if (existing[0]) return { ok: false, error: 'guest_exists' };
+      if (existing[0]) return { ok: false, error: GUEST_EXISTS };
 
       const vault = await this.vault();
       const material = await vault.prepareGuestRecord('guest', input.guestId, input.profile);
@@ -462,22 +495,32 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      if (e instanceof GuestErasedError) return { ok: false, error: GUEST_ALREADY_ERASED };
-      if (e instanceof GuestExistsError) return { ok: false, error: 'guest_exists' };
+      // Both erased and live existing rows collapse to GUEST_EXISTS on create — never un-erase.
+      if (e instanceof GuestErasedError) return { ok: false, error: GUEST_EXISTS };
+      if (e instanceof GuestExistsError) return { ok: false, error: GUEST_EXISTS };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
 
   async tryUpdateGuest(
+    actor: ActorContext,
+    propertyId: string,
     input: { guestId: string; profile: GuestProfile },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | string }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:write');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -524,15 +567,24 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   async tryEraseGuest(
+    actor: ActorContext,
+    propertyId: string,
     input: { guestId: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof IDEM_KEY_REUSED | string }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:erase');
+    if (permDenied) return permDenied;
+
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -575,6 +627,66 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (e instanceof GuestNotFoundError) return { ok: false, error: GUEST_NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /**
+   * Actor-less referential-integrity RPC — the caller (e.g. `PropertyDO.gateGuestRef`) is already
+   * gated for its own operation, so this only answers "does this guestRef resolve, and to what key."
+   */
+  async assertGuestRef(
+    guestRef: string,
+  ): Promise<
+    | { ok: true; piiKeyId: string }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
+  > {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id, erased_at FROM guest WHERE guest_id = ?`, guestRef)
+      .toArray() as Array<{ pii_key_id: string; erased_at: number | null }>;
+    const guest = rows[0];
+    if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
+    if (guest.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
+    return { ok: true, piiKeyId: guest.pii_key_id };
+  }
+
+  async readGuest(
+    actor: ActorContext,
+    propertyId: string,
+    guestId: string,
+  ): Promise<
+    | { ok: true; guestId: string; erased: false; profile: GuestProfile }
+    | { ok: true; guestId: string; erased: true; profile: null }
+    | { ok: false; error: typeof GUEST_NOT_FOUND }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
+  > {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id, profile_cipher, profile_iv, erased_at FROM guest WHERE guest_id = ?`, guestId)
+      .toArray() as unknown as Array<{
+      pii_key_id: string;
+      profile_cipher: Uint8Array;
+      profile_iv: Uint8Array;
+      erased_at: number | null;
+    }>;
+    const guest = rows[0];
+    if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
+    if (guest.erased_at != null) return { ok: true, guestId, erased: true, profile: null };
+
+    // Branch on erased_at, never on a caught decrypt failure: a decrypt failure here can mean a
+    // corrupted data_key, vault misconfiguration, or format change — it must surface as a thrown
+    // incident, not silently render as a tombstone (M4).
+    const vault = await this.vault();
+    const profile = await vault.decryptGuestProfile(guest.pii_key_id, guest.profile_cipher, guest.profile_iv);
+    return { ok: true, guestId, erased: false, profile };
   }
 
   async readGuestProfile(guestId: string): Promise<GuestProfile | null> {

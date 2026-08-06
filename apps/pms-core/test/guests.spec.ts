@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { fingerprintPayload, GUEST_ALREADY_ERASED, GUEST_NOT_FOUND } from '@hospai/contracts';
+import { fingerprintPayload, GUEST_ALREADY_ERASED, GUEST_EXISTS, GUEST_NOT_FOUND } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
 
@@ -12,9 +12,10 @@ async function provisionedProperty(name: string, orgId: string): Promise<Durable
 describe('OrgDO guests + crypto-shredding', () => {
   it('1. create guest encrypts profile and emits guest.created without PII', async () => {
     const org = await provisionedOrg(`org-guest-${crypto.randomUUID()}`);
+    const propertyId = 'prop_guest_test';
     const guestId = 'guest_ada';
     const displayName = 'Ada Lovelace';
-    const refs = await createGuest(org, guestId, displayName);
+    const refs = await createGuest(org, propertyId, guestId, displayName);
 
     expect(await org.readGuestProfile(guestId)).toEqual({ displayName });
     expect(refs.piiKeyId).toMatch(
@@ -32,11 +33,14 @@ describe('OrgDO guests + crypto-shredding', () => {
 
   it('2. erase guest shreds key — profile undecodable, guest.erased emitted', async () => {
     const org = await provisionedOrg(`org-erase-${crypto.randomUUID()}`);
+    const propertyId = 'prop_guest_test';
     const guestId = 'guest_erase_me';
-    const refs = await createGuest(org, guestId, 'Erase Target');
+    const refs = await createGuest(org, propertyId, guestId, 'Erase Target');
 
     const eraseInput = { guestId };
-    expect(await org.tryEraseGuest(eraseInput, await idemFor('erase-1', eraseInput))).toMatchObject({
+    expect(
+      await org.tryEraseGuest(TEST_OWNER_ACTOR, propertyId, eraseInput, await idemFor('erase-1', eraseInput)),
+    ).toMatchObject({
       ok: true,
       guestId,
     });
@@ -48,7 +52,8 @@ describe('OrgDO guests + crypto-shredding', () => {
 
   it('3. shredding a guest key does not affect staff-scoped keys', async () => {
     const org = await provisionedOrg(`org-scope-${crypto.randomUUID()}`);
-    const guest = await createGuest(org, 'guest_scope', 'Guest One');
+    const propertyId = 'prop_guest_test';
+    const guest = await createGuest(org, propertyId, 'guest_scope', 'Guest One');
     const staff = await org.testProvisionStaffKey('staff_scope');
     expect(await org.testStaffRoundTrip(staff.piiKeyId, 'hourly rate 42')).toBe('hourly rate 42');
 
@@ -60,13 +65,21 @@ describe('OrgDO guests + crypto-shredding', () => {
 
   it('4. update after erase returns guest_already_erased', async () => {
     const org = await provisionedOrg(`org-upd-erase-${crypto.randomUUID()}`);
+    const propertyId = 'prop_guest_test';
     const guestId = 'guest_no_update';
-    await createGuest(org, guestId, 'Before Erase');
+    await createGuest(org, propertyId, guestId, 'Before Erase');
     const eraseInput = { guestId };
-    await org.tryEraseGuest(eraseInput, await idemFor('erase-upd', eraseInput));
+    await org.tryEraseGuest(TEST_OWNER_ACTOR, propertyId, eraseInput, await idemFor('erase-upd', eraseInput));
 
     const updateInput = { guestId, profile: { displayName: 'After Erase' } };
-    expect(await org.tryUpdateGuest(updateInput, await idemFor('update-after-erase', updateInput))).toEqual({
+    expect(
+      await org.tryUpdateGuest(
+        TEST_OWNER_ACTOR,
+        propertyId,
+        updateInput,
+        await idemFor('update-after-erase', updateInput),
+      ),
+    ).toEqual({
       ok: false,
       error: GUEST_ALREADY_ERASED,
     });
@@ -74,8 +87,11 @@ describe('OrgDO guests + crypto-shredding', () => {
 
   it('5. erase missing guest returns guest_not_found', async () => {
     const org = await provisionedOrg(`org-missing-${crypto.randomUUID()}`);
+    const propertyId = 'prop_guest_test';
     const eraseInput = { guestId: 'ghost' };
-    expect(await org.tryEraseGuest(eraseInput, await idemFor('erase-missing', eraseInput))).toEqual({
+    expect(
+      await org.tryEraseGuest(TEST_OWNER_ACTOR, propertyId, eraseInput, await idemFor('erase-missing', eraseInput)),
+    ).toEqual({
       ok: false,
       error: GUEST_NOT_FOUND,
     });
@@ -83,8 +99,9 @@ describe('OrgDO guests + crypto-shredding', () => {
 
   it('6. erase shreds data_key in place while guest FK row remains', async () => {
     const org = await provisionedOrg(`org-fk-shred-${crypto.randomUUID()}`);
+    const propertyId = 'prop_guest_test';
     const guestId = 'guest_fk_parent';
-    const refs = await createGuest(org, guestId, 'FK Parent');
+    const refs = await createGuest(org, propertyId, guestId, 'FK Parent');
 
     const before = await org.testGetDataKeyRecord(refs.piiKeyId);
     expect(before).toMatchObject({ wrappedKeyIsUint8Array: true, shredded: false });
@@ -92,7 +109,9 @@ describe('OrgDO guests + crypto-shredding', () => {
     expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(true);
 
     const eraseInput = { guestId };
-    expect(await org.tryEraseGuest(eraseInput, await idemFor('erase-fk', eraseInput))).toMatchObject({
+    expect(
+      await org.tryEraseGuest(TEST_OWNER_ACTOR, propertyId, eraseInput, await idemFor('erase-fk', eraseInput)),
+    ).toMatchObject({
       ok: true,
       guestId,
       piiKeyId: refs.piiKeyId,
@@ -104,6 +123,62 @@ describe('OrgDO guests + crypto-shredding', () => {
     expect(await org.testDataKeyHasMaterial(refs.piiKeyId)).toBe(false);
     await expect(org.readGuestProfile(guestId)).rejects.toThrow(/PII key shredded/);
   });
+
+  it('create after erase returns guest_exists (never un-erase)', async () => {
+    const org = await provisionedOrg(`org-recreate-${crypto.randomUUID()}`);
+    const propertyId = 'prop_recreate';
+    const guestId = 'guest_recreate';
+    await createGuest(org, propertyId, guestId, 'Once');
+    await org.tryEraseGuest(TEST_OWNER_ACTOR, propertyId, { guestId }, await idemFor('e', { guestId }));
+    const again = await org.tryCreateGuest(
+      TEST_OWNER_ACTOR,
+      propertyId,
+      { guestId, profile: { displayName: 'Twice' } },
+      await idemFor('c2', { guestId, profile: { displayName: 'Twice' } }),
+    );
+    expect(again).toEqual({ ok: false, error: GUEST_EXISTS });
+  });
+
+  it('M3: idempotent replay of create does not mint a second data_key', async () => {
+    const org = await provisionedOrg(`org-m3-${crypto.randomUUID()}`);
+    const propertyId = 'prop_m3';
+    const guestId = 'guest_m3';
+    const input = { guestId, profile: { displayName: 'Ada' } };
+    const idem = await idemFor('m3-create', input);
+    const first = await org.tryCreateGuest(TEST_OWNER_ACTOR, propertyId, input, idem);
+    expect(first.ok).toBe(true);
+    const second = await org.tryCreateGuest(TEST_OWNER_ACTOR, propertyId, input, idem);
+    expect(second).toEqual(first);
+    expect(await org.testDataKeyHasMaterial((first as { piiKeyId: string }).piiKeyId)).toBe(true);
+  });
+
+  it('readGuest returns tombstone when erased_at set', async () => {
+    const org = await provisionedOrg(`org-tombstone-${crypto.randomUUID()}`);
+    const propertyId = 'prop_tombstone';
+    const guestId = 'guest_tombstone';
+    await createGuest(org, propertyId, guestId, 'Tombstone Target');
+    await org.tryEraseGuest(
+      TEST_OWNER_ACTOR,
+      propertyId,
+      { guestId },
+      await idemFor('tombstone-erase', { guestId }),
+    );
+
+    expect(await org.readGuest(TEST_OWNER_ACTOR, propertyId, guestId)).toEqual({
+      ok: true,
+      guestId,
+      erased: true,
+      profile: null,
+    });
+  });
+
+  it('M4 DO: shredded key without erased_at is an incident, not a tombstone', async () => {
+    const org = await provisionedOrg(`org-m4-${crypto.randomUUID()}`);
+    const propertyId = 'prop_m4';
+    const refs = await createGuest(org, propertyId, 'guest_m4', 'Live');
+    expect(await org.testShredGuestKey(refs.piiKeyId)).toBe(true);
+    await expect(org.readGuest(TEST_OWNER_ACTOR, propertyId, 'guest_m4')).rejects.toThrow(/PII key shredded|shred/i);
+  });
 });
 
 describe('PropertyDO reservation.created PII contract', () => {
@@ -113,7 +188,7 @@ describe('PropertyDO reservation.created PII contract', () => {
     const org = await provisionedOrg(orgId);
     const stub = await provisionedProperty(name, orgId);
     const guestName = 'Secret Guest Name';
-    const guest = await createGuest(org, 'guest_book', guestName);
+    const guest = await createGuest(org, 'prop_guest_test', 'guest_book', guestName);
 
     const addInput = {
       roomTypeId: 'rt_king',

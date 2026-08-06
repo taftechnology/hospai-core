@@ -84,7 +84,7 @@ describe('Queues consumer (Phase 0)', () => {
   it('org guest create → flush → consumer receives guest.created without PII', async () => {
     const orgId = `org-evt-${crypto.randomUUID()}`;
     const org = await provisionedOrg(orgId);
-    await createGuest(org, 'guest_queue', 'Queue Test Guest');
+    await createGuest(org, 'prop_evt_queue', 'guest_queue', 'Queue Test Guest');
 
     const preview = await org.drainOutboxBatch();
     const source = { do: 'org' as const, id: orgId };

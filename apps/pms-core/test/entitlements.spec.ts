@@ -15,7 +15,7 @@ import {
   tryDeleteSubscription,
   trySetSubscriptionStatus,
 } from '../src/registry';
-import { idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import { idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR, TEST_SYSTEM_ACTOR } from './guest-helpers';
 
 
 const LEGACY_GUEST = { guestRef: 'legacy', piiKeyId: 'legacy' } as const;
@@ -72,7 +72,9 @@ describe('entitlements + kill-switch', () => {
     await org.ensureMetaOrgId(orgId);
 
     const input = { guestId: 'guest_x', profile: { displayName: 'X' } };
-    expect(await org.tryCreateGuest(input, await idemFor('guest-unent', input))).toEqual({
+    expect(
+      await org.tryCreateGuest(TEST_SYSTEM_ACTOR, 'prop_unent', input, await idemFor('guest-unent', input)),
+    ).toEqual({
       ok: false,
       error: ENTITLEMENT_REQUIRED,
     });

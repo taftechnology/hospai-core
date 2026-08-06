@@ -203,7 +203,7 @@ describe('observability (Phase 0)', () => {
   it('queue consumer log includes event_id and source ids', async () => {
     const org = await provisionedOrg(`org_qlog_${crypto.randomUUID()}`);
     const displayName = 'Queue Log Guest';
-    await createGuest(org, 'guest_qlog', displayName);
+    await createGuest(org, 'prop_qlog', 'guest_qlog', displayName);
 
     const capture = installLogCapture();
     const { handleDomainEvent, logEventConsumed } = await import('../src/event-consumer.js');

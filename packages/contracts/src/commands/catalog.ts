@@ -25,6 +25,14 @@ export type PlatformGap = {
   reason: string;
 };
 
+export const GUESTS_FAIL_CLOSED_NOTES =
+  'FAIL_CLOSED because OrgDO is on the pre-handler permission gate path ' +
+  '(requirePermission → assertPermission), not because guest writes are ' +
+  'unimportant. Revisit when the §4.3 KV permission projection lets ' +
+  'property-scoped requests survive an OrgDO blip — then an org ' +
+  'provisional plane becomes meaningful. Also read-your-write: client ' +
+  'needs a materialised guest before booking.';
+
 /**
  * Each entry has ONE degraded class. Compound prototype actions that mixed
  * FAIL_CLOSED with softer classes are split so an omission cannot silently
@@ -277,21 +285,23 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'guests.create',
     prototypeAction: 'ADD_GUEST',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['guest.created'],
     entitlement: 'pms.core',
     permission: 'guests:write',
+    notes: GUESTS_FAIL_CLOSED_NOTES,
   },
   {
     id: 'guests.update',
     prototypeAction: 'UPDATE_GUEST',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['guest.updated'],
     entitlement: 'pms.core',
     permission: 'guests:write',
+    notes: GUESTS_FAIL_CLOSED_NOTES,
   },
   {
     id: 'guests.erase',

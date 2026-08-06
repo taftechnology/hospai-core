@@ -47,6 +47,7 @@ export const DEFAULT_RATE_PLAN_PROTECTED = 'default_rate_plan_protected' as cons
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;
+export const GUEST_EXISTS = 'guest_exists' as const;
 
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {

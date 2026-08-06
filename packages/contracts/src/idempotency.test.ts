@@ -26,6 +26,9 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  GUEST_EXISTS,
+  GUEST_NOT_FOUND,
+  GUEST_ALREADY_ERASED,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -71,6 +74,12 @@ describe('fingerprintPayload', () => {
     expect(RATE_PLAN_CODE_EXISTS).toBe('rate_plan_code_exists');
     expect(RATE_PLAN_ID_EXISTS).toBe('rate_plan_id_exists');
     expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
+  });
+
+  it('exports guest wire codes', () => {
+    expect(GUEST_EXISTS).toBe('guest_exists');
+    expect(GUEST_NOT_FOUND).toBe('guest_not_found');
+    expect(GUEST_ALREADY_ERASED).toBe('guest_already_erased');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

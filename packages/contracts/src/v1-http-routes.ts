@@ -224,4 +224,14 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'rates:write',
     commandId: 'rates.bulk_update',
   },
+  { id: 'post_guests', scope: 'property', permission: 'guests:write', commandId: 'guests.create' },
+  { id: 'patch_guest', scope: 'property', permission: 'guests:write', commandId: 'guests.update' },
+  { id: 'post_guest_erase', scope: 'property', permission: 'guests:erase', commandId: 'guests.erase' },
+  {
+    id: 'get_guest',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

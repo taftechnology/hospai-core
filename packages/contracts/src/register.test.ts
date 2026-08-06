@@ -248,6 +248,24 @@ describe('command catalog', () => {
       expect(COMMAND_CATALOG.find((x) => x.id === id)?.events).toEqual(['rate_plan.changed']);
     }
   });
+
+  it('guests.create and guests.update are FAIL_CLOSED with identical revisit notes', () => {
+    const create = COMMAND_CATALOG.find((c) => c.id === 'guests.create');
+    const update = COMMAND_CATALOG.find((c) => c.id === 'guests.update');
+    expect(create?.degraded).toBe('FAIL_CLOSED');
+    expect(update?.degraded).toBe('FAIL_CLOSED');
+    expect(create?.entitlement).toBe('pms.core');
+    expect(update?.entitlement).toBe('pms.core');
+    expect(create?.notes).toBe(update?.notes);
+    expect(create?.notes).toMatch(/KV permission projection/i);
+    expect(create?.notes).toMatch(/pre-handler permission gate/i);
+  });
+
+  it('guests.erase remains FAIL_CLOSED with guests:erase', () => {
+    const c = COMMAND_CATALOG.find((x) => x.id === 'guests.erase');
+    expect(c?.degraded).toBe('FAIL_CLOSED');
+    expect(c?.permission).toBe('guests:erase');
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

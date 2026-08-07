@@ -38,6 +38,7 @@ import {
   LEDGER_AMOUNT_MISMATCH,
   MONEY_INVALID,
   SPLIT_AMOUNT_MISMATCH,
+  LINE_NOT_SPLITTABLE,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -97,6 +98,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === MONEY_INVALID ||
     error === CROSS_CURRENCY_UNSUPPORTED ||
     error === SPLIT_AMOUNT_MISMATCH ||
+    error === LINE_NOT_SPLITTABLE ||
     error === ROOM_CODE_EXISTS ||
     error === ROOM_COUNT_EXCEEDED ||
     error === ROOM_UNITS_EXCEED_COUNT ||

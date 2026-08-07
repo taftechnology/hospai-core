@@ -40,6 +40,7 @@ import {
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
   SPLIT_AMOUNT_MISMATCH,
+  LINE_NOT_SPLITTABLE,
   FORBIDDEN,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
@@ -4426,9 +4427,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     reservationId: string;
     chargeCode: string;
     posted: PostedLineAmount;
-    source?: string;
+    source?: string | null;
     businessDate?: string;
     splitOf?: string;
+    paymentId?: string | null;
   }): void {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
@@ -4437,8 +4439,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       `INSERT INTO folio_line (
          folio_line_id, folio_window_id, reservation_id, charge_code,
          amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-         source, business_date, split_of, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         source, business_date, split_of, created_at, payment_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.folioLineId,
       input.folioWindowId,
       input.reservationId,
@@ -4452,6 +4454,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.businessDate ?? null,
       input.splitOf ?? null,
       Date.now(),
+      input.paymentId ?? null,
     );
     this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
@@ -4469,6 +4472,71 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         fxRateAt: input.posted.fxRateAt,
       },
     });
+  }
+
+  /**
+   * Reverse + N children. Source row untouched. Caller owns rejects for PAYMENT / SPLIT_REVERSAL.
+   * Returns inserted line ids (reverse first, then children).
+   */
+  private splitFolioLineSync(
+    source: {
+      folio_line_id: string;
+      folio_window_id: string;
+      reservation_id: string;
+      charge_code: string;
+      amount_minor: number;
+      txn_currency: string;
+      ledger_amount_minor: number;
+      fx_rate: string;
+      fx_rate_at: number;
+      source: string | null;
+    },
+    splits: Array<{ folioLineId: string; amountMinor: number }>,
+  ): string[] {
+    const txnCurrency = currencyCode(source.txn_currency);
+    const childSource = source.source === 'NIGHT_AUDIT' ? null : source.source;
+    const folioLineIds: string[] = [];
+
+    const reverseId = `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
+    this.insertFolioLineSync({
+      folioLineId: reverseId,
+      folioWindowId: source.folio_window_id,
+      reservationId: source.reservation_id,
+      chargeCode: source.charge_code,
+      posted: {
+        amountMinor: -source.amount_minor,
+        txnCurrency,
+        ledgerAmountMinor: -source.ledger_amount_minor,
+        fxRate: source.fx_rate,
+        fxRateAt: source.fx_rate_at,
+      },
+      source: 'SPLIT_REVERSAL',
+      splitOf: source.folio_line_id,
+      paymentId: null,
+    });
+    folioLineIds.push(reverseId);
+
+    for (const split of splits) {
+      this.insertFolioLineSync({
+        folioLineId: split.folioLineId,
+        folioWindowId: source.folio_window_id,
+        reservationId: source.reservation_id,
+        chargeCode: source.charge_code,
+        posted: {
+          amountMinor: split.amountMinor,
+          txnCurrency,
+          ledgerAmountMinor: split.amountMinor,
+          fxRate: source.fx_rate,
+          fxRateAt: source.fx_rate_at,
+        },
+        source: childSource,
+        splitOf: source.folio_line_id,
+        paymentId: null,
+      });
+      folioLineIds.push(split.folioLineId);
+    }
+
+    return folioLineIds;
   }
 
   private postRoomChargesSync(businessDate: string): void {
@@ -4665,6 +4733,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; folioLineIds: string[] }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -4686,7 +4755,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const sourceRows = this.ctx.storage.sql
             .exec(
               `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
-                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
                FROM folio_line WHERE folio_line_id = ?`,
               input.sourceFolioLineId,
             )
@@ -4700,35 +4769,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             ledger_amount_minor: number;
             fx_rate: string;
             fx_rate_at: number;
+            source: string | null;
           }>;
           const source = sourceRows[0];
           if (!source) return { ok: false as const, error: NOT_FOUND };
+          if (source.source === 'PAYMENT') {
+            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
+          }
+          if (source.source === 'SPLIT_REVERSAL') {
+            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
+          }
 
           const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
           if (splitTotal !== source.amount_minor) {
             return { ok: false as const, error: SPLIT_AMOUNT_MISMATCH };
           }
 
-          const folioLineIds: string[] = [];
-          for (const split of input.splits) {
-            const posted: PostedLineAmount = {
-              amountMinor: split.amountMinor,
-              txnCurrency: currencyCode(source.txn_currency),
-              ledgerAmountMinor: split.amountMinor,
-              fxRate: source.fx_rate,
-              fxRateAt: source.fx_rate_at,
-            };
-            this.insertFolioLineSync({
-              folioLineId: split.folioLineId,
-              folioWindowId: source.folio_window_id,
-              reservationId: source.reservation_id,
-              chargeCode: source.charge_code,
-              posted,
-              splitOf: source.folio_line_id,
-            });
-            folioLineIds.push(split.folioLineId);
-          }
-
+          const folioLineIds = this.splitFolioLineSync(source, input.splits);
           return { ok: true as const, folioLineIds };
         }),
       );

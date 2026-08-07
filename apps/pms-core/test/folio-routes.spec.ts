@@ -301,7 +301,7 @@ describe('folio vertical HTTP routes', () => {
     expect(body.balanceMinor).toBe(0);
   });
 
-  it('Test 6: POST .../folio/split creates split lines and keeps source', async () => {
+  it('Test 6: POST .../folio/split reverse+children keeps balance', async () => {
     const actor = 'user_folio_owner6';
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
@@ -329,9 +329,16 @@ describe('folio vertical HTTP routes', () => {
     expect(splitRes.status).toBe(200);
 
     const lines = await stub.listFolioLinesForReservation(reservationId);
-    expect(lines).toHaveLength(3);
-    expect(lines.filter((l) => l.splitOf === sourceId)).toHaveLength(2);
+    expect(lines).toHaveLength(4);
     expect(lines.some((l) => l.folioLineId === sourceId)).toBe(true);
+    expect(lines.filter((l) => l.source === 'SPLIT_REVERSAL')).toHaveLength(1);
+    expect(lines.find((l) => l.source === 'SPLIT_REVERSAL')?.amountMinor).toBe(-3000);
+    expect(lines.filter((l) => l.splitOf === sourceId && l.source !== 'SPLIT_REVERSAL')).toHaveLength(2);
+
+    const folio = await getFolio(propertyId, actor, reservationId);
+    expect(folio.status).toBe(200);
+    const body = (await folio.json()) as { balanceMinor: number };
+    expect(body.balanceMinor).toBe(3000);
   });
 
   it('Test 7: split with non-conserving amounts returns 422 split_amount_mismatch', async () => {

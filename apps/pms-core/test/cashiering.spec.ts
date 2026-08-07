@@ -4,6 +4,7 @@ import { PAYMENT_NOT_CAPTURABLE, SHIFT_ALREADY_OPEN } from '@hospai/contracts';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
+  cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
   setKillSwitch,
@@ -477,6 +478,76 @@ describe('cashiering matrix', () => {
     const short = await putCloseShift(propertyId, owner, shiftA2, { closingCount: 5500 });
     expect(short.status).toBe(200);
     expect(await short.json()).toMatchObject({ variance: 500 });
+  });
+
+  it('Test 10: kill-switch 503 and unentitled 402 on cash + shift mutates', async () => {
+    const killOwner = 'user_cash_10k';
+    const { propertyId, arrival, guestRef } = await provisionHotel(killOwner);
+    const reservationId = 'res_cash_10k';
+    expect(
+      (await postReservation(propertyId, killOwner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    await setKillSwitch(env, 'pms.core', true);
+    expect(
+      (
+        await postShift(propertyId, killOwner, {
+          shiftId: `shift_kill_${crypto.randomUUID()}`,
+          openingFloat: 0,
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await postCash(propertyId, killOwner, reservationId, {
+          paymentId: `pay_kill_${crypto.randomUUID()}`,
+          amountMinor: 100,
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (
+        await putCloseShift(propertyId, killOwner, `shift_missing_${crypto.randomUUID()}`, {
+          closingCount: 0,
+        })
+      ).status,
+    ).toBe(503);
+    await setKillSwitch(env, 'pms.core', false);
+
+    const unentOwner = 'user_cash_10u';
+    const { orgId, propertyId: unentProp, arrival: unentArrival, guestRef: unentGuest } =
+      await provisionHotel(unentOwner);
+    const unentRes = 'res_cash_10u';
+    expect(
+      (
+        await postReservation(
+          unentProp,
+          unentOwner,
+          unentRes,
+          unentArrival,
+          addDays(unentArrival, 2),
+          unentGuest,
+        )
+      ).status,
+    ).toBe(201);
+    await cancelSubscription(env, orgId);
+    expect(
+      (
+        await postShift(unentProp, unentOwner, {
+          shiftId: `shift_unent_${crypto.randomUUID()}`,
+          openingFloat: 0,
+        })
+      ).status,
+    ).toBe(402);
+    expect(
+      (
+        await postCash(unentProp, unentOwner, unentRes, {
+          paymentId: `pay_unent_${crypto.randomUUID()}`,
+          amountMinor: 100,
+        })
+      ).status,
+    ).toBe(402);
   });
 
   it('Test 16: close reports unattributed cash count for business date', async () => {

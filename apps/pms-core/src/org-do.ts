@@ -94,6 +94,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
   private transportBlockedForTest = false;
+  private guestReadRpcCountForTest = 0;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -166,6 +167,48 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async setTransportBlockedForTest(blocked: boolean): Promise<void> {
     this.assertUnsafeLocal('setTransportBlockedForTest');
     this.transportBlockedForTest = blocked;
+  }
+
+  async resetGuestReadRpcCountForTest(): Promise<void> {
+    this.assertUnsafeLocal('resetGuestReadRpcCountForTest');
+    this.guestReadRpcCountForTest = 0;
+  }
+
+  async getGuestReadRpcCountForTest(): Promise<number> {
+    this.assertUnsafeLocal('getGuestReadRpcCountForTest');
+    return this.guestReadRpcCountForTest;
+  }
+
+  private async readGuestEntry(
+    guestId: string,
+  ): Promise<
+    | { ok: true; guestId: string; erased: false; profile: GuestProfile }
+    | { ok: true; guestId: string; erased: true; profile: null }
+    | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
+    | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+  > {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id, profile_cipher, profile_iv, erased_at FROM guest WHERE guest_id = ?`, guestId)
+      .toArray() as unknown as Array<{
+      pii_key_id: string;
+      profile_cipher: Uint8Array;
+      profile_iv: Uint8Array;
+      erased_at: number | null;
+    }>;
+    const guest = rows[0];
+    if (!guest) return { ok: false, guestId, error: GUEST_NOT_FOUND };
+    if (guest.erased_at != null) return { ok: true, guestId, erased: true, profile: null };
+    try {
+      const vault = await this.vault();
+      const profile = await vault.decryptGuestProfile(
+        guest.pii_key_id,
+        guest.profile_cipher,
+        guest.profile_iv,
+      );
+      return { ok: true, guestId, erased: false, profile };
+    } catch {
+      return { ok: false, guestId, error: 'decrypt_unresolved' };
+    }
   }
 
   private outboxSourceSync(): EventSource {
@@ -728,6 +771,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
+    this.guestReadRpcCountForTest += 1;
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
 
@@ -737,24 +782,57 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT pii_key_id, profile_cipher, profile_iv, erased_at FROM guest WHERE guest_id = ?`, guestId)
-      .toArray() as unknown as Array<{
-      pii_key_id: string;
-      profile_cipher: Uint8Array;
-      profile_iv: Uint8Array;
-      erased_at: number | null;
-    }>;
-    const guest = rows[0];
-    if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
-    if (guest.erased_at != null) return { ok: true, guestId, erased: true, profile: null };
+    const entry = await this.readGuestEntry(guestId);
+    if (entry.ok === false && entry.error === GUEST_NOT_FOUND) {
+      return { ok: false, error: GUEST_NOT_FOUND };
+    }
+    if (entry.ok === false && entry.error === 'decrypt_unresolved') {
+      throw new Error('guests.read.decrypt_incident');
+    }
+    return entry;
+  }
 
-    // Branch on erased_at, never on a caught decrypt failure: a decrypt failure here can mean a
-    // corrupted data_key, vault misconfiguration, or format change — it must surface as a thrown
-    // incident, not silently render as a tombstone (M4).
-    const vault = await this.vault();
-    const profile = await vault.decryptGuestProfile(guest.pii_key_id, guest.profile_cipher, guest.profile_iv);
-    return { ok: true, guestId, erased: false, profile };
+  async readGuests(
+    actor: ActorContext,
+    propertyId: string,
+    guestIds: string[],
+  ): Promise<
+    | {
+        ok: true;
+        guests: Record<
+          string,
+          | { ok: true; guestId: string; erased: false; profile: GuestProfile }
+          | { ok: true; guestId: string; erased: true; profile: null }
+          | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
+          | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+        >;
+      }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.guestReadRpcCountForTest += 1;
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const guests: Record<
+      string,
+      | { ok: true; guestId: string; erased: false; profile: GuestProfile }
+      | { ok: true; guestId: string; erased: true; profile: null }
+      | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
+      | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+    > = {};
+    for (const guestId of [...new Set(guestIds)]) {
+      guests[guestId] = await this.readGuestEntry(guestId);
+    }
+    return { ok: true, guests };
   }
 
   async readGuestProfile(guestId: string): Promise<GuestProfile | null> {

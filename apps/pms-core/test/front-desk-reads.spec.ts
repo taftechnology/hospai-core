@@ -1,5 +1,75 @@
-import { describe, expect, it } from 'vitest';
-import { idemFor, provisionedPropertyWithGuest, TEST_OWNER_ACTOR } from './guest-helpers.js';
+import { env } from 'cloudflare:test';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resolveOrgStub } from '@hospai/tenant-router';
+import worker from '../src/index.js';
+import type { OrgDO } from '../src/org-do.js';
+import { resolvePropertyFromRegistry } from '../src/provision.js';
+import {
+  ensurePlatformSchema,
+  resetPlatformSchemaGate,
+  setKillSwitch,
+} from '../src/registry.js';
+import { createGuest, idemFor, orgStub, provisionedPropertyWithGuest, TEST_OWNER_ACTOR } from './guest-helpers.js';
+
+async function postOrg(orgId: string, name: string, actor: string) {
+  return worker.fetch(
+    new Request('http://localhost/v1/orgs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ orgId, name }),
+    }),
+    env,
+  );
+}
+
+async function postProperty(orgId: string, propertyId: string, actor: string) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/properties`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({
+        propertyId,
+        name: 'Front Desk Hotel',
+        timeZone: 'UTC',
+        currency: 'USD',
+      }),
+    }),
+    env,
+  );
+}
+
+async function provisionHttpProperty(propertyId: string) {
+  const orgId = `org_fd_${propertyId}`;
+  const actor = TEST_OWNER_ACTOR.userId;
+  expect((await postOrg(orgId, 'Front Desk Org', actor)).status).toBe(201);
+  expect((await postProperty(orgId, propertyId, actor)).status).toBe(201);
+  const org = orgStub(orgId);
+  await org.ensureMetaOrgId(orgId);
+  const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', TEST_OWNER_ACTOR);
+  const resolved = await resolvePropertyFromRegistry(env, propertyId);
+  return { orgId, propertyId, actor, stub: resolved!.stub, guestRef: guest.guestRef };
+}
+
+async function getArrivals(propertyId: string, actor: string, date: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/arrivals?date=${encodeURIComponent(date)}`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
+}
+
+async function postGuestsBatch(propertyId: string, actor: string, refs: string[]) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/guests/batch`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ refs }),
+    }),
+    env,
+  );
+}
 
 describe('PropertyDO front-desk reads', () => {
   it('listArrivals returns confirmed only for date', async () => {
@@ -169,5 +239,183 @@ describe('PropertyDO front-desk reads', () => {
     expect(result.shift).not.toHaveProperty('expectedCash');
     expect(result.shift).not.toHaveProperty('variance');
     expect(typeof result.shift.attributedCashCount).toBe('number');
+  });
+});
+
+describe('front-desk read HTTP routes', () => {
+  const actor = TEST_OWNER_ACTOR.userId;
+
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  it('GET front-desk/arrivals returns refs without piiKeyId', async () => {
+    const propertyId = 'fd_http_arrivals';
+    const { stub, guestRef } = await provisionHttpProperty(propertyId);
+    const date = '2026-08-10';
+    await stub.insertReservationForTest({
+      reservationId: 'res_http_arrival',
+      roomTypeId: 'rt_king',
+      guestRef,
+      piiKeyId: 'key1',
+      arrivalDate: date,
+      departureDate: '2026-08-12',
+      status: 'confirmed',
+    });
+
+    const res = await getArrivals(propertyId, actor, date);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; items: Array<Record<string, unknown>> };
+    expect(body.ok).toBe(true);
+    expect(body.items[0]?.guestRef).toBe(guestRef);
+    expect(body.items[0]).not.toHaveProperty('piiKeyId');
+  });
+
+  it('POST guests/batch resolves names with one OrgDO RPC', async () => {
+    const propertyId = 'fd_http_batch';
+    const { orgId } = await provisionHttpProperty(propertyId);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.resetGuestReadRpcCountForTest();
+
+    const refs = Array.from({ length: 30 }, (_, i) => `guest_batch_${i}`);
+    for (const guestId of refs) {
+      await createGuest(org, propertyId, guestId, `Guest ${guestId}`, TEST_OWNER_ACTOR);
+    }
+
+    const res = await postGuestsBatch(propertyId, actor, refs);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; guests: Record<string, { ok: boolean }> };
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body.guests)).toHaveLength(30);
+    expect(await org.getGuestReadRpcCountForTest()).toBe(1);
+  });
+
+  it('POST guests/batch returns per-ref erased without failing page', async () => {
+    const propertyId = 'fd_http_erase';
+    const { orgId } = await provisionHttpProperty(propertyId);
+    const org = orgStub(orgId);
+    const live = await createGuest(org, propertyId, 'guest_live', 'Live', TEST_OWNER_ACTOR);
+    await createGuest(org, propertyId, 'guest_erased', 'Erased', TEST_OWNER_ACTOR);
+    await org.tryEraseGuest(
+      TEST_OWNER_ACTOR,
+      propertyId,
+      { guestId: 'guest_erased' },
+      await idemFor('erase', { guestId: 'guest_erased' }),
+    );
+
+    const res = await postGuestsBatch(propertyId, actor, [live.guestRef, 'guest_erased']);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      guests: Record<string, { ok: boolean; erased?: boolean; profile: unknown }>;
+    };
+    expect(body.guests['guest_live']?.ok).toBe(true);
+    expect(body.guests['guest_erased']?.erased).toBe(true);
+  });
+
+  it('POST guests/batch rejects more than 50 refs', async () => {
+    const propertyId = 'fd_http_limit';
+    await provisionHttpProperty(propertyId);
+    const refs = Array.from({ length: 51 }, (_, i) => `guest_${i}`);
+    const res = await postGuestsBatch(propertyId, actor, refs);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; max: number };
+    expect(body.error).toBe('refs_limit_exceeded');
+    expect(body.max).toBe(50);
+  });
+
+  it('OrgDO down: batch 503 but arrivals still 200', async () => {
+    const propertyId = 'fd_http_decouple';
+    const { stub, orgId, guestRef } = await provisionHttpProperty(propertyId);
+    const date = '2026-08-11';
+    await stub.insertReservationForTest({
+      reservationId: 'res_decouple',
+      roomTypeId: 'rt_king',
+      guestRef,
+      piiKeyId: 'key1',
+      arrivalDate: date,
+      departureDate: '2026-08-13',
+      status: 'confirmed',
+    });
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setTransportBlockedForTest(true);
+
+    const batch = await postGuestsBatch(propertyId, actor, [guestRef]);
+    expect(batch.status).toBe(503);
+
+    const list = await getArrivals(propertyId, actor, date);
+    expect(list.status).toBe(200);
+  });
+
+  it('GET org entitlements returns snapshot without kill fields', async () => {
+    const propertyId = 'fd_http_ent';
+    const { orgId } = await provisionHttpProperty(propertyId);
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/entitlements`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { orgId: string; version: number; features: unknown };
+    expect(body.orgId).toBe(orgId);
+    expect(typeof body.version).toBe('number');
+    expect(body.features).toBeTruthy();
+    expect(body).not.toHaveProperty('kill');
+  });
+
+  it('provisional-exception-count replaces degraded-status path', async () => {
+    const propertyId = 'fd_http_exc';
+    await provisionHttpProperty(propertyId);
+
+    const oldPath = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/degraded-status`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(oldPath.status).toBe(404);
+
+    const newPath = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/provisional-exception-count`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(newPath.status).toBe(200);
+    const body = (await newPath.json()) as { propertyId: string; exceptionCount: number };
+    expect(body.propertyId).toBe(propertyId);
+    expect(typeof body.exceptionCount).toBe('number');
+  });
+
+  it('GET front-desk/shift returns null when none open', async () => {
+    const propertyId = 'fd_http_shift';
+    await provisionHttpProperty(propertyId);
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/shift`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; shift: null };
+    expect(body.ok).toBe(true);
+    expect(body.shift).toBeNull();
+  });
+
+  it('PropertyDO blocked: arrivals returns FAIL_CLOSED 503', async () => {
+    const propertyId = 'fd_http_blocked';
+    const { stub } = await provisionHttpProperty(propertyId);
+    await stub.setTransportBlockedForTest(true);
+    const res = await getArrivals(propertyId, actor, '2026-08-10');
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { degraded: string };
+    expect(body.degraded).toBe('FAIL_CLOSED');
   });
 });

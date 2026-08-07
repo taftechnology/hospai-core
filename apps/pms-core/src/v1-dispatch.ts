@@ -87,6 +87,33 @@ function json(data: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(data, { status, headers });
 }
 
+function encodeFrontDeskCursor(payload: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeFrontDeskCursor<T>(raw: string | null): T | null | 'invalid' {
+  if (raw === null || raw === '') return null;
+  try {
+    const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (padded.length % 4)) % 4;
+    const binary = atob(padded + '='.repeat(padLen));
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch {
+    return 'invalid';
+  }
+}
+
+function parseOptionalFrontDeskLimit(url: URL): number | undefined {
+  const raw = url.searchParams.get('limit');
+  if (raw === null || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function mapAddRoomTypeErrorStatus(error: string): number {
   if (error === IDEM_KEY_REUSED || error === ROOM_TYPE_EXISTS || error === ROOM_TYPE_CODE_EXISTS) {
     return 409;
@@ -852,7 +879,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e)) {
       return degradedFailClosedReadResponse();
     }
     if (e instanceof Error) {
@@ -1207,7 +1234,7 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
   return json(result, 200);
 }
 
-async function handleGetDegradedStatus(ctx: V1DispatchContext): Promise<Response> {
+async function handleGetProvisionalExceptionCount(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
@@ -1216,6 +1243,184 @@ async function handleGetDegradedStatus(ctx: V1DispatchContext): Promise<Response
 
   const exceptionCount = await resolvedCtx.resolved.stub.countProvisionalExceptions();
   return json({ propertyId, exceptionCount }, 200);
+}
+
+async function handleGetFrontDeskArrivals(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const url = new URL(ctx.request.url);
+  const date = url.searchParams.get('date');
+  if (!date) return json({ error: 'invalid_body', detail: 'date_required' }, 400);
+
+  const cursorRaw = url.searchParams.get('cursor');
+  const decoded = decodeFrontDeskCursor<{ reservationId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listArrivals(date, {
+      limit: parseOptionalFrontDeskLimit(url),
+      cursor: decoded,
+    });
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskDepartures(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const url = new URL(ctx.request.url);
+  const date = url.searchParams.get('date');
+  if (!date) return json({ error: 'invalid_body', detail: 'date_required' }, 400);
+
+  const cursorRaw = url.searchParams.get('cursor');
+  const decoded = decodeFrontDeskCursor<{ status: string; reservationId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listDepartures(date, {
+      limit: parseOptionalFrontDeskLimit(url),
+      cursor: decoded,
+    });
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskInHouse(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const url = new URL(ctx.request.url);
+
+  const cursorRaw = url.searchParams.get('cursor');
+  const decoded = decodeFrontDeskCursor<{ departureDate: string; reservationId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listInHouse({
+      limit: parseOptionalFrontDeskLimit(url),
+      cursor: decoded,
+    });
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskShift(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await resolvedCtx.resolved.stub.readCurrentOpenShift(actor);
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json({ ok: true, shift: result.shift }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { refs?: string[] };
+  if (!Array.isArray(body?.refs) || body.refs.length === 0) {
+    return json({ error: 'invalid_body', detail: 'refs_required' }, 400);
+  }
+  const refs = [...new Set(body.refs.filter((r) => typeof r === 'string' && r.length > 0))];
+  if (refs.length === 0) return json({ error: 'invalid_body', detail: 'refs_required' }, 400);
+  if (refs.length > 50) return json({ error: 'refs_limit_exceeded', max: 50 }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.readGuests(actor, propertyId, refs);
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'guests:read' }, 403);
+      }
+      if (err === ENTITLEMENT_REQUIRED) return json({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' }, 402);
+      if (err === ENTITLEMENT_UNAVAILABLE) return json({ error: ENTITLEMENT_UNAVAILABLE }, 503);
+      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+    }
+    for (const [guestId, entry] of Object.entries(result.guests)) {
+      if (!entry.ok && entry.error === 'decrypt_unresolved') {
+        logError(ctx.observability, {
+          msg: 'guests.read.decrypt_incident',
+          guestId,
+        });
+      }
+    }
+    return json({ ok: true, guests: result.guests }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetOrgEntitlements(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  try {
+    const snap = await loadSnapshot(ctx.env, orgId);
+    return json(snap, 200);
+  } catch (e) {
+    if (e instanceof EntitlementResolutionError) {
+      return json({ error: ENTITLEMENT_UNAVAILABLE }, 503);
+    }
+    throw e;
+  }
 }
 
 async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
@@ -2983,9 +3188,9 @@ export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'property',
     method: 'GET',
-    pattern: /^\/v1\/properties\/([^/]+)\/degraded-status$/,
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exception-count$/,
     permission: 'property:read',
-    handler: handleGetDegradedStatus,
+    handler: handleGetProvisionalExceptionCount,
   },
   {
     scope: 'property',
@@ -3329,6 +3534,53 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetAuditLog,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/arrivals$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskArrivals,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/departures$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskDepartures,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/in-house$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskInHouse,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/batch$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handlePostGuestsBatch,
+  },
+  {
+    scope: 'org',
+    method: 'GET',
+    pattern: /^\/v1\/orgs\/([^/]+)\/entitlements$/,
+    permission: 'org:read',
+    handler: handleGetOrgEntitlements,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/shift$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskShift,
   },
 ];
 

@@ -807,7 +807,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return JSON.parse(rows[0].value_json) as string;
   }
 
-  /** Posting business date for rule selection — provisional replay date, else property date. */
+  /** Posting business date for rule selection.
+   *
+   * The `provisional.businessDate` branch is unreachable-by-construction on replay:
+   * `assertProvisionalBusinessDateOpen` runs first and rejects when
+   * `provisional.businessDate < openDate`, so a stale queued command never reaches
+   * rule selection. Keep the branch for direct callers that pass provisional without
+   * the guard, and for clarity vs wall-clock — same class as charge-code §2.3 armor. */
   private resolvePostingBusinessDateSync(provisional?: ProvisionalContext): string {
     if (provisional?.businessDate) return provisional.businessDate;
     const businessDate = this.readBusinessDateSync();

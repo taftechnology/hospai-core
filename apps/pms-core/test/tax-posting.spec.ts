@@ -9,7 +9,7 @@ import {
   fingerprintPayload,
   type PendingCommandMessage,
 } from '@hospai/contracts';
-import { computeTax } from '@hospai/money';
+import { allocate, computeTax } from '@hospai/money';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
@@ -438,12 +438,14 @@ describe('tax posting matrix', () => {
     expect(postRes4.status).toBe(201);
 
     const parentTax = computeTax(1000, '0.10');
+    const childA = `${folioLineId}:a`;
+    const childB = `${folioLineId}:b`;
     expect(
       (
         await postFolioSplit(propertyId, owner, folioLineId, {
           splits: [
-            { folioLineId: `${folioLineId}:a`, amountMinor: 600 },
-            { folioLineId: `${folioLineId}:b`, amountMinor: 400 },
+            { folioLineId: childA, amountMinor: 600 },
+            { folioLineId: childB, amountMinor: 400 },
           ],
           idempotencyKey: `idem-split-4-${crypto.randomUUID()}`,
         })
@@ -454,6 +456,10 @@ describe('tax posting matrix', () => {
       (l) => l.source === 'TAX' && l.amountMinor > 0 && l.splitOf === folioLineId,
     );
     expect(taxLines).toHaveLength(2);
+    expect(allocate(parentTax, [600, 400], { policy: 'LAST' })).toEqual([60, 40]);
+    const byChild = new Map(taxLines.map((l) => [l.taxOf!, l.amountMinor]));
+    expect(byChild.get(childA)).toBe(60);
+    expect(byChild.get(childB)).toBe(40);
     expect(taxLines.reduce((s, l) => s + l.amountMinor, 0)).toBe(parentTax);
   });
 
@@ -787,7 +793,7 @@ describe('tax posting matrix', () => {
     }
   });
 
-  it('Test 16: provisional replay uses queued business date for rule selection', async () => {
+  it('Test 16: rule selection uses posting business date when superseded rate not yet effective', async () => {
     const owner = 'user_tax_16';
     const { orgId, propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
     const reservationId = 'res_tax_16';
@@ -843,6 +849,52 @@ describe('tax posting matrix', () => {
     );
     expect(taxLine?.taxRuleId).toBe('tr_v1');
     expect(taxLine?.amountMinor).toBe(computeTax(1000, '0.10'));
+  });
+
+  it('Test 16a: stale provisional folio.add_item rejected after business date rolled', async () => {
+    const owner = 'user_tax_16a';
+    const { orgId, propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = 'res_tax_16a';
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    await seedGoodsTaxRule(propertyId, owner, arrival, 'tr_v1', 'goods_sales', '0.10');
+
+    const folioLineId = `${reservationId}:item:16a`;
+    const payload = {
+      reservationId,
+      folioLineId,
+      chargeCode: 'MISC',
+      amountMinor: 1000,
+    };
+    const fingerprint = await fingerprintPayload(payload);
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-folio-16a',
+        requestFingerprint: fingerprint,
+        propertyId,
+        orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: owner },
+        command: { type: 'folio.add_item', payload },
+        routeId: 'post_folio_lines',
+      },
+    };
+
+    await stub.setBusinessDateForTest(addDays(arrival, 1));
+    await dispatchPendingBatch([msg]);
+
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: Array<{ reason: string }>;
+    };
+    expect(exceptions).toHaveLength(1);
+    expect(exceptions[0]!.reason).toBe('business_date_closed');
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
   });
 
   it('Test 17: config register has no tax_registry or affectsTaxMoney', () => {

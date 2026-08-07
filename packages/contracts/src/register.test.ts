@@ -226,6 +226,48 @@ describe('command catalog', () => {
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[61] ?? {})).toBe(false);
   });
 
+  it('front-desk read routes append at 62–67; exception count renamed at 19', () => {
+    expect(V1_HTTP_ROUTE_AUDIT[19]?.id).toBe('get_provisional_exception_count');
+    expect(V1_HTTP_ROUTE_AUDIT[19]).toMatchObject({
+      scope: 'property',
+      permission: 'property:read',
+    });
+    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[19] ?? {})).toBe(false);
+
+    expect(V1_HTTP_ROUTE_AUDIT[43]?.id).toBe('patch_property_details');
+    expect(V1_HTTP_ROUTE_AUDIT[44]?.id).toBe('put_domain_config');
+
+    expect(V1_HTTP_ROUTE_AUDIT[62]?.id).toBe('get_front_desk_arrivals');
+    expect(V1_HTTP_ROUTE_AUDIT[62]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[62] ?? {})).toBe(false);
+
+    expect(V1_HTTP_ROUTE_AUDIT[63]?.id).toBe('get_front_desk_departures');
+    expect(V1_HTTP_ROUTE_AUDIT[64]?.id).toBe('get_front_desk_in_house');
+    expect(V1_HTTP_ROUTE_AUDIT[65]?.id).toBe('post_guests_batch');
+    expect(V1_HTTP_ROUTE_AUDIT[65]).toMatchObject({
+      permission: 'guests:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[66]?.id).toBe('get_org_entitlements');
+    expect(V1_HTTP_ROUTE_AUDIT[66]).toMatchObject({
+      scope: 'org',
+      permission: 'org:read',
+    });
+    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[66] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[67]?.id).toBe('get_front_desk_shift');
+    expect(V1_HTTP_ROUTE_AUDIT[67]).toMatchObject({
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+  });
+
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');

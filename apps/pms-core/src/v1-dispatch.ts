@@ -29,6 +29,9 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  CHARGE_CODE_NOT_FOUND,
+  CHARGE_CODE_EXISTS,
+  SYSTEM_CHARGE_CODE_PROTECTED,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   UNBOOKABLE,
@@ -109,11 +112,13 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_NOT_ASSIGNABLE ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
-    error === DEFAULT_RATE_PLAN_PROTECTED
+    error === DEFAULT_RATE_PLAN_PROTECTED ||
+    error === CHARGE_CODE_EXISTS ||
+    error === SYSTEM_CHARGE_CODE_PROTECTED
   ) {
     return 422;
   }
-  if (error === RATE_PLAN_NOT_FOUND) return 404;
+  if (error === RATE_PLAN_NOT_FOUND || error === CHARGE_CODE_NOT_FOUND) return 404;
   if (error === BUSINESS_DATE_UNSET) return 500;
   if (error === 'org_id_unset') return 500;
   return mapAddRoomTypeErrorStatus(error);
@@ -1339,7 +1344,12 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
 
   if (!result.ok) {
     const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === CHARGE_CODE_NOT_FOUND) {
+      return json({ error: CHARGE_CODE_NOT_FOUND }, 404);
+    }
+    if (err === NOT_FOUND || err === 'not_member') {
+      return json({ error: 'not_found' }, 404);
+    }
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
   }
@@ -1858,6 +1868,167 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
   }
   return json(result, 200);
+}
+
+async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    code: string;
+    name: string;
+    idempotencyKey: string;
+  };
+  if (!body?.code || !body.name || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { code: body.code, name: body.name };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateChargeCode']>>>({
+    env: ctx.env,
+    commandId: 'folio.create_charge_code',
+    routeId: 'post_charge_codes',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCreateChargeCode(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const code = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { name: string; idempotencyKey: string };
+  if (!body?.name || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { code, name: body.name };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateChargeCode']>>>({
+    env: ctx.env,
+    commandId: 'folio.update_charge_code',
+    routeId: 'patch_charge_code',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateChargeCode(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const code = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    status: 'active' | 'archived';
+    idempotencyKey: string;
+  };
+  if (!body?.status || !body.idempotencyKey || (body.status !== 'active' && body.status !== 'archived')) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { code, status: body.status };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetChargeCodeStatus']>>>({
+    env: ctx.env,
+    commandId: 'folio.set_charge_code_status',
+    routeId: 'put_charge_code_status',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.trySetChargeCodeStatus(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const url = new URL(ctx.request.url);
+  const statusParam = url.searchParams.get('status');
+  const status =
+    statusParam === 'archived' || statusParam === 'all' ? statusParam : ('active' as const);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const codes = await resolvedCtx.resolved.stub.listChargeCodes(status);
+    return json({ ok: true, codes }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
 }
 
 async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
@@ -2643,6 +2814,38 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetFolioPayments,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/charge-codes$/,
+    permission: 'settings:configure',
+    commandId: 'folio.create_charge_code',
+    handler: handlePostChargeCodes,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/charge-codes\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'folio.update_charge_code',
+    handler: handlePatchChargeCode,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/charge-codes\/([^/]+)\/status$/,
+    permission: 'settings:configure',
+    commandId: 'folio.set_charge_code_status',
+    handler: handlePutChargeCodeStatus,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/charge-codes$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetChargeCodes,
   },
 ];
 

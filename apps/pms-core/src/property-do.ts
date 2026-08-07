@@ -32,6 +32,9 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  CHARGE_CODE_NOT_FOUND,
+  CHARGE_CODE_EXISTS,
+  SYSTEM_CHARGE_CODE_PROTECTED,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   FX_RATE_INVALID,
@@ -73,6 +76,7 @@ import {
   IdempotencyKeyReused,
   TYPE_WIDE_RATE_PLAN,
   DEFAULT_RATE_PLAN_ID,
+  SYSTEM_CHARGE_CODES,
   toQueueBatchEntry,
   OUTBOX_BACKLOG_DELAY_MS,
   OUTBOX_SWEEP_INTERVAL_MS,
@@ -252,6 +256,27 @@ class DefaultRatePlanProtectedError extends Error {
   constructor() {
     super('Default rate plan is protected');
     this.name = 'DefaultRatePlanProtectedError';
+  }
+}
+
+class ChargeCodeNotFoundError extends Error {
+  constructor() {
+    super(CHARGE_CODE_NOT_FOUND);
+    this.name = 'ChargeCodeNotFoundError';
+  }
+}
+
+class ChargeCodeExistsError extends Error {
+  constructor() {
+    super(CHARGE_CODE_EXISTS);
+    this.name = 'ChargeCodeExistsError';
+  }
+}
+
+class SystemChargeCodeProtectedError extends Error {
+  constructor() {
+    super(SYSTEM_CHARGE_CODE_PROTECTED);
+    this.name = 'SystemChargeCodeProtectedError';
   }
 }
 
@@ -3898,6 +3923,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /** Belt-and-braces seed for system-authored charge codes (migration also inserts). */
+  private ensureSystemChargeCodesSync(): void {
+    const now = Date.now();
+    for (const code of SYSTEM_CHARGE_CODES) {
+      const name = code === 'ROOM' ? 'Room' : 'Payment';
+      this.ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO charge_code (code, name, status, created_at, updated_at)
+         VALUES (?, ?, 'active', ?, ?)`,
+        code,
+        name,
+        now,
+        now,
+      );
+    }
+  }
+
+  private assertChargeCodeSync(code: string, opts: { requireActive: boolean }): void {
+    if ((SYSTEM_CHARGE_CODES as readonly string[]).includes(code)) {
+      this.ensureSystemChargeCodesSync();
+    }
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT status FROM charge_code WHERE code = ?`, code)
+      .toArray() as Array<{ status: string }>;
+    const row = rows[0];
+    if (!row) throw new ChargeCodeNotFoundError();
+    if (opts.requireActive && row.status !== 'active') throw new ChargeCodeNotFoundError();
+  }
+
   /**
    * Create a rate plan. Implements catalog `rates.create_plan`.
    * Fingerprint allowlist: `{ ratePlanId, code, name }`.
@@ -4185,6 +4238,242 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       name: r.name,
       status: r.status,
     }));
+  }
+
+  /**
+   * Create a charge code. Implements catalog `folio.create_charge_code`.
+   * Fingerprint allowlist: `{ code, name }`.
+   */
+  async tryCreateChargeCode(
+    actor: ActorContext,
+    input: { code: string; name: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; code: string }
+    | { ok: false; error: typeof CHARGE_CODE_EXISTS }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT code FROM charge_code WHERE code = ?`, input.code)
+            .toArray();
+          if (existing.length > 0) throw new ChargeCodeExistsError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO charge_code (code, name, status, created_at, updated_at)
+             VALUES (?, ?, 'active', ?, ?)`,
+            input.code,
+            input.name,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'charge_code.changed',
+            payload: {
+              propertyId,
+              code: input.code,
+              op: 'create',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, code: input.code };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeExistsError) return { ok: false, error: CHARGE_CODE_EXISTS };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update charge code display name. Implements catalog `folio.update_charge_code`.
+   * Fingerprint allowlist: `{ code, name }`.
+   */
+  async tryUpdateChargeCode(
+    actor: ActorContext,
+    input: { code: string; name: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; code: string }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(`SELECT code FROM charge_code WHERE code = ?`, input.code)
+            .toArray();
+          if (!rows[0]) throw new ChargeCodeNotFoundError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE charge_code SET name = ?, updated_at = ? WHERE code = ?`,
+            input.name,
+            now,
+            input.code,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'charge_code.changed',
+            payload: {
+              propertyId,
+              code: input.code,
+              op: 'update',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, code: input.code };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Archive or restore a charge code. Implements catalog `folio.set_charge_code_status`.
+   * Fingerprint allowlist: `{ code, status }`.
+   */
+  async trySetChargeCodeStatus(
+    actor: ActorContext,
+    input: { code: string; status: 'active' | 'archived' },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; code: string; status: 'active' | 'archived' }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
+    | { ok: false; error: typeof SYSTEM_CHARGE_CODE_PROTECTED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(`SELECT status FROM charge_code WHERE code = ?`, input.code)
+            .toArray() as Array<{ status: string }>;
+          if (!rows[0]) throw new ChargeCodeNotFoundError();
+
+          if (
+            input.status === 'archived' &&
+            (SYSTEM_CHARGE_CODES as readonly string[]).includes(input.code)
+          ) {
+            throw new SystemChargeCodeProtectedError();
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE charge_code SET status = ?, updated_at = ? WHERE code = ?`,
+            input.status,
+            now,
+            input.code,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'charge_code.changed',
+            payload: {
+              propertyId,
+              code: input.code,
+              op: 'status',
+              status: input.status,
+              at: now,
+            },
+          });
+
+          return { ok: true as const, code: input.code, status: input.status };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      if (e instanceof SystemChargeCodeProtectedError) {
+        return { ok: false, error: SYSTEM_CHARGE_CODE_PROTECTED };
+      }
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async listChargeCodes(
+    status: 'active' | 'archived' | 'all' = 'active',
+  ): Promise<Array<{ code: string; name: string; status: string }>> {
+    this.assertRpcAvailable();
+    const rows =
+      status === 'all'
+        ? (this.ctx.storage.sql
+            .exec(`SELECT code, name, status FROM charge_code ORDER BY code`)
+            .toArray() as Array<{ code: string; name: string; status: string }>)
+        : (this.ctx.storage.sql
+            .exec(`SELECT code, name, status FROM charge_code WHERE status = ? ORDER BY code`, status)
+            .toArray() as Array<{ code: string; name: string; status: string }>);
+    return rows.map((r) => ({ code: r.code, name: r.name, status: r.status }));
   }
 
   /**
@@ -4540,6 +4829,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const childSource = source.source === 'NIGHT_AUDIT' ? null : source.source;
     const folioLineIds: string[] = [];
 
+    this.assertChargeCodeSync(source.charge_code, { requireActive: false });
+
     const reverseId = `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
     this.insertFolioLineSync({
       folioLineId: reverseId,
@@ -4624,6 +4915,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         fxRateAt,
       };
 
+      this.assertChargeCodeSync('ROOM', { requireActive: true });
       this.insertFolioLineSync({
         folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
         folioWindowId,
@@ -4702,6 +4994,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof MONEY_INVALID }
     | { ok: false; error: typeof CROSS_CURRENCY_UNSUPPORTED }
     | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
@@ -4740,6 +5033,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.ensureGuestFolioWindowSync(input.reservationId);
           const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
 
+          this.assertChargeCodeSync(input.chargeCode, { requireActive: true });
           this.insertFolioLineSync({
             folioLineId: input.folioLineId,
             folioWindowId,
@@ -4761,6 +5055,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -5195,6 +5490,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
         const folioLineId = `${input.paymentId}:capture`;
         const fxRateAt = Date.now();
+        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
         this.insertFolioLineSync({
           folioLineId,
           folioWindowId: payment.folio_window_id,

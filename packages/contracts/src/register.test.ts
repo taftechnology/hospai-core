@@ -356,9 +356,11 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[51]?.id).toBe('patch_charge_code');
     expect(V1_HTTP_ROUTE_AUDIT[52]?.id).toBe('put_charge_code_status');
     expect(V1_HTTP_ROUTE_AUDIT[53]?.id).toBe('get_charge_codes');
-    expect(V1_HTTP_ROUTE_AUDIT[53]?.permission).toBe('folio:read');
-    expect(V1_HTTP_ROUTE_AUDIT[53]?.degradedRead).toBe('FAIL_CLOSED');
-    expect(V1_HTTP_ROUTE_AUDIT[53]?.commandId).toBeUndefined();
+    expect(V1_HTTP_ROUTE_AUDIT[53]).toMatchObject({
+      permission: 'folio:read',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[53] ?? {})).toBe(false);
   });
 });
 

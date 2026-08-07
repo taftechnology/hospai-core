@@ -247,7 +247,7 @@ describe('folio vertical HTTP routes', () => {
     expect(
       (
         await postFolioLine(propertyId, actor, reservationId, {
-          chargeCode: 'A',
+          chargeCode: 'MISC',
           amountMinor: 1000,
           idempotencyKey: `idem-a-${crypto.randomUUID()}`,
         })
@@ -256,7 +256,7 @@ describe('folio vertical HTTP routes', () => {
     expect(
       (
         await postFolioLine(propertyId, actor, reservationId, {
-          chargeCode: 'B',
+          chargeCode: 'MISC',
           amountMinor: 500,
           idempotencyKey: `idem-b-${crypto.randomUUID()}`,
         })

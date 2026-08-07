@@ -26,6 +26,7 @@ export default defineWorkersConfig({
           bindings: {
             HOSPAI_UNSAFE_LOCAL: '1',
             HOSPAI_JURISDICTION_MODE: 'simulate',
+            HOSPAI_PSP_MODE: 'simulate',
             HOSPAI_ALLOW_DEV_ACTOR: '1',
             HOSPAI_ORG_MASTER_KEY:
               '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff',

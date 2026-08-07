@@ -30,6 +30,8 @@ export type PmsEnv = {
   HOSPAI_UNSAFE_LOCAL?: string;
   /** Local workerd lacks DO jurisdiction; requires HOSPAI_UNSAFE_LOCAL=1. */
   HOSPAI_JURISDICTION_MODE?: string;
+  /** Simulated PSP only; requires HOSPAI_UNSAFE_LOCAL=1. Absent in production. */
+  HOSPAI_PSP_MODE?: string;
   /** Allow X-Dev-Actor header auth; requires HOSPAI_UNSAFE_LOCAL=1. Absent in production. */
   HOSPAI_ALLOW_DEV_ACTOR?: string;
   /** Clerk secret key — production auth. Never in top-level wrangler vars. */
@@ -50,6 +52,11 @@ export function isJurisdictionSimulate(env: PmsEnv): boolean {
   return env.HOSPAI_UNSAFE_LOCAL === '1' && env.HOSPAI_JURISDICTION_MODE === 'simulate';
 }
 
+/** True only when both the local marker and PSP simulate mode are set. */
+export function isPspSimulate(env: PmsEnv): boolean {
+  return env.HOSPAI_UNSAFE_LOCAL === '1' && env.HOSPAI_PSP_MODE === 'simulate';
+}
+
 /** True only when both the local marker and allow-dev-actor are set. */
 export function isDevActorAllowed(env: PmsEnv): boolean {
   return env.HOSPAI_UNSAFE_LOCAL === '1' && env.HOSPAI_ALLOW_DEV_ACTOR === '1';
@@ -67,6 +74,16 @@ export function assertEnvSafeForRequest(env: PmsEnv): Response | null {
         error: 'misconfigured',
         message:
           'HOSPAI_JURISDICTION_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
+      },
+      { status: 500 },
+    );
+  }
+  if (env.HOSPAI_PSP_MODE === 'simulate' && !unsafe) {
+    return Response.json(
+      {
+        error: 'misconfigured',
+        message:
+          'HOSPAI_PSP_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
       },
       { status: 500 },
     );

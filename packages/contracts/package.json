@@ -8,6 +8,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./v1-http-routes": {
+      "types": "./dist/v1-http-routes.d.ts",
+      "import": "./dist/v1-http-routes.js"
+    },
+    "./entitlements": {
+      "types": "./dist/entitlements.d.ts",
+      "import": "./dist/entitlements.js"
+    },
+    "./provisional-command": {
+      "types": "./dist/provisional-command.d.ts",
+      "import": "./dist/provisional-command.js"
     }
   },
   "scripts": {

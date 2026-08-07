@@ -9,7 +9,7 @@ export type UserActor = {
 
 export type SystemActor = {
   kind: 'system';
-  reason: 'night_audit' | 'migration_sweep' | 'queue_replay';
+  reason: 'night_audit' | 'migration_sweep' | 'queue_replay' | 'provision';
 };
 
 export type ActorContext = UserActor | SystemActor;
@@ -28,6 +28,7 @@ export const PROPERTY_SCOPED_PERMISSIONS = [
   'inventory:read',
   'inventory:write',
   'inventory:configure',
+  'settings:configure',
   'reservations:read',
   'reservations:write',
   'guests:read',
@@ -78,6 +79,7 @@ export const ROLE_GRANTS: Record<OrgRole, readonly Permission[]> = {
     'inventory:read',
     'inventory:write',
     'inventory:configure',
+    'settings:configure',
     'reservations:read',
     'reservations:write',
     'guests:read',

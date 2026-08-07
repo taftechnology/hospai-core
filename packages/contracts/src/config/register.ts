@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Permission } from '../permissions.js';
 
 export const ConfigClass = z.enum(['DOMAIN', 'OPERATIONAL', 'PRESENTATION', 'SECRET']);
 export type ConfigClass = z.infer<typeof ConfigClass>;
@@ -20,7 +21,7 @@ export type ConfigEntry = {
   class: ConfigClass;
   schema: z.ZodTypeAny;
   default: unknown;
-  permission: string;
+  permission: Permission;
   audited: boolean;
   entitlement?: string;
   consumers: ConfigConsumers;
@@ -371,6 +372,12 @@ export function getConfigEntry(key: string): ConfigEntry | undefined {
 
 export function domainConfigKeys(): ConfigEntry[] {
   return CONFIG_REGISTER.filter((e) => e.class === 'DOMAIN');
+}
+
+export function requiredPermissionForKey(key: string): Permission {
+  const entry = getConfigEntry(key);
+  if (!entry) throw new Error(`undeclared:${key}`);
+  return entry.permission;
 }
 
 export function assertRegisterInvariants(): void {

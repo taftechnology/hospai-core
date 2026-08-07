@@ -33,6 +33,12 @@ export const GUESTS_FAIL_CLOSED_NOTES =
   'provisional plane becomes meaningful. Also read-your-write: client ' +
   'needs a materialised guest before booking.';
 
+export const PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES =
+  'FAIL_CLOSED because the authoritative write is Platform D1 + OrgDO mirror, ' +
+  'not the PropertyDO provisional plane. Name is tenancy metadata (read-your-write ' +
+  'for GET property). Residual: D1 may lead the OrgDO mirror if OrgDO fails after ' +
+  'D1 — client retry converges; both writes are idempotent.';
+
 /**
  * Each entry has ONE degraded class. Compound prototype actions that mixed
  * FAIL_CLOSED with softer classes are split so an omission cannot silently
@@ -369,10 +375,11 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'property.update_details',
     prototypeAction: 'UPDATE_PROPERTY_DETAILS',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['property.updated'],
     permission: 'config:write',
+    notes: PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES,
   },
   {
     id: 'housekeeping.staff_add',
@@ -448,7 +455,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['config.changed'],
     entitlement: 'pms.core',
-    permission: 'inventory:configure',
+    permission: 'settings:configure',
     notes: 'PropertyDO tryPutDomainConfig — DOMAIN class only.',
   },
   {

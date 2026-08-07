@@ -5,6 +5,7 @@ import {
   BUSINESS_DATE_UNSET,
   domainConfigKeys,
   getConfigEntry,
+  requiredPermissionForKey,
   IDEM_KEY_REUSED,
   NOT_FOUND,
   NO_AVAILABILITY,
@@ -673,9 +674,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const code = currencyCode(currency);
     const result = await this.tryPutDomainConfig(
+      { kind: 'system', reason: 'provision' },
       'pms.money.currency_code',
       code,
-      { actor: 'system:provision', reason: 'provision:first-write-currency' },
+      { reason: 'provision:first-write-currency' },
       idem,
     );
     if (!result.ok) return result;
@@ -691,9 +693,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: true, skipped: true };
     }
     const result = await this.tryPutDomainConfig(
+      { kind: 'system', reason: 'provision' },
       'pms.time.time_zone',
       timeZone,
-      { actor: 'system:provision', reason: 'provision:first-write-timezone' },
+      { reason: 'provision:first-write-timezone' },
       idem,
     );
     if (!result.ok) return result;
@@ -1409,45 +1412,43 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return Number(rows[0]?.v ?? 0);
   }
 
-  async putDomainConfig(
-    key: string,
-    value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string },
-    idem: IdempotencyKey,
-  ): Promise<{ key: string; version: number }> {
-    const result = await this.tryPutDomainConfig(key, value, meta, idem);
-    if (!result.ok) throw new Error(result.error);
-    return { key: result.key, version: result.version };
-  }
-
   /**
    * DOMAIN config write. Caller must pass IdempotencyKey whose fingerprint is
-   * fingerprintPayload({ key, value, actor: meta.actor, reason: meta.reason }).
+   * fingerprintPayload({ key, value, reason: meta.reason }).
    * `effectiveFrom` is excluded from the fingerprint.
    *
    * Trust boundary: the edge must compute `fingerprintPayload` server-side from the
    * validated request body — only the idempotency *key* may originate from the client.
    */
   async tryPutDomainConfig(
+    actor: ActorContext,
     key: string,
     value: unknown,
-    meta: { actor: string; reason: string; effectiveFrom?: string },
+    meta: { reason: string; effectiveFrom?: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; key: string; version: number; events: string[] }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
-    const denied = await this.gateCoreEntitlement(orgId);
-    if (denied) return denied;
 
     const entry = getConfigEntry(key);
     if (!entry) return { ok: false, error: `undeclared:${key}` };
     if (entry.class !== 'DOMAIN') {
       return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
     }
+
+    const permDenied = await this.gatePermission(actor, requiredPermissionForKey(key));
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const auditActor = actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
+
     try {
       const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
@@ -1473,7 +1474,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             version,
             meta.effectiveFrom ?? null,
             Date.now(),
-            meta.actor,
+            auditActor,
             meta.reason,
             previous,
           );
@@ -1481,7 +1482,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             `INSERT INTO property_config_audit (key, actor, reason, before_json, after_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?)`,
             key,
-            meta.actor,
+            auditActor,
             meta.reason,
             previous,
             JSON.stringify(parsed),
@@ -1494,13 +1495,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               key,
               version,
               consumers: entry.consumers,
-              actor: meta.actor,
+              actor: auditActor,
             },
           });
-          // Same txn as the config write per spec: if this key's death mask reschedules
-          // the night audit, recompute + upsert `alarm_schedule.next_run_at` here so a
-          // crash between commit and `setAlarm` still leaves the table correct — the next
-          // `alarm()` / cold start reconciles `setAlarm` from `alarm_schedule`.
           const rescheduled = entry.consumers.reschedulesNightAudit && this.rescheduleNightAuditSync();
           const events: string[] = ['config.changed'];
           if (entry.consumers.invalidatesAri && this.invalidateAriSync()) {
@@ -2904,6 +2901,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * write. Implements catalog `reservations.cancel`. Fingerprint: `{ reservationId }`.
    */
   async tryCancelReservation(
+    actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
   ): Promise<
@@ -2912,9 +2910,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -3022,6 +3023,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * `reservations.modify`. Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate }`.
    */
   async tryModifyReservation(
+    actor: ActorContext,
     input: {
       reservationId: string;
       roomTypeId: string;
@@ -3038,9 +3040,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -3517,6 +3522,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Implements catalog `reservations.no_show`. Fingerprint: `{ reservationId }`.
    */
   async tryNoShow(
+    actor: ActorContext,
     input: { reservationId: string },
     idem: IdempotencyKey,
   ): Promise<
@@ -3528,9 +3534,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -3751,42 +3760,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
-  async upsertRestrictionDay(input: {
-    roomTypeId: string;
-    ratePlanId?: string;
-    stayDate: string;
-    minLos?: number | null;
-    maxLos?: number | null;
-    cta?: boolean;
-    ctd?: boolean;
-    stopSell?: boolean;
-  }): Promise<void> {
-    const ratePlanId = input.ratePlanId ?? TYPE_WIDE_RATE_PLAN;
-    const body = {
-      roomTypeId: input.roomTypeId,
-      ratePlanId,
-      stayDate: input.stayDate,
-      minLos: input.minLos ?? null,
-      maxLos: input.maxLos ?? null,
-      cta: input.cta ?? false,
-      ctd: input.ctd ?? false,
-      stopSell: input.stopSell ?? false,
-    };
-    const result = await this.tryUpsertRestrictionDay(
-      body,
-      {
-        key: `test-restrict-${crypto.randomUUID()}`,
-        fingerprint: await fingerprintPayload(body),
-      },
-    );
-    if (!result.ok) throw new Error(result.error);
-  }
-
   /**
    * Upsert a type-wide or rate-plan-specific `restriction_day` row. Implements catalog
    * `restrictions.upsert_day`. Fingerprint: full input body.
    */
   async tryUpsertRestrictionDay(
+    actor: ActorContext,
     input: {
       roomTypeId: string;
       ratePlanId: string;
@@ -3799,9 +3778,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     idem: IdempotencyKey,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 

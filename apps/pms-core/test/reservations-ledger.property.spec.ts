@@ -111,6 +111,7 @@ describe('PropertyDO sold ledger property tests', () => {
         const target = live[idx]!;
         const cancelInput = { reservationId: target.id };
         const result = await stub.tryCancelReservation(
+          TEST_OWNER_ACTOR,
           cancelInput,
           await idemFor(`x-${step}-${target.id}`, cancelInput),
         );
@@ -130,6 +131,7 @@ describe('PropertyDO sold ledger property tests', () => {
           departureDate: newDeparture,
         };
         const result = await stub.tryModifyReservation(
+          TEST_OWNER_ACTOR,
           modifyInput,
           await idemFor(`m-${step}-${target.id}`, modifyInput),
         );

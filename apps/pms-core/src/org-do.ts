@@ -43,6 +43,7 @@ import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
 import { SqlKeyStore } from './org-key-store.js';
+import { ORG_DO_TRANSPORT_BLOCKED_MESSAGE } from './org-do-transport.js';
 
 class GuestExistsError extends Error {
   constructor() {
@@ -92,6 +93,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   private readonly entitlementCache = new EntitlementDoCache();
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
+  private transportBlockedForTest = false;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -153,6 +155,17 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (this.env.HOSPAI_UNSAFE_LOCAL !== '1') {
       throw new Error(`${helper} requires HOSPAI_UNSAFE_LOCAL=1 (local only)`);
     }
+  }
+
+  private assertRpcAvailable(): void {
+    if (this.transportBlockedForTest) {
+      throw new Error(ORG_DO_TRANSPORT_BLOCKED_MESSAGE);
+    }
+  }
+
+  async setTransportBlockedForTest(blocked: boolean): Promise<void> {
+    this.assertUnsafeLocal('setTransportBlockedForTest');
+    this.transportBlockedForTest = blocked;
   }
 
   private outboxSourceSync(): EventSource {
@@ -386,6 +399,59 @@ export class OrgDO extends DurableObject<PmsEnv> {
       input.timeZone,
       input.status ?? 'active',
     );
+  }
+
+  /**
+   * Update property display name in the OrgDO mirror. Implements catalog
+   * `property.update_details` (OrgDO leg). Fingerprint: `{ propertyId, name }`.
+   */
+  async tryUpdatePropertyDetails(
+    actor: ActorContext,
+    propertyId: string,
+    input: { name: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; propertyId: string; name: string }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'config:write');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT jurisdiction, time_zone, status FROM property_ref WHERE property_id = ?`,
+              propertyId,
+            )
+            .toArray() as Array<{ jurisdiction: string | null; time_zone: string; status: string }>;
+          if (!existing[0]) {
+            return { ok: false as const, error: 'property_ref_not_found' };
+          }
+          this.ctx.storage.sql.exec(
+            `UPDATE property_ref SET name = ? WHERE property_id = ?`,
+            input.name,
+            propertyId,
+          );
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'property.updated',
+            payload: { orgId, propertyId, name: input.name },
+          });
+          return { ok: true as const, propertyId, name: input.name };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   async listPropertyRefs(): Promise<

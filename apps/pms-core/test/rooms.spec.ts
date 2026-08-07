@@ -295,6 +295,7 @@ describe('PropertyDO rooms + housekeeping', () => {
     });
     expect(
       await stub.tryCancelReservation(
+        TEST_OWNER_ACTOR,
         { reservationId: 'res_c' },
         await idemFor('cancel-c', { reservationId: 'res_c' }),
       ),

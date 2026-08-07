@@ -10,12 +10,12 @@ import {
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { ensureEntitledMeta, idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 
-async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
+async function configIdem(key: string, value: unknown, meta: { reason: string }) {
   const fingerprint = await fingerprintPayload({
     key,
     value,
-    actor: meta.actor,
     reason: meta.reason,
   });
   return { key: `idem-${key}-${fingerprint.slice(0, 12)}`, fingerprint };
@@ -63,15 +63,16 @@ describe('PropertyDO freeze gate', () => {
     const name = `cfg-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await ensureEntitledMeta(stub, name);
-    const meta = { actor: 'tester', reason: 'verification' };
+    const meta = { reason: 'verification' };
     const idem = await configIdem('pms.availability.allow_overbooking', true, meta);
-    const put = await stub.tryPutDomainConfig('pms.availability.allow_overbooking', true, meta, idem);
+    const put = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 'pms.availability.allow_overbooking', true, meta, idem);
     expect(put.ok).toBe(true);
     if (put.ok) expect(put.events).toContain('config.changed');
     expect(await stub.readConfig('pms.availability.allow_overbooking')).toBe(true);
     expect(await stub.outboxUnackedCount()).toBeGreaterThanOrEqual(1);
 
     const rejected = await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
       'pms.ui.date_format',
       'ISO',
       meta,
@@ -84,18 +85,18 @@ describe('PropertyDO freeze gate', () => {
     const name = `idem-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await ensureEntitledMeta(stub, name);
-    const meta = { actor: 'tester', reason: 'replay' };
+    const meta = { reason: 'replay' };
     const key = 'pms.availability.allow_overbooking';
     const idem = {
       key: 'fixed-key-1',
-      fingerprint: await fingerprintPayload({ key, value: true, actor: meta.actor, reason: meta.reason }),
+      fingerprint: await fingerprintPayload({ key, value: true, reason: meta.reason }),
     };
-    const first = await stub.tryPutDomainConfig(key, true, meta, idem);
+    const first = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, idem);
     expect(first.ok).toBe(true);
     const version1 = first.ok ? first.version : -1;
     expect(await stub.outboxUnackedCount()).toBe(1);
 
-    const second = await stub.tryPutDomainConfig(key, true, meta, idem);
+    const second = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, idem);
     expect(second.ok).toBe(true);
     if (second.ok) expect(second.version).toBe(version1);
     expect(await stub.outboxUnackedCount()).toBe(1);
@@ -105,15 +106,15 @@ describe('PropertyDO freeze gate', () => {
     const name = `idem-conflict-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await ensureEntitledMeta(stub, name);
-    const meta = { actor: 'tester', reason: 'conflict' };
+    const meta = { reason: 'conflict' };
     const key = 'pms.availability.allow_overbooking';
-    await stub.tryPutDomainConfig(key, true, meta, {
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, {
       key: 'fixed-key-2',
-      fingerprint: await fingerprintPayload({ key, value: true, actor: meta.actor, reason: meta.reason }),
+      fingerprint: await fingerprintPayload({ key, value: true, reason: meta.reason }),
     });
-    const conflict = await stub.tryPutDomainConfig(key, false, meta, {
+    const conflict = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, false, meta, {
       key: 'fixed-key-2',
-      fingerprint: await fingerprintPayload({ key, value: false, actor: meta.actor, reason: meta.reason }),
+      fingerprint: await fingerprintPayload({ key, value: false, reason: meta.reason }),
     });
     expect(conflict).toEqual({ ok: false, error: IDEM_KEY_REUSED });
     expect(await stub.readConfig(key)).toBe(true);
@@ -123,11 +124,11 @@ describe('PropertyDO freeze gate', () => {
     const name = `flush-${crypto.randomUUID()}`;
     const stub = propertyStub(name);
     await ensureEntitledMeta(stub, name);
-    const meta = { actor: 'tester', reason: 'flush' };
+    const meta = { reason: 'flush' };
     const key = 'pms.availability.allow_overbooking';
-    await stub.tryPutDomainConfig(key, true, meta, {
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, {
       key: 'fixed-key-3',
-      fingerprint: await fingerprintPayload({ key, value: true, actor: meta.actor, reason: meta.reason }),
+      fingerprint: await fingerprintPayload({ key, value: true, reason: meta.reason }),
     });
     const drained = await stub.drainOutboxBatch();
     expect(drained.length).toBeGreaterThanOrEqual(1);
@@ -136,9 +137,9 @@ describe('PropertyDO freeze gate', () => {
     expect(await stub.outboxUnackedCount()).toBe(0);
 
     // second write + flushOutbox
-    await stub.tryPutDomainConfig(key, false, meta, {
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, false, meta, {
       key: 'fixed-key-4',
-      fingerprint: await fingerprintPayload({ key, value: false, actor: meta.actor, reason: meta.reason }),
+      fingerprint: await fingerprintPayload({ key, value: false, reason: meta.reason }),
     });
     const flushed = await stub.flushOutbox();
     expect(flushed.flushed).toBeGreaterThanOrEqual(1);
@@ -149,21 +150,31 @@ describe('PropertyDO freeze gate', () => {
     const stub = propertyStub(`rest-${crypto.randomUUID()}`);
     await stub.ensureMetaPropertyId('rest-test');
     await ensureEntitledMeta(stub);
-    await stub.upsertRestrictionDay({
+    const restrictionBody = {
       roomTypeId: 'rt_king',
+      ratePlanId: TYPE_WIDE_RATE_PLAN,
       stayDate: '2026-08-01',
       minLos: 2,
-    });
-    await stub.upsertRestrictionDay({
-      roomTypeId: 'rt_king',
-      stayDate: '2026-08-01',
-      minLos: 5,
-    });
-    await stub.upsertRestrictionDay({
-      roomTypeId: 'rt_king',
-      stayDate: '2026-08-01',
-      minLos: 9,
-    });
+      maxLos: null,
+      cta: false,
+      ctd: false,
+      stopSell: false,
+    };
+    await stub.tryUpsertRestrictionDay(
+      TEST_OWNER_ACTOR,
+      restrictionBody,
+      await idemFor('rest-1', restrictionBody),
+    );
+    await stub.tryUpsertRestrictionDay(
+      TEST_OWNER_ACTOR,
+      { ...restrictionBody, minLos: 5 },
+      await idemFor('rest-2', { ...restrictionBody, minLos: 5 }),
+    );
+    await stub.tryUpsertRestrictionDay(
+      TEST_OWNER_ACTOR,
+      { ...restrictionBody, minLos: 9 },
+      await idemFor('rest-3', { ...restrictionBody, minLos: 9 }),
+    );
     expect(await stub.countRestrictionDays('rt_king', '2026-08-01')).toBe(1);
   });
 

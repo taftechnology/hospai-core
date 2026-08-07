@@ -300,13 +300,13 @@ describe('PropertyDO night audit', () => {
     const idem = await idemFor('audit-time-change', {
       key: 'pms.night_audit.audit_time',
       value: '05:30',
-      actor: 'test:matrix',
       reason: 'test:reschedule',
     });
     const result = await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
       'pms.night_audit.audit_time',
       '05:30',
-      { actor: 'test:matrix', reason: 'test:reschedule' },
+      { reason: 'test:reschedule' },
       idem,
     );
     expect(result.ok).toBe(true);
@@ -327,13 +327,13 @@ describe('PropertyDO night audit', () => {
     const idem = await idemFor('non-reschedule-write', {
       key: 'pms.availability.allow_overbooking',
       value: true,
-      actor: 'test:matrix',
       reason: 'test:non-reschedule',
     });
     const result = await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
       'pms.availability.allow_overbooking',
       true,
-      { actor: 'test:matrix', reason: 'test:non-reschedule' },
+      { reason: 'test:non-reschedule' },
       idem,
     );
     expect(result.ok).toBe(true);

@@ -234,4 +234,16 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'patch_property_details',
+    scope: 'property',
+    permission: 'config:write',
+    commandId: 'property.update_details',
+  },
+  {
+    id: 'put_domain_config',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'config.put_domain',
+  },
 ];

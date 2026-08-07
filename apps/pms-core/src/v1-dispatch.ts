@@ -29,6 +29,8 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  ENTITLEMENT_REQUIRED,
+  ENTITLEMENT_UNAVAILABLE,
   UNBOOKABLE,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
@@ -38,6 +40,7 @@ import {
   SPLIT_AMOUNT_MISMATCH,
   fingerprintPayload,
   requireCatalogEntry,
+  requiredPermissionForKey,
   validateTenantId,
   type Permission,
   type IdempotencyKey,
@@ -63,7 +66,8 @@ import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import { createOrg, getOrg, getProperty } from './registry.js';
+import { createOrg, getOrg, getProperty, updatePropertyName } from './registry.js';
+import { isOrgDoTransportFailure } from './org-do-transport.js';
 
 function json(data: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(data, { status, headers });
@@ -120,6 +124,15 @@ function mapGuestCommandErrorStatus(error: string): number {
   if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
   if (error === 'not_member') return 404;
   if (error === 'org_id_unset') return 500;
+  return 422;
+}
+
+function mapConfigErrorStatus(error: string): number {
+  if (error.startsWith('undeclared:') || error.startsWith('Only DOMAIN config')) return 400;
+  if (error === IDEM_KEY_REUSED) return 409;
+  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
+  if (error === 'not_member') return 404;
+  if (error === ENTITLEMENT_REQUIRED || error === ENTITLEMENT_UNAVAILABLE) return 503;
   return 422;
 }
 
@@ -523,6 +536,114 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { name?: string; idempotencyKey?: string };
+  if (!body?.name || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const updated = await updatePropertyName(ctx.env, propertyId, body.name);
+  if (!updated) return json({ error: 'not_found' }, 404);
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const fingerprint = await fingerprintPayload({ propertyId, name: body.name });
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.tryUpdatePropertyDetails(
+      actor,
+      propertyId,
+      { name: body.name },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'config:write' }, 403);
+      }
+      if (result.error === 'property_ref_not_found') return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, result.error === IDEM_KEY_REUSED ? 409 : 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'property.update_details' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    key?: string;
+    value?: unknown;
+    reason?: string;
+    effectiveFrom?: string;
+    idempotencyKey?: string;
+  };
+  if (!body?.key || body.value === undefined || !body.reason || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const fingerprint = await fingerprintPayload({
+    key: body.key,
+    value: body.value,
+    reason: body.reason,
+  });
+  const meta = {
+    reason: body.reason,
+    ...(body.effectiveFrom !== undefined ? { effectiveFrom: body.effectiveFrom } : {}),
+  };
+
+  try {
+    const result = await resolvedCtx.resolved.stub.tryPutDomainConfig(
+      actor,
+      body.key,
+      body.value,
+      meta,
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      let perm: Permission = 'settings:configure';
+      try {
+        perm = requiredPermissionForKey(body.key);
+      } catch {
+        /* undeclared — mapConfigErrorStatus handles */
+      }
+      if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: perm }, 403);
+      }
+      return json({ ok: false, error: result.error }, mapConfigErrorStatus(result.error));
+    }
+    return json({ ok: true, key: result.key, version: result.version, events: result.events }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return json(
+        { error: 'property_unreachable', degraded: 'FAIL_CLOSED', commandId: 'config.put_domain' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
 async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -870,6 +991,7 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
   });
 
   const result = await resolvedCtx.resolved.stub.tryModifyReservation(
+    { kind: 'user', userId: ctx.actor.userId },
     {
       reservationId,
       roomTypeId: body.roomTypeId,
@@ -928,6 +1050,7 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
 
   const fingerprint = await fingerprintPayload({ reservationId });
   const result = await resolvedCtx.resolved.stub.tryCancelReservation(
+    { kind: 'user', userId: ctx.actor.userId },
     { reservationId },
     { key: body.idempotencyKey, fingerprint },
   );
@@ -1028,7 +1151,7 @@ async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Resp
     reservationId,
     'reservations.no_show',
     'post_reservation_no_show',
-    (stub, _actor, idem) => stub.tryNoShow({ reservationId }, idem),
+    (stub, actor, idem) => stub.tryNoShow(actor, { reservationId }, idem),
   );
 }
 
@@ -1142,7 +1265,9 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
     stopSell: body.stopSell ?? false,
   });
 
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const result = await resolvedCtx.resolved.stub.tryUpsertRestrictionDay(
+    actor,
     {
       roomTypeId: body.roomTypeId,
       ratePlanId,
@@ -2236,6 +2361,22 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'guests:read',
     entitlement: 'pms.core',
     handler: handleGetGuest,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)$/,
+    permission: 'config:write',
+    commandId: 'property.update_details',
+    handler: handlePatchPropertyDetails,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/config\/domain$/,
+    permission: 'settings:configure',
+    commandId: 'config.put_domain',
+    handler: handlePutDomainConfig,
   },
 ];
 

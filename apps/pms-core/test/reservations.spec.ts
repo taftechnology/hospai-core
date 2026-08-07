@@ -177,17 +177,17 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const name = `res-oversell-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
 
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.allow_overbooking',
       true,
-      { actor: 'test', reason: 'oversell' },
-      await idemFor('cfg-over', { key: 'pms.availability.allow_overbooking', value: true, actor: 'test', reason: 'oversell' }),
+      { reason: 'oversell' },
+      await idemFor('cfg-over', { key: 'pms.availability.allow_overbooking', value: true, reason: 'oversell' }),
     );
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.oversell_allowance',
       1,
-      { actor: 'test', reason: 'oversell' },
-      await idemFor('cfg-allow', { key: 'pms.availability.oversell_allowance', value: 1, actor: 'test', reason: 'oversell' }),
+      { reason: 'oversell' },
+      await idemFor('cfg-allow', { key: 'pms.availability.oversell_allowance', value: 1, reason: 'oversell' }),
     );
 
     const added = await addRoomType(stub, 'rt_king', 1);
@@ -226,17 +226,17 @@ describe('PropertyDO reservations.create + availability.book', () => {
       oversell: 2,
     });
 
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.allow_overbooking',
       true,
-      { actor: 'test', reason: 'oversell' },
-      await idemFor('cfg-dc', { key: 'pms.availability.allow_overbooking', value: true, actor: 'test', reason: 'oversell' }),
+      { reason: 'oversell' },
+      await idemFor('cfg-dc', { key: 'pms.availability.allow_overbooking', value: true, reason: 'oversell' }),
     );
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.oversell_allowance',
       2,
-      { actor: 'test', reason: 'oversell' },
-      await idemFor('cfg-dc2', { key: 'pms.availability.oversell_allowance', value: 2, actor: 'test', reason: 'oversell' }),
+      { reason: 'oversell' },
+      await idemFor('cfg-dc2', { key: 'pms.availability.oversell_allowance', value: 2, reason: 'oversell' }),
     );
 
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;
@@ -270,25 +270,23 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const arrival = added.fromDate;
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
 
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.allow_overbooking',
       true,
-      { actor: 'test', reason: 'oversell-after-seed' },
+      { reason: 'oversell-after-seed' },
       await idemFor('cfg-after-over', {
         key: 'pms.availability.allow_overbooking',
         value: true,
-        actor: 'test',
         reason: 'oversell-after-seed',
       }),
     );
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.oversell_allowance',
       1,
-      { actor: 'test', reason: 'oversell-after-seed' },
+      { reason: 'oversell-after-seed' },
       await idemFor('cfg-after-allow', {
         key: 'pms.availability.oversell_allowance',
         value: 1,
-        actor: 'test',
         reason: 'oversell-after-seed',
       }),
     );
@@ -325,25 +323,23 @@ describe('PropertyDO reservations.create + availability.book', () => {
     const activeAdded = await addRoomType(stub, 'rt_queen', 3, 'QUEEN', 'Queen Room');
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.oversell).toBe(0);
 
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.allow_overbooking',
       true,
-      { actor: 'test', reason: 'oversell-arch' },
+      { reason: 'oversell-arch' },
       await idemFor('cfg-arch-over', {
         key: 'pms.availability.allow_overbooking',
         value: true,
-        actor: 'test',
         reason: 'oversell-arch',
       }),
     );
-    await stub.tryPutDomainConfig(
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       'pms.availability.oversell_allowance',
       2,
-      { actor: 'test', reason: 'oversell-arch' },
+      { reason: 'oversell-arch' },
       await idemFor('cfg-arch-allow', {
         key: 'pms.availability.oversell_allowance',
         value: 2,
-        actor: 'test',
         reason: 'oversell-arch',
       }),
     );
@@ -399,7 +395,7 @@ describe('PropertyDO reservations.cancel', () => {
     await stub.flushOutbox();
 
     const cancelInput = { reservationId: 'res_cancel_1' };
-    const cancelResult = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-1', cancelInput));
+    const cancelResult = await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, await idemFor('cancel-1', cancelInput));
     expect(cancelResult).toMatchObject({ ok: true, reservationId: 'res_cancel_1' });
     expect(await stub.getReservationStatus('res_cancel_1')).toBe('cancelled');
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
@@ -426,11 +422,11 @@ describe('PropertyDO reservations.cancel', () => {
     expect(await stub.tryCreateReservation(TEST_OWNER_ACTOR, bookInput, await idemFor('book-dbl', bookInput))).toMatchObject({ ok: true });
 
     const cancelInput = { reservationId: 'res_dbl' };
-    expect(await stub.tryCancelReservation(cancelInput, await idemFor('cancel-dbl-1', cancelInput))).toMatchObject({
+    expect(await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, await idemFor('cancel-dbl-1', cancelInput))).toMatchObject({
       ok: true,
     });
 
-    const again = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-dbl-2', cancelInput));
+    const again = await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, await idemFor('cancel-dbl-2', cancelInput));
     expect(again).toEqual({ ok: false, error: ALREADY_CANCELLED });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
   });
@@ -457,8 +453,8 @@ describe('PropertyDO reservations.cancel', () => {
 
     const cancelInput = { reservationId: 'res_idem_cancel' };
     const idem = await idemFor('cancel-idem', cancelInput);
-    expect(await stub.tryCancelReservation(cancelInput, idem)).toMatchObject({ ok: true });
-    expect(await stub.tryCancelReservation(cancelInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, idem)).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
   });
 
@@ -488,7 +484,7 @@ describe('PropertyDO reservations.cancel', () => {
     });
 
     const cancelInput = { reservationId: 'res_under' };
-    const result = await stub.tryCancelReservation(cancelInput, await idemFor('cancel-under', cancelInput));
+    const result = await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancelInput, await idemFor('cancel-under', cancelInput));
     expect(result).toEqual({ ok: false, error: LEDGER_INCONSISTENT, date: arrival });
     expect(await stub.getReservationStatus('res_under')).toBe('confirmed');
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
@@ -528,7 +524,7 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: arrival,
       departureDate: extendedDeparture,
     };
-    const result = await stub.tryModifyReservation(modifyInput, await idemFor('mod-ext', modifyInput));
+    const result = await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, await idemFor('mod-ext', modifyInput));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_ext' });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
     expect((await stub.readAvailabilityDay('rt_king', addDays(arrival, 1)))?.sold).toBe(1);
@@ -561,7 +557,7 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: arrival,
       departureDate: shortenedDeparture,
     };
-    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-short', modifyInput))).toMatchObject({
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, await idemFor('mod-short', modifyInput))).toMatchObject({
       ok: true,
     });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
@@ -594,7 +590,7 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: arrival,
       departureDate: departure,
     };
-    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-rt', modifyInput))).toMatchObject({
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, await idemFor('mod-rt', modifyInput))).toMatchObject({
       ok: true,
     });
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
@@ -641,7 +637,7 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: arrival,
       departureDate: extendedDeparture,
     };
-    const result = await stub.tryModifyReservation(modifyInput, await idemFor('mod-full', modifyInput));
+    const result = await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, await idemFor('mod-full', modifyInput));
     expect(result).toMatchObject({
       ok: false,
       error: NO_AVAILABILITY,
@@ -678,8 +674,8 @@ describe('PropertyDO reservations.modify', () => {
       departureDate: extendedDeparture,
     };
     const idem = await idemFor('mod-idem', modifyInput);
-    expect(await stub.tryModifyReservation(modifyInput, idem)).toMatchObject({ ok: true });
-    expect(await stub.tryModifyReservation(modifyInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, idem)).toMatchObject({ ok: true });
     expect((await stub.readAvailabilityDay('rt_king', addDays(arrival, 1)))?.sold).toBe(1);
   });
 
@@ -701,7 +697,7 @@ describe('PropertyDO reservations.modify', () => {
       ok: true,
     });
     expect(
-      await stub.tryCancelReservation(
+      await stub.tryCancelReservation(TEST_OWNER_ACTOR, 
         { reservationId: 'res_mod_cancel' },
         await idemFor('cancel-mod', { reservationId: 'res_mod_cancel' }),
       ),
@@ -713,7 +709,7 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: arrival,
       departureDate: addDays(arrival, 2),
     };
-    expect(await stub.tryModifyReservation(modifyInput, await idemFor('mod-cancel', modifyInput))).toEqual({
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modifyInput, await idemFor('mod-cancel', modifyInput))).toEqual({
       ok: false,
       error: NOT_MODIFIABLE,
     });
@@ -747,8 +743,8 @@ describe('PropertyDO reservations.modify', () => {
       arrivalDate: added.fromDate,
       departureDate: addDays(added.fromDate, 3),
     };
-    // tryModifyReservation still ungated for actor in this slice — call as today
-    expect(await stub.tryModifyReservation(modInput, await idemFor('mod-legacy', modInput))).toMatchObject({
+    // tryModifyReservation is gated on reservations:write — owner actor for tests
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modInput, await idemFor('mod-legacy', modInput))).toMatchObject({
       ok: true,
     });
   });
@@ -793,7 +789,7 @@ describe('PropertyDO reservation precondition replay', () => {
       date: arrival,
     });
 
-    await stub.tryCancelReservation(
+    await stub.tryCancelReservation(TEST_OWNER_ACTOR, 
       { reservationId: 'res_block' },
       await idemFor('cancel-block', { reservationId: 'res_block' }),
     );
@@ -850,7 +846,7 @@ describe('PropertyDO reservation precondition replay', () => {
       ctd: false,
       stopSell: false,
     };
-    expect(await stub.tryUpsertRestrictionDay(strict, await idemFor('ups-strict', strict))).toMatchObject({
+    expect(await stub.tryUpsertRestrictionDay(TEST_OWNER_ACTOR, strict, await idemFor('ups-strict', strict))).toMatchObject({
       ok: true,
     });
 
@@ -871,7 +867,7 @@ describe('PropertyDO reservation precondition replay', () => {
     });
 
     const relaxed = { ...strict, minLos: 1 };
-    expect(await stub.tryUpsertRestrictionDay(relaxed, await idemFor('ups-relaxed', relaxed))).toMatchObject({
+    expect(await stub.tryUpsertRestrictionDay(TEST_OWNER_ACTOR, relaxed, await idemFor('ups-relaxed', relaxed))).toMatchObject({
       ok: true,
     });
 
@@ -980,7 +976,7 @@ describe('PropertyDO front-desk status machine', () => {
     await bookConfirmed(stub, guestRef, 'res_ns', 'rt_king', added.fromDate, departure);
     expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.sold).toBe(1);
 
-    const result = await stub.tryNoShow({ reservationId: 'res_ns' }, await idemFor('ns', { reservationId: 'res_ns' }));
+    const result = await stub.tryNoShow(TEST_OWNER_ACTOR, { reservationId: 'res_ns' }, await idemFor('ns', { reservationId: 'res_ns' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_ns' });
     expect(await stub.getReservationStatus('res_ns')).toBe('no_show');
     expect((await stub.readAvailabilityDay('rt_king', added.fromDate))?.sold).toBe(0);
@@ -994,7 +990,7 @@ describe('PropertyDO front-desk status machine', () => {
     const futureDeparture = addDays(futureArrival, 2);
     await bookConfirmed(stub, guestRef, 'res_ns_early', 'rt_king', futureArrival, futureDeparture);
 
-    const result = await stub.tryNoShow(
+    const result = await stub.tryNoShow(TEST_OWNER_ACTOR, 
       { reservationId: 'res_ns_early' },
       await idemFor('ns-early', { reservationId: 'res_ns_early' }),
     );

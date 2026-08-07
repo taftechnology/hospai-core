@@ -3,14 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseLogLine } from '@hospai/observability';
 import { OUTBOX_BACKLOG_DELAY_MS } from '@hospai/do-runtime';
 import { fingerprintPayload } from '@hospai/contracts';
-import { provisionedPropertyStub } from './fixtures';
+import { provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
-async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
+async function configIdem(key: string, value: unknown, meta: { reason: string }) {
   const fingerprint = await fingerprintPayload({
     key,
     value,
-    actor: meta.actor,
-    reason: meta.reason,
+        reason: meta.reason,
   });
   return { key: `idem-${key}-${fingerprint.slice(0, 12)}`, fingerprint };
 }
@@ -56,10 +55,10 @@ describe('LaneGuard (Phase 0)', () => {
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     await stub.resetLaneGuardForTest({ quietMs: 250 });
 
-    const meta = { actor: 'tester', reason: 'laneguard-defer' };
+    const meta = { reason: 'laneguard-defer' };
     const key = 'pms.availability.allow_overbooking';
     expect(
-      await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta)),
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, await configIdem(key, true, meta)),
     ).toMatchObject({ ok: true });
 
     const unackedBefore = await stub.outboxUnackedCount();
@@ -94,10 +93,10 @@ describe('LaneGuard (Phase 0)', () => {
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     await stub.resetLaneGuardForTest({ quietMs: 50 });
 
-    const meta = { actor: 'tester', reason: 'laneguard-quiet' };
+    const meta = { reason: 'laneguard-quiet' };
     const key = 'pms.availability.allow_overbooking';
     expect(
-      await stub.tryPutDomainConfig(key, false, meta, await configIdem(key, false, meta)),
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, false, meta, await configIdem(key, false, meta)),
     ).toMatchObject({ ok: true });
     expect(await stub.outboxUnackedCount()).toBeGreaterThan(0);
 

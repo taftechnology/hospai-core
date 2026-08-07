@@ -7,9 +7,11 @@ import {
   PLATFORM_GAPS,
   PROTOTYPE_ACTIONS,
   PROTOTYPE_CONFIG_KEYS,
+  V1_HTTP_ROUTE_AUDIT,
   assertRegisterInvariants,
   domainConfigKeys,
   isStructuredCloneable,
+  requiredPermissionForKey,
 } from './index.js';
 
 /** Expected prototype config keys (89) — must match register.prototypeKey set. */
@@ -265,6 +267,58 @@ describe('command catalog', () => {
     const c = COMMAND_CATALOG.find((x) => x.id === 'guests.erase');
     expect(c?.degraded).toBe('FAIL_CLOSED');
     expect(c?.permission).toBe('guests:erase');
+  });
+
+  it('DOMAIN keys: exactly two inventory:configure; rest settings:configure', () => {
+    const domain = domainConfigKeys();
+    const inventory = domain
+      .filter((e) => e.permission === 'inventory:configure')
+      .map((e) => e.key)
+      .sort();
+    expect(inventory).toEqual([
+      'pms.availability.allow_overbooking',
+      'pms.availability.oversell_allowance',
+    ]);
+    for (const e of domain) {
+      if (!inventory.includes(e.key)) {
+        expect(e.permission, e.key).toBe('settings:configure');
+      }
+    }
+  });
+
+  it('requiredPermissionForKey mirrors register for inventory and settings keys', () => {
+    expect(requiredPermissionForKey('pms.availability.allow_overbooking')).toBe('inventory:configure');
+    expect(requiredPermissionForKey('pms.time.time_zone')).toBe('settings:configure');
+  });
+
+  it('property.update_details is FAIL_CLOSED with tenancy opt-out; config.put_domain uses settings:configure', () => {
+    const details = COMMAND_CATALOG.find((c) => c.id === 'property.update_details');
+    expect(details?.degraded).toBe('FAIL_CLOSED');
+    expect(details?.permission).toBe('config:write');
+    expect(details?.entitlement).toBeUndefined();
+    expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.some((r) => r.id === 'property.update_details')).toBe(true);
+    const opt = ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((r) => r.id === 'property.update_details');
+    expect(opt?.reason).toMatch(/Tenancy metadata/i);
+    expect(opt?.reason).not.toMatch(/not yet gated at a DO boundary/i);
+
+    const put = COMMAND_CATALOG.find((c) => c.id === 'config.put_domain');
+    expect(put?.permission).toBe('settings:configure');
+    expect(put?.degraded).toBe('FAIL_CLOSED');
+  });
+
+  it('route audit 43–44 are patch_property_details then put_domain_config', () => {
+    expect(V1_HTTP_ROUTE_AUDIT[43]?.id).toBe('patch_property_details');
+    expect(V1_HTTP_ROUTE_AUDIT[44]?.id).toBe('put_domain_config');
+    expect(V1_HTTP_ROUTE_AUDIT[43]).toMatchObject({
+      scope: 'property',
+      permission: 'config:write',
+      commandId: 'property.update_details',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[44]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      commandId: 'config.put_domain',
+    });
   });
 });
 

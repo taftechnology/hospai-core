@@ -38,4 +38,8 @@ export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
   { id: 'housekeeping.staff_delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
   { id: 'staff.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
   { id: 'staff.delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  {
+    id: 'property.update_details',
+    reason: 'Tenancy metadata, not product data — no feature gate applies.',
+  },
 ];

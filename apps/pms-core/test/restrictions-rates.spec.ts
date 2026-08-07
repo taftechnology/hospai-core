@@ -44,7 +44,7 @@ describe('PropertyDO restrictions + rates', () => {
       ctd: false,
       stopSell: false,
     };
-    expect(await stub.tryUpsertRestrictionDay(restriction, await idemFor('ups-r', restriction))).toMatchObject({
+    expect(await stub.tryUpsertRestrictionDay(TEST_OWNER_ACTOR, restriction, await idemFor('ups-r', restriction))).toMatchObject({
       ok: true,
     });
 

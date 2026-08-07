@@ -5,16 +5,15 @@ import { outboxBacklogSnapshot } from '@hospai/do-runtime';
 import * as provision from '../src/provision.js';
 import worker from '../src/index.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, cancelSubscription } from '../src/registry.js';
-import { provisionedOrg, provisionedPropertyStub } from './fixtures';
+import { provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 import { createGuest } from './guest-helpers';
 import { fingerprintPayload } from '@hospai/contracts';
 
-async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
+async function configIdem(key: string, value: unknown, meta: { reason: string }) {
   const fingerprint = await fingerprintPayload({
     key,
     value,
-    actor: meta.actor,
-    reason: meta.reason,
+        reason: meta.reason,
   });
   return { key: `idem-${key}-${fingerprint.slice(0, 12)}`, fingerprint };
 }
@@ -257,10 +256,10 @@ describe('observability (Phase 0)', () => {
   it('getOutboxBacklog RPC exposes oldest unacked created_at', async () => {
     const name = `prop_backlog_${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'backlog-rpc' };
+    const meta = { reason: 'backlog-rpc' };
     const key = 'pms.availability.allow_overbooking';
     expect(
-      await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta)),
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, await configIdem(key, true, meta)),
     ).toMatchObject({ ok: true });
 
     const backlog = await stub.getOutboxBacklog();
@@ -271,10 +270,10 @@ describe('observability (Phase 0)', () => {
   it('outbox.flush log includes backlog age when rows were flushed', async () => {
     const name = `prop_flush_${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'flush-log' };
+    const meta = { reason: 'flush-log' };
     const key = 'pms.availability.allow_overbooking';
     expect(
-      await stub.tryPutDomainConfig(key, false, meta, await configIdem(key, false, meta)),
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, false, meta, await configIdem(key, false, meta)),
     ).toMatchObject({ ok: true });
     expect((await stub.getOutboxBacklog()).oldestCreatedAt).not.toBeNull();
 
@@ -304,11 +303,11 @@ describe('observability (Phase 0)', () => {
   it('outbox.flush log carries oldest_created_at when backlog remains', async () => {
     const name = `prop_partial_${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'partial-flush' };
+    const meta = { reason: 'partial-flush' };
     const key = 'pms.availability.allow_overbooking';
     for (const value of [true, false]) {
       expect(
-        await stub.tryPutDomainConfig(key, value, meta, await configIdem(`${key}-${value}`, value, meta)),
+        await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, value, meta, await configIdem(`${key}-${value}`, value, meta)),
       ).toMatchObject({ ok: true });
     }
     expect(await stub.outboxUnackedCount()).toBeGreaterThanOrEqual(2);
@@ -344,10 +343,10 @@ describe('observability (Phase 0)', () => {
   it('outbox.flush_failed logs backlog snapshot when sendBatch throws', async () => {
     const name = `prop_fail_${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'flush-fail-log' };
+    const meta = { reason: 'flush-fail-log' };
     const key = 'pms.availability.allow_overbooking';
     expect(
-      await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta)),
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, await configIdem(key, true, meta)),
     ).toMatchObject({ ok: true });
     expect((await stub.getOutboxBacklog()).unackedCount).toBeGreaterThan(0);
 

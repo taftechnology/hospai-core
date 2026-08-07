@@ -309,6 +309,17 @@ export async function insertProperty(
   };
 }
 
+export async function updatePropertyName(
+  env: PmsEnv,
+  propertyId: string,
+  name: string,
+): Promise<boolean> {
+  const result = await env.PLATFORM_DB.prepare(`UPDATE property SET name = ? WHERE property_id = ?`)
+    .bind(name, propertyId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
 /** Test helper: attempt to mutate jurisdiction (must abort when trigger is present). */
 export async function tryUpdatePropertyJurisdiction(
   env: PmsEnv,

@@ -8,15 +8,14 @@ import { handleDomainEvent } from '../src/event-consumer.js';
 import type { PmsEnv } from '../src/env.js';
 import type { OrgDO } from '../src/org-do.js';
 import type { PropertyDO } from '../src/property-do.js';
-import { provisionedOrg, provisionedPropertyStub } from './fixtures';
+import { provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 import { createGuest } from './guest-helpers';
 
-async function configIdem(key: string, value: unknown, meta: { actor: string; reason: string }) {
+async function configIdem(key: string, value: unknown, meta: { reason: string }) {
   const fingerprint = await fingerprintPayload({
     key,
     value,
-    actor: meta.actor,
-    reason: meta.reason,
+        reason: meta.reason,
   });
   return { key: `idem-${key}-${fingerprint.slice(0, 12)}`, fingerprint };
 }
@@ -61,9 +60,9 @@ describe('Queues consumer (Phase 0)', () => {
   it('config put → flush → consumer receives config.changed', async () => {
     const name = `evt-cfg-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'queue-proof' };
+    const meta = { reason: 'queue-proof' };
     const key = 'pms.availability.allow_overbooking';
-    const put = await stub.tryPutDomainConfig(
+    const put = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
       key,
       true,
       meta,
@@ -162,9 +161,9 @@ describe('Queues consumer (Phase 0)', () => {
   it('flush deliver failure leaves rows unacked; retry delivers once', async () => {
     const name = `evt-fail-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'fail-send' };
+    const meta = { reason: 'fail-send' };
     const key = 'pms.availability.allow_overbooking';
-    await stub.tryPutDomainConfig(key, true, meta, await configIdem(key, true, meta));
+    await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, await configIdem(key, true, meta));
 
     const source = { do: 'property' as const, id: name };
     const preview = await stub.drainOutboxBatch();
@@ -185,10 +184,10 @@ describe('Queues consumer (Phase 0)', () => {
   it('backlog-aware reschedule sets next outbox run within catch-up delay', async () => {
     const name = `evt-backlog-${crypto.randomUUID()}`;
     const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    const meta = { actor: 'tester', reason: 'backlog' };
+    const meta = { reason: 'backlog' };
     const key = 'pms.availability.allow_overbooking';
     for (let i = 0; i < 3; i++) {
-      await stub.tryPutDomainConfig(
+      await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
         key,
         i % 2 === 0,
         meta,

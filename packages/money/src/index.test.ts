@@ -3,9 +3,11 @@ import {
   add,
   allocate,
   assertPostedMatches,
+  computeTax,
   currencyCode,
   CurrencyMismatchError,
   InvalidFxRateError,
+  InvalidTaxRateError,
   LedgerAmountMismatchError,
   InvalidMoneyError,
   money,
@@ -62,6 +64,28 @@ describe('roundHalfAwayFromZero', () => {
     expect(pos).toBe(3n);
     expect(neg).toBe(-3n);
     expect(pos + neg).toBe(0n);
+  });
+});
+
+describe('computeTax', () => {
+  it('computes 8.25% on 10000 minor', () => {
+    expect(computeTax(10_000, '0.0825')).toBe(825);
+  });
+
+  it('rounds half away from zero', () => {
+    expect(computeTax(1000, '0.0825')).toBe(83);
+  });
+
+  it('rejects negative rate', () => {
+    expect(() => computeTax(100, '-0.01')).toThrow(InvalidTaxRateError);
+  });
+
+  it('rejects non-decimal rate', () => {
+    expect(() => computeTax(100, '1.2.3')).toThrow(InvalidTaxRateError);
+  });
+
+  it('rejects non-integer base', () => {
+    expect(() => computeTax(1.5, '0.1')).toThrow(InvalidMoneyError);
   });
 });
 

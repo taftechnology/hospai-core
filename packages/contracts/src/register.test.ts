@@ -14,7 +14,7 @@ import {
   requiredPermissionForKey,
 } from './index.js';
 
-/** Expected prototype config keys (89) — must match register.prototypeKey set. */
+/** Expected prototype config keys (88) — must match register.prototypeKey set. */
 const EXPECTED_PROTOTYPE_KEYS = [
   'pms_amenities_checklist',
   'pms_booking_engine_settings',
@@ -103,7 +103,6 @@ const EXPECTED_PROTOTYPE_KEYS = [
   'pms_sys_time_format',
   'pms_sys_time_zone',
   'pms_sys_week_start',
-  'pms_tax_registry',
   'pms_tickets_settings',
 ] as const;
 
@@ -112,8 +111,8 @@ describe('config register', () => {
     expect(() => assertRegisterInvariants()).not.toThrow();
   });
 
-  it('classifies all 89 prototype config keys', () => {
-    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(89);
+  it('classifies all 88 prototype config keys', () => {
+    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(88);
     expect(PROTOTYPE_CONFIG_KEYS).toEqual([...EXPECTED_PROTOTYPE_KEYS].sort());
     for (const k of EXPECTED_PROTOTYPE_KEYS) {
       expect(PROTOTYPE_CONFIG_KEYS).toContain(k);
@@ -129,7 +128,7 @@ describe('config register', () => {
     for (const e of domain) {
       const c = e.consumers;
       expect(
-        c.invalidatesAri || c.reschedulesNightAudit || c.affectsTaxMoney || c.rematerializesRates || e.consumersExempt,
+        c.invalidatesAri || c.reschedulesNightAudit || c.rematerializesRates || e.consumersExempt,
       ).toBe(true);
     }
   });

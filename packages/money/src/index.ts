@@ -47,6 +47,13 @@ export class InvalidFxRateError extends Error {
   }
 }
 
+export class InvalidTaxRateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTaxRateError';
+  }
+}
+
 export class CurrencyMismatchError extends Error {
   constructor(a: CurrencyCode, b: CurrencyCode) {
     super(`currency mismatch: ${a} vs ${b}`);
@@ -121,14 +128,49 @@ export function roundHalfAwayFromZero(numerator: bigint, denominator: bigint): b
   return (numerator - denominator / 2n) / denominator;
 }
 
-function parseFxRate(rate: FxRate): { num: bigint; den: bigint } {
-  const validated = validateFxRate(rate);
-  const negative = validated.startsWith('-');
-  const body = negative ? validated.slice(1) : validated;
+function parseDecimalRate(
+  rate: string,
+  opts: { allowNegative: boolean },
+): { num: bigint; den: bigint } {
+  const pattern = opts.allowNegative ? /^-?\d+(\.\d+)?$/ : /^\d+(\.\d+)?$/;
+  if (typeof rate !== 'string' || rate.length === 0 || !pattern.test(rate)) {
+    throw new InvalidTaxRateError('tax rate must be a non-empty non-negative decimal string');
+  }
+  const negative = rate.startsWith('-');
+  const body = negative ? rate.slice(1) : rate;
   const [whole, frac = ''] = body.split('.');
   const den = 10n ** BigInt(frac.length);
   const num = BigInt(whole + frac);
   return { num: negative ? -num : num, den };
+}
+
+function parseFxRate(rate: FxRate): { num: bigint; den: bigint } {
+  const validated = validateFxRate(rate);
+  return parseDecimalRate(validated, { allowNegative: true });
+}
+
+/** Validated non-negative decimal string for tax rates. */
+export function validateTaxRate(rate: string): string {
+  parseDecimalRate(rate, { allowNegative: false });
+  return rate;
+}
+
+export function parseTaxRate(rate: string): { num: bigint; den: bigint } {
+  validateTaxRate(rate);
+  return parseDecimalRate(rate, { allowNegative: false });
+}
+
+/** Percentage tax on a minor-unit base — BigInt path, half away from zero. */
+export function computeTax(baseMinor: number, rate: string): number {
+  if (!Number.isInteger(baseMinor)) {
+    throw new InvalidMoneyError('baseMinor must be an integer');
+  }
+  const { num, den } = parseTaxRate(rate);
+  const taxMinor = Number(roundHalfAwayFromZero(BigInt(baseMinor) * num, den));
+  if (!Number.isSafeInteger(taxMinor)) {
+    throw new InvalidMoneyError('tax amount overflow');
+  }
+  return taxMinor;
 }
 
 export function postToLedger(

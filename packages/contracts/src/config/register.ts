@@ -10,7 +10,6 @@ export type ConfigScope = z.infer<typeof ConfigScope>;
 export type ConfigConsumers = {
   invalidatesAri: boolean;
   reschedulesNightAudit: boolean;
-  affectsTaxMoney: boolean;
   rematerializesRates: boolean;
 };
 
@@ -33,13 +32,11 @@ export type ConfigEntry = {
 const none: ConfigConsumers = {
   invalidatesAri: false,
   reschedulesNightAudit: false,
-  affectsTaxMoney: false,
   rematerializesRates: false,
 };
 
 const ari: ConfigConsumers = { ...none, invalidatesAri: true };
 const night: ConfigConsumers = { ...none, reschedulesNightAudit: true };
-const tax: ConfigConsumers = { ...none, affectsTaxMoney: true };
 const rates: ConfigConsumers = { ...none, rematerializesRates: true };
 
 function entry(
@@ -99,7 +96,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: str,
     default: 'America/New_York',
-    consumers: { invalidatesAri: true, reschedulesNightAudit: true, affectsTaxMoney: false, rematerializesRates: true },
+    consumers: { invalidatesAri: true, reschedulesNightAudit: true, rematerializesRates: true },
   }),
   entry({
     key: 'pms.night_audit.audit_time',
@@ -115,7 +112,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: bool,
     default: true,
-    consumers: { invalidatesAri: true, reschedulesNightAudit: true, affectsTaxMoney: false, rematerializesRates: false },
+    consumers: { invalidatesAri: true, reschedulesNightAudit: true, rematerializesRates: false },
   }),
   entry({
     key: 'pms.night_audit.auto_extend',
@@ -163,15 +160,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: z.string().length(3),
     default: 'USD',
-    consumers: { invalidatesAri: false, reschedulesNightAudit: false, affectsTaxMoney: true, rematerializesRates: true },
-  }),
-  entry({
-    key: 'pms.money.tax_registry',
-    prototypeKey: 'pms_tax_registry',
-    class: 'DOMAIN',
-    schema: z.array(json),
-    default: [],
-    consumers: tax,
+    consumers: { invalidatesAri: false, reschedulesNightAudit: false, rematerializesRates: true },
   }),
   entry({
     key: 'pms.money.payment_alloc',
@@ -179,7 +168,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: bool,
     default: true,
-    consumers: tax,
+    consumersExempt: true,
   }),
   entry({
     key: 'pms.money.currencies_list',
@@ -187,7 +176,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: z.array(json),
     default: [],
-    consumers: { invalidatesAri: false, reschedulesNightAudit: false, affectsTaxMoney: true, rematerializesRates: true },
+    consumers: { invalidatesAri: false, reschedulesNightAudit: false, rematerializesRates: true },
   }),
   entry({
     key: 'pms.folio.breakfast_rule',
@@ -195,7 +184,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: str,
     default: 'EXCLUDED FROM ROOM/BED PRICE',
-    consumers: { invalidatesAri: false, reschedulesNightAudit: true, affectsTaxMoney: true, rematerializesRates: true },
+    consumers: { invalidatesAri: false, reschedulesNightAudit: true, rematerializesRates: true },
   }),
   entry({
     key: 'pms.folio.configs',
@@ -203,7 +192,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: json,
     default: {},
-    consumers: tax,
+    consumersExempt: true,
   }),
 
   // —— PRESENTATION ——
@@ -387,7 +376,7 @@ export function assertRegisterInvariants(): void {
     keys.add(e.key);
     if (e.class === 'DOMAIN' && !e.consumersExempt) {
       const c = e.consumers;
-      if (!c.invalidatesAri && !c.reschedulesNightAudit && !c.affectsTaxMoney && !c.rematerializesRates) {
+      if (!c.invalidatesAri && !c.reschedulesNightAudit && !c.rematerializesRates) {
         throw new Error(`DOMAIN key ${e.key} has no consumers`);
       }
     }

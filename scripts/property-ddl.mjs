@@ -36,6 +36,7 @@ let CHARGE_CODE_V14_SQL;
 let TAX_POSTING_V15_SQL;
 let CASHIERING_V16_SQL;
 let AUDIT_LOG_V17_SQL;
+let FRONT_DESK_READS_V18_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -62,6 +63,7 @@ try {
     TAX_POSTING_V15_SQL,
     CASHIERING_V16_SQL,
     AUDIT_LOG_V17_SQL,
+    FRONT_DESK_READS_V18_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -237,6 +239,16 @@ const doPropertyTargets = [
 
 `,
     sql: AUDIT_LOG_V17_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0018_front_desk_reads.sql'),
+    header: `-- PropertyDO front-desk list indexes — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Additive indexes only: departure_date + partial in-house (checked_in).
+
+`,
+    sql: FRONT_DESK_READS_V18_SQL,
   },
 ];
 

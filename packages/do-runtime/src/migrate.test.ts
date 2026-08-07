@@ -29,6 +29,7 @@ import {
   TAX_POSTING_V15_SQL,
   CASHIERING_V16_SQL,
   AUDIT_LOG_V17_SQL,
+  FRONT_DESK_READS_V18_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -132,9 +133,9 @@ describe('migrateSql', () => {
   it('applies property migrations through version 17', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(17);
+    expect(v1).toBe(18);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(17);
+    expect(v2).toBe(18);
     expect(sql.schemaVersion).toHaveLength(17);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
@@ -324,6 +325,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(AUDIT_LOG_V17_SQL.trim());
   });
 
+  it('migrations/do-property/0018_front_desk_reads.sql matches FRONT_DESK_READS_V18_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0018_front_desk_reads.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(FRONT_DESK_READS_V18_SQL.trim());
+  });
+
   it('migrations/do-property/0015_tax_posting.sql matches TAX_POSTING_V15_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-property/0015_tax_posting.sql');
@@ -445,7 +458,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(17);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(18);
     expect(ORG_SCHEMA_HEAD).toBe(4);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });

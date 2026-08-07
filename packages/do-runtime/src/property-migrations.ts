@@ -536,6 +536,16 @@ export const AUDIT_LOG_V17_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0017_audit_log.sql */
 export const AUDIT_LOG_V17_SQL = AUDIT_LOG_V17_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v18 — front-desk list indexes (departure + in-house partial). */
+export const FRONT_DESK_READS_V18_STATEMENTS: string[] = [
+  `CREATE INDEX reservation_departure_idx ON reservation (departure_date)`,
+  `CREATE INDEX reservation_in_house_idx
+  ON reservation (departure_date) WHERE status = 'checked_in'`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0018_front_desk_reads.sql */
+export const FRONT_DESK_READS_V18_SQL = FRONT_DESK_READS_V18_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -621,5 +631,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 17,
     name: 'audit_log',
     statements: AUDIT_LOG_V17_STATEMENTS,
+  },
+  {
+    version: 18,
+    name: 'front_desk_reads',
+    statements: FRONT_DESK_READS_V18_STATEMENTS,
   },
 ] as const;

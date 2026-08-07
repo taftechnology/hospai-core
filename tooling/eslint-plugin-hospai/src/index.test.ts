@@ -1,30 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import plugin from './index.js';
 
+const RULE_IDS = [
+  'no-id-from-name-outside-tenant-router',
+  'no-domain-config-from-kv',
+  'no-entitlement-in-domain',
+  'no-reservations-import-in-bookability',
+  'no-platform-import-in-domain',
+  'no-pms-importing-addons',
+  'no-non-cloneable-boundary-types',
+  'no-dom-in-client-core',
+  'no-fetch-in-components',
+] as const;
+
 describe('eslint-plugin-hospai', () => {
-  it('exports the seven §11 rules', () => {
-    expect(Object.keys(plugin.rules)).toEqual([
-      'no-id-from-name-outside-tenant-router',
-      'no-domain-config-from-kv',
-      'no-entitlement-in-domain',
-      'no-reservations-import-in-bookability',
-      'no-platform-import-in-domain',
-      'no-pms-importing-addons',
-      'no-non-cloneable-boundary-types',
-    ]);
+  it('exports the §11 + SPA boundary rules', () => {
+    expect(Object.keys(plugin.rules)).toEqual([...RULE_IDS]);
   });
 
-  it('enables all seven §11 rules in recommended', () => {
+  it('enables all rules in recommended', () => {
     const rules = plugin.configs.recommended.rules;
-    expect(Object.keys(rules)).toEqual([
-      'hospai/no-id-from-name-outside-tenant-router',
-      'hospai/no-domain-config-from-kv',
-      'hospai/no-entitlement-in-domain',
-      'hospai/no-reservations-import-in-bookability',
-      'hospai/no-platform-import-in-domain',
-      'hospai/no-pms-importing-addons',
-      'hospai/no-non-cloneable-boundary-types',
-    ]);
+    expect(Object.keys(rules)).toEqual(RULE_IDS.map((id) => `hospai/${id}`));
     for (const rule of Object.values(rules)) {
       expect(rule).toBe('error');
     }

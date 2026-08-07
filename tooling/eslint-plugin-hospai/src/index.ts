@@ -3,6 +3,8 @@
  * Keep this plugin dependency-light — no typescript-eslint utils.
  */
 
+import { noDomInClientCore } from './no-dom-in-client-core.js';
+import { noFetchInComponents } from './no-fetch-in-components.js';
 import { noNonCloneableBoundaryTypes } from './no-non-cloneable-boundary-types.js';
 
 export { CLASS_DENYLIST, CLASS_DENYLIST_SET } from './class-denylist.js';
@@ -286,6 +288,8 @@ export const rules = {
   'no-platform-import-in-domain': noPlatformImportInDomain,
   'no-pms-importing-addons': noPmsImportingAddons,
   'no-non-cloneable-boundary-types': noNonCloneableBoundaryTypes,
+  'no-dom-in-client-core': noDomInClientCore,
+  'no-fetch-in-components': noFetchInComponents,
 };
 
 const plugin = {
@@ -302,6 +306,8 @@ const plugin = {
         'hospai/no-platform-import-in-domain': 'error',
         'hospai/no-pms-importing-addons': 'error',
         'hospai/no-non-cloneable-boundary-types': 'error',
+        'hospai/no-dom-in-client-core': 'error',
+        'hospai/no-fetch-in-components': 'error',
       },
     },
   },

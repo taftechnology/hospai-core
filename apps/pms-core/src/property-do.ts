@@ -4947,7 +4947,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         const existing = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
         if (existing) {
           if (existing.request_fingerprint !== input.requestFingerprint) {
-            throw new IdempotencyKeyReused();
+            throw new IdempotencyKeyReused(input.idempotencyKey);
           }
           return existing;
         }
@@ -4976,7 +4976,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const replay = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
           if (!replay) throw e;
           if (replay.request_fingerprint !== input.requestFingerprint) {
-            throw new IdempotencyKeyReused();
+            throw new IdempotencyKeyReused(input.idempotencyKey);
           }
           return replay;
         }
@@ -5372,9 +5372,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const source = sourceRows[0];
           if (!source) return { ok: false as const, error: NOT_FOUND };
           if (source.source !== 'PAYMENT') {
-            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
-          }
-          if (source.source === 'SPLIT_REVERSAL') {
             return { ok: false as const, error: LINE_NOT_SPLITTABLE };
           }
 

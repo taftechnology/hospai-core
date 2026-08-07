@@ -1,9 +1,14 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fingerprintPayload, PAYMENT_NOT_CAPTURABLE } from '@hospai/contracts';
+import {
+  fingerprintPayload,
+  IDEM_KEY_REUSED,
+  LINE_NOT_SPLITTABLE,
+  PAYMENT_NOT_CAPTURABLE,
+} from '@hospai/contracts';
+import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
-  cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
   setKillSwitch,
@@ -246,6 +251,56 @@ describe('folio payments DO', () => {
     expect(events.filter((t) => t === 'folio.line_posted')).toHaveLength(2);
   });
 
+  it('Test 3: capture partial via captureAmountMinor — line = adapter response', async () => {
+    const actor = 'user_pay_owner3';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_partial_1';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await addCharge(stub, actor, reservationId, 10000);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 10000, 'idem-auth-3'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    await stub.setPspSimulateOutcomeForTest({ captureAmountMinor: 6000 });
+    try {
+      const cap = await capturePayment(stub, actor, paymentId, 10000, 'idem-cap-3');
+      expect(cap).toMatchObject({
+        ok: true,
+        status: 'captured',
+        capturedAmountMinor: 6000,
+      });
+
+      const folio = await stub.readFolio(reservationId);
+      expect(folio.ok && folio.balanceMinor).toBe(4000);
+      expect(folio.ok && folio.lines.find((l) => l.source === 'PAYMENT')).toMatchObject({
+        amountMinor: -6000,
+        paymentId,
+      });
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+
+    // Response-side over-capture: request ≤ auth hold, adapter returns more than hold.
+    const overPayId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, overPayId, 10000, 'idem-auth-3-over'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+    await stub.setPspSimulateOutcomeForTest({ captureAmountMinor: 1_000_000 });
+    try {
+      const over = await capturePayment(stub, actor, overPayId, 10000, 'idem-cap-3-over');
+      expect(over).toEqual({ ok: false, error: PAYMENT_NOT_CAPTURABLE });
+      const read = await stub.readPayment(overPayId);
+      expect(read.ok && read.payment.status).toBe('authorized');
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+  });
+
   it('Test 4: decline — no folio.payment_authorized in outbox', async () => {
     const actor = 'user_pay_owner4';
     const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
@@ -265,6 +320,444 @@ describe('folio payments DO', () => {
     expect(events).not.toContain('folio.payment_authorized');
 
     await stub.setPspSimulateOutcomeForTest(null);
+  });
+
+  it('Test 5: authorize timeout → unknown; capture → payment_not_capturable', async () => {
+    const actor = 'user_pay_owner5';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_timeout_1';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await stub.setPspSimulateOutcomeForTest({ authorize: 'timeout' });
+    try {
+      const paymentId = `pay_${crypto.randomUUID()}`;
+      const auth = await authorizePayment(stub, actor, reservationId, paymentId, 3000, 'idem-auth-5');
+      expect(auth).toMatchObject({ ok: true, status: 'unknown', gatewayReference: null });
+
+      const read = await stub.readPayment(paymentId);
+      expect(read.ok && read.payment.status).toBe('unknown');
+      expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
+
+      const cap = await capturePayment(stub, actor, paymentId, 3000, 'idem-cap-5');
+      expect(cap).toEqual({ ok: false, error: PAYMENT_NOT_CAPTURABLE });
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+  });
+
+  it('Test 7: authorize idempotent replay — same fingerprint, one payment', async () => {
+    const actor = 'user_pay_owner7';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_idem_7';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    const first = await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-7');
+    expect(first).toMatchObject({ ok: true, status: 'authorized', paymentId });
+
+    const second = await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-7');
+    expect(second).toMatchObject({ ok: true, status: 'authorized', paymentId });
+
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok && listed.payments).toHaveLength(1);
+  });
+
+  it('Test 8: authorize key reuse with different amount → idempotency_key_reused', async () => {
+    const actor = 'user_pay_owner8';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_reuse_8';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-8'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    const reused = await authorizePayment(
+      stub,
+      actor,
+      reservationId,
+      `pay_${crypto.randomUUID()}`,
+      6000,
+      'idem-auth-8',
+    );
+    expect(reused).toEqual({ ok: false, error: IDEM_KEY_REUSED });
+  });
+
+  it('Test 9: capture replay different amount after success → idempotency_key_reused', async () => {
+    const actor = 'user_pay_owner9';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_reuse_9';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 8000, 'idem-auth-9'),
+    ).toMatchObject({ ok: true });
+    expect(await capturePayment(stub, actor, paymentId, 8000, 'idem-cap-9')).toMatchObject({
+      ok: true,
+      status: 'captured',
+    });
+
+    const reused = await capturePayment(stub, actor, paymentId, 4000, 'idem-cap-9b');
+    expect(reused).toEqual({ ok: false, error: IDEM_KEY_REUSED });
+  });
+
+  it('Test 10: capture on pending / declined / unknown → payment_not_capturable', async () => {
+    const actor = 'user_pay_owner10';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_status_10';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await stub.setPspSimulateOutcomeForTest({ authorize: 'approved', failAfterAdapter: true });
+    const pendingId = `pay_${crypto.randomUUID()}`;
+    expect(await authorizePayment(stub, actor, reservationId, pendingId, 1000, 'idem-auth-10p')).toEqual({
+      ok: false,
+      error: 'psp_adapter_failed',
+    });
+    expect(await capturePayment(stub, actor, pendingId, 1000, 'idem-cap-10p')).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_CAPTURABLE,
+    });
+    await stub.setPspSimulateOutcomeForTest(null);
+
+    await stub.setPspSimulateOutcomeForTest({ authorize: 'declined' });
+    const declinedId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, declinedId, 1000, 'idem-auth-10d'),
+    ).toMatchObject({ ok: true, status: 'declined' });
+    expect(await capturePayment(stub, actor, declinedId, 1000, 'idem-cap-10d')).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_CAPTURABLE,
+    });
+    await stub.setPspSimulateOutcomeForTest(null);
+
+    await stub.setPspSimulateOutcomeForTest({ authorize: 'timeout' });
+    try {
+      const unknownId = `pay_${crypto.randomUUID()}`;
+      expect(
+        await authorizePayment(stub, actor, reservationId, unknownId, 1000, 'idem-auth-10u'),
+      ).toMatchObject({ ok: true, status: 'unknown' });
+      expect(await capturePayment(stub, actor, unknownId, 1000, 'idem-cap-10u')).toEqual({
+        ok: false,
+        error: PAYMENT_NOT_CAPTURABLE,
+      });
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+  });
+
+  it('Test 11: second capture same fingerprint — idempotent; one PAYMENT line', async () => {
+    const actor = 'user_pay_owner11';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_cap_idem_11';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await addCharge(stub, actor, reservationId, 7000);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 7000, 'idem-auth-11'),
+    ).toMatchObject({ ok: true });
+
+    const first = await capturePayment(stub, actor, paymentId, 7000, 'idem-cap-11');
+    expect(first).toMatchObject({ ok: true, status: 'captured', capturedAmountMinor: 7000 });
+    const second = await capturePayment(stub, actor, paymentId, 7000, 'idem-cap-11');
+    expect(second).toMatchObject({ ok: true, status: 'captured', capturedAmountMinor: 7000 });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok && folio.lines.filter((l) => l.source === 'PAYMENT')).toHaveLength(1);
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok && listed.payments).toHaveLength(1);
+  });
+
+  it('Test 13: split night-audit ROOM — reverse SPLIT_REVERSAL; children source null', async () => {
+    const actor = 'user_pay_owner13';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_na_13';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const businessDate = (await stub.readBusinessDate())!;
+    const rateInput = {
+      roomTypeId: 'rt_king',
+      ratePlanId: DEFAULT_RATE_PLAN_ID,
+      stayDate: businessDate,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(
+      await stub.tryUpsertRateDay(
+        { kind: 'user', userId: actor },
+        rateInput,
+        {
+          key: `idem-rate-13-${crypto.randomUUID()}`,
+          fingerprint: await fingerprintPayload(rateInput),
+        },
+      ),
+    ).toEqual({ ok: true });
+
+    const audit = await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES');
+    expect(audit.status).toBe('COMPLETED');
+
+    const linesBefore = await stub.listFolioLinesForReservation(reservationId);
+    const nightLine = linesBefore.find((l) => l.source === 'NIGHT_AUDIT' && l.chargeCode === 'ROOM');
+    expect(nightLine).toBeDefined();
+
+    const splits = [
+      { folioLineId: 'na_split_a', amountMinor: 4000 },
+      { folioLineId: 'na_split_b', amountMinor: 6000 },
+    ];
+    const splitInput = { sourceFolioLineId: nightLine!.folioLineId, splits };
+    const split = await stub.trySplitFolioLine(
+      { kind: 'user', userId: actor },
+      splitInput,
+      {
+        key: `idem-split-13-${crypto.randomUUID()}`,
+        fingerprint: await fingerprintPayload(splitInput),
+      },
+    );
+    expect(split).toMatchObject({ ok: true });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    const reverse = lines.find((l) => l.source === 'SPLIT_REVERSAL');
+    expect(reverse).toMatchObject({
+      amountMinor: -10000,
+      chargeCode: 'ROOM',
+      splitOf: nightLine!.folioLineId,
+    });
+    expect(reverse?.source).toBe('SPLIT_REVERSAL');
+
+    const children = lines.filter(
+      (l) => l.splitOf === nightLine!.folioLineId && l.source !== 'SPLIT_REVERSAL',
+    );
+    expect(children).toHaveLength(2);
+    expect(children.every((c) => c.source === null)).toBe(true);
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok && folio.balanceMinor).toBe(10000);
+  });
+
+  it('Test 14: charge-split of PAYMENT line → line_not_splittable', async () => {
+    const actor = 'user_pay_owner14';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_split_14';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-14'),
+    ).toMatchObject({ ok: true });
+    expect(await capturePayment(stub, actor, paymentId, 5000, 'idem-cap-14')).toMatchObject({ ok: true });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok).toBe(true);
+    const payLine = folio.ok ? folio.lines.find((l) => l.source === 'PAYMENT') : undefined;
+    expect(payLine).toBeDefined();
+
+    const splitInput = {
+      sourceFolioLineId: payLine!.folioLineId,
+      splits: [
+        { folioLineId: 'p14_a', amountMinor: -2000 },
+        { folioLineId: 'p14_b', amountMinor: -3000 },
+      ],
+    };
+    const split = await stub.trySplitFolioLine(
+      { kind: 'user', userId: actor },
+      splitInput,
+      {
+        key: `idem-split-14-${crypto.randomUUID()}`,
+        fingerprint: await fingerprintPayload(splitInput),
+      },
+    );
+    expect(split).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
+  });
+
+  it('Test 15: payment-split of charge line → line_not_splittable', async () => {
+    const actor = 'user_pay_owner15';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_split_15';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await addCharge(stub, actor, reservationId, 3000);
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    const chargeLine = lines.find((l) => l.chargeCode === 'MISC');
+    expect(chargeLine).toBeDefined();
+
+    const splitInput = {
+      sourceFolioLineId: chargeLine!.folioLineId,
+      splits: [
+        { folioLineId: 'c15_a', amountMinor: 1000 },
+        { folioLineId: 'c15_b', amountMinor: 2000 },
+      ],
+    };
+    const split = await stub.trySplitChargePayment(
+      { kind: 'user', userId: actor },
+      splitInput,
+      {
+        key: `idem-psplit-15-${crypto.randomUUID()}`,
+        fingerprint: await fingerprintPayload(splitInput),
+      },
+    );
+    expect(split).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
+  });
+
+  it('Test 16: charge-split of SPLIT_REVERSAL → line_not_splittable', async () => {
+    const actor = 'user_pay_owner16';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_split_16';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await addCharge(stub, actor, reservationId, 3000);
+    const sourceId = (await stub.listFolioLinesForReservation(reservationId))[0]!.folioLineId;
+    const firstSplitInput = {
+      sourceFolioLineId: sourceId,
+      splits: [
+        { folioLineId: 's16_a', amountMinor: 1000 },
+        { folioLineId: 's16_b', amountMinor: 2000 },
+      ],
+    };
+    expect(
+      await stub.trySplitFolioLine(
+        { kind: 'user', userId: actor },
+        firstSplitInput,
+        {
+          key: `idem-split-16a-${crypto.randomUUID()}`,
+          fingerprint: await fingerprintPayload(firstSplitInput),
+        },
+      ),
+    ).toMatchObject({ ok: true });
+
+    const reverse = (await stub.listFolioLinesForReservation(reservationId)).find(
+      (l) => l.source === 'SPLIT_REVERSAL',
+    );
+    expect(reverse).toBeDefined();
+
+    const secondSplitInput = {
+      sourceFolioLineId: reverse!.folioLineId,
+      splits: [
+        { folioLineId: 's16_x', amountMinor: -1000 },
+        { folioLineId: 's16_y', amountMinor: -2000 },
+      ],
+    };
+    const rejected = await stub.trySplitFolioLine(
+      { kind: 'user', userId: actor },
+      secondSplitInput,
+      {
+        key: `idem-split-16b-${crypto.randomUUID()}`,
+        fingerprint: await fingerprintPayload(secondSplitInput),
+      },
+    );
+    expect(rejected).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
+  });
+
+  it('Test 17: payment-split children keep PAYMENT; charge-split still rejects', async () => {
+    const actor = 'user_pay_owner17';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_split_17';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-17'),
+    ).toMatchObject({ ok: true });
+    expect(await capturePayment(stub, actor, paymentId, 5000, 'idem-cap-17')).toMatchObject({ ok: true });
+
+    const folioAfterCapture = await stub.readFolio(reservationId);
+    expect(folioAfterCapture.ok).toBe(true);
+    const payLine = folioAfterCapture.ok
+      ? folioAfterCapture.lines.find((l) => l.source === 'PAYMENT')
+      : undefined;
+    expect(payLine).toBeDefined();
+
+    const firstSplitInput = {
+      sourceFolioLineId: payLine!.folioLineId,
+      splits: [
+        { folioLineId: 'pay17_a', amountMinor: -2000 },
+        { folioLineId: 'pay17_b', amountMinor: -3000 },
+      ],
+    };
+    expect(
+      await stub.trySplitChargePayment(
+        { kind: 'user', userId: actor },
+        firstSplitInput,
+        {
+          key: `idem-psplit-17a-${crypto.randomUUID()}`,
+          fingerprint: await fingerprintPayload(firstSplitInput),
+        },
+      ),
+    ).toMatchObject({ ok: true });
+
+    const afterFirst = await stub.listFolioLinesForReservation(reservationId);
+    const child = afterFirst.find((l) => l.folioLineId === 'pay17_a');
+    expect(child).toMatchObject({ source: 'PAYMENT', amountMinor: -2000 });
+
+    const secondSplitInput = {
+      sourceFolioLineId: 'pay17_a',
+      splits: [
+        { folioLineId: 'pay17_a1', amountMinor: -800 },
+        { folioLineId: 'pay17_a2', amountMinor: -1200 },
+      ],
+    };
+    expect(
+      await stub.trySplitChargePayment(
+        { kind: 'user', userId: actor },
+        secondSplitInput,
+        {
+          key: `idem-psplit-17b-${crypto.randomUUID()}`,
+          fingerprint: await fingerprintPayload(secondSplitInput),
+        },
+      ),
+    ).toMatchObject({ ok: true });
+
+    const chargeRejectInput = {
+      sourceFolioLineId: 'pay17_b',
+      splits: [
+        { folioLineId: 'charge17_x', amountMinor: -1000 },
+        { folioLineId: 'charge17_y', amountMinor: -2000 },
+      ],
+    };
+    expect(
+      await stub.trySplitFolioLine(
+        { kind: 'user', userId: actor },
+        chargeRejectInput,
+        {
+          key: `idem-csplit-17-${crypto.randomUUID()}`,
+          fingerprint: await fingerprintPayload(chargeRejectInput),
+        },
+      ),
+    ).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
   });
 
   it('Test 20: failAfterAdapter — readPayment pending, gateway null', async () => {

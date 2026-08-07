@@ -509,6 +509,33 @@ export const CASHIERING_V16_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0016_cashiering.sql */
 export const CASHIERING_V16_SQL = CASHIERING_V16_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * v17 — contractual audit_log (attribution).
+ * Never silently prune — ARCHIVE owns purge under a stated retention policy.
+ */
+export const AUDIT_LOG_V17_STATEMENTS: string[] = [
+  `CREATE TABLE audit_log (
+  seq              INTEGER PRIMARY KEY AUTOINCREMENT,
+  at               INTEGER NOT NULL,
+  actor            TEXT NOT NULL,
+  command_id       TEXT NOT NULL,
+  entity_type      TEXT NOT NULL,
+  entity_id        TEXT NOT NULL,
+  before_json      TEXT,
+  after_json       TEXT NOT NULL,
+  shift_id         TEXT,
+  reservation_id   TEXT,
+  created_at       INTEGER NOT NULL
+)`,
+  `CREATE INDEX audit_log_at_idx ON audit_log (at)`,
+  `CREATE INDEX audit_log_actor_idx ON audit_log (actor, at)`,
+  `CREATE INDEX audit_log_shift_idx ON audit_log (shift_id, at)`,
+  `CREATE INDEX audit_log_reservation_idx ON audit_log (reservation_id, at)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0017_audit_log.sql */
+export const AUDIT_LOG_V17_SQL = AUDIT_LOG_V17_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -589,5 +616,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 16,
     name: 'cashiering',
     statements: CASHIERING_V16_STATEMENTS,
+  },
+  {
+    version: 17,
+    name: 'audit_log',
+    statements: AUDIT_LOG_V17_STATEMENTS,
   },
 ] as const;

@@ -41,6 +41,8 @@ import {
   CROSS_CURRENCY_UNSUPPORTED,
   SPLIT_AMOUNT_MISMATCH,
   LINE_NOT_SPLITTABLE,
+  PSP_UNAVAILABLE,
+  PAYMENT_NOT_CAPTURABLE,
   FORBIDDEN,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
@@ -106,10 +108,33 @@ import {
   type CurrencyCode,
   type PostedLineAmount,
 } from '@hospai/money';
-import { isJurisdictionSimulate, type PmsEnv } from './env.js';
+import { isJurisdictionSimulate, isPspSimulate, type PmsEnv } from './env.js';
+import {
+  simulateAuthorize,
+  simulateCapture,
+  type PspSimulateOutcome,
+} from './psp-simulate.js';
 import type { OrgDO } from './org-do.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
+
+type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown';
+
+type PaymentRow = {
+  payment_id: string;
+  reservation_id: string;
+  folio_window_id: string;
+  amount_minor: number;
+  currency: string;
+  status: PaymentStatus;
+  gateway_reference: string | null;
+  captured_amount_minor: number | null;
+  idempotency_key: string;
+  request_fingerprint: string;
+  capture_fingerprint: string | null;
+  created_at: number;
+  updated_at: number;
+};
 
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
@@ -450,6 +475,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private postRoomChargesFailureAfterCountForTest: number | null = null;
   private transportBlockedForTest = false;
   private simulateBugForTest = false;
+  private pspSimulateOutcomeForTest: PspSimulateOutcome | null = null;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -1013,6 +1039,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setSimulateBugForTest(enabled: boolean): Promise<void> {
     this.assertUnsafeLocal('setSimulateBugForTest');
     this.simulateBugForTest = enabled;
+  }
+
+  /** Vitest PSP outcome lever — sticky until cleared (see `setTransportBlockedForTest`). */
+  async setPspSimulateOutcomeForTest(outcome: PspSimulateOutcome | null): Promise<void> {
+    this.assertUnsafeLocal('setPspSimulateOutcomeForTest');
+    this.pspSimulateOutcomeForTest = outcome;
   }
 
   /** Test-only: insert rate_day without plan validation (orphan / pre-slice data). */
@@ -4795,6 +4827,591 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private readPaymentRowSync(paymentId: string): PaymentRow | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+                gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+                capture_fingerprint, created_at, updated_at
+         FROM payment WHERE payment_id = ?`,
+        paymentId,
+      )
+      .toArray() as PaymentRow[];
+    return rows[0] ?? null;
+  }
+
+  private readPaymentByIdempotencyKeySync(idempotencyKey: string): PaymentRow | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+                gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+                capture_fingerprint, created_at, updated_at
+         FROM payment WHERE idempotency_key = ?`,
+        idempotencyKey,
+      )
+      .toArray() as PaymentRow[];
+    return rows[0] ?? null;
+  }
+
+  private mapPaymentRow(row: PaymentRow): {
+    paymentId: string;
+    reservationId: string;
+    amountMinor: number;
+    currency: string;
+    status: PaymentStatus;
+    gatewayReference: string | null;
+    capturedAmountMinor: number | null;
+    createdAt: number;
+    updatedAt: number;
+  } {
+    return {
+      paymentId: row.payment_id,
+      reservationId: row.reservation_id,
+      amountMinor: row.amount_minor,
+      currency: row.currency,
+      status: row.status,
+      gatewayReference: row.gateway_reference,
+      capturedAmountMinor: row.captured_amount_minor,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private authorizePaymentSuccessFromRow(row: PaymentRow): {
+    ok: true;
+    paymentId: string;
+    status: PaymentStatus;
+    gatewayReference: string | null;
+  } {
+    return {
+      ok: true as const,
+      paymentId: row.payment_id,
+      status: row.status,
+      gatewayReference: row.gateway_reference,
+    };
+  }
+
+  async tryAuthorizePayment(
+    actor: ActorContext,
+    input: {
+      paymentId: string;
+      reservationId: string;
+      amountMinor: number;
+      idempotencyKey: string;
+      requestFingerprint: string;
+    },
+  ): Promise<
+    | { ok: true; paymentId: string; status: PaymentStatus; gatewayReference: string | null }
+    | { ok: false; error: typeof NOT_FOUND | typeof PSP_UNAVAILABLE | typeof IDEM_KEY_REUSED | typeof MONEY_INVALID }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: 'psp_adapter_failed' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    if (!isPspSimulate(this.env)) return { ok: false, error: PSP_UNAVAILABLE };
+
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    let txn1Row: PaymentRow | null = null;
+    try {
+      txn1Row = this.ctx.storage.transactionSync(() => {
+        const existing = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
+        if (existing) {
+          if (existing.request_fingerprint !== input.requestFingerprint) {
+            throw new IdempotencyKeyReused();
+          }
+          return existing;
+        }
+
+        this.ensureGuestFolioWindowSync(input.reservationId);
+        const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+        const now = Date.now();
+        try {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO payment (
+               payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+               gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+               capture_fingerprint, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?, ?)`,
+            input.paymentId,
+            input.reservationId,
+            folioWindowId,
+            input.amountMinor,
+            ledgerCurrency,
+            input.idempotencyKey,
+            input.requestFingerprint,
+            now,
+            now,
+          );
+        } catch (e) {
+          const replay = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
+          if (!replay) throw e;
+          if (replay.request_fingerprint !== input.requestFingerprint) {
+            throw new IdempotencyKeyReused();
+          }
+          return replay;
+        }
+
+        const inserted = this.readPaymentRowSync(input.paymentId);
+        if (!inserted) throw new Error('payment_insert_failed');
+        return inserted;
+      });
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+
+    if (txn1Row.status !== 'pending') {
+      return this.authorizePaymentSuccessFromRow(txn1Row);
+    }
+
+    const adapterResult = await simulateAuthorize(
+      {
+        paymentId: input.paymentId,
+        amountMinor: input.amountMinor,
+        currency: ledgerCurrency,
+      },
+      this.pspSimulateOutcomeForTest,
+    );
+
+    if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
+      return { ok: false, error: 'psp_adapter_failed' };
+    }
+
+    let txn2Row: PaymentRow | null = null;
+    try {
+      txn2Row = this.ctx.storage.transactionSync(() => {
+        const now = Date.now();
+        if (adapterResult.outcome === 'approved') {
+          const updated = this.ctx.storage.sql.exec(
+            `UPDATE payment
+             SET status = 'authorized', gateway_reference = ?, updated_at = ?
+             WHERE payment_id = ? AND status = 'pending'`,
+            adapterResult.gatewayReference,
+            now,
+            input.paymentId,
+          );
+          if (updated.rowsWritten === 0) {
+            const current = this.readPaymentRowSync(input.paymentId);
+            if (!current) throw new Error(NOT_FOUND);
+            return current;
+          }
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.payment_authorized',
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              amountMinor: input.amountMinor,
+              currency: ledgerCurrency,
+              gatewayReference: adapterResult.gatewayReference,
+            },
+          });
+        } else if (adapterResult.outcome === 'declined') {
+          this.ctx.storage.sql.exec(
+            `UPDATE payment SET status = 'declined', updated_at = ? WHERE payment_id = ? AND status = 'pending'`,
+            now,
+            input.paymentId,
+          );
+        } else {
+          this.ctx.storage.sql.exec(
+            `UPDATE payment SET status = 'unknown', updated_at = ? WHERE payment_id = ? AND status = 'pending'`,
+            now,
+            input.paymentId,
+          );
+        }
+
+        const current = this.readPaymentRowSync(input.paymentId);
+        if (!current) throw new Error(NOT_FOUND);
+        return current;
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+
+    return this.authorizePaymentSuccessFromRow(txn2Row);
+  }
+
+  async tryCapturePayment(
+    actor: ActorContext,
+    input: {
+      paymentId: string;
+      amountMinor: number;
+      idempotencyKey: string;
+      captureFingerprint: string;
+    },
+  ): Promise<
+    | {
+        ok: true;
+        paymentId: string;
+        status: PaymentStatus;
+        gatewayReference: string | null;
+        capturedAmountMinor: number;
+      }
+    | {
+        ok: false;
+        error:
+          | typeof NOT_FOUND
+          | typeof PSP_UNAVAILABLE
+          | typeof IDEM_KEY_REUSED
+          | typeof PAYMENT_NOT_CAPTURABLE
+          | typeof MONEY_INVALID;
+      }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    if (!isPspSimulate(this.env)) return { ok: false, error: PSP_UNAVAILABLE };
+
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const payment = this.readPaymentRowSync(input.paymentId);
+    if (!payment) return { ok: false, error: NOT_FOUND };
+
+    if (payment.status === 'captured') {
+      if (payment.capture_fingerprint === input.captureFingerprint) {
+        return {
+          ok: true,
+          paymentId: payment.payment_id,
+          status: payment.status,
+          gatewayReference: payment.gateway_reference,
+          capturedAmountMinor: payment.captured_amount_minor ?? 0,
+        };
+      }
+      return { ok: false, error: IDEM_KEY_REUSED };
+    }
+
+    if (payment.status !== 'authorized') {
+      return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
+
+    if (input.amountMinor > payment.amount_minor) {
+      return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
+
+    const adapterResult = await simulateCapture(
+      {
+        paymentId: input.paymentId,
+        amountMinor: input.amountMinor,
+        gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
+        currency: payment.currency,
+      },
+      this.pspSimulateOutcomeForTest,
+    );
+
+    if (adapterResult.outcome !== 'approved') {
+      if (adapterResult.outcome === 'timeout') {
+        this.ctx.storage.sql.exec(
+          `UPDATE payment SET status = 'unknown', updated_at = ? WHERE payment_id = ? AND status = 'authorized'`,
+          Date.now(),
+          input.paymentId,
+        );
+      }
+      return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
+
+    if (adapterResult.capturedAmountMinor > payment.amount_minor) {
+      return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const updated = this.ctx.storage.sql.exec(
+          `UPDATE payment
+           SET status = 'captured',
+               captured_amount_minor = ?,
+               capture_fingerprint = ?,
+               gateway_reference = ?,
+               updated_at = ?
+           WHERE payment_id = ? AND status = 'authorized'`,
+          adapterResult.capturedAmountMinor,
+          input.captureFingerprint,
+          adapterResult.gatewayReference,
+          Date.now(),
+          input.paymentId,
+        );
+        if (updated.rowsWritten === 0) {
+          const current = this.readPaymentRowSync(input.paymentId);
+          if (!current) return { ok: false as const, error: NOT_FOUND };
+          if (current.status === 'captured' && current.capture_fingerprint === input.captureFingerprint) {
+            return {
+              ok: true as const,
+              paymentId: current.payment_id,
+              status: current.status,
+              gatewayReference: current.gateway_reference,
+              capturedAmountMinor: current.captured_amount_minor ?? 0,
+            };
+          }
+          if (current.status === 'captured') {
+            return { ok: false as const, error: IDEM_KEY_REUSED };
+          }
+          return { ok: false as const, error: PAYMENT_NOT_CAPTURABLE };
+        }
+
+        const folioLineId = `${input.paymentId}:capture`;
+        const fxRateAt = Date.now();
+        this.insertFolioLineSync({
+          folioLineId,
+          folioWindowId: payment.folio_window_id,
+          reservationId: payment.reservation_id,
+          chargeCode: 'PAYMENT',
+          posted: {
+            amountMinor: -adapterResult.capturedAmountMinor,
+            txnCurrency: currencyCode(payment.currency),
+            ledgerAmountMinor: -adapterResult.capturedAmountMinor,
+            fxRate: '1',
+            fxRateAt,
+          },
+          source: 'PAYMENT',
+          paymentId: input.paymentId,
+        });
+
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'folio.payment_captured',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            capturedAmountMinor: adapterResult.capturedAmountMinor,
+            currency: payment.currency,
+            gatewayReference: adapterResult.gatewayReference,
+            folioLineId,
+          },
+        });
+
+        return {
+          ok: true as const,
+          paymentId: input.paymentId,
+          status: 'captured' as const,
+          gatewayReference: adapterResult.gatewayReference,
+          capturedAmountMinor: adapterResult.capturedAmountMinor,
+        };
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async readPayment(paymentId: string): Promise<
+    | {
+        ok: true;
+        payment: {
+          paymentId: string;
+          reservationId: string;
+          amountMinor: number;
+          currency: string;
+          status: PaymentStatus;
+          gatewayReference: string | null;
+          capturedAmountMinor: number | null;
+          createdAt: number;
+          updatedAt: number;
+        };
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const row = this.readPaymentRowSync(paymentId);
+    if (!row) return { ok: false, error: NOT_FOUND };
+    return { ok: true, payment: this.mapPaymentRow(row) };
+  }
+
+  async listPaymentsForReservation(reservationId: string): Promise<
+    | {
+        ok: true;
+        payments: Array<{
+          paymentId: string;
+          reservationId: string;
+          amountMinor: number;
+          currency: string;
+          status: PaymentStatus;
+          gatewayReference: string | null;
+          capturedAmountMinor: number | null;
+          createdAt: number;
+          updatedAt: number;
+        }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const reservationRows = this.ctx.storage.sql
+      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ reservation_id: string }>;
+    if (!reservationRows[0]) return { ok: false, error: NOT_FOUND };
+
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT payment_id, reservation_id, amount_minor, currency, status, gateway_reference,
+                captured_amount_minor, created_at, updated_at
+         FROM payment WHERE reservation_id = ?
+         ORDER BY created_at ASC`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      payment_id: string;
+      reservation_id: string;
+      amount_minor: number;
+      currency: string;
+      status: PaymentStatus;
+      gateway_reference: string | null;
+      captured_amount_minor: number | null;
+      created_at: number;
+      updated_at: number;
+    }>;
+
+    return {
+      ok: true,
+      payments: rows.map((row) => ({
+        paymentId: row.payment_id,
+        reservationId: row.reservation_id,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+        status: row.status,
+        gatewayReference: row.gateway_reference,
+        capturedAmountMinor: row.captured_amount_minor,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+    };
+  }
+
+  async trySplitChargePayment(
+    actor: ActorContext,
+    input: {
+      sourceFolioLineId: string;
+      splits: Array<{ folioLineId: string; amountMinor: number }>;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioLineIds: string[] }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const sourceRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+               FROM folio_line WHERE folio_line_id = ?`,
+              input.sourceFolioLineId,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            folio_window_id: string;
+            reservation_id: string;
+            charge_code: string;
+            amount_minor: number;
+            txn_currency: string;
+            ledger_amount_minor: number;
+            fx_rate: string;
+            fx_rate_at: number;
+            source: string | null;
+          }>;
+          const source = sourceRows[0];
+          if (!source) return { ok: false as const, error: NOT_FOUND };
+          if (source.source !== 'PAYMENT') {
+            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
+          }
+          if (source.source === 'SPLIT_REVERSAL') {
+            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
+          }
+
+          const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
+          if (splitTotal !== source.amount_minor) {
+            return { ok: false as const, error: SPLIT_AMOUNT_MISMATCH };
+          }
+
+          const folioLineIds = this.splitFolioLineSync(source, input.splits);
+          return { ok: true as const, folioLineIds };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Test-only: insert a second folio line with the same payment_id (unique index probe). */
+  async insertDuplicatePaymentLineForTest(input: {
+    folioLineId: string;
+    paymentId: string;
+    reservationId: string;
+    folioWindowId: string;
+    amountMinor: number;
+  }): Promise<void> {
+    this.assertUnsafeLocal('insertDuplicatePaymentLineForTest');
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+    const fxRateAt = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO folio_line (
+         folio_line_id, folio_window_id, reservation_id, charge_code,
+         amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+         source, business_date, split_of, created_at, payment_id
+       ) VALUES (?, ?, ?, 'PAYMENT', ?, ?, ?, '1', ?, 'PAYMENT', NULL, NULL, ?, ?)`,
+      input.folioLineId,
+      input.folioWindowId,
+      input.reservationId,
+      input.amountMinor,
+      ledgerCurrency,
+      input.amountMinor,
+      fxRateAt,
+      Date.now(),
+      input.paymentId,
+    );
+  }
+
   async readFolio(reservationId: string): Promise<
     | {
         ok: true;
@@ -4809,6 +5426,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           businessDate: string | null;
           splitOf: string | null;
           createdAt: number;
+          paymentId: string | null;
         }>;
         balanceMinor: number;
       }
@@ -4830,7 +5448,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const lineRows = this.ctx.storage.sql
       .exec(
         `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
-                source, business_date, split_of, created_at
+                source, business_date, split_of, created_at, payment_id
          FROM folio_line WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -4845,6 +5463,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       business_date: string | null;
       split_of: string | null;
       created_at: number;
+      payment_id: string | null;
     }>;
 
     const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
@@ -4865,6 +5484,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         businessDate: row.business_date,
         splitOf: row.split_of,
         createdAt: row.created_at,
+        paymentId: row.payment_id,
       })),
       balanceMinor,
     };

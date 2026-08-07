@@ -40,7 +40,7 @@ async function postProperty(orgId: string, propertyId: string, actor: string) {
 
 async function provisionHttpProperty(propertyId: string) {
   const orgId = `org_fd_${propertyId}`;
-  const actor = TEST_OWNER_ACTOR.userId;
+  const actor = 'user_owner';
   expect((await postOrg(orgId, 'Front Desk Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyId, actor)).status).toBe(201);
   const org = orgStub(orgId);
@@ -236,14 +236,23 @@ describe('PropertyDO front-desk reads', () => {
     expect(result.shift.shiftId).toBe('shift_fd_1');
     expect(result.shift.openingFloat).toBe(5000);
     expect(result.shift.status).toBe('OPEN');
-    expect(result.shift).not.toHaveProperty('expectedCash');
-    expect(result.shift).not.toHaveProperty('variance');
     expect(typeof result.shift.attributedCashCount).toBe('number');
+    expect(Object.keys(result.shift).sort()).toEqual(
+      [
+        'attributedCashCount',
+        'businessDate',
+        'cashierUserId',
+        'openedAt',
+        'openingFloat',
+        'shiftId',
+        'status',
+      ].sort(),
+    );
   });
 });
 
 describe('front-desk read HTTP routes', () => {
-  const actor = TEST_OWNER_ACTOR.userId;
+  const actor = 'user_owner';
 
   beforeEach(async () => {
     resetPlatformSchemaGate();

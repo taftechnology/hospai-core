@@ -94,5 +94,11 @@
       "database_id": "00000000-0000-0000-0000-000000000001",
       "migrations_dir": "../../migrations/d1-platform"
     }
-  ]
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "../web-pms/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  }
 }

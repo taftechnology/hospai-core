@@ -58,11 +58,7 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    if (request.method === 'GET' && pathname === '/') {
-      return new Response('hospai-pms-core', { status: 200 });
-    }
-
-    if (pathname.startsWith('/v1/')) {
+    if (pathname === '/v1' || pathname.startsWith('/v1/')) {
       const requestId = crypto.randomUUID();
       const started = Date.now();
       const ctx: ObservabilityContext = { moduleId: 'pms.core', requestId };
@@ -84,7 +80,58 @@ export default {
       }
     }
 
-    return json({ error: 'not_found' }, 404);
+    try {
+      if (!env.ASSETS) {
+        logError(
+          { moduleId: 'pms.core', requestId: crypto.randomUUID() },
+          { msg: 'assets.missing', pathname },
+        );
+        return json({ error: 'not_found' }, 404);
+      }
+
+      let assetRes = await env.ASSETS.fetch(request);
+      // SPA fallback when binding does not rewrite client routes (hard refresh on /arrivals).
+      if (
+        assetRes.status === 404 &&
+        request.method === 'GET' &&
+        !pathname.includes('.')
+      ) {
+        assetRes = await env.ASSETS.fetch(
+          new Request(new URL('/index.html', request.url), request),
+        );
+      }
+
+      const contentType = assetRes.headers.get('content-type') ?? '';
+      if (contentType.includes('text/html')) {
+        const headers = new Headers(assetRes.headers);
+        headers.set('cache-control', 'no-cache');
+        return new Response(assetRes.body, {
+          status: assetRes.status,
+          statusText: assetRes.statusText,
+          headers,
+        });
+      }
+      if (pathname.includes('/assets/') || /\.[a-f0-9]{8,}\./i.test(pathname)) {
+        const headers = new Headers(assetRes.headers);
+        headers.set('cache-control', 'public, max-age=31536000, immutable');
+        return new Response(assetRes.body, {
+          status: assetRes.status,
+          statusText: assetRes.statusText,
+          headers,
+        });
+      }
+      return assetRes;
+    } catch (e) {
+      logError(
+        { moduleId: 'pms.core', requestId: crypto.randomUUID() },
+        {
+          msg: 'assets.fetch_failed',
+          pathname,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      );
+      throw e;
+    }
   },
 
   async queue(batch: MessageBatch<unknown>, env: PmsEnv): Promise<void> {

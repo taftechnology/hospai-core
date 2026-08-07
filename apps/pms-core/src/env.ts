@@ -45,6 +45,8 @@ export type PmsEnv = {
   HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */
   LEDGER_PROP_SEED?: string;
+  /** Workers Assets binding for same-origin SPA (`apps/web-pms/dist`). */
+  ASSETS?: Fetcher;
 };
 
 /** True only when both the local marker and simulate mode are set. */

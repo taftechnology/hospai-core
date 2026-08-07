@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "@hospai/pms-core#build": {
+      "dependsOn": ["^build", "@hospai/web-pms#build"],
+      "outputs": ["dist/**"]
+    },
     "test": {
       "dependsOn": ["^build"]
     },

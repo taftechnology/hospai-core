@@ -391,6 +391,66 @@ export const PAYMENT_V13_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0013_payment.sql */
 export const PAYMENT_V13_SQL = PAYMENT_V13_STATEMENTS.join(';\n\n') + ';\n';
 
+/** Codes the DO writes without an operator naming them. */
+export const SYSTEM_CHARGE_CODES = ['ROOM', 'PAYMENT'] as const;
+export type SystemChargeCode = (typeof SYSTEM_CHARGE_CODES)[number];
+
+/** v14 — charge_code registry + folio_line.charge_code FK (table rebuild). */
+export const CHARGE_CODE_V14_STATEMENTS: string[] = [
+  `CREATE TABLE charge_code (
+  code        TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'active'
+              CHECK (status IN ('active', 'archived')),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+)`,
+  `INSERT OR IGNORE INTO charge_code (code, name, status, created_at, updated_at) VALUES
+  ('ROOM', 'Room', 'active', 0, 0),
+  ('MISC', 'Misc', 'active', 0, 0),
+  ('PAYMENT', 'Payment', 'active', 0, 0)`,
+  `INSERT OR IGNORE INTO charge_code (code, name, status, created_at, updated_at)
+  SELECT DISTINCT charge_code, charge_code, 'active', 0, 0 FROM folio_line`,
+  `CREATE TABLE folio_line_v14 (
+  folio_line_id         TEXT PRIMARY KEY,
+  folio_window_id       TEXT NOT NULL,
+  reservation_id        TEXT NOT NULL,
+  charge_code           TEXT NOT NULL,
+  amount_minor          INTEGER NOT NULL,
+  txn_currency          TEXT NOT NULL,
+  ledger_amount_minor   INTEGER NOT NULL,
+  fx_rate               TEXT NOT NULL,
+  fx_rate_at            INTEGER NOT NULL,
+  source                TEXT,
+  business_date         TEXT,
+  split_of              TEXT,
+  created_at            INTEGER NOT NULL,
+  payment_id            TEXT,
+  CHECK (source <> 'NIGHT_AUDIT' OR business_date IS NOT NULL),
+  FOREIGN KEY (folio_window_id) REFERENCES folio_window(folio_window_id),
+  FOREIGN KEY (payment_id) REFERENCES payment(payment_id),
+  FOREIGN KEY (charge_code) REFERENCES charge_code(code)
+)`,
+  `INSERT INTO folio_line_v14 (
+     folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id)
+   SELECT folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id FROM folio_line`,
+  `DROP TABLE folio_line`,
+  `ALTER TABLE folio_line_v14 RENAME TO folio_line`,
+  `CREATE UNIQUE INDEX folio_line_audit_uniq
+  ON folio_line (reservation_id, business_date, charge_code)
+  WHERE source = 'NIGHT_AUDIT'`,
+  `CREATE INDEX folio_line_window_idx ON folio_line (folio_window_id)`,
+  `CREATE UNIQUE INDEX folio_line_payment_uidx
+  ON folio_line(payment_id) WHERE payment_id IS NOT NULL`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0014_charge_code.sql */
+export const CHARGE_CODE_V14_SQL = CHARGE_CODE_V14_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -456,5 +516,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 13,
     name: 'payment',
     statements: PAYMENT_V13_STATEMENTS,
+  },
+  {
+    version: 14,
+    name: 'charge_code',
+    statements: CHARGE_CODE_V14_STATEMENTS,
   },
 ] as const;

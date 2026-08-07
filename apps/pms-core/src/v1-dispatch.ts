@@ -1247,10 +1247,14 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   const fingerprint = await fingerprintPayload(cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
-  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(actor, cell, {
-    key: body.idempotencyKey,
-    fingerprint,
-  });
+  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
+    actor,
+    { ...cell, auditCommandId: 'rates.upsert_day' },
+    {
+      key: body.idempotencyKey,
+      fingerprint,
+    },
+  );
 
   if (!result.ok) {
     const err = result.error;
@@ -2400,6 +2404,48 @@ async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetAuditLog(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const url = new URL(ctx.request.url);
+  const parseOptionalInt = (key: string): number | undefined => {
+    const raw = url.searchParams.get(key);
+    if (raw === null || raw === '') return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const filters = {
+    actor: url.searchParams.get('actor') ?? undefined,
+    shiftId: url.searchParams.get('shiftId') ?? undefined,
+    reservationId: url.searchParams.get('reservationId') ?? undefined,
+    fromAt: parseOptionalInt('fromAt'),
+    toAt: parseOptionalInt('toAt'),
+    limit: parseOptionalInt('limit'),
+  };
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+    const result = await resolvedCtx.resolved.stub.listAuditLog(actor, filters);
+    if (!result.ok) {
+      const err = result.error;
+      if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:read' }, 403);
+      if (err === 'not_member') return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: err }, 400);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -2447,10 +2493,14 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
   const fingerprint = await fingerprintPayload(cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
-  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(actor, cell, {
-    key: body.idempotencyKey,
-    fingerprint,
-  });
+  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
+    actor,
+    { ...cell, auditCommandId: 'rates.update_room_type_rate' },
+    {
+      key: body.idempotencyKey,
+      fingerprint,
+    },
+  );
 
   if (!result.ok) {
     const err = result.error;
@@ -3271,6 +3321,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetShift,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/audit-log$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetAuditLog,
   },
 ];
 

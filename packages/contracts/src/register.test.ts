@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   AUDIT_WRITER_COMMAND_IDS,
@@ -198,6 +201,19 @@ describe('command catalog', () => {
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(30);
+  });
+
+  it('PropertyDO source wires every AUDIT_WRITER_COMMAND_IDS literal', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(
+      join(here, '../../../apps/pms-core/src/property-do.ts'),
+      'utf8',
+    );
+    for (const id of AUDIT_WRITER_COMMAND_IDS) {
+      expect(src.includes(`'${id}'`) || src.includes(`"${id}"`), `missing wire for ${id}`).toBe(
+        true,
+      );
+    }
   });
 
   it('get_audit_log is route audit 61', () => {

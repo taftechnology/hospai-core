@@ -587,6 +587,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private pspSimulateOutcomeForTest: PspSimulateOutcome | null = null;
   /** Vitest only — DO bindings always have simulate on; force the production refuse path. */
   private forcePspUnavailableForTest = false;
+  private auditAppendFaultForTest = false;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -1273,6 +1274,54 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setForcePspUnavailableForTest(force: boolean): Promise<void> {
     this.assertUnsafeLocal('setForcePspUnavailableForTest');
     this.forcePspUnavailableForTest = force;
+  }
+
+  /** Vitest: throw inside appendAuditLogSync to prove same-txn rollback. */
+  async setAuditAppendFaultForTest(fault: boolean): Promise<void> {
+    this.assertUnsafeLocal('setAuditAppendFaultForTest');
+    this.auditAppendFaultForTest = fault;
+  }
+
+  private auditActorSync(actor: ActorContext): string {
+    return actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
+  }
+
+  /**
+   * Sync — must be called inside the mutation's transactionSync.
+   * Never silently prune audit_log; ARCHIVE owns future purge.
+   */
+  private appendAuditLogSync(input: {
+    at?: number;
+    actor: string;
+    commandId: string;
+    entityType: string;
+    entityId: string;
+    beforeJson?: unknown | null;
+    afterJson: unknown;
+    shiftId?: string | null;
+    reservationId?: string | null;
+  }): void {
+    if (this.auditAppendFaultForTest) {
+      throw new Error('audit_append_fault_for_test');
+    }
+    if (!input.actor) throw new Error('audit_actor_required');
+    const at = input.at ?? Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO audit_log (
+         at, actor, command_id, entity_type, entity_id,
+         before_json, after_json, shift_id, reservation_id, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      at,
+      input.actor,
+      input.commandId,
+      input.entityType,
+      input.entityId,
+      input.beforeJson == null ? null : JSON.stringify(input.beforeJson),
+      JSON.stringify(input.afterJson),
+      input.shiftId ?? null,
+      input.reservationId ?? null,
+      at,
+    );
   }
 
   private pspSimulateEnabled(): boolean {
@@ -2012,6 +2061,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'inventory.add_room_type',
+            entityType: 'room_type',
+            entityId: input.roomTypeId,
+            beforeJson: null,
+            afterJson: {
+              roomTypeId: input.roomTypeId,
+              code: input.code,
+              name: input.name,
+              roomCount: input.roomCount,
+              maxOccupancy: input.maxOccupancy,
+              maxAdults: input.maxAdults,
+              status: 'active',
+            },
+          });
+
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
         }),
       );
@@ -2188,6 +2254,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             });
           }
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'inventory.update_room_type',
+            entityType: 'room_type',
+            entityId: input.roomTypeId,
+            beforeJson: {
+              code: existing.code,
+              name: existing.name,
+              roomCount: existing.room_count,
+              maxOccupancy: existing.max_occupancy,
+              maxAdults: existing.max_adults,
+            },
+            afterJson: {
+              code: input.code ?? existing.code,
+              name: input.name ?? existing.name,
+              roomCount: nextRoomCount,
+              maxOccupancy: input.maxOccupancy ?? existing.max_occupancy,
+              maxAdults: input.maxAdults ?? existing.max_adults,
+            },
+          });
+
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
         }),
       );
@@ -2305,6 +2392,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             });
           }
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'inventory.delete_room_type',
+            entityType: 'room_type',
+            entityId: input.roomTypeId,
+            beforeJson: { status: 'active' },
+            afterJson: { status: 'archived' },
+          });
+
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion };
         }),
       );
@@ -2406,6 +2502,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rooms.create',
+            entityType: 'room',
+            entityId: input.roomId,
+            beforeJson: null,
+            afterJson: {
+              roomId: input.roomId,
+              roomTypeId: input.roomTypeId,
+              code: input.code,
+              floor: input.floor ?? null,
+            },
+          });
+
           return { ok: true as const, roomId: input.roomId };
         }),
       );
@@ -2490,6 +2600,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               code: nextCode,
               floor: nextFloor,
             },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rooms.update',
+            entityType: 'room',
+            entityId: input.roomId,
+            beforeJson: { code: existing.code, floor: existing.floor },
+            afterJson: { code: nextCode, floor: nextFloor },
           });
 
           return { ok: true as const, roomId: input.roomId };
@@ -2764,6 +2883,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomId: input.roomId,
               previousRoomId,
             },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.assign_room',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { roomId: previousRoomId },
+            afterJson: { roomId: input.roomId },
+            reservationId: input.reservationId,
           });
 
           return {
@@ -3139,6 +3268,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.create',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: null,
+            afterJson: {
+              reservationId: input.reservationId,
+              roomTypeId: input.roomTypeId,
+              arrivalDate: input.arrivalDate,
+              departureDate: input.departureDate,
+              status: 'confirmed',
+            },
+            reservationId: input.reservationId,
+          });
+
           return {
             ok: true as const,
             reservationId: input.reservationId,
@@ -3266,6 +3411,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               toDate,
               version: ariVersion,
             },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.cancel',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: 'confirmed', roomTypeId: reservation.room_type_id },
+            afterJson: { status: 'cancelled', roomTypeId: reservation.room_type_id },
+            reservationId: input.reservationId,
           });
 
           return {
@@ -3531,6 +3686,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               },
             });
           }
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.modify',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: {
+              roomTypeId: reservation.room_type_id,
+              arrivalDate: reservation.arrival_date,
+              departureDate: reservation.departure_date,
+            },
+            afterJson: {
+              roomTypeId: input.roomTypeId,
+              arrivalDate: input.arrivalDate,
+              departureDate: input.departureDate,
+            },
+            reservationId: input.reservationId,
+          });
 
           return {
             ok: true as const,
@@ -3898,6 +4071,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.no_show',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: 'confirmed', roomTypeId: reservation.room_type_id },
+            afterJson: { status: 'no_show', roomTypeId: reservation.room_type_id },
+            reservationId: input.reservationId,
+          });
+
           return {
             ok: true as const,
             reservationId: input.reservationId,
@@ -4089,6 +4272,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               stayDate: input.stayDate,
             },
           });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'restrictions.upsert_day',
+            entityType: 'restriction_day',
+            entityId: `${input.roomTypeId}:${input.ratePlanId}:${input.stayDate}`,
+            afterJson: {
+              roomTypeId: input.roomTypeId,
+              ratePlanId: input.ratePlanId,
+              stayDate: input.stayDate,
+              minLos: input.minLos,
+              maxLos: input.maxLos,
+              cta: input.cta,
+              ctd: input.ctd,
+              stopSell: input.stopSell,
+            },
+          });
           return { ok: true as const };
         }),
       );
@@ -4220,6 +4419,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.create_plan',
+            entityType: 'rate_plan',
+            entityId: input.ratePlanId,
+            beforeJson: null,
+            afterJson: {
+              ratePlanId: input.ratePlanId,
+              code: input.code,
+              name: input.name,
+              status: 'active',
+            },
+          });
+
           return { ok: true as const, ratePlanId: input.ratePlanId };
         }),
       );
@@ -4322,6 +4535,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.update_plan',
+            entityType: 'rate_plan',
+            entityId: input.ratePlanId,
+            beforeJson: { code: existing.code, name: existing.name },
+            afterJson: { code: nextCode, name: nextName },
+          });
+
           return { ok: true as const, ratePlanId: input.ratePlanId };
         }),
       );
@@ -4399,6 +4621,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               op: 'archive',
               at: now,
             },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.delete_plan',
+            entityType: 'rate_plan',
+            entityId: input.ratePlanId,
+            beforeJson: { status: 'active' },
+            afterJson: { status: 'archived' },
           });
 
           return { ok: true as const, ratePlanId: input.ratePlanId };
@@ -4499,6 +4730,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.create_charge_code',
+            entityType: 'charge_code',
+            entityId: input.code,
+            beforeJson: null,
+            afterJson: { code: input.code, name: input.name, status: 'active' },
+          });
+
           return { ok: true as const, code: input.code };
         }),
       );
@@ -4545,11 +4785,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const rows = this.ctx.storage.sql
-            .exec(`SELECT code FROM charge_code WHERE code = ?`, input.code)
-            .toArray();
-          if (!rows[0]) throw new ChargeCodeNotFoundError();
+            .exec(`SELECT code, name, tax_group FROM charge_code WHERE code = ?`, input.code)
+            .toArray() as Array<{ code: string; name: string; tax_group: string | null }>;
+          const existing = rows[0];
+          if (!existing) throw new ChargeCodeNotFoundError();
 
           const now = Date.now();
+          const nextName = input.name ?? existing.name;
+          const nextTaxGroup = input.taxGroup !== undefined ? input.taxGroup : existing.tax_group;
           if (input.name !== undefined) {
             this.ctx.storage.sql.exec(
               `UPDATE charge_code SET name = ?, updated_at = ? WHERE code = ?`,
@@ -4576,6 +4819,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               op: 'update',
               at: now,
             },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.update_charge_code',
+            entityType: 'charge_code',
+            entityId: input.code,
+            beforeJson: { name: existing.name, taxGroup: existing.tax_group },
+            afterJson: { name: nextName, taxGroup: nextTaxGroup },
           });
 
           return { ok: true as const, code: input.code };
@@ -4656,6 +4908,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.set_charge_code_status',
+            entityType: 'charge_code',
+            entityId: input.code,
+            beforeJson: { status: rows[0]!.status },
+            afterJson: { code: input.code, status: input.status },
+          });
+
           return { ok: true as const, code: input.code, status: input.status };
         }),
       );
@@ -4690,6 +4951,113 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       status: r.status,
       taxGroup: r.tax_group,
     }));
+  }
+
+  async listAuditLog(
+    actor: ActorContext,
+    filters: {
+      actor?: string;
+      shiftId?: string;
+      reservationId?: string;
+      fromAt?: number;
+      toAt?: number;
+      limit?: number;
+    } = {},
+  ): Promise<
+    | {
+        ok: true;
+        rows: Array<{
+          seq: number;
+          at: number;
+          actor: string;
+          commandId: string;
+          entityType: string;
+          entityId: string;
+          beforeJson: unknown | null;
+          afterJson: unknown;
+          shiftId: string | null;
+          reservationId: string | null;
+          createdAt: number;
+        }>;
+      }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: 'org_id_unset' }
+  > {
+    this.assertRpcAvailable();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:read');
+    if (permDenied) return permDenied;
+
+    const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters.actor !== undefined) {
+      conditions.push('actor = ?');
+      params.push(filters.actor);
+    }
+    if (filters.shiftId !== undefined) {
+      conditions.push('shift_id = ?');
+      params.push(filters.shiftId);
+    }
+    if (filters.reservationId !== undefined) {
+      conditions.push('reservation_id = ?');
+      params.push(filters.reservationId);
+    }
+    if (filters.fromAt !== undefined) {
+      conditions.push('at >= ?');
+      params.push(filters.fromAt);
+    }
+    if (filters.toAt !== undefined) {
+      conditions.push('at <= ?');
+      params.push(filters.toAt);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT seq, at, actor, command_id, entity_type, entity_id,
+                before_json, after_json, shift_id, reservation_id, created_at
+         FROM audit_log ${where}
+         ORDER BY at DESC, seq DESC
+         LIMIT ?`,
+        ...params,
+        limit,
+      )
+      .toArray() as Array<{
+      seq: number;
+      at: number;
+      actor: string;
+      command_id: string;
+      entity_type: string;
+      entity_id: string;
+      before_json: string | null;
+      after_json: string;
+      shift_id: string | null;
+      reservation_id: string | null;
+      created_at: number;
+    }>;
+
+    return {
+      ok: true,
+      rows: rows.map((row) => ({
+        seq: row.seq,
+        at: row.at,
+        actor: row.actor,
+        commandId: row.command_id,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        beforeJson: row.before_json == null ? null : JSON.parse(row.before_json),
+        afterJson: JSON.parse(row.after_json),
+        shiftId: row.shift_id,
+        reservationId: row.reservation_id,
+        createdAt: row.created_at,
+      })),
+    };
   }
 
   /**
@@ -4779,6 +5147,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               ruleKey: input.ruleKey,
               op: 'create',
               at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.create_tax_rule',
+            entityType: 'tax_rule',
+            entityId: input.taxRuleId,
+            beforeJson: null,
+            afterJson: {
+              taxRuleId: input.taxRuleId,
+              ruleKey: input.ruleKey,
+              ruleType: input.ruleType,
+              rate: input.rate,
+              taxGroup: input.taxGroup,
+              outputChargeCode: input.outputChargeCode,
+              validFrom: input.validFrom,
+              validTo: input.validTo ?? null,
             },
           });
 
@@ -4914,6 +5300,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.supersede_tax_rule',
+            entityType: 'tax_rule',
+            entityId: input.taxRuleId,
+            beforeJson: { ruleKey: input.ruleKey },
+            afterJson: {
+              taxRuleId: input.taxRuleId,
+              ruleKey: input.ruleKey,
+              ruleType: input.ruleType,
+              rate: input.rate,
+              taxGroup: input.taxGroup,
+              outputChargeCode: input.outputChargeCode,
+              validFrom: input.validFrom,
+              validTo: input.validTo ?? null,
+            },
+          });
+
           return { ok: true as const, taxRuleId: input.taxRuleId };
         }),
       );
@@ -5013,6 +5417,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       stayDate: string;
       amountMinor: number;
       currency: string;
+      auditCommandId?: 'rates.upsert_day' | 'rates.update_room_type_rate';
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -5040,11 +5445,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
     const ratePlanId = input.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
+    const auditCommandId = input.auditCommandId ?? 'rates.upsert_day';
 
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertActiveRatePlanSync(ratePlanId);
+          const beforeRows = this.ctx.storage.sql
+            .exec(
+              `SELECT amount_minor, currency FROM rate_day
+               WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+              input.roomTypeId,
+              ratePlanId,
+              input.stayDate,
+            )
+            .toArray() as Array<{ amount_minor: number; currency: string }>;
           this.ctx.storage.sql.exec(
             `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
              VALUES (?, ?, ?, ?, ?, 1)
@@ -5066,6 +5481,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomTypeId: input.roomTypeId,
               ratePlanId,
               stayDate: input.stayDate,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: auditCommandId,
+            entityType: 'rate_day',
+            entityId: `${input.roomTypeId}:${ratePlanId}:${input.stayDate}`,
+            beforeJson: beforeRows[0]
+              ? { amountMinor: beforeRows[0].amount_minor, currency: beforeRows[0].currency }
+              : null,
+            afterJson: {
+              roomTypeId: input.roomTypeId,
+              ratePlanId,
+              stayDate: input.stayDate,
+              amountMinor: input.amountMinor,
+              currency: input.currency,
             },
           });
           return { ok: true as const };
@@ -5140,6 +5571,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           for (const cell of normalized) {
             this.assertActiveRatePlanSync(cell.ratePlanId);
+            const beforeRows = this.ctx.storage.sql
+              .exec(
+                `SELECT amount_minor, currency FROM rate_day
+                 WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+                cell.roomTypeId,
+                cell.ratePlanId,
+                cell.stayDate,
+              )
+              .toArray() as Array<{ amount_minor: number; currency: string }>;
             this.ctx.storage.sql.exec(
               `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
                VALUES (?, ?, ?, ?, ?, 1)
@@ -5161,6 +5601,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 roomTypeId: cell.roomTypeId,
                 ratePlanId: cell.ratePlanId,
                 stayDate: cell.stayDate,
+              },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'rates.bulk_update',
+              entityType: 'rate_day',
+              entityId: `${cell.roomTypeId}:${cell.ratePlanId}:${cell.stayDate}`,
+              beforeJson: beforeRows[0]
+                ? { amountMinor: beforeRows[0].amount_minor, currency: beforeRows[0].currency }
+                : null,
+              afterJson: {
+                roomTypeId: cell.roomTypeId,
+                ratePlanId: cell.ratePlanId,
+                stayDate: cell.stayDate,
+                amountMinor: cell.amountMinor,
+                currency: cell.currency,
               },
             });
           }
@@ -5662,6 +6118,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             posted: moneyCheck.posted,
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.add_item',
+            entityType: 'folio_line',
+            entityId: input.folioLineId,
+            beforeJson: null,
+            afterJson: {
+              folioLineId: input.folioLineId,
+              chargeCode: input.chargeCode,
+              amountMinor: moneyCheck.posted.amountMinor,
+              reservationId: input.reservationId,
+            },
+            reservationId: input.reservationId,
+          });
+
           return {
             ok: true as const,
             folioLineId: input.folioLineId,
@@ -5745,6 +6216,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const folioLineIds = this.splitFolioLineSync(source, input.splits);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.split_charge',
+            entityType: 'folio_line',
+            entityId: input.sourceFolioLineId,
+            beforeJson: { amountMinor: source.amount_minor },
+            afterJson: { sourceFolioLineId: input.sourceFolioLineId, folioLineIds },
+            reservationId: source.reservation_id,
+          });
           return { ok: true as const, folioLineIds };
         }),
       );
@@ -5845,6 +6325,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private forceCloseCashierShiftsSync(businessDate: string): void {
+    const openShifts = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id, cashier_user_id, opening_float FROM shift
+         WHERE business_date = ? AND status = 'OPEN'`,
+        businessDate,
+      )
+      .toArray() as Array<{ shift_id: string; cashier_user_id: string; opening_float: number }>;
+
     const now = Date.now();
     this.ctx.storage.sql.exec(
       `UPDATE shift
@@ -5858,6 +6346,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       now,
       businessDate,
     );
+
+    for (const shift of openShifts) {
+      this.appendAuditLogSync({
+        at: now,
+        actor: 'system:night_audit',
+        commandId: 'night_audit.run',
+        entityType: 'shift',
+        entityId: shift.shift_id,
+        beforeJson: { status: 'OPEN', openingFloat: shift.opening_float },
+        afterJson: {
+          shiftId: shift.shift_id,
+          status: 'FORCE_CLOSED',
+          closingCount: null,
+          variance: null,
+        },
+        shiftId: shift.shift_id,
+      });
+    }
   }
 
   private mapShiftRow(
@@ -6041,6 +6547,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               currency: ledgerCurrency,
               gatewayReference: adapterResult.gatewayReference,
             },
+          });
+          const authorizedRow = this.readPaymentRowSync(input.paymentId);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.authorize',
+            entityType: 'payment',
+            entityId: input.paymentId,
+            beforeJson: null,
+            afterJson: {
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              amountMinor: input.amountMinor,
+              currency: ledgerCurrency,
+              status: 'authorized',
+              shiftId: authorizedRow?.shift_id ?? null,
+            },
+            shiftId: authorizedRow?.shift_id ?? null,
+            reservationId: input.reservationId,
           });
         } else if (adapterResult.outcome === 'declined') {
           this.ctx.storage.sql.exec(
@@ -6235,6 +6759,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           },
         });
 
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.capture',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: { status: 'authorized', amountMinor: payment.amount_minor },
+          afterJson: {
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            status: 'captured',
+            capturedAmountMinor: adapterResult.capturedAmountMinor,
+            shiftId: payment.shift_id,
+          },
+          shiftId: payment.shift_id,
+          reservationId: payment.reservation_id,
+        });
+
         return {
           ok: true as const,
           paymentId: input.paymentId,
@@ -6313,6 +6854,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               businessDate,
               at: now,
             },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.open_shift',
+            entityType: 'shift',
+            entityId: input.shiftId,
+            beforeJson: null,
+            afterJson: {
+              shiftId: input.shiftId,
+              status: 'OPEN',
+              openingFloat: input.openingFloat,
+              businessDate,
+            },
+            shiftId: input.shiftId,
           });
           return { ok: true as const, shiftId: input.shiftId };
         }),
@@ -6401,6 +6956,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               variance,
               at: now,
             },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.close_shift',
+            entityType: 'shift',
+            entityId: input.shiftId,
+            beforeJson: {
+              status: 'OPEN',
+              openingFloat: row.opening_float,
+            },
+            afterJson: {
+              shiftId: input.shiftId,
+              status: 'CLOSED',
+              closingCount: input.closingCount,
+              variance,
+            },
+            shiftId: input.shiftId,
           });
           return {
             ok: true as const,
@@ -6535,6 +7107,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             tenderType: 'CASH',
             shiftId,
           },
+        });
+
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.record_cash_payment',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: null,
+          afterJson: {
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            amountMinor: input.amountMinor,
+            currency: ledgerCurrency,
+            tenderType: 'CASH',
+            status: 'captured',
+            shiftId,
+          },
+          shiftId,
+          reservationId: input.reservationId,
         });
 
         return {
@@ -6745,6 +7336,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const folioLineIds = this.splitFolioLineSync(source, input.splits);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.split_charge_payment',
+            entityType: 'folio_line',
+            entityId: input.sourceFolioLineId,
+            beforeJson: { amountMinor: source.amount_minor },
+            afterJson: { sourceFolioLineId: input.sourceFolioLineId, folioLineIds },
+            reservationId: source.reservation_id,
+          });
           return { ok: true as const, folioLineIds };
         }),
       );

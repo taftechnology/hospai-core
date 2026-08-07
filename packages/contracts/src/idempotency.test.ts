@@ -35,6 +35,11 @@ import {
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
   LINE_NOT_SPLITTABLE,
+  TAX_RULE_NOT_FOUND,
+  TAX_RULE_KEY_EXISTS,
+  TAX_RULE_KEY_OVERLAP,
+  TAX_RULE_TYPE_UNSUPPORTED,
+  TAX_OUTPUT_CODE_TAXABLE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -95,6 +100,14 @@ describe('fingerprintPayload', () => {
     expect(PSP_UNAVAILABLE).toBe('psp_unavailable');
     expect(PAYMENT_NOT_CAPTURABLE).toBe('payment_not_capturable');
     expect(LINE_NOT_SPLITTABLE).toBe('line_not_splittable');
+  });
+
+  it('exports tax rule wire codes', () => {
+    expect(TAX_RULE_NOT_FOUND).toBe('tax_rule_not_found');
+    expect(TAX_RULE_KEY_EXISTS).toBe('tax_rule_key_exists');
+    expect(TAX_RULE_KEY_OVERLAP).toBe('tax_rule_key_overlap');
+    expect(TAX_RULE_TYPE_UNSUPPORTED).toBe('tax_rule_type_unsupported');
+    expect(TAX_OUTPUT_CODE_TAXABLE).toBe('tax_output_code_taxable');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

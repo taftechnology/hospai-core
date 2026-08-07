@@ -361,6 +361,24 @@ describe('command catalog', () => {
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[53] ?? {})).toBe(false);
   });
+
+  it('tax rule commands are FAIL_CLOSED with settings:configure and tax_rule.changed', () => {
+    for (const id of ['folio.create_tax_rule', 'folio.supersede_tax_rule'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('settings:configure');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.events).toEqual(['tax_rule.changed']);
+    }
+    expect(V1_HTTP_ROUTE_AUDIT[54]?.id).toBe('post_tax_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[55]?.id).toBe('put_tax_rule_supersede');
+    expect(V1_HTTP_ROUTE_AUDIT[56]?.id).toBe('get_tax_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[56]).toMatchObject({
+      permission: 'folio:read',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[56] ?? {})).toBe(false);
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

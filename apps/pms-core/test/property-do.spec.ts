@@ -22,9 +22,9 @@ async function configIdem(key: string, value: unknown, meta: { reason: string })
 }
 
 describe('PropertyDO freeze gate', () => {
-  it('migrates to schema version 14', async () => {
+  it('migrates to schema version 15', async () => {
     const stub = propertyStub(`migrate-${crypto.randomUUID()}`);
-    expect(await stub.getSchemaVersion()).toBe(14);
+    expect(await stub.getSchemaVersion()).toBe(15);
   });
 
   it('defaults held to 0 and computes free', async () => {

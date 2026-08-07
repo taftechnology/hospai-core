@@ -35,6 +35,11 @@ import {
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   SYSTEM_CHARGE_CODE_PROTECTED,
+  TAX_RULE_NOT_FOUND,
+  TAX_RULE_KEY_EXISTS,
+  TAX_RULE_KEY_OVERLAP,
+  TAX_RULE_TYPE_UNSUPPORTED,
+  TAX_OUTPUT_CODE_TAXABLE,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   FX_RATE_INVALID,
@@ -104,7 +109,9 @@ import { quoteStay } from '@hospai/pms-rates';
 import { UndeclaredConfigError, validateConfigWrite } from '@hospai/kernel';
 import { assertJurisdictionMatch, resolveOrgStub, type Jurisdiction } from '@hospai/tenant-router';
 import {
+  allocate,
   assertPostedMatches,
+  computeTax,
   currencyCode,
   InvalidFxRateError,
   InvalidMoneyError,
@@ -277,6 +284,41 @@ class SystemChargeCodeProtectedError extends Error {
   constructor() {
     super(SYSTEM_CHARGE_CODE_PROTECTED);
     this.name = 'SystemChargeCodeProtectedError';
+  }
+}
+
+class TaxRuleNotFoundError extends Error {
+  constructor() {
+    super(TAX_RULE_NOT_FOUND);
+    this.name = 'TaxRuleNotFoundError';
+  }
+}
+
+class TaxRuleKeyExistsError extends Error {
+  constructor() {
+    super(TAX_RULE_KEY_EXISTS);
+    this.name = 'TaxRuleKeyExistsError';
+  }
+}
+
+class TaxRuleKeyOverlapError extends Error {
+  constructor() {
+    super(TAX_RULE_KEY_OVERLAP);
+    this.name = 'TaxRuleKeyOverlapError';
+  }
+}
+
+class TaxRuleTypeUnsupportedError extends Error {
+  constructor() {
+    super(TAX_RULE_TYPE_UNSUPPORTED);
+    this.name = 'TaxRuleTypeUnsupportedError';
+  }
+}
+
+class TaxOutputCodeTaxableError extends Error {
+  constructor() {
+    super(TAX_OUTPUT_CODE_TAXABLE);
+    this.name = 'TaxOutputCodeTaxableError';
   }
 }
 
@@ -757,18 +799,124 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ok: true, version: result.version };
   }
 
-  /** Read the stored `__meta.business_date`, or null if never provisioned. */
-  async readBusinessDate(): Promise<string | null> {
-    return this.readBusinessDateSync();
-  }
-
-  /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
   private readBusinessDateSync(): string | null {
     const rows = this.ctx.storage.sql
       .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.business_date')
       .toArray() as Array<{ value_json: string }>;
     if (!rows[0]) return null;
     return JSON.parse(rows[0].value_json) as string;
+  }
+
+  /** Posting business date for rule selection — provisional replay date, else property date. */
+  private resolvePostingBusinessDateSync(provisional?: ProvisionalContext): string {
+    if (provisional?.businessDate) return provisional.businessDate;
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+    return businessDate;
+  }
+
+  private taxRuleWindowOverlaps(
+    aFrom: string,
+    aTo: string | null,
+    bFrom: string,
+    bTo: string | null,
+  ): boolean {
+    const aEnd = aTo ?? '9999-12-31';
+    const bEnd = bTo ?? '9999-12-31';
+    return aFrom <= bEnd && bFrom <= aEnd;
+  }
+
+  private assertTaxOutputCodeExemptSync(outputChargeCode: string): void {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT tax_group FROM charge_code WHERE code = ?`, outputChargeCode)
+      .toArray() as Array<{ tax_group: string | null }>;
+    if (!rows[0]) throw new ChargeCodeNotFoundError();
+    if (rows[0].tax_group != null) throw new TaxOutputCodeTaxableError();
+  }
+
+  private listApplicableTaxRulesSync(
+    taxGroup: string,
+    postingDate: string,
+  ): Array<{
+    tax_rule_id: string;
+    rate: string;
+    output_charge_code: string;
+    rule_type: string;
+  }> {
+    return this.ctx.storage.sql
+      .exec(
+        `SELECT tax_rule_id, rate, output_charge_code, rule_type
+         FROM tax_rule
+         WHERE tax_group = ?
+           AND valid_from <= ?
+           AND (valid_to IS NULL OR valid_to > ?)
+         ORDER BY valid_from, tax_rule_id`,
+        taxGroup,
+        postingDate,
+        postingDate,
+      )
+      .toArray() as Array<{
+      tax_rule_id: string;
+      rate: string;
+      output_charge_code: string;
+      rule_type: string;
+    }>;
+  }
+
+  private stampTaxForChargeSync(params: {
+    parentLineId: string;
+    parentAmountMinor: number;
+    parentSource: string | null | undefined;
+    chargeCode: string;
+    reservationId: string;
+    folioWindowId: string;
+    postingDate: string;
+    posted: PostedLineAmount;
+  }): void {
+    const parentSource = params.parentSource ?? null;
+    if (
+      parentSource === 'PAYMENT' ||
+      parentSource === 'SPLIT_REVERSAL' ||
+      parentSource === 'TAX'
+    ) {
+      return;
+    }
+
+    const codeRows = this.ctx.storage.sql
+      .exec(`SELECT tax_group FROM charge_code WHERE code = ?`, params.chargeCode)
+      .toArray() as Array<{ tax_group: string | null }>;
+    const taxGroup = codeRows[0]?.tax_group;
+    if (!taxGroup) return;
+
+    const rules = this.listApplicableTaxRulesSync(taxGroup, params.postingDate);
+    for (const rule of rules) {
+      if (rule.rule_type !== 'PERCENTAGE') continue;
+      const taxMinor = computeTax(params.parentAmountMinor, rule.rate);
+      if (taxMinor === 0) continue;
+      this.insertFolioLineSync({
+        folioLineId: `${params.parentLineId}:tax:${rule.tax_rule_id}`,
+        folioWindowId: params.folioWindowId,
+        reservationId: params.reservationId,
+        chargeCode: rule.output_charge_code,
+        posted: {
+          amountMinor: taxMinor,
+          txnCurrency: params.posted.txnCurrency,
+          ledgerAmountMinor: taxMinor,
+          fxRate: params.posted.fxRate,
+          fxRateAt: params.posted.fxRateAt,
+        },
+        source: 'TAX',
+        taxOf: params.parentLineId,
+        taxRuleId: rule.tax_rule_id,
+      });
+    }
+  }
+
+  /**
+   * Read the stored `__meta.business_date`, or null if never provisioned.
+   */
+  async readBusinessDate(): Promise<string | null> {
+    return this.readBusinessDateSync();
   }
 
   /**
@@ -4317,7 +4465,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    */
   async tryUpdateChargeCode(
     actor: ActorContext,
-    input: { code: string; name: string },
+    input: { code: string; name?: string; taxGroup?: string | null },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; code: string }
@@ -4352,12 +4500,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (!rows[0]) throw new ChargeCodeNotFoundError();
 
           const now = Date.now();
-          this.ctx.storage.sql.exec(
-            `UPDATE charge_code SET name = ?, updated_at = ? WHERE code = ?`,
-            input.name,
-            now,
-            input.code,
-          );
+          if (input.name !== undefined) {
+            this.ctx.storage.sql.exec(
+              `UPDATE charge_code SET name = ?, updated_at = ? WHERE code = ?`,
+              input.name,
+              now,
+              input.code,
+            );
+          }
+          if (input.taxGroup !== undefined) {
+            this.ctx.storage.sql.exec(
+              `UPDATE charge_code SET tax_group = ?, updated_at = ? WHERE code = ?`,
+              input.taxGroup,
+              now,
+              input.code,
+            );
+          }
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -4463,17 +4621,333 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async listChargeCodes(
     status: 'active' | 'archived' | 'all' = 'active',
-  ): Promise<Array<{ code: string; name: string; status: string }>> {
+  ): Promise<Array<{ code: string; name: string; status: string; taxGroup: string | null }>> {
     this.assertRpcAvailable();
     const rows =
       status === 'all'
         ? (this.ctx.storage.sql
-            .exec(`SELECT code, name, status FROM charge_code ORDER BY code`)
-            .toArray() as Array<{ code: string; name: string; status: string }>)
+            .exec(`SELECT code, name, status, tax_group FROM charge_code ORDER BY code`)
+            .toArray() as Array<{ code: string; name: string; status: string; tax_group: string | null }>)
         : (this.ctx.storage.sql
-            .exec(`SELECT code, name, status FROM charge_code WHERE status = ? ORDER BY code`, status)
-            .toArray() as Array<{ code: string; name: string; status: string }>);
-    return rows.map((r) => ({ code: r.code, name: r.name, status: r.status }));
+            .exec(
+              `SELECT code, name, status, tax_group FROM charge_code WHERE status = ? ORDER BY code`,
+              status,
+            )
+            .toArray() as Array<{ code: string; name: string; status: string; tax_group: string | null }>);
+    return rows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      status: r.status,
+      taxGroup: r.tax_group,
+    }));
+  }
+
+  /**
+   * Create a tax rule (new rule_key only). Implements catalog `folio.create_tax_rule`.
+   */
+  async tryCreateTaxRule(
+    actor: ActorContext,
+    input: {
+      taxRuleId: string;
+      ruleKey: string;
+      name: string;
+      ruleType: string;
+      rate: string;
+      taxGroup: string;
+      outputChargeCode: string;
+      validFrom: string;
+      validTo?: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; taxRuleId: string }
+    | { ok: false; error: typeof TAX_RULE_KEY_EXISTS }
+    | { ok: false; error: typeof TAX_RULE_KEY_OVERLAP }
+    | { ok: false; error: typeof TAX_RULE_TYPE_UNSUPPORTED }
+    | { ok: false; error: typeof TAX_OUTPUT_CODE_TAXABLE }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.ruleType !== 'PERCENTAGE') {
+      return { ok: false, error: TAX_RULE_TYPE_UNSUPPORTED };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existingKey = this.ctx.storage.sql
+            .exec(`SELECT tax_rule_id FROM tax_rule WHERE rule_key = ? LIMIT 1`, input.ruleKey)
+            .toArray();
+          if (existingKey.length > 0) throw new TaxRuleKeyExistsError();
+
+          this.assertTaxOutputCodeExemptSync(input.outputChargeCode);
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO tax_rule (
+               tax_rule_id, rule_key, name, rule_type, rate, tax_group,
+               output_charge_code, valid_from, valid_to, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            input.taxRuleId,
+            input.ruleKey,
+            input.name,
+            input.ruleType,
+            input.rate,
+            input.taxGroup,
+            input.outputChargeCode,
+            input.validFrom,
+            input.validTo ?? null,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'tax_rule.changed',
+            payload: {
+              propertyId,
+              taxRuleId: input.taxRuleId,
+              ruleKey: input.ruleKey,
+              op: 'create',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, taxRuleId: input.taxRuleId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof TaxRuleKeyExistsError) return { ok: false, error: TAX_RULE_KEY_EXISTS };
+      if (e instanceof TaxOutputCodeTaxableError) return { ok: false, error: TAX_OUTPUT_CODE_TAXABLE };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Supersede a tax rule (close + insert same rule_key). Implements catalog `folio.supersede_tax_rule`.
+   */
+  async trySupersedeTaxRule(
+    actor: ActorContext,
+    input: {
+      ruleKey: string;
+      taxRuleId: string;
+      name: string;
+      ruleType: string;
+      rate: string;
+      taxGroup: string;
+      outputChargeCode: string;
+      validFrom: string;
+      validTo?: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; taxRuleId: string }
+    | { ok: false; error: typeof TAX_RULE_NOT_FOUND }
+    | { ok: false; error: typeof TAX_RULE_KEY_OVERLAP }
+    | { ok: false; error: typeof TAX_RULE_TYPE_UNSUPPORTED }
+    | { ok: false; error: typeof TAX_OUTPUT_CODE_TAXABLE }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.ruleType !== 'PERCENTAGE') {
+      return { ok: false, error: TAX_RULE_TYPE_UNSUPPORTED };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT tax_rule_id, valid_from, valid_to FROM tax_rule WHERE rule_key = ?`,
+              input.ruleKey,
+            )
+            .toArray() as Array<{ tax_rule_id: string; valid_from: string; valid_to: string | null }>;
+          if (existing.length === 0) throw new TaxRuleNotFoundError();
+
+          for (const row of existing) {
+            const willClose =
+              row.valid_from <= input.validFrom &&
+              (row.valid_to === null || row.valid_to > input.validFrom);
+            if (willClose) continue;
+            if (
+              this.taxRuleWindowOverlaps(
+                row.valid_from,
+                row.valid_to,
+                input.validFrom,
+                input.validTo ?? null,
+              )
+            ) {
+              throw new TaxRuleKeyOverlapError();
+            }
+          }
+
+          this.assertTaxOutputCodeExemptSync(input.outputChargeCode);
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE tax_rule SET valid_to = ?, updated_at = ?
+             WHERE rule_key = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)`,
+            input.validFrom,
+            now,
+            input.ruleKey,
+            input.validFrom,
+            input.validFrom,
+          );
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO tax_rule (
+               tax_rule_id, rule_key, name, rule_type, rate, tax_group,
+               output_charge_code, valid_from, valid_to, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            input.taxRuleId,
+            input.ruleKey,
+            input.name,
+            input.ruleType,
+            input.rate,
+            input.taxGroup,
+            input.outputChargeCode,
+            input.validFrom,
+            input.validTo ?? null,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'tax_rule.changed',
+            payload: {
+              propertyId,
+              taxRuleId: input.taxRuleId,
+              ruleKey: input.ruleKey,
+              op: 'supersede',
+              at: now,
+            },
+          });
+
+          return { ok: true as const, taxRuleId: input.taxRuleId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof TaxRuleNotFoundError) return { ok: false, error: TAX_RULE_NOT_FOUND };
+      if (e instanceof TaxRuleKeyOverlapError) return { ok: false, error: TAX_RULE_KEY_OVERLAP };
+      if (e instanceof TaxOutputCodeTaxableError) return { ok: false, error: TAX_OUTPUT_CODE_TAXABLE };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async listTaxRules(
+    filters: { taxGroup?: string; effectiveDate?: string } = {},
+  ): Promise<
+    Array<{
+      taxRuleId: string;
+      ruleKey: string;
+      name: string;
+      ruleType: string;
+      rate: string;
+      taxGroup: string;
+      outputChargeCode: string;
+      validFrom: string;
+      validTo: string | null;
+    }>
+  > {
+    this.assertRpcAvailable();
+    let rows: Array<{
+      tax_rule_id: string;
+      rule_key: string;
+      name: string;
+      rule_type: string;
+      rate: string;
+      tax_group: string;
+      output_charge_code: string;
+      valid_from: string;
+      valid_to: string | null;
+    }>;
+    if (filters.taxGroup && filters.effectiveDate) {
+      rows = this.ctx.storage.sql
+        .exec(
+          `SELECT tax_rule_id, rule_key, name, rule_type, rate, tax_group,
+                  output_charge_code, valid_from, valid_to
+           FROM tax_rule
+           WHERE tax_group = ?
+             AND valid_from <= ?
+             AND (valid_to IS NULL OR valid_to > ?)
+           ORDER BY rule_key, valid_from`,
+          filters.taxGroup,
+          filters.effectiveDate,
+          filters.effectiveDate,
+        )
+        .toArray() as typeof rows;
+    } else if (filters.taxGroup) {
+      rows = this.ctx.storage.sql
+        .exec(
+          `SELECT tax_rule_id, rule_key, name, rule_type, rate, tax_group,
+                  output_charge_code, valid_from, valid_to
+           FROM tax_rule WHERE tax_group = ? ORDER BY rule_key, valid_from`,
+          filters.taxGroup,
+        )
+        .toArray() as typeof rows;
+    } else {
+      rows = this.ctx.storage.sql
+        .exec(
+          `SELECT tax_rule_id, rule_key, name, rule_type, rate, tax_group,
+                  output_charge_code, valid_from, valid_to
+           FROM tax_rule ORDER BY rule_key, valid_from`,
+        )
+        .toArray() as typeof rows;
+    }
+    return rows.map((r) => ({
+      taxRuleId: r.tax_rule_id,
+      ruleKey: r.rule_key,
+      name: r.name,
+      ruleType: r.rule_type,
+      rate: r.rate,
+      taxGroup: r.tax_group,
+      outputChargeCode: r.output_charge_code,
+      validFrom: r.valid_from,
+      validTo: r.valid_to,
+    }));
   }
 
   /**
@@ -4763,16 +5237,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     businessDate?: string;
     splitOf?: string;
     paymentId?: string | null;
+    taxOf?: string | null;
+    taxRuleId?: string | null;
   }): void {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    if (input.source === 'TAX') {
+      if (!input.taxOf || !input.taxRuleId) {
+        throw new Error('tax lines require tax_of and tax_rule_id');
+      }
+    }
 
     this.ctx.storage.sql.exec(
       `INSERT INTO folio_line (
          folio_line_id, folio_window_id, reservation_id, charge_code,
          amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-         source, business_date, split_of, created_at, payment_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.folioLineId,
       input.folioWindowId,
       input.reservationId,
@@ -4787,6 +5269,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.splitOf ?? null,
       Date.now(),
       input.paymentId ?? null,
+      input.taxOf ?? null,
+      input.taxRuleId ?? null,
     );
     this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
@@ -4831,6 +5315,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     this.assertChargeCodeSync(source.charge_code, { requireActive: false });
 
+    const taxLines = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor
+         FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
+        source.folio_line_id,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      amount_minor: number;
+      tax_rule_id: string;
+      charge_code: string;
+      ledger_amount_minor: number;
+    }>;
+
     const reverseId = `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
     this.insertFolioLineSync({
       folioLineId: reverseId,
@@ -4850,6 +5348,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
     folioLineIds.push(reverseId);
 
+    for (const tax of taxLines) {
+      const reverseTaxId = `${tax.folio_line_id}:rev:${crypto.randomUUID()}`;
+      this.insertFolioLineSync({
+        folioLineId: reverseTaxId,
+        folioWindowId: source.folio_window_id,
+        reservationId: source.reservation_id,
+        chargeCode: tax.charge_code,
+        posted: {
+          amountMinor: -tax.amount_minor,
+          txnCurrency,
+          ledgerAmountMinor: -tax.ledger_amount_minor,
+          fxRate: source.fx_rate,
+          fxRateAt: source.fx_rate_at,
+        },
+        source: 'SPLIT_REVERSAL',
+        splitOf: tax.folio_line_id,
+        paymentId: null,
+      });
+      folioLineIds.push(reverseTaxId);
+    }
+
     for (const split of splits) {
       this.insertFolioLineSync({
         folioLineId: split.folioLineId,
@@ -4868,6 +5387,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         paymentId: null,
       });
       folioLineIds.push(split.folioLineId);
+    }
+
+    const childAmounts = splits.map((s) => s.amountMinor);
+    for (const tax of taxLines) {
+      const portions = allocate(tax.amount_minor, childAmounts, { policy: 'LAST' });
+      for (let i = 0; i < splits.length; i++) {
+        const portion = portions[i]!;
+        if (portion === 0) continue;
+        const childLineId = splits[i]!.folioLineId;
+        this.insertFolioLineSync({
+          folioLineId: `${childLineId}:tax:${tax.tax_rule_id}`,
+          folioWindowId: source.folio_window_id,
+          reservationId: source.reservation_id,
+          chargeCode: tax.charge_code,
+          posted: {
+            amountMinor: portion,
+            txnCurrency,
+            ledgerAmountMinor: portion,
+            fxRate: source.fx_rate,
+            fxRateAt: source.fx_rate_at,
+          },
+          source: 'TAX',
+          taxOf: childLineId,
+          taxRuleId: tax.tax_rule_id,
+          splitOf: source.folio_line_id,
+        });
+        folioLineIds.push(`${childLineId}:tax:${tax.tax_rule_id}`);
+      }
     }
 
     return folioLineIds;
@@ -4924,6 +5471,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         posted,
         source: 'NIGHT_AUDIT',
         businessDate,
+      });
+      this.stampTaxForChargeSync({
+        parentLineId: `${reservation.reservation_id}:room:${businessDate}`,
+        parentAmountMinor: amountMinor,
+        parentSource: 'NIGHT_AUDIT',
+        chargeCode: 'ROOM',
+        reservationId: reservation.reservation_id,
+        folioWindowId,
+        postingDate: businessDate,
+        posted,
       });
       postedCount += 1;
 
@@ -5034,6 +5591,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
 
           this.assertChargeCodeSync(input.chargeCode, { requireActive: true });
+          const postingDate = this.resolvePostingBusinessDateSync(provisional);
           this.insertFolioLineSync({
             folioLineId: input.folioLineId,
             folioWindowId,
@@ -5042,6 +5600,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             posted: moneyCheck.posted,
             source: input.source,
             businessDate: input.businessDate,
+          });
+          this.stampTaxForChargeSync({
+            parentLineId: input.folioLineId,
+            parentAmountMinor: moneyCheck.posted.amountMinor,
+            parentSource: input.source ?? null,
+            chargeCode: input.chargeCode,
+            reservationId: input.reservationId,
+            folioWindowId,
+            postingDate,
+            posted: moneyCheck.posted,
           });
 
           return {
@@ -5115,6 +5683,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: LINE_NOT_SPLITTABLE };
           }
           if (source.source === 'SPLIT_REVERSAL') {
+            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
+          }
+          if (source.source === 'TAX') {
             return { ok: false as const, error: LINE_NOT_SPLITTABLE };
           }
 
@@ -5869,11 +6440,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       source: string | null;
       businessDate: string | null;
       splitOf: string | null;
+      taxOf: string | null;
+      taxRuleId: string | null;
     }>
   > {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT folio_line_id, charge_code, amount_minor, source, business_date, split_of
+        `SELECT folio_line_id, charge_code, amount_minor, source, business_date, split_of, tax_of, tax_rule_id
          FROM folio_line WHERE reservation_id = ?`,
         reservationId,
       )
@@ -5884,6 +6457,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       source: string | null;
       business_date: string | null;
       split_of: string | null;
+      tax_of: string | null;
+      tax_rule_id: string | null;
     }>;
     return rows.map((row) => ({
       folioLineId: row.folio_line_id,
@@ -5892,6 +6467,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       source: row.source,
       businessDate: row.business_date,
       splitOf: row.split_of,
+      taxOf: row.tax_of,
+      taxRuleId: row.tax_rule_id,
     }));
   }
 

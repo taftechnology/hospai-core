@@ -33,6 +33,7 @@ let ROOM_AND_HOUSEKEEPING_V11_SQL;
 let RATE_PLAN_V12_SQL;
 let PAYMENT_V13_SQL;
 let CHARGE_CODE_V14_SQL;
+let TAX_POSTING_V15_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -56,6 +57,7 @@ try {
     RATE_PLAN_V12_SQL,
     PAYMENT_V13_SQL,
     CHARGE_CODE_V14_SQL,
+    TAX_POSTING_V15_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -201,6 +203,16 @@ const doPropertyTargets = [
 
 `,
     sql: CHARGE_CODE_V14_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0015_tax_posting.sql'),
+    header: `-- PropertyDO tax_rule + charge_code.tax_group + folio_line tax columns — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: tax_rule table → charge_code.tax_group → seed TAX output → folio_line columns → indexes.
+
+`,
+    sql: TAX_POSTING_V15_SQL,
   },
 ];
 

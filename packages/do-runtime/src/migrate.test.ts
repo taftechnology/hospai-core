@@ -26,6 +26,7 @@ import {
   RATE_PLAN_V12_SQL,
   PAYMENT_V13_SQL,
   CHARGE_CODE_V14_SQL,
+  TAX_POSTING_V15_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -103,20 +104,32 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE folio_line_v14 RENAME TO folio_line')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE charge_code ADD COLUMN tax_group')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('UPDATE charge_code SET tax_group')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_of')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_rule_id')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 14', () => {
+  it('applies property migrations through version 15', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(14);
+    expect(v1).toBe(15);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(14);
-    expect(sql.schemaVersion).toHaveLength(14);
+    expect(v2).toBe(15);
+    expect(sql.schemaVersion).toHaveLength(15);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(13);
   });
@@ -279,6 +292,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(PAYMENT_V13_SQL.trim());
   });
 
+  it('migrations/do-property/0015_tax_posting.sql matches TAX_POSTING_V15_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0015_tax_posting.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(TAX_POSTING_V15_SQL.trim());
+  });
+
   it('migrations/do-property/0014_charge_code.sql matches CHARGE_CODE_V14_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-property/0014_charge_code.sql');
@@ -388,7 +413,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(14);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(15);
     expect(ORG_SCHEMA_HEAD).toBe(4);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });

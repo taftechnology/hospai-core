@@ -451,6 +451,38 @@ export const CHARGE_CODE_V14_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0014_charge_code.sql */
 export const CHARGE_CODE_V14_SQL = CHARGE_CODE_V14_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v15 — tax_rule, charge_code.tax_group, folio_line tax columns (additive). */
+export const TAX_POSTING_V15_STATEMENTS: string[] = [
+  `CREATE TABLE tax_rule (
+  tax_rule_id         TEXT PRIMARY KEY,
+  rule_key            TEXT NOT NULL,
+  name                TEXT NOT NULL,
+  rule_type           TEXT NOT NULL
+    CHECK (rule_type IN ('PERCENTAGE', 'PER_PERSON_PER_NIGHT', 'FLAT')),
+  rate                TEXT NOT NULL,
+  tax_group           TEXT NOT NULL,
+  output_charge_code  TEXT NOT NULL
+    REFERENCES charge_code(code),
+  valid_from          TEXT NOT NULL,
+  valid_to            TEXT,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL
+)`,
+  `ALTER TABLE charge_code ADD COLUMN tax_group TEXT`,
+  `INSERT OR IGNORE INTO charge_code (code, name, status, created_at, updated_at) VALUES
+  ('TAX', 'Tax', 'active', 0, 0)`,
+  `UPDATE charge_code SET tax_group = 'ROOM' WHERE code = 'ROOM'`,
+  `UPDATE charge_code SET tax_group = 'GOODS' WHERE code = 'MISC'`,
+  `ALTER TABLE folio_line ADD COLUMN tax_of TEXT REFERENCES folio_line(folio_line_id)`,
+  `ALTER TABLE folio_line ADD COLUMN tax_rule_id TEXT`,
+  `CREATE UNIQUE INDEX folio_line_tax_uniq
+  ON folio_line (tax_of, tax_rule_id) WHERE source = 'TAX'`,
+  `CREATE INDEX folio_line_tax_of_idx ON folio_line (tax_of) WHERE tax_of IS NOT NULL`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0015_tax_posting.sql */
+export const TAX_POSTING_V15_SQL = TAX_POSTING_V15_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -521,5 +553,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 14,
     name: 'charge_code',
     statements: CHARGE_CODE_V14_STATEMENTS,
+  },
+  {
+    version: 15,
+    name: 'tax_posting',
+    statements: TAX_POSTING_V15_STATEMENTS,
   },
 ] as const;

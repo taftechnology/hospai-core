@@ -53,6 +53,13 @@ export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
 export const SYSTEM_CHARGE_CODE_PROTECTED = 'system_charge_code_protected' as const;
 
+/** Tax rule wire codes */
+export const TAX_RULE_NOT_FOUND = 'tax_rule_not_found' as const;
+export const TAX_RULE_KEY_EXISTS = 'tax_rule_key_exists' as const;
+export const TAX_RULE_KEY_OVERLAP = 'tax_rule_key_overlap' as const;
+export const TAX_RULE_TYPE_UNSUPPORTED = 'tax_rule_type_unsupported' as const;
+export const TAX_OUTPUT_CODE_TAXABLE = 'tax_output_code_taxable' as const;
+
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;

@@ -303,4 +303,23 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_tax_rules',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.create_tax_rule',
+  },
+  {
+    id: 'put_tax_rule_supersede',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.supersede_tax_rule',
+  },
+  {
+    id: 'get_tax_rules',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

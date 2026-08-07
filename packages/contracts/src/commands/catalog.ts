@@ -217,9 +217,10 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.payment_authorized'],
-    notes: 'Payment authorization — never queue during outage (§4.6).',
+    notes:
+      'Payment authorization — never queue during outage (§4.6). folio:post = bring money in (cashiering control decision).',
     entitlement: 'pms.core',
-    permission: 'folio:adjust',
+    permission: 'folio:post',
   },
   {
     id: 'folio.capture',
@@ -228,9 +229,10 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.payment_captured', 'folio.line_posted'],
-    notes: 'Payment capture — never queue during outage (§4.6).',
+    notes:
+      'Payment capture — never queue during outage (§4.6). folio:post = bring money in (cashiering control decision).',
     entitlement: 'pms.core',
-    permission: 'folio:adjust',
+    permission: 'folio:post',
   },
   // SPLIT_FOLIO_CHARGE split
   {
@@ -304,6 +306,37 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['tax_rule.changed'],
     entitlement: 'pms.core',
     permission: 'settings:configure',
+  },
+  {
+    id: 'folio.open_shift',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['shift.changed'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+  },
+  {
+    id: 'folio.close_shift',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['shift.changed'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+  },
+  {
+    id: 'folio.record_cash_payment',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.payment_captured', 'folio.line_posted'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+    notes: 'Cash tender — no PSP gate. FAIL_CLOSED: shift attribution cannot survive provisional replay.',
   },
   {
     id: 'night_audit.run',

@@ -483,6 +483,32 @@ export const TAX_POSTING_V15_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0015_tax_posting.sql */
 export const TAX_POSTING_V15_SQL = TAX_POSTING_V15_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v16 — shift table + payment tender_type / shift_id (cashiering). */
+export const CASHIERING_V16_STATEMENTS: string[] = [
+  `CREATE TABLE shift (
+  shift_id          TEXT PRIMARY KEY,
+  cashier_user_id   TEXT NOT NULL,
+  business_date     TEXT NOT NULL,
+  opened_at         INTEGER NOT NULL,
+  closed_at         INTEGER,
+  opening_float     INTEGER NOT NULL,
+  closing_count     INTEGER,
+  variance          INTEGER,
+  status            TEXT NOT NULL
+    CHECK (status IN ('OPEN', 'CLOSED', 'FORCE_CLOSED')),
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
+)`,
+  `CREATE UNIQUE INDEX shift_open_per_cashier
+  ON shift (cashier_user_id) WHERE status = 'OPEN'`,
+  `ALTER TABLE payment ADD COLUMN tender_type TEXT NOT NULL DEFAULT 'CARD'
+  CHECK (tender_type IN ('CARD', 'CASH'))`,
+  `ALTER TABLE payment ADD COLUMN shift_id TEXT REFERENCES shift(shift_id)`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0016_cashiering.sql */
+export const CASHIERING_V16_SQL = CASHIERING_V16_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -558,5 +584,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 15,
     name: 'tax_posting',
     statements: TAX_POSTING_V15_STATEMENTS,
+  },
+  {
+    version: 16,
+    name: 'cashiering',
+    statements: CASHIERING_V16_STATEMENTS,
   },
 ] as const;

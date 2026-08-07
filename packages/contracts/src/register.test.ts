@@ -325,18 +325,47 @@ describe('command catalog', () => {
       expect(COMMAND_CATALOG.find((c) => c.id === id)?.entitlement).toBe('pms.core');
       expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === id)).toBeUndefined();
     }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.permission).toBe('folio:post');
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.permission).toBe('folio:post');
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge_payment')?.permission).toBe(
+      'folio:adjust',
+    );
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.events).toEqual([
       'folio.payment_captured',
       'folio.line_posted',
     ]);
     expect(V1_HTTP_ROUTE_AUDIT[45]?.id).toBe('post_folio_authorize');
+    expect(V1_HTTP_ROUTE_AUDIT[45]).toMatchObject({ permission: 'folio:post' });
     expect(V1_HTTP_ROUTE_AUDIT[46]?.id).toBe('post_folio_capture');
+    expect(V1_HTTP_ROUTE_AUDIT[46]).toMatchObject({ permission: 'folio:post' });
     expect(V1_HTTP_ROUTE_AUDIT[47]?.id).toBe('post_folio_split_payment');
     expect(V1_HTTP_ROUTE_AUDIT[48]?.id).toBe('get_folio_payment');
     expect(V1_HTTP_ROUTE_AUDIT[49]?.id).toBe('get_folio_payments');
     expect(PLATFORM_GAPS.find((g) => g.id === 'folio.split_charge_v2')?.reason).toMatch(
       /window|transfer/i,
     );
+  });
+
+  it('cashiering commands are FAIL_CLOSED with folio:post and shift.changed / payment events', () => {
+    for (const id of ['folio.open_shift', 'folio.close_shift'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('folio:post');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.events).toEqual(['shift.changed']);
+    }
+    const cash = COMMAND_CATALOG.find((x) => x.id === 'folio.record_cash_payment');
+    expect(cash?.permission).toBe('folio:post');
+    expect(cash?.degraded).toBe('FAIL_CLOSED');
+    expect(cash?.events).toEqual(['folio.payment_captured', 'folio.line_posted']);
+    expect(V1_HTTP_ROUTE_AUDIT[57]?.id).toBe('post_shifts');
+    expect(V1_HTTP_ROUTE_AUDIT[58]?.id).toBe('put_shift_close');
+    expect(V1_HTTP_ROUTE_AUDIT[59]?.id).toBe('post_cash_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[60]?.id).toBe('get_shift');
+    expect(V1_HTTP_ROUTE_AUDIT[60]).toMatchObject({
+      permission: 'folio:read',
+      degradedRead: 'FAIL_CLOSED',
+    });
   });
 
   it('charge code commands are FAIL_CLOSED with settings:configure and charge_code.changed', () => {

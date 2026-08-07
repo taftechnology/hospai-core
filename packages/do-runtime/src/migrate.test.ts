@@ -27,6 +27,7 @@ import {
   PAYMENT_V13_SQL,
   CHARGE_CODE_V14_SQL,
   TAX_POSTING_V15_SQL,
+  CASHIERING_V16_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -116,20 +117,26 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_rule_id')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE payment ADD COLUMN tender_type')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE payment ADD COLUMN shift_id')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 15', () => {
+  it('applies property migrations through version 16', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(15);
+    expect(v1).toBe(16);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(15);
-    expect(sql.schemaVersion).toHaveLength(15);
+    expect(v2).toBe(16);
+    expect(sql.schemaVersion).toHaveLength(16);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(13);
   });
@@ -292,6 +299,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(PAYMENT_V13_SQL.trim());
   });
 
+  it('migrations/do-property/0016_cashiering.sql matches CASHIERING_V16_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0016_cashiering.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(CASHIERING_V16_SQL.trim());
+  });
+
   it('migrations/do-property/0015_tax_posting.sql matches TAX_POSTING_V15_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-property/0015_tax_posting.sql');
@@ -413,7 +432,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(15);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(16);
     expect(ORG_SCHEMA_HEAD).toBe(4);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });

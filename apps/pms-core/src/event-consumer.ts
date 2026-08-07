@@ -95,6 +95,7 @@ export function handleDomainEvent(message: DomainEventMessage): void {
     case 'rate_plan.changed':
     case 'charge_code.changed':
     case 'tax_rule.changed':
+    case 'shift.changed':
     case 'room.created':
     case 'room.updated':
     case 'room.status_changed':

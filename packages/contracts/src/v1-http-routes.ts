@@ -249,13 +249,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   {
     id: 'post_folio_authorize',
     scope: 'property',
-    permission: 'folio:adjust',
+    permission: 'folio:post',
     commandId: 'folio.authorize',
   },
   {
     id: 'post_folio_capture',
     scope: 'property',
-    permission: 'folio:adjust',
+    permission: 'folio:post',
     commandId: 'folio.capture',
   },
   {
@@ -317,6 +317,31 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   },
   {
     id: 'get_tax_rules',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_shifts',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.open_shift',
+  },
+  {
+    id: 'put_shift_close',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.close_shift',
+  },
+  {
+    id: 'post_cash_payment',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.record_cash_payment',
+  },
+  {
+    id: 'get_shift',
     scope: 'property',
     permission: 'folio:read',
     entitlement: 'pms.core',

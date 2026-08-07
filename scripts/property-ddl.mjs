@@ -34,6 +34,7 @@ let RATE_PLAN_V12_SQL;
 let PAYMENT_V13_SQL;
 let CHARGE_CODE_V14_SQL;
 let TAX_POSTING_V15_SQL;
+let CASHIERING_V16_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -58,6 +59,7 @@ try {
     PAYMENT_V13_SQL,
     CHARGE_CODE_V14_SQL,
     TAX_POSTING_V15_SQL,
+    CASHIERING_V16_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -213,6 +215,16 @@ const doPropertyTargets = [
 
 `,
     sql: TAX_POSTING_V15_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0016_cashiering.sql'),
+    header: `-- PropertyDO shift + payment tender_type/shift_id — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE shift → open-per-cashier index → tender_type DEFAULT CARD → shift_id FK.
+
+`,
+    sql: CASHIERING_V16_SQL,
   },
 ];
 

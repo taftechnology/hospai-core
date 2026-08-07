@@ -51,6 +51,9 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  SHIFT_NOT_FOUND,
+  SHIFT_ALREADY_OPEN,
+  SHIFT_NOT_OPEN,
   FORBIDDEN,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
@@ -143,6 +146,24 @@ type PaymentRow = {
   idempotency_key: string;
   request_fingerprint: string;
   capture_fingerprint: string | null;
+  tender_type: 'CARD' | 'CASH';
+  shift_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type ShiftStatus = 'OPEN' | 'CLOSED' | 'FORCE_CLOSED';
+
+type ShiftRow = {
+  shift_id: string;
+  cashier_user_id: string;
+  business_date: string;
+  opened_at: number;
+  closed_at: number | null;
+  opening_float: number;
+  closing_count: number | null;
+  variance: number | null;
+  status: ShiftStatus;
   created_at: number;
   updated_at: number;
 };
@@ -319,6 +340,27 @@ class TaxOutputCodeTaxableError extends Error {
   constructor() {
     super(TAX_OUTPUT_CODE_TAXABLE);
     this.name = 'TaxOutputCodeTaxableError';
+  }
+}
+
+class ShiftNotFoundError extends Error {
+  constructor() {
+    super(SHIFT_NOT_FOUND);
+    this.name = 'ShiftNotFoundError';
+  }
+}
+
+class ShiftAlreadyOpenError extends Error {
+  constructor() {
+    super(SHIFT_ALREADY_OPEN);
+    this.name = 'ShiftAlreadyOpenError';
+  }
+}
+
+class ShiftNotOpenError extends Error {
+  constructor() {
+    super(SHIFT_NOT_OPEN);
+    this.name = 'ShiftNotOpenError';
   }
 }
 
@@ -1495,8 +1537,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           // No-op stub in this slice — real archival content is future work.
         } else if (step === 'POST_ROOM_CHARGES') {
           this.postRoomChargesSync(businessDate);
+        } else if (step === 'CLOSE_CASHIER_SHIFTS') {
+          this.forceCloseCashierShiftsSync(businessDate);
         } else {
-          // PRE_CHECK / PROCESS_NO_SHOWS / CLOSE_CASHIER_SHIFTS / SNAPSHOT_REPORTS — still stubs.
+          // PRE_CHECK / PROCESS_NO_SHOWS / SNAPSHOT_REPORTS — still stubs.
         }
 
         const completedAt = Date.now();
@@ -5715,7 +5759,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, created_at, updated_at
+                capture_fingerprint, tender_type, shift_id, created_at, updated_at
          FROM payment WHERE payment_id = ?`,
         paymentId,
       )
@@ -5728,7 +5772,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, created_at, updated_at
+                capture_fingerprint, tender_type, shift_id, created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
         idempotencyKey,
       )
@@ -5744,6 +5788,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     status: PaymentStatus;
     gatewayReference: string | null;
     capturedAmountMinor: number | null;
+    tenderType: 'CARD' | 'CASH';
+    shiftId: string | null;
     createdAt: number;
     updatedAt: number;
   } {
@@ -5755,8 +5801,93 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       status: row.status,
       gatewayReference: row.gateway_reference,
       capturedAmountMinor: row.captured_amount_minor,
+      tenderType: row.tender_type,
+      shiftId: row.shift_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  private readOpenShiftIdForActorSync(actor: ActorContext): string | null {
+    if (actor.kind !== 'user') return null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id FROM shift WHERE cashier_user_id = ? AND status = 'OPEN'`,
+        actor.userId,
+      )
+      .toArray() as Array<{ shift_id: string }>;
+    return rows[0]?.shift_id ?? null;
+  }
+
+  private countUnattributedCashForBusinessDateSync(businessDate: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS n FROM payment
+         WHERE tender_type = 'CASH'
+           AND status = 'captured'
+           AND shift_id IS NULL
+           AND date(created_at / 1000, 'unixepoch') = ?`,
+        businessDate,
+      )
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  private computeShiftExpectedCashSync(shiftId: string, openingFloat: number): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(amount_minor), 0) AS total FROM payment
+         WHERE shift_id = ? AND tender_type = 'CASH' AND status = 'captured'`,
+        shiftId,
+      )
+      .toArray() as Array<{ total: number }>;
+    return openingFloat + Number(rows[0]?.total ?? 0);
+  }
+
+  private forceCloseCashierShiftsSync(businessDate: string): void {
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE shift
+       SET status = 'FORCE_CLOSED',
+           closed_at = ?,
+           closing_count = NULL,
+           variance = NULL,
+           updated_at = ?
+       WHERE business_date = ? AND status = 'OPEN'`,
+      now,
+      now,
+      businessDate,
+    );
+  }
+
+  private mapShiftRow(
+    row: ShiftRow,
+    extras?: { unattributedCashCount?: number },
+  ): {
+    shiftId: string;
+    cashierUserId: string;
+    businessDate: string;
+    openedAt: number;
+    closedAt: number | null;
+    openingFloat: number;
+    closingCount: number | null;
+    variance: number | null;
+    status: ShiftStatus;
+    unattributedCashCount?: number;
+  } {
+    return {
+      shiftId: row.shift_id,
+      cashierUserId: row.cashier_user_id,
+      businessDate: row.business_date,
+      openedAt: row.opened_at,
+      closedAt: row.closed_at,
+      openingFloat: row.opening_float,
+      closingCount: row.closing_count,
+      variance: row.variance,
+      status: row.status,
+      ...(extras?.unattributedCashCount !== undefined
+        ? { unattributedCashCount: extras.unattributedCashCount }
+        : {}),
     };
   }
 
@@ -5798,7 +5929,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
-    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    const permDenied = await this.gatePermission(actor, 'folio:post');
     if (permDenied) return permDenied;
 
     if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
@@ -5826,14 +5957,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
         this.ensureGuestFolioWindowSync(input.reservationId);
         const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+        const shiftId = this.readOpenShiftIdForActorSync(actor);
         const now = Date.now();
         try {
           this.ctx.storage.sql.exec(
             `INSERT INTO payment (
                payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-               capture_fingerprint, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, ?, ?)`,
+               capture_fingerprint, tender_type, shift_id, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, 'CARD', ?, ?, ?)`,
             input.paymentId,
             input.reservationId,
             folioWindowId,
@@ -5841,6 +5973,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             ledgerCurrency,
             input.idempotencyKey,
             input.requestFingerprint,
+            shiftId,
             now,
             now,
           );
@@ -5970,7 +6103,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
-    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    const permDenied = await this.gatePermission(actor, 'folio:post');
     if (permDenied) return permDenied;
 
     if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
@@ -5984,6 +6117,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const payment = this.readPaymentRowSync(input.paymentId);
     if (!payment) return { ok: false, error: NOT_FOUND };
+
+    if (payment.tender_type === 'CASH') {
+      return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
 
     if (payment.status === 'captured') {
       if (payment.capture_fingerprint === input.captureFingerprint) {
@@ -6111,6 +6248,358 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async tryOpenShift(
+    actor: ActorContext,
+    input: { shiftId: string; openingFloat: number },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; shiftId: string }
+    | { ok: false; error: typeof SHIFT_ALREADY_OPEN }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET | typeof BUSINESS_DATE_UNSET | 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+    if (actor.kind !== 'user') return { ok: false, error: FORBIDDEN };
+    if (!Number.isInteger(input.openingFloat) || input.openingFloat < 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const open = this.readOpenShiftIdForActorSync(actor);
+          if (open) throw new ShiftAlreadyOpenError();
+          const now = Date.now();
+          try {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO shift (
+                 shift_id, cashier_user_id, business_date, opened_at, closed_at,
+                 opening_float, closing_count, variance, status, created_at, updated_at
+               ) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, 'OPEN', ?, ?)`,
+              input.shiftId,
+              actor.userId,
+              businessDate,
+              now,
+              input.openingFloat,
+              now,
+              now,
+            );
+          } catch {
+            throw new ShiftAlreadyOpenError();
+          }
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'shift.changed',
+            payload: {
+              propertyId,
+              shiftId: input.shiftId,
+              op: 'open',
+              cashierUserId: actor.userId,
+              businessDate,
+              at: now,
+            },
+          });
+          return { ok: true as const, shiftId: input.shiftId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ShiftAlreadyOpenError) return { ok: false, error: SHIFT_ALREADY_OPEN };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryCloseShift(
+    actor: ActorContext,
+    input: { shiftId: string; closingCount: number },
+    idem: IdempotencyKey,
+  ): Promise<
+    | {
+        ok: true;
+        shiftId: string;
+        variance: number;
+        unattributedCashCount: number;
+      }
+    | { ok: false; error: typeof SHIFT_NOT_FOUND | typeof SHIFT_NOT_OPEN }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET | 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+    if (actor.kind !== 'user') return { ok: false, error: FORBIDDEN };
+    if (!Number.isInteger(input.closingCount) || input.closingCount < 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT shift_id, cashier_user_id, business_date, opened_at, closed_at,
+                      opening_float, closing_count, variance, status, created_at, updated_at
+               FROM shift WHERE shift_id = ?`,
+              input.shiftId,
+            )
+            .toArray() as ShiftRow[];
+          const row = rows[0];
+          if (!row) throw new ShiftNotFoundError();
+          if (row.status !== 'OPEN') throw new ShiftNotOpenError();
+          if (row.cashier_user_id !== actor.userId) throw new ShiftNotFoundError();
+
+          const expected = this.computeShiftExpectedCashSync(row.shift_id, row.opening_float);
+          const variance = expected - input.closingCount;
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE shift
+             SET status = 'CLOSED', closed_at = ?, closing_count = ?, variance = ?, updated_at = ?
+             WHERE shift_id = ? AND status = 'OPEN'`,
+            now,
+            input.closingCount,
+            variance,
+            now,
+            input.shiftId,
+          );
+          const unattributedCashCount = this.countUnattributedCashForBusinessDateSync(
+            row.business_date,
+          );
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'shift.changed',
+            payload: {
+              propertyId,
+              shiftId: input.shiftId,
+              op: 'close',
+              cashierUserId: actor.userId,
+              variance,
+              at: now,
+            },
+          });
+          return {
+            ok: true as const,
+            shiftId: input.shiftId,
+            variance,
+            unattributedCashCount,
+          };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ShiftNotFoundError) return { ok: false, error: SHIFT_NOT_FOUND };
+      if (e instanceof ShiftNotOpenError) return { ok: false, error: SHIFT_NOT_OPEN };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryRecordCashPayment(
+    actor: ActorContext,
+    input: {
+      paymentId: string;
+      reservationId: string;
+      amountMinor: number;
+      idempotencyKey: string;
+      requestFingerprint: string;
+    },
+  ): Promise<
+    | {
+        ok: true;
+        paymentId: string;
+        status: 'captured';
+        shiftId: string | null;
+        folioLineId: string;
+      }
+    | { ok: false; error: typeof MONEY_INVALID | typeof NOT_FOUND | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof CURRENCY_UNSET | typeof PROPERTY_ID_UNSET | 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    // Highest-risk footgun: must never consult PSP / pspSimulateEnabled.
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
+        if (existing) {
+          if (existing.request_fingerprint !== input.requestFingerprint) {
+            throw new IdempotencyKeyReused(input.idempotencyKey);
+          }
+          return {
+            ok: true as const,
+            paymentId: existing.payment_id,
+            status: 'captured' as const,
+            shiftId: existing.shift_id,
+            folioLineId: `${existing.payment_id}:capture`,
+          };
+        }
+
+        const resRows = this.ctx.storage.sql
+          .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, input.reservationId)
+          .toArray();
+        if (!resRows[0]) return { ok: false as const, error: NOT_FOUND };
+
+        this.ensureGuestFolioWindowSync(input.reservationId);
+        const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+        const shiftId = this.readOpenShiftIdForActorSync(actor);
+        const now = Date.now();
+        this.ctx.storage.sql.exec(
+          `INSERT INTO payment (
+             payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+             gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+             capture_fingerprint, tender_type, shift_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'captured', NULL, ?, ?, ?, NULL, 'CASH', ?, ?, ?)`,
+          input.paymentId,
+          input.reservationId,
+          folioWindowId,
+          input.amountMinor,
+          ledgerCurrency,
+          input.amountMinor,
+          input.idempotencyKey,
+          input.requestFingerprint,
+          shiftId,
+          now,
+          now,
+        );
+
+        const folioLineId = `${input.paymentId}:capture`;
+        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
+        this.insertFolioLineSync({
+          folioLineId,
+          folioWindowId,
+          reservationId: input.reservationId,
+          chargeCode: 'PAYMENT',
+          posted: {
+            amountMinor: -input.amountMinor,
+            txnCurrency: ledgerCurrency,
+            ledgerAmountMinor: -input.amountMinor,
+            fxRate: '1',
+            fxRateAt: now,
+          },
+          source: 'PAYMENT',
+          paymentId: input.paymentId,
+        });
+
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'folio.payment_captured',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: ledgerCurrency,
+            gatewayReference: null,
+            folioLineId,
+            tenderType: 'CASH',
+            shiftId,
+          },
+        });
+
+        return {
+          ok: true as const,
+          paymentId: input.paymentId,
+          status: 'captured' as const,
+          shiftId,
+          folioLineId,
+        };
+      });
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async readShift(shiftId: string): Promise<
+    | {
+        ok: true;
+        shift: {
+          shiftId: string;
+          cashierUserId: string;
+          businessDate: string;
+          openedAt: number;
+          closedAt: number | null;
+          openingFloat: number;
+          closingCount: number | null;
+          variance: number | null;
+          status: ShiftStatus;
+          unattributedCashCount: number;
+        };
+      }
+    | { ok: false; error: typeof SHIFT_NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id, cashier_user_id, business_date, opened_at, closed_at,
+                opening_float, closing_count, variance, status, created_at, updated_at
+         FROM shift WHERE shift_id = ?`,
+        shiftId,
+      )
+      .toArray() as ShiftRow[];
+    const row = rows[0];
+    if (!row) return { ok: false, error: SHIFT_NOT_FOUND };
+    return {
+      ok: true,
+      shift: this.mapShiftRow(row, {
+        unattributedCashCount: this.countUnattributedCashForBusinessDateSync(row.business_date),
+      }) as {
+        shiftId: string;
+        cashierUserId: string;
+        businessDate: string;
+        openedAt: number;
+        closedAt: number | null;
+        openingFloat: number;
+        closingCount: number | null;
+        variance: number | null;
+        status: ShiftStatus;
+        unattributedCashCount: number;
+      },
+    };
+  }
+
   async readPayment(paymentId: string): Promise<
     | {
         ok: true;
@@ -6122,6 +6611,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           status: PaymentStatus;
           gatewayReference: string | null;
           capturedAmountMinor: number | null;
+          tenderType: 'CARD' | 'CASH';
+          shiftId: string | null;
           createdAt: number;
           updatedAt: number;
         };

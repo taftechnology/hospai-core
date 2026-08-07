@@ -60,6 +60,11 @@ export const TAX_RULE_KEY_OVERLAP = 'tax_rule_key_overlap' as const;
 export const TAX_RULE_TYPE_UNSUPPORTED = 'tax_rule_type_unsupported' as const;
 export const TAX_OUTPUT_CODE_TAXABLE = 'tax_output_code_taxable' as const;
 
+/** Shift / cashiering wire codes */
+export const SHIFT_NOT_FOUND = 'shift_not_found' as const;
+export const SHIFT_ALREADY_OPEN = 'shift_already_open' as const;
+export const SHIFT_NOT_OPEN = 'shift_not_open' as const;
+
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;

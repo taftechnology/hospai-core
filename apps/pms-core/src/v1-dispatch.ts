@@ -37,6 +37,9 @@ import {
   TAX_RULE_KEY_OVERLAP,
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
+  SHIFT_NOT_FOUND,
+  SHIFT_ALREADY_OPEN,
+  SHIFT_NOT_OPEN,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   UNBOOKABLE,
@@ -123,11 +126,18 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === TAX_RULE_KEY_EXISTS ||
     error === TAX_RULE_KEY_OVERLAP ||
     error === TAX_RULE_TYPE_UNSUPPORTED ||
-    error === TAX_OUTPUT_CODE_TAXABLE
+    error === TAX_OUTPUT_CODE_TAXABLE ||
+    error === SHIFT_ALREADY_OPEN ||
+    error === SHIFT_NOT_OPEN
   ) {
     return 422;
   }
-  if (error === RATE_PLAN_NOT_FOUND || error === CHARGE_CODE_NOT_FOUND || error === TAX_RULE_NOT_FOUND) {
+  if (
+    error === RATE_PLAN_NOT_FOUND ||
+    error === CHARGE_CODE_NOT_FOUND ||
+    error === TAX_RULE_NOT_FOUND ||
+    error === SHIFT_NOT_FOUND
+  ) {
     return 404;
   }
   if (error === BUSINESS_DATE_UNSET) return 500;
@@ -2219,6 +2229,177 @@ async function handleGetTaxRules(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    shiftId: string;
+    openingFloat: number;
+    idempotencyKey: string;
+  };
+  if (!body?.shiftId || body.openingFloat == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { shiftId: body.shiftId, openingFloat: body.openingFloat };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOpenShift']>>>({
+    env: ctx.env,
+    commandId: 'folio.open_shift',
+    routeId: 'post_shifts',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryOpenShift(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const shiftId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    closingCount: number;
+    idempotencyKey: string;
+  };
+  if (body?.closingCount == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { shiftId, closingCount: body.closingCount };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCloseShift']>>>({
+    env: ctx.env,
+    commandId: 'folio.close_shift',
+    routeId: 'put_shift_close',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCloseShift(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    if (err === 'not_member' || err === SHIFT_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    paymentId: string;
+    amountMinor: number;
+    idempotencyKey: string;
+  };
+  if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const requestFingerprint = await fingerprintPayload({
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint,
+  };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordCashPayment']>>>({
+    env: ctx.env,
+    commandId: 'folio.record_cash_payment',
+    routeId: 'post_cash_payment',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryRecordCashPayment(actor, commandPayload),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
+  }
+  return json(result, 201);
+}
+
+async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const shiftId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readShift(shiftId);
+    if (!result.ok) return json({ ok: false, error: result.error }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -2458,7 +2639,7 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
   if (!result.ok) {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
   }
   return json(result, 200);
@@ -2512,7 +2693,7 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
   if (!result.ok) {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
   }
   return json(result, 200);
@@ -2967,7 +3148,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/authorize$/,
-    permission: 'folio:adjust',
+    permission: 'folio:post',
     commandId: 'folio.authorize',
     handler: handlePostFolioAuthorize,
   },
@@ -2975,7 +3156,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/capture$/,
-    permission: 'folio:adjust',
+    permission: 'folio:post',
     commandId: 'folio.capture',
     handler: handlePostFolioCapture,
   },
@@ -3058,6 +3239,38 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetTaxRules,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/shifts$/,
+    permission: 'folio:post',
+    commandId: 'folio.open_shift',
+    handler: handlePostShifts,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/shifts\/([^/]+)\/close$/,
+    permission: 'folio:post',
+    commandId: 'folio.close_shift',
+    handler: handlePutShiftClose,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/cash$/,
+    permission: 'folio:post',
+    commandId: 'folio.record_cash_payment',
+    handler: handlePostCashPayment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/shifts\/([^/]+)$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetShift,
   },
 ];
 

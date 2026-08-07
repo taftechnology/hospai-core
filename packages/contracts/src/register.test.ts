@@ -202,10 +202,12 @@ describe('command catalog', () => {
 
   it('get_audit_log is route audit 61', () => {
     expect(V1_HTTP_ROUTE_AUDIT[61]?.id).toBe('get_audit_log');
-    expect(V1_HTTP_ROUTE_AUDIT[61]?.permission).toBe('folio:read');
-    expect(V1_HTTP_ROUTE_AUDIT[61]?.entitlement).toBe('pms.core');
-    expect(V1_HTTP_ROUTE_AUDIT[61]?.degradedRead).toBe('FAIL_CLOSED');
-    expect(V1_HTTP_ROUTE_AUDIT[61]?.commandId).toBeUndefined();
+    expect(V1_HTTP_ROUTE_AUDIT[61]).toMatchObject({
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[61] ?? {})).toBe(false);
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

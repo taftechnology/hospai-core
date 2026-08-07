@@ -25,9 +25,6 @@ export type EntitlementFailClosedOptOut = {
 };
 
 export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
-  { id: 'folio.authorize', reason: 'Phase 1 — not yet gated at a DO boundary' },
-  { id: 'folio.capture', reason: 'Phase 1 — not yet gated at a DO boundary' },
-  { id: 'folio.split_charge_payment', reason: 'Phase 1 — not yet gated at a DO boundary' },
   {
     id: 'night_audit.run',
     reason:

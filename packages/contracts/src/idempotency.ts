@@ -31,6 +31,11 @@ export const RESTRICTION_VIOLATED = 'restriction_violated' as const;
 export const RATE_MISSING = 'rate_missing' as const;
 export const SPLIT_AMOUNT_MISMATCH = 'split_amount_mismatch' as const;
 
+/** Payment wire codes */
+export const PSP_UNAVAILABLE = 'psp_unavailable' as const;
+export const PAYMENT_NOT_CAPTURABLE = 'payment_not_capturable' as const;
+export const LINE_NOT_SPLITTABLE = 'line_not_splittable' as const;
+
 /** Room / housekeeping wire codes */
 export const ROOM_CODE_EXISTS = 'room_code_exists' as const;
 export const ROOM_COUNT_EXCEEDED = 'room_count_exceeded' as const;

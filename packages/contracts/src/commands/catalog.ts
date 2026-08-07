@@ -218,6 +218,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['folio.payment_authorized'],
     notes: 'Payment authorization — never queue during outage (§4.6).',
+    entitlement: 'pms.core',
     permission: 'folio:adjust',
   },
   {
@@ -226,8 +227,9 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['folio.payment_captured'],
+    events: ['folio.payment_captured', 'folio.line_posted'],
     notes: 'Payment capture — never queue during outage (§4.6).',
+    entitlement: 'pms.core',
     permission: 'folio:adjust',
   },
   // SPLIT_FOLIO_CHARGE split
@@ -249,6 +251,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.line_posted'],
+    entitlement: 'pms.core',
     permission: 'folio:adjust',
   },
   {
@@ -519,7 +522,11 @@ export const COMMAND_CATALOG: CommandEntry[] = [
 export const PLATFORM_GAPS: PlatformGap[] = [
   { id: 'rooms.set_ooo_range', reason: 'Explicit OOO delta on blocked' },
   { id: 'folio.transfer_charge', reason: 'Window routing / night-audit auto-transfer' },
-  { id: 'folio.split_charge_v2', reason: 'Reverse + two posts replacing mutate-in-place' },
+  {
+    id: 'folio.split_charge_v2',
+    reason:
+      'Cross-window split + transfer / routing (reverse+posts landed in payments ledger slice)',
+  },
 ];
 
 export const PROTOTYPE_ACTIONS = [

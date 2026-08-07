@@ -246,4 +246,36 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'settings:configure',
     commandId: 'config.put_domain',
   },
+  {
+    id: 'post_folio_authorize',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.authorize',
+  },
+  {
+    id: 'post_folio_capture',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.capture',
+  },
+  {
+    id: 'post_folio_split_payment',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.split_charge_payment',
+  },
+  {
+    id: 'get_folio_payment',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_folio_payments',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

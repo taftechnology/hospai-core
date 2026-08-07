@@ -320,6 +320,25 @@ describe('command catalog', () => {
       commandId: 'config.put_domain',
     });
   });
+
+  it('payment commands are entitled and route audit 45–49 are payment routes', () => {
+    for (const id of ['folio.authorize', 'folio.capture', 'folio.split_charge_payment'] as const) {
+      expect(COMMAND_CATALOG.find((c) => c.id === id)?.entitlement).toBe('pms.core');
+      expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === id)).toBeUndefined();
+    }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.events).toEqual([
+      'folio.payment_captured',
+      'folio.line_posted',
+    ]);
+    expect(V1_HTTP_ROUTE_AUDIT[45]?.id).toBe('post_folio_authorize');
+    expect(V1_HTTP_ROUTE_AUDIT[46]?.id).toBe('post_folio_capture');
+    expect(V1_HTTP_ROUTE_AUDIT[47]?.id).toBe('post_folio_split_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[48]?.id).toBe('get_folio_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[49]?.id).toBe('get_folio_payments');
+    expect(PLATFORM_GAPS.find((g) => g.id === 'folio.split_charge_v2')?.reason).toMatch(
+      /window|transfer/i,
+    );
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

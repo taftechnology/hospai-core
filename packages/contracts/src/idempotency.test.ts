@@ -29,6 +29,9 @@ import {
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
+  PSP_UNAVAILABLE,
+  PAYMENT_NOT_CAPTURABLE,
+  LINE_NOT_SPLITTABLE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -80,6 +83,12 @@ describe('fingerprintPayload', () => {
     expect(GUEST_EXISTS).toBe('guest_exists');
     expect(GUEST_NOT_FOUND).toBe('guest_not_found');
     expect(GUEST_ALREADY_ERASED).toBe('guest_already_erased');
+  });
+
+  it('exports payment wire codes', () => {
+    expect(PSP_UNAVAILABLE).toBe('psp_unavailable');
+    expect(PAYMENT_NOT_CAPTURABLE).toBe('payment_not_capturable');
+    expect(LINE_NOT_SPLITTABLE).toBe('line_not_splittable');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

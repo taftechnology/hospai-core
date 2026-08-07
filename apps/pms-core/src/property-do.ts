@@ -4152,6 +4152,257 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  private clampFrontDeskLimit(limit?: number): number {
+    const raw = limit ?? 50;
+    if (!Number.isFinite(raw) || raw < 1) return 50;
+    return Math.min(50, Math.floor(raw));
+  }
+
+  private mapFrontDeskListRow(row: {
+    reservation_id: string;
+    room_type_id: string;
+    guest_ref: string;
+    arrival_date: string;
+    departure_date: string;
+    status: string;
+    room_id: string | null;
+  }) {
+    return {
+      reservationId: row.reservation_id,
+      roomTypeId: row.room_type_id,
+      guestRef: row.guest_ref,
+      arrivalDate: row.arrival_date,
+      departureDate: row.departure_date,
+      status: row.status,
+      roomId: row.room_id,
+    };
+  }
+
+  async listArrivals(
+    date: string,
+    opts?: { limit?: number; cursor?: { reservationId: string } | null },
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<{
+          reservationId: string;
+          roomTypeId: string;
+          guestRef: string;
+          arrivalDate: string;
+          departureDate: string;
+          status: string;
+          roomId: string | null;
+        }>;
+        nextCursor: { reservationId: string } | null;
+      }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    const limit = this.clampFrontDeskLimit(opts?.limit);
+    const cursor = opts?.cursor ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        cursor
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE arrival_date = ? AND status = 'confirmed' AND reservation_id > ?
+             ORDER BY reservation_id ASC
+             LIMIT ?`
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE arrival_date = ? AND status = 'confirmed'
+             ORDER BY reservation_id ASC
+             LIMIT ?`,
+        ...(cursor ? [date, cursor.reservationId, limit] : [date, limit]),
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      arrival_date: string;
+      departure_date: string;
+      status: string;
+      room_id: string | null;
+    }>;
+    const items = rows.map((row) => this.mapFrontDeskListRow(row));
+    const nextCursor =
+      items.length === limit
+        ? { reservationId: items[items.length - 1]!.reservationId }
+        : null;
+    return { ok: true, items, nextCursor };
+  }
+
+  async listDepartures(
+    date: string,
+    opts?: { limit?: number; cursor?: { status: string; reservationId: string } | null },
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<{
+          reservationId: string;
+          roomTypeId: string;
+          guestRef: string;
+          arrivalDate: string;
+          departureDate: string;
+          status: string;
+          roomId: string | null;
+        }>;
+        nextCursor: { status: string; reservationId: string } | null;
+      }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    const limit = this.clampFrontDeskLimit(opts?.limit);
+    const cursor = opts?.cursor ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        cursor
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE departure_date = ?
+               AND (status > ? OR (status = ? AND reservation_id > ?))
+             ORDER BY status ASC, reservation_id ASC
+             LIMIT ?`
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE departure_date = ?
+             ORDER BY status ASC, reservation_id ASC
+             LIMIT ?`,
+        ...(cursor
+          ? [date, cursor.status, cursor.status, cursor.reservationId, limit]
+          : [date, limit]),
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      arrival_date: string;
+      departure_date: string;
+      status: string;
+      room_id: string | null;
+    }>;
+    const items = rows.map((row) => this.mapFrontDeskListRow(row));
+    const last = items[items.length - 1];
+    const nextCursor =
+      items.length === limit && last ? { status: last.status, reservationId: last.reservationId } : null;
+    return { ok: true, items, nextCursor };
+  }
+
+  async listInHouse(
+    opts?: { limit?: number; cursor?: { departureDate: string; reservationId: string } | null },
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<{
+          reservationId: string;
+          roomTypeId: string;
+          guestRef: string;
+          arrivalDate: string;
+          departureDate: string;
+          status: string;
+          roomId: string | null;
+        }>;
+        nextCursor: { departureDate: string; reservationId: string } | null;
+      }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    const limit = this.clampFrontDeskLimit(opts?.limit);
+    const cursor = opts?.cursor ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        cursor
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE status = 'checked_in'
+               AND (departure_date > ? OR (departure_date = ? AND reservation_id > ?))
+             ORDER BY departure_date ASC, reservation_id ASC
+             LIMIT ?`
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+             FROM reservation
+             WHERE status = 'checked_in'
+             ORDER BY departure_date ASC, reservation_id ASC
+             LIMIT ?`,
+        ...(cursor
+          ? [cursor.departureDate, cursor.departureDate, cursor.reservationId, limit]
+          : [limit]),
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      arrival_date: string;
+      departure_date: string;
+      status: string;
+      room_id: string | null;
+    }>;
+    const items = rows.map((row) => this.mapFrontDeskListRow(row));
+    const last = items[items.length - 1];
+    const nextCursor =
+      items.length === limit && last
+        ? { departureDate: last.departureDate, reservationId: last.reservationId }
+        : null;
+    return { ok: true, items, nextCursor };
+  }
+
+  private countAttributedCashForShiftSync(shiftId: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS n FROM payment
+         WHERE shift_id = ? AND tender_type = 'CASH' AND status = 'captured'`,
+        shiftId,
+      )
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  async readCurrentOpenShift(actor: ActorContext): Promise<
+    | {
+        ok: true;
+        shift: {
+          shiftId: string;
+          cashierUserId: string;
+          businessDate: string;
+          openedAt: number;
+          openingFloat: number;
+          status: 'OPEN';
+          attributedCashCount: number;
+        } | null;
+      }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: true, shift: null };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id, cashier_user_id, business_date, opened_at, opening_float, status
+         FROM shift WHERE cashier_user_id = ? AND status = 'OPEN'`,
+        actor.userId,
+      )
+      .toArray() as Array<{
+      shift_id: string;
+      cashier_user_id: string;
+      business_date: string;
+      opened_at: number;
+      opening_float: number;
+      status: string;
+    }>;
+    const row = rows[0];
+    if (!row) return { ok: true, shift: null };
+    return {
+      ok: true,
+      shift: {
+        shiftId: row.shift_id,
+        cashierUserId: row.cashier_user_id,
+        businessDate: row.business_date,
+        openedAt: row.opened_at,
+        openingFloat: row.opening_float,
+        status: 'OPEN',
+        attributedCashCount: this.countAttributedCashForShiftSync(row.shift_id),
+      },
+    };
+  }
+
   /** Test helper: read reservation status, or null if absent. */
   async getReservationStatus(reservationId: string): Promise<string | null> {
     const rows = this.ctx.storage.sql

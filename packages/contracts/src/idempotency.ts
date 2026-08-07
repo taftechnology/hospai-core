@@ -49,6 +49,10 @@ export const RATE_PLAN_CODE_EXISTS = 'rate_plan_code_exists' as const;
 export const RATE_PLAN_ID_EXISTS = 'rate_plan_id_exists' as const;
 export const DEFAULT_RATE_PLAN_PROTECTED = 'default_rate_plan_protected' as const;
 
+export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
+export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
+export const SYSTEM_CHARGE_CODE_PROTECTED = 'system_charge_code_protected' as const;
+
 /** Guest / PII wire codes */
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;

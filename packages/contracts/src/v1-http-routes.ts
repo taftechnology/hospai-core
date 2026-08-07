@@ -278,4 +278,29 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_charge_codes',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.create_charge_code',
+  },
+  {
+    id: 'patch_charge_code',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.update_charge_code',
+  },
+  {
+    id: 'put_charge_code_status',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.set_charge_code_status',
+  },
+  {
+    id: 'get_charge_codes',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

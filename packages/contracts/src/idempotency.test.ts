@@ -26,6 +26,9 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  CHARGE_CODE_NOT_FOUND,
+  CHARGE_CODE_EXISTS,
+  SYSTEM_CHARGE_CODE_PROTECTED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
@@ -77,6 +80,9 @@ describe('fingerprintPayload', () => {
     expect(RATE_PLAN_CODE_EXISTS).toBe('rate_plan_code_exists');
     expect(RATE_PLAN_ID_EXISTS).toBe('rate_plan_id_exists');
     expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
+    expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
+    expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
+    expect(SYSTEM_CHARGE_CODE_PROTECTED).toBe('system_charge_code_protected');
   });
 
   it('exports guest wire codes', () => {

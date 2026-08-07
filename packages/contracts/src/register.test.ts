@@ -339,6 +339,27 @@ describe('command catalog', () => {
       /window|transfer/i,
     );
   });
+
+  it('charge code commands are FAIL_CLOSED with settings:configure and charge_code.changed', () => {
+    for (const id of [
+      'folio.create_charge_code',
+      'folio.update_charge_code',
+      'folio.set_charge_code_status',
+    ] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('settings:configure');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.events).toEqual(['charge_code.changed']);
+    }
+    expect(V1_HTTP_ROUTE_AUDIT[50]?.id).toBe('post_charge_codes');
+    expect(V1_HTTP_ROUTE_AUDIT[51]?.id).toBe('patch_charge_code');
+    expect(V1_HTTP_ROUTE_AUDIT[52]?.id).toBe('put_charge_code_status');
+    expect(V1_HTTP_ROUTE_AUDIT[53]?.id).toBe('get_charge_codes');
+    expect(V1_HTTP_ROUTE_AUDIT[53]?.permission).toBe('folio:read');
+    expect(V1_HTTP_ROUTE_AUDIT[53]?.degradedRead).toBe('FAIL_CLOSED');
+    expect(V1_HTTP_ROUTE_AUDIT[53]?.commandId).toBeUndefined();
+  });
 });
 
 describe('DOMAIN keys vs eslint prefixes', () => {

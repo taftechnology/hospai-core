@@ -213,9 +213,10 @@ Cashiering must **not** create a `cashier_audit` table (already forbidden there)
 2. **Night-audit `ARCHIVE` body** — folio + audit_log projection/purge under §2.4 policy.
 3. **External / WORM audit sink** — if required later; may reintroduce a queue event under a new name with a redaction contract.
 4. **Outbox prune** — when DO storage forces it; must not touch `audit_log`.
+5. **Per-writer call-site enforcement** — `PropertyDO source wires every AUDIT_WRITER_COMMAND_IDS literal` only greps that `'<id>'` appears in `property-do.ts`, not that it reaches `appendAuditLogSync`. The registry test covers *which* commands must write; nothing covers *that each one does*. Follow-up: table-driven test (or AST/call-graph check) asserting one audit row per writer command_id — a wrong `commandId`, or an id that only appears in a permission switch, must fail.
 
 ---
 
 ## 6. Status
 
-**Approved — implementation-ready.** Cashiering is landed; this doc locks A + retire dispatchable entry, Q3/Q4, prototype-coverage resolution, and `audit.recorded` removal. Next: implementation plan + v17 + helper + writers + read route + matrix tests (including kill-switch / entitlement on the read/mutate surfaces that this slice adds).
+**Implemented** (`f8bd70f`). Registry coverage, same-txn canary, and prototype side-effect exemption all discriminate under planted mutations. Leftover §5.5 names the remaining weak layer (source grep ≠ call-site proof).

@@ -134,6 +134,19 @@ importers:
         specifier: ^3.0.9
         version: 3.2.7(@types/node@22.20.1)
 
+  packages/client-core:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)
+
   packages/contracts:
     dependencies:
       '@hospai/money':

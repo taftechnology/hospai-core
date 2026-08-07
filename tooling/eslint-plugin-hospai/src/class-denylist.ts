@@ -1,9 +1,10 @@
 /**
  * Every `export class` name in the repo — kept in sync via `pnpm check:class-denylist`.
- * Snapshot: 2026-08-07 (28 entries).
+ * Snapshot: 2026-08-07 (29 entries).
  */
 export const CLASS_DENYLIST = [
   'AlarmScheduler',
+  'ClassifiedError',
   'CurrencyMismatchError',
   'EntitlementDoCache',
   'EntitlementRequiredError',

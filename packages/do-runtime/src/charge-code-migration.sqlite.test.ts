@@ -24,6 +24,13 @@ describe('charge_code v14 real sqlite', () => {
       folio_line_id, folio_window_id, reservation_id, charge_code,
       amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, created_at
     ) VALUES ('fl1', 'fw1', 'res1', 'ZZZ', 100, 'USD', 100, '1', 0, 0)`);
+    // Seed-before-backfill discriminator: a pre-migration ROOM line makes INSERT OR IGNORE
+    // from distinct-backfill collide with the system seed. If backfill runs first, ROOM's
+    // name stays 'ROOM' and `expect(room.name).toBe('Room')` fails.
+    db.exec(`INSERT INTO folio_line (
+      folio_line_id, folio_window_id, reservation_id, charge_code,
+      amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, created_at
+    ) VALUES ('fl_room', 'fw1', 'res1', 'ROOM', 100, 'USD', 100, '1', 0, 0)`);
 
     const v14 = PROPERTY_MIGRATIONS.find((m) => m.version === 14);
     expect(v14).toBeDefined();

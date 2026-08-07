@@ -5,11 +5,11 @@ import {
   CHARGE_CODE_NOT_FOUND,
   IDEM_KEY_REUSED,
   SYSTEM_CHARGE_CODE_PROTECTED,
-  fingerprintPayload,
 } from '@hospai/contracts';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
+  cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
   setKillSwitch,
@@ -379,6 +379,60 @@ describe('charge-code registry routes', () => {
     expect(await res.json()).toMatchObject({ error: SYSTEM_CHARGE_CODE_PROTECTED });
   });
 
+  it('Test 10: archive MISC blocks add_item; restore recovers', async () => {
+    const owner = 'user_cc_owner10';
+    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
+    const reservationId = 'res_cc_misc';
+    expect(
+      (
+        await postReservation(
+          propertyId,
+          owner,
+          reservationId,
+          arrival,
+          addDays(arrival, 2),
+          guestRef,
+        )
+      ).status,
+    ).toBe(201);
+
+    expect(
+      (
+        await putChargeCodeStatus(propertyId, owner, 'MISC', {
+          status: 'archived',
+          idempotencyKey: `idem-misc-arch-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(200);
+
+    const blocked = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'MISC',
+      amountMinor: 100,
+      idempotencyKey: `idem-misc-block-${crypto.randomUUID()}`,
+    });
+    expect(blocked.status).toBe(404);
+    expect(await blocked.json()).toMatchObject({ error: CHARGE_CODE_NOT_FOUND });
+
+    expect(
+      (
+        await putChargeCodeStatus(propertyId, owner, 'MISC', {
+          status: 'active',
+          idempotencyKey: `idem-misc-restore-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(200);
+
+    expect(
+      (
+        await postFolioLine(propertyId, owner, reservationId, {
+          chargeCode: 'MISC',
+          amountMinor: 100,
+          idempotencyKey: `idem-misc-ok-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(201);
+  });
+
   it('Test 11: duplicate create returns charge_code_exists', async () => {
     const owner = 'user_cc_owner11';
     const { propertyId } = await provisionHotel(owner);
@@ -394,6 +448,30 @@ describe('charge-code registry routes', () => {
     expect(await dup.json()).toMatchObject({ error: CHARGE_CODE_EXISTS });
   });
 
+  it('Test 12: create after archive same code returns charge_code_exists', async () => {
+    const owner = 'user_cc_owner12';
+    const { propertyId } = await provisionHotel(owner);
+    expect(
+      (await postChargeCode(propertyId, owner, { code: 'PARKING', name: 'Parking' })).status,
+    ).toBe(201);
+    expect(
+      (
+        await putChargeCodeStatus(propertyId, owner, 'PARKING', {
+          status: 'archived',
+          idempotencyKey: `idem-12-arch-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(200);
+
+    const recreate = await postChargeCode(propertyId, owner, {
+      code: 'PARKING',
+      name: 'Parking again',
+      idempotencyKey: `idem-12-recreate-${crypto.randomUUID()}`,
+    });
+    expect(recreate.status).toBe(422);
+    expect(await recreate.json()).toMatchObject({ error: CHARGE_CODE_EXISTS });
+  });
+
   it('Test 15: staff can GET but not POST charge codes', async () => {
     const owner = 'user_cc_owner15';
     const staff = 'user_cc_staff15';
@@ -406,38 +484,62 @@ describe('charge-code registry routes', () => {
     expect(denied.status).toBe(403);
   });
 
-  it('Test 19a/19b: set-status fingerprint includes status', async () => {
+  it('Test 18: kill-switch 503 and unentitled 402 on charge-code mutates', async () => {
+    const killOwner = 'user_cc_owner18k';
+    const { propertyId } = await provisionHotel(killOwner);
+    await setKillSwitch(env, 'pms.core', true);
+    expect(
+      (await postChargeCode(propertyId, killOwner, { code: 'SPA', name: 'Spa' })).status,
+    ).toBe(503);
+    expect(
+      (
+        await putChargeCodeStatus(propertyId, killOwner, 'MISC', {
+          status: 'archived',
+          idempotencyKey: `idem-18-kill-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(503);
+    await setKillSwitch(env, 'pms.core', false);
+
+    const unentOwner = 'user_cc_owner18u';
+    const { orgId, propertyId: unentProp } = await provisionHotel(unentOwner);
+    await cancelSubscription(env, orgId);
+    expect(
+      (await postChargeCode(unentProp, unentOwner, { code: 'SPA', name: 'Spa' })).status,
+    ).toBe(402);
+  });
+
+  it('Test 19a/19b: set-status fingerprint includes status (HTTP)', async () => {
     const owner = 'user_cc_owner19';
-    const { propertyId, stub } = await provisionHotel(owner);
+    const { propertyId } = await provisionHotel(owner);
     expect(
       (await postChargeCode(propertyId, owner, { code: 'PARKING', name: 'Parking' })).status,
     ).toBe(201);
 
     const key = `idem-status-${crypto.randomUUID()}`;
-    const archiveFp = await fingerprintPayload({ code: 'PARKING', status: 'archived' });
     expect(
       (
-        await stub.trySetChargeCodeStatus(
-          { kind: 'user', userId: owner },
-          { code: 'PARKING', status: 'archived' },
-          { key, fingerprint: archiveFp },
-        )
-      ).ok,
-    ).toBe(true);
+        await putChargeCodeStatus(propertyId, owner, 'PARKING', {
+          status: 'archived',
+          idempotencyKey: key,
+        })
+      ).status,
+    ).toBe(200);
 
-    const restoreSameFp = await fingerprintPayload({ code: 'PARKING', status: 'active' });
-    const reuse = await stub.trySetChargeCodeStatus(
-      { kind: 'user', userId: owner },
-      { code: 'PARKING', status: 'active' },
-      { key, fingerprint: restoreSameFp },
-    );
-    expect(reuse).toEqual({ ok: false, error: IDEM_KEY_REUSED });
+    // Same key, different status body — dispatcher must fingerprint { code, status }.
+    // If fingerprint is only { code }, this would replay the archived success.
+    const reuse = await putChargeCodeStatus(propertyId, owner, 'PARKING', {
+      status: 'active',
+      idempotencyKey: key,
+    });
+    expect(reuse.status).toBe(409);
+    expect(await reuse.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
 
-    const restoreOk = await stub.trySetChargeCodeStatus(
-      { kind: 'user', userId: owner },
-      { code: 'PARKING', status: 'active' },
-      { key: `idem-status-2-${crypto.randomUUID()}`, fingerprint: restoreSameFp },
-    );
-    expect(restoreOk).toMatchObject({ ok: true, status: 'active' });
+    const restoreOk = await putChargeCodeStatus(propertyId, owner, 'PARKING', {
+      status: 'active',
+      idempotencyKey: `idem-status-2-${crypto.randomUUID()}`,
+    });
+    expect(restoreOk.status).toBe(200);
+    expect(await restoreOk.json()).toMatchObject({ ok: true, status: 'active' });
   });
 });

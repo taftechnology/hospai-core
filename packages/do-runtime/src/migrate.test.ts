@@ -130,15 +130,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 17', () => {
+  it('applies property migrations through version 18', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
     expect(v1).toBe(18);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
     expect(v2).toBe(18);
-    expect(sql.schemaVersion).toHaveLength(17);
+    expect(sql.schemaVersion).toHaveLength(18);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });

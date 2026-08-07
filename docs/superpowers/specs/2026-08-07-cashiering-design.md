@@ -1,10 +1,10 @@
 # Cashiering (Shifts + Cash Tender)
 
 **Date:** 2026-08-07  
-**Status:** Draft — design questions locked; awaiting review  
-**Sources:** ARCHITECTURE.md §7.7 (multi-workstation front desk), §7.3 / §14 (night audit steps, audit log named separately); [payments ledger simulate](./2026-08-06-payments-ledger-simulate-design.md); [tax posting](./2026-08-07-tax-posting-design.md) (independent — tax's "don't tax PAYMENT" holds with or without cash); [charge-code registry](./2026-08-07-charge-code-registry-design.md); PropertyDO payment authorize/capture PSP gates
+**Status:** Approved — implementation-ready  
+**Sources:** ARCHITECTURE.md §7.7 (multi-workstation front desk), §7.3 / §14 (night audit steps, audit log named separately); [payments ledger simulate](./2026-08-06-payments-ledger-simulate-design.md); [tax posting](./2026-08-07-tax-posting-design.md) (independent — tax's "don't tax PAYMENT" holds with or without cash); [charge-code registry](./2026-08-07-charge-code-registry-design.md); PropertyDO payment authorize/capture PSP gates; [permissions.ts](../../../packages/contracts/src/permissions.ts) (`staff` = `folio:read` / `folio:post` only)
 
-**Implementation order:** after tax. **Audit log is not this slice** — see [audit log](./2026-08-07-audit-log-design.md). Design settled with tax in one pass; land separately so split-path canaries stay attributable.
+**Implementation order:** after tax. **Audit log is not this slice** — see [audit log](./2026-08-07-audit-log-design.md). Design settled with tax in one pass; land separately so split-path canaries stay attributable. Migration head after tax is **v16**.
 
 ---
 
@@ -17,11 +17,12 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 ### Scope in
 
 1. **`shift` table** — per-cashier open/close, `business_date`, float/count/variance, force-close status.
-2. **`payment.shift_id`**, **`payment.tender_type`** — `ADD COLUMN`s (cheap at v15 or v16).
+2. **`payment.shift_id`**, **`payment.tender_type`** — `ADD COLUMN`s at **v16**.
 3. **Cash tender** — `folio.record_cash_payment`: single `transactionSync`, no PSP gate, posts `captured` + negative folio line.
 4. **Reject `folio.capture` on CASH** → `PAYMENT_NOT_CAPTURABLE`.
 5. **`CLOSE_CASHIER_SHIFTS`** — force-close open shifts for the audit's `business_date` (not invent a zero count).
 6. **Attribution overlay** — stamp acting user's open shift; never block post.
+7. **Permission alignment** — cash + shifts + card authorize/capture on **`folio:post`** (see §2.4).
 
 ### Scope out
 
@@ -29,7 +30,8 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 - Tax posting (prior slice).
 - `PRE_CHECK` / `PROCESS_NO_SHOWS` / `SNAPSHOT_REPORTS` night-audit stubs.
 - City ledger / AR; departed-with-balance; auth-hold visibility.
-- Provisional cash during outage (leftover — see §2.3).
+- Provisional cash during outage (leftover — see §2.1 / §5).
+- Gate posts on open shift (rejected — overlay only).
 
 ---
 
@@ -45,7 +47,7 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 | Item | Detail |
 |---|---|
 | `tender_type` | `'CARD' \| 'CASH'` on `payment` |
-| Command | **`folio.record_cash_payment`** — own catalog entry; `folio:adjust`; entitlement `pms.core`; events `folio.payment_captured` + `folio.line_posted` |
+| Command | **`folio.record_cash_payment`** — own catalog entry; **`folio:post`** (not `folio:adjust` — see §2.4); entitlement `pms.core`; events `folio.payment_captured` + `folio.line_posted` |
 | Write shape | One `transactionSync`: insert `payment` at **`captured`**, insert negative `PAYMENT` folio line; `gateway_reference` NULL; `capture_fingerprint` NULL; `request_fingerprint` for idempotency |
 | PSP gate | **Must not consult** `pspSimulateEnabled()` / adapter availability. Inheriting authorize/capture's `PSP_UNAVAILABLE` → **501 in production** (`HOSPAI_UNSAFE_LOCAL` is off). Highest-risk footgun — looks green under simulate-on tests |
 | Capture on cash | Explicit reject `tender_type = 'CASH'` → **`PAYMENT_NOT_CAPTURABLE`** (not misleading `IDEM_KEY_REUSED` from NULL fingerprint compare) |
@@ -67,7 +69,7 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 **Lock force-close:**
 
 - Target: `WHERE business_date = ? AND status = 'OPEN'` for the audit's date.
-- Write: `closing_count NULL`, `status = 'FORCE_CLOSED'`, variance **uncomputable**.
+- Write: `closing_count NULL`, `status = 'FORCE_CLOSED'`, variance **uncomputable** (`NULL`).
 - Reporting: `FORCE_CLOSED` = missing control; `CLOSED` + variance = discrepancy. Different management problems.
 
 **`shift.business_date` required.** An 11pm–7am shift opened on day D closes at D's audit; a new shift opens on D+1. Note: a shift opened between `CLOSE_CASHIER_SHIFTS` (step 4) and `ROLL_BUSINESS_DATE` (step 6) carries the pre-roll date — harmless, documented.
@@ -77,6 +79,8 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 - Stamp **`cashier_user_id = actor.userId AND status = 'OPEN'`** — not "any open shift." Multi-workstation desk (§7.7) means many opens concurrently; wrong pick is the failure cashiering exists to prevent.
 - No open shift for that actor → `shift_id NULL`, **still posts**.
 - System / night-audit / `REPLAY_ACTOR` → always NULL.
+
+**Cost of overlay (named):** cash with `shift_id NULL` is physically in a drawer but belongs to **no** shift's expected total — it reconciles to nothing, forever. That is the honest price of choosing overlay over gate (still correct for degraded-mode reasons). Not a bug in variance math. Leftovers §5; mitigation: close / `readShift` surfaces unattributed cash count for that `business_date` so the gap is visible where someone is already looking.
 
 **Structural singleton:**
 
@@ -98,9 +102,9 @@ CREATE TABLE shift (
   business_date     TEXT NOT NULL,
   opened_at         INTEGER NOT NULL,
   closed_at         INTEGER,
-  opening_float     INTEGER,           -- minor units
+  opening_float     INTEGER NOT NULL,  -- minor units; required at open
   closing_count     INTEGER,           -- NULL if uncounted / force-closed
-  variance          INTEGER,           -- NULL if uncomputable
+  variance          INTEGER,           -- NULL if uncomputable (force-close)
   status            TEXT NOT NULL
     CHECK (status IN ('OPEN', 'CLOSED', 'FORCE_CLOSED')),
   created_at        INTEGER NOT NULL,
@@ -110,21 +114,62 @@ CREATE TABLE shift (
 CREATE UNIQUE INDEX shift_open_per_cashier
   ON shift (cashier_user_id) WHERE status = 'OPEN';
 
-ALTER TABLE payment ADD COLUMN tender_type TEXT;  -- 'CARD' | 'CASH'; CHECK or app
+-- DEFAULT is the backfill; CHECK matches payment.status creation style.
+-- Verifiable on the real-SQLite harness before commit (charge-code slice precedent).
+ALTER TABLE payment ADD COLUMN tender_type TEXT NOT NULL DEFAULT 'CARD'
+  CHECK (tender_type IN ('CARD', 'CASH'));
+
 ALTER TABLE payment ADD COLUMN shift_id TEXT REFERENCES shift(shift_id);
 ```
 
-Backfill existing payments: `tender_type = 'CARD'`, `shift_id NULL`.
+`shift_id` is nullable with NULL default — nothing to orphan on existing rows (same shape as `tax_of` / `payment_id` ADD COLUMNs).
 
-### 2.4 Commands (sketch)
+No separate nullable-discriminator phase: capture's reject-edge is binary (`CASH` → not capturable; `CARD` → existing machine).
 
-| Command | Role |
+### 2.4 Commands, permissions, variance
+
+**Permission principle (control decision):**
+
+> **`folio:post`** = bring money in (charge, cash, authorize, capture).  
+> **`folio:adjust`** = move or modify money already posted (split, split payment, transfer).
+
+Under that rule the whole surface falls out consistently. Staff carry `folio:read` / `folio:post` only ([permissions.ts](../../../packages/contracts/src/permissions.ts)); they do **not** have `folio:adjust`. Putting cash or shifts on `folio:adjust` would lock the front desk out of the drawer cashiering exists for. `folio.split_charge_payment` staying on `folio:adjust` is a **consequence** of the principle, not an exception.
+
+**Widening (named):** moving `folio.authorize` / `folio.capture` from `folio:adjust` → `folio:post` means every `staff` user can charge a card on file. Correct for a hotel front desk; also a **privilege expansion on existing routes** inside a slice named "cashiering." State it as a deliberate control decision under the principle above — not a silent convention observation — so a later access review does not read it as scope creep.
+
+| Command | Permission | Notes |
+|---|---|---|
+| `folio.open_shift` | `folio:post` | Cashier opens with `opening_float` |
+| `folio.close_shift` | `folio:post` | Count → variance (formula below) |
+| `folio.record_cash_payment` | `folio:post` | Cash tender path |
+| `folio.authorize` / `folio.capture` | `folio:post` | **Widen** from today's `folio:adjust` |
+| `folio.split_charge` / `folio.split_charge_payment` | `folio:adjust` | Unchanged — modify posted money |
+| Night audit `CLOSE_CASHIER_SHIFTS` | system / night_audit lane | Force-close OPEN for `business_date` |
+
+**Touch list per widened command** (three places; `check:permissions` compares audit ↔ routes element-wise — partial edit fails the build):
+
+1. Catalog `permission` field (`folio.authorize` / `folio.capture` are `folio:adjust` today).
+2. Matching `V1_HTTP_ROUTE_AUDIT` row.
+3. Matching `V1_ROUTES` entry (+ handler `FORBIDDEN` permission string if hardcoded).
+
+**Variance formula (normal close only):**
+
+```
+expected = opening_float
+         + Σ(payment.amount_minor
+             WHERE shift_id = this.shift_id
+               AND tender_type = 'CASH'
+               AND status = 'captured')
+variance = expected − closing_count
+```
+
+| Case | Result |
 |---|---|
-| `folio.open_shift` / `folio.close_shift` | Cashier open (float) / close (count → variance) |
-| `folio.record_cash_payment` | Cash tender path |
-| Night audit `CLOSE_CASHIER_SHIFTS` | Force-close OPEN for `business_date` |
+| Correct count | `variance = 0`, `status = 'CLOSED'` |
+| Short by 500 (count 500 below expected) | `variance = 500` |
+| Force-close | `closing_count NULL`, `variance NULL`, `status = 'FORCE_CLOSED'` — formula not applied |
 
-Permissions: shift open/close likely `folio:adjust` or a dedicated cashier permission — plan picks against existing RBAC keys.
+Only **captured CASH** attributed to **this** `shift_id` enters `expected`. Card payments, other cashiers' shifts, and unattributed (`shift_id NULL`) cash do not. `opening_float` is NOT NULL at open — no coalesce needed.
 
 ---
 
@@ -142,19 +187,32 @@ Permissions: shift open/close likely `folio:adjust` or a dedicated cashier permi
 | 8 | Force-close at audit | `FORCE_CLOSED`, `closing_count NULL`, variance NULL |
 | 9 | Force-close scopes by `business_date` | Other date's OPEN untouched |
 | 10 | Kill-switch / unentitled on cash + shift mutates | 503 / 402 |
-| 11 | Card path unchanged | Existing payments suite green |
+| 11 | Card path unchanged (except permission) | Existing payments suite green; authorize/capture require `folio:post` |
+| 12 | Staff actor records cash + opens/closes shift (+ authorize/capture) | Succeeds (`folio:post`) |
+| 12a | Staff actor `post_folio_split` | **403** — pins `folio:adjust` boundary (charge-codes test 15 shape: permitted + denied in one pair) |
+| 13 | Close with correct count | `CLOSED`, `variance = 0` |
+| 14 | Close short by 500 | `CLOSED`, `variance = 500` |
+| 15 | Cash on cashier A's shift; cashier B closes | B's `expected` excludes A's payments |
+| 16 | Close / readShift reports unattributed cash count for business date | Visible when `shift_id NULL` cash exists that day |
 
-Canary: cash method that still checks `pspSimulateEnabled` must fail test 2 under simulate-off.
+Canary: cash method that still checks `pspSimulateEnabled` must fail test 2 under simulate-off.  
+Canary: even-weight or wrong-sum variance → tests 13/14 fail.  
+Canary: `folio:adjust` on cash/shift → test 12 fails for staff.  
+Canary: widen everything to `folio:post` → test 12a fails.
+
+**Plan note:** verify `tender_type` `NOT NULL DEFAULT 'CARD' CHECK (...)` on the real-SQLite harness before commit (charge-code v14 precedent).
 
 ---
 
 ## 4. Acceptance
 
 1. Cash posts without adapter and without PSP availability gate.
-2. Card path and reject-edge table for capture unchanged for CARD.
+2. Card path and reject-edge table for capture unchanged for CARD; authorize/capture gated on **`folio:post`**.
 3. Shifts attribute by acting user; never gate posts; open-per-cashier is unique.
-4. Night audit force-closes the audit date's open shifts without fabricating a zero count.
-5. No audit-log table in this slice; `audit.append` remains catalog-only until the audit-log slice.
+4. Normal close computes variance per §2.4; force-close leaves count/variance NULL.
+5. Night audit force-closes the audit date's open shifts without fabricating a zero count.
+6. Staff can open/close shifts and record cash (`folio:post`).
+7. No audit-log table in this slice; `audit.append` remains catalog-only until the audit-log slice.
 
 ---
 
@@ -163,6 +221,7 @@ Canary: cash method that still checks `pspSimulateEnabled` must fail test 2 unde
 | Item | Note |
 |---|---|
 | Cash during outage | No record until recovery; provisional + stamped shift is a future option |
+| **Unattributed cash** | Possible by design (overlay): `shift_id NULL` never enters any shift's expected. Diagnose reconciliation gaps here before variance math. Mitigated partially by test 16 / close response count |
 | `FAIL_CLOSED` → provisional for cash | Only if queue payload carries shift-at-enqueue |
 | Per-cashier audit trail | Belongs to [audit log](./2026-08-07-audit-log-design.md), not born here |
 | Other night-audit stubs | PRE_CHECK / PROCESS_NO_SHOWS / SNAPSHOT_REPORTS |
@@ -172,4 +231,4 @@ Canary: cash method that still checks `pspSimulateEnabled` must fail test 2 unde
 
 ## 6. Open questions
 
-None. Settled: cash command + no PSP gate; force-close with NULL count; per-actor stamp; overlay not gate; audit log separate.
+None. Settled: cash command + no PSP gate; force-close with NULL count; per-actor stamp; overlay not gate (with named unattributed-cash cost); **`folio:post` = bring money in / `folio:adjust` = modify posted** (cash, shifts, authorize, capture → post; split / split-payment stay adjust); variance = `opening_float + Σ(captured CASH on this shift) − closing_count`; `tender_type NOT NULL DEFAULT 'CARD' CHECK (...)`; audit log separate.

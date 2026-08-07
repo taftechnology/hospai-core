@@ -1,7 +1,7 @@
 # Audit Log (`audit.append`)
 
 **Date:** 2026-08-07  
-**Status:** Draft — scoped out of cashiering; awaiting review  
+**Status:** Draft — slice reserved (not born inside cashiering); detail lock after cashiering lands  
 **Sources:** ARCHITECTURE.md §14 ("audit log on money/inventory mutations"); command catalog `audit.append` (declared, no table); [cashiering](./2026-08-07-cashiering-design.md) (explicitly does **not** own this); [tax posting](./2026-08-07-tax-posting-design.md); [payments](./2026-08-06-payments-ledger-simulate-design.md)
 
 **Implementation order:** after tax and cashiering. Pulled out of cashiering so the table is born as a **property-wide money/inventory audit**, not a per-cashier log that must be widened later (retrofit pattern avoided all session).
@@ -107,4 +107,4 @@ Cashiering may emit domain events only until this slice; it must **not** create 
 
 ## 6. Status
 
-**Not implementation-ready** in the same sense as tax/cashiering — this document **reserves the slice and forbids** building the log inside cashiering. Detail lock when tax and cashiering have landed.
+**Not implementation-ready** in the same sense as tax/cashiering — this document **reserves the slice and forbids** building the log inside cashiering. Cashiering is approved; detail-lock this doc when that slice lands.

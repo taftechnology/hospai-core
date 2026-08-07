@@ -360,6 +360,37 @@ export const RATE_PLAN_V12_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0012_rate_plan.sql */
 export const RATE_PLAN_V12_SQL = RATE_PLAN_V12_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v13 — payment table + folio_line.payment_id FK (ALTER, no rebuild). */
+export const PAYMENT_V13_STATEMENTS: string[] = [
+  `CREATE TABLE payment (
+  payment_id             TEXT PRIMARY KEY,
+  reservation_id         TEXT NOT NULL,
+  folio_window_id        TEXT NOT NULL,
+  amount_minor           INTEGER NOT NULL
+    CHECK (amount_minor > 0),
+  currency               TEXT NOT NULL,
+  status                 TEXT NOT NULL
+    CHECK (status IN ('pending','authorized','declined','captured','unknown')),
+  gateway_reference      TEXT,
+  captured_amount_minor  INTEGER
+    CHECK (captured_amount_minor IS NULL OR captured_amount_minor >= 0),
+  idempotency_key        TEXT NOT NULL,
+  request_fingerprint    TEXT NOT NULL,
+  capture_fingerprint    TEXT,
+  created_at             INTEGER NOT NULL,
+  updated_at             INTEGER NOT NULL,
+  FOREIGN KEY (folio_window_id) REFERENCES folio_window(folio_window_id)
+)`,
+  `CREATE UNIQUE INDEX payment_idempotency_uidx ON payment(idempotency_key)`,
+  `CREATE INDEX payment_reservation_idx ON payment(reservation_id)`,
+  `ALTER TABLE folio_line ADD COLUMN payment_id TEXT REFERENCES payment(payment_id)`,
+  `CREATE UNIQUE INDEX folio_line_payment_uidx
+  ON folio_line(payment_id) WHERE payment_id IS NOT NULL`,
+];
+
+/** Canonical SQL file body — keep in sync via test against migrations/do-property/0013_payment.sql */
+export const PAYMENT_V13_SQL = PAYMENT_V13_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -420,5 +451,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 12,
     name: 'rate_plan',
     statements: RATE_PLAN_V12_STATEMENTS,
+  },
+  {
+    version: 13,
+    name: 'payment',
+    statements: PAYMENT_V13_STATEMENTS,
   },
 ] as const;

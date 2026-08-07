@@ -31,6 +31,7 @@ let PROVISIONAL_EXCEPTION_V9_SQL;
 let FOLIO_WINDOW_RESERVATION_INDEX_SQL;
 let ROOM_AND_HOUSEKEEPING_V11_SQL;
 let RATE_PLAN_V12_SQL;
+let PAYMENT_V13_SQL;
 let ORG_SPINE_SQL;
 let ORG_GUEST_PII_SQL;
 let ORG_ALARM_SCHEDULE_SQL;
@@ -52,6 +53,7 @@ try {
     FOLIO_WINDOW_RESERVATION_INDEX_SQL,
     ROOM_AND_HOUSEKEEPING_V11_SQL,
     RATE_PLAN_V12_SQL,
+    PAYMENT_V13_SQL,
     ORG_SPINE_SQL,
     ORG_GUEST_PII_SQL,
     ORG_ALARM_SCHEDULE_SQL,
@@ -177,6 +179,16 @@ const doPropertyTargets = [
 
 `,
     sql: RATE_PLAN_V12_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0013_payment.sql'),
+    header: `-- PropertyDO payment + folio_line.payment_id — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE payment before ALTER folio_line (FK target).
+
+`,
+    sql: PAYMENT_V13_SQL,
   },
 ];
 

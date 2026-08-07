@@ -366,15 +366,6 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'channels:configure',
   },
   {
-    id: 'audit.append',
-    prototypeAction: 'ADD_AUDIT_LOG',
-    lane: 'BACKGROUND',
-    degraded: 'QUEUE_PROVISIONAL',
-    idempotent: true,
-    events: ['audit.recorded'],
-    permission: 'shell:internal',
-  },
-  {
     id: 'guests.create',
     prototypeAction: 'ADD_GUEST',
     lane: 'INTERACTIVE',
@@ -650,6 +641,18 @@ export const PROTOTYPE_ACTIONS = [
   'DELETE_STAFF',
   'UPDATE_RESERVATION_EXTRAS',
 ] as const;
+
+/** Prototype actions implemented as side effects, not catalog commands. */
+export const PROTOTYPE_ACTIONS_AS_SIDE_EFFECT: ReadonlyArray<{
+  action: (typeof PROTOTYPE_ACTIONS)[number];
+  reason: string;
+}> = [
+  {
+    action: 'ADD_AUDIT_LOG',
+    reason:
+      'Prototype had ADD_AUDIT_LOG; platform implements audit as same-txn side effect of entitled mutations, not a dispatchable command (see audit-log design).',
+  },
+];
 
 export function getCommand(id: string): CommandEntry {
   const entry = COMMAND_CATALOG.find((c) => c.id === id);

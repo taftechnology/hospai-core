@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AUDIT_WRITER_COMMAND_IDS,
+  AUDIT_WRITER_EXEMPTIONS,
   CONFIG_REGISTER,
   COMMAND_CATALOG,
   ENTITLEMENT_FAIL_CLOSED_OPT_OUT,
   EXCLUDED_PROTOTYPE_KEYS,
   PLATFORM_GAPS,
   PROTOTYPE_ACTIONS,
+  PROTOTYPE_ACTIONS_AS_SIDE_EFFECT,
   PROTOTYPE_CONFIG_KEYS,
   V1_HTTP_ROUTE_AUDIT,
   assertRegisterInvariants,
@@ -141,14 +144,68 @@ describe('config register', () => {
 });
 
 describe('command catalog', () => {
-  it('covers all 35 prototype actions (splits may share or null the action)', () => {
+  it('covers all 35 prototype actions (catalog ∪ side-effect exemptions)', () => {
     expect(PROTOTYPE_ACTIONS).toHaveLength(35);
+    expect(PROTOTYPE_ACTIONS).toContain('ADD_AUDIT_LOG');
+    expect(PROTOTYPE_ACTIONS_AS_SIDE_EFFECT).toEqual([
+      {
+        action: 'ADD_AUDIT_LOG',
+        reason: expect.stringMatching(/side effect|same-txn|not a dispatchable/i),
+      },
+    ]);
     const covered = [
       ...new Set(
         COMMAND_CATALOG.map((c) => c.prototypeAction).filter((a): a is string => a !== null),
       ),
-    ].sort();
-    expect(covered).toEqual([...PROTOTYPE_ACTIONS].sort());
+    ];
+    const side = PROTOTYPE_ACTIONS_AS_SIDE_EFFECT.map((s) => s.action);
+    expect(covered).not.toContain('ADD_AUDIT_LOG');
+    const union = [...new Set([...covered, ...side])].sort();
+    expect(union).toEqual([...PROTOTYPE_ACTIONS].sort());
+  });
+
+  it('side-effect exemption does not swallow other missing prototype actions', () => {
+    const covered = [
+      ...new Set(
+        COMMAND_CATALOG.map((c) => c.prototypeAction).filter((a): a is string => a !== null),
+      ),
+    ];
+    const side = PROTOTYPE_ACTIONS_AS_SIDE_EFFECT.map((s) => s.action);
+    const coveredMinusGuest = covered.filter((a) => a !== 'ADD_GUEST');
+    const broken = [...new Set([...coveredMinusGuest, ...side])].sort();
+    expect(broken).not.toEqual([...PROTOTYPE_ACTIONS].sort());
+  });
+
+  it('audit.append is retired from the catalog', () => {
+    expect(COMMAND_CATALOG.find((c) => c.id === 'audit.append')).toBeUndefined();
+    expect(COMMAND_CATALOG.flatMap((c) => c.events)).not.toContain('audit.recorded');
+  });
+
+  it('every entitled command has an audit writer or a reasoned exemption', () => {
+    const entitled = COMMAND_CATALOG.filter((c) => c.entitlement).map((c) => c.id);
+    const exemptIds = new Set(AUDIT_WRITER_EXEMPTIONS.map((e) => e.id));
+    for (const id of entitled) {
+      const inWriters = AUDIT_WRITER_COMMAND_IDS.has(id);
+      const inExempt = exemptIds.has(id);
+      expect(inWriters || inExempt, `missing writer/exemption for ${id}`).toBe(true);
+      expect(inWriters && inExempt, `both writer and exemption for ${id}`).toBe(false);
+    }
+    for (const id of AUDIT_WRITER_COMMAND_IDS) {
+      expect(entitled, `writer ${id} is not entitled`).toContain(id);
+    }
+    for (const e of AUDIT_WRITER_EXEMPTIONS) {
+      expect(e.reason.length).toBeGreaterThan(10);
+      expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
+    }
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(30);
+  });
+
+  it('get_audit_log is route audit 61', () => {
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.id).toBe('get_audit_log');
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.permission).toBe('folio:read');
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.entitlement).toBe('pms.core');
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.degradedRead).toBe('FAIL_CLOSED');
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.commandId).toBeUndefined();
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

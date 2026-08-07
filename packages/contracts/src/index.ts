@@ -1,5 +1,6 @@
 export * from './config/register.js';
 export * from './commands/catalog.js';
+export * from './commands/audit-writers.js';
 export * from './tenancy/types.js';
 export * from './tenancy/ids.js';
 export * from './events.js';

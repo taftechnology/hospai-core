@@ -1,0 +1,44 @@
+/** Entitled PropertyDO commands that must call appendAuditLogSync in the mutation txn. */
+export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
+  'reservations.create',
+  'reservations.cancel',
+  'reservations.no_show',
+  'reservations.assign_room',
+  'reservations.modify',
+  'rooms.create',
+  'rooms.update',
+  'folio.add_item',
+  'folio.authorize',
+  'folio.capture',
+  'folio.split_charge',
+  'folio.split_charge_payment',
+  'folio.create_charge_code',
+  'folio.update_charge_code',
+  'folio.set_charge_code_status',
+  'folio.create_tax_rule',
+  'folio.supersede_tax_rule',
+  'folio.open_shift',
+  'folio.close_shift',
+  'folio.record_cash_payment',
+  'rates.create_plan',
+  'rates.update_plan',
+  'rates.delete_plan',
+  'rates.update_room_type_rate',
+  'rates.bulk_update',
+  'rates.upsert_day',
+  'inventory.add_room_type',
+  'inventory.update_room_type',
+  'inventory.delete_room_type',
+  'restrictions.upsert_day',
+]);
+
+/** Entitled commands that deliberately do not write PropertyDO audit_log. */
+export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string }> = [
+  { id: 'guests.create', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.update', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.erase', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  {
+    id: 'config.put_domain',
+    reason: 'Covered by property_config_audit (separate surface); dual-write out of scope',
+  },
+];

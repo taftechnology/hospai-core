@@ -106,7 +106,6 @@ export function handleDomainEvent(message: DomainEventMessage): void {
     case 'folio.payment_captured':
     case 'channel.synced':
     case 'channel.mapping.created':
-    case 'audit.recorded':
     case 'property.updated':
     case 'staff.changed':
     case 'staff.housekeeper_changed':

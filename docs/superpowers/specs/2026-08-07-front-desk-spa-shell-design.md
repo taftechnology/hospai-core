@@ -23,7 +23,7 @@ The project's mutate-and-run loop transfers to SPA **logic**, not SPA **renderin
 ### Scope in
 
 1. **`@hospai/client-core`** — DOM-free logic package (typed client, transport, degraded state machine, compose, paging, keys, snapshot, queued-command log).
-2. **`apps/web-pms`** — React + Vite SPA: shell, three-mode board, check-in (+ assign-room), shift strip, queued-command log UI.
+2. **`apps/web-pms`** — React + Vite SPA: shell, three-mode board, check-in (+ assign-room), shift strip, queued-command log UI, provisional-exception count badge + list panel.
 3. **Same-origin serve** from `pms-core` Workers assets (`run_worker_first`), turbo/CI build-order, vitest `ASSETS` stub.
 4. **Enforcement** — deps/typecheck package boundary; lint `no-dom-in-client-core` + `no-fetch-in-components`; contracts browser-safe import path.
 5. **Auth** — injected credential provider; both `x-dev-actor` and Clerk cookie providers ship.
@@ -156,17 +156,19 @@ Neither is a stub; nothing is thrown away; the shell never learns which it has. 
 | Unit | Owns | Must not own |
 |---|---|---|
 | `@hospai/client-core` | Typed client from contracts route audit; injected transport + credential provider; degraded classification (incl. `queue_unavailable`, 401, 402); `shouldRetry` / `retryDelay`; session queued-command log from 202s; entitlement snapshot + refetch-on-402 (**no replay**); guest-batch compose (wholesale + per-ref); opaque-cursor paging helpers; idempotency key generation (stable across retries of one logical op) | React, DOM, TanStack Query, Clerk SDK, CSS, cursor encode/decode |
-| `apps/web-pms` | Thin screens; shell layout; nav/route **data tables**; QueryClient wiring that calls client-core predicates; credential provider **adapters**; board / check-in / shift-strip / queued-log **rendering**; 401 → redirect to sign-in | Retry policy, degraded state machine, compose mapping, key generation, snapshot refetch |
+| `apps/web-pms` | Thin screens; shell layout; nav/route **data tables**; QueryClient wiring that calls client-core predicates; credential provider **adapters**; board / check-in / shift-strip / queued-log / **provisional-exception badge+panel** rendering; 401 → redirect to sign-in | Retry policy, degraded state machine, compose mapping, key generation, snapshot refetch |
 | `apps/pms-core` | Same-origin serve per §2.2 | SPA business logic |
 
 **Queued-command log ownership:** accumulation in client-core (canaryable); rendering in the shell. Derived from 202 bodies (`commandId`, `idempotencyKey`, `issuedAt`, `businessDate` per reads-slice contract). Session-scoped; lost on reload — not a projection substitute.
+
+**Idempotency keys share that session scope.** Keys are generated per logical operation and held with the same in-memory state. Consequence (named, not a bug): outage → operator queues check-in → page reload → retry same check-in → **new key** → second queued command → on replay the duplicate hits `status !== 'confirmed'` and lands in the provisional-exception queue as a **spurious** failure. Pair the log with the exception panel (§3.4) so operators can reconcile; do not pretend keys survive reload unless a later slice persists them.
 
 **Boundary → canary map** (every client-core row in the ownership table must stay here; if a concern has no canary, it will drift into the shell):
 
 | client-core concern | Canary # |
 |---|---|
 | Credential provider on transport | 12 |
-| Degraded / auth classification + retry predicates | 2, 3, 4, 5, 11 |
+| Degraded / auth classification + retry predicates (incl. default 4xx/5xx) | 2, 3, 4, 5, 11, 13 |
 | Queued-command log accumulation | 1 |
 | Entitlement snapshot + refetch-on-402 (no replay) | 6 |
 | Opaque-cursor paging | 7 |
@@ -199,6 +201,10 @@ SPA fallback for client routes (e.g. hard refresh on `/arrivals`) is a **pms-cor
 | 503 `error: 'queue_unavailable'` | queue_unavailable | **never**; **no** log entry |
 | 402 entitlement | entitlement_required | **never**; refetch snapshot **once**; **do not** replay the original request |
 | 401 | unauthorized | **never** |
+| Other **4xx** (404, 409, 422, …) | client_error | **never** |
+| Other **5xx** (plain 500, …) | server_error | **never** (conservative; named degraded shapes already cover the intentional retry cases) |
+
+`shouldRetry` / classification must be **total**: every HTTP response maps to exactly one class and one retry decision. No fall-through that retries validation errors or throws on unclassified status.
 
 `READ_STALE` is unit-tested in client-core because the library must classify all wire shapes. **No route in this vertical produces it** (lists are `FAIL_CLOSED`; board does not read availability) — which is why no watermark UI is built. Not a contradiction of the watermark leftover.
 
@@ -222,6 +228,7 @@ SPA fallback for client routes (e.g. hard refresh on `/arrivals`) is a **pms-cor
 - QueryClient: `retry: false` default; per-query delegates to client-core.
 - Renders queued-command log from client-core state.
 - On classified `unauthorized` → redirect to sign-in (shell behaviour; non-canary render assertion).
+- **Provisional exceptions:** `GET …/provisional-exception-count` as a badge; list behind it via `GET …/provisional-exceptions`. Completes the degraded loop: *act on what you know, see what you queued, reconcile what failed.* Same PropertyDO-only, `FAIL_CLOSED` posture as the board lists.
 - No watermark. No speculative always-true `<Gate>`.
 
 **Board** — one component, three modes:
@@ -264,6 +271,7 @@ Property: **no silent mutation** — each row's mutation must fail **at least** 
 | 10 | Per-ref erased + decrypt_unresolved | full list composes; two distinguishable states |
 | 11 | 401 | distinct class; `shouldRetry` false |
 | 12 | Credential provider bypassed / ignored | transport attaches exactly what the injected provider supplies — proven with **two** stub providers (dev-actor header shape and cookie shape) |
+| 13 | Unclassified / default path | 422 → `client_error`, `shouldRetry` false; plain 500 → `server_error`, `shouldRetry` false |
 
 ### 4.2 Non-canary (honestly labeled)
 
@@ -302,7 +310,9 @@ Property: **no silent mutation** — each row's mutation must fail **at least** 
 - [ ] Contracts **browser-safe subpath** used; bundle does not ship config register / zod schemas for workstation SPA.
 - [ ] Same-origin Approach 1 wiring (§2.2); turbo task edge + CI deploy order; stub `ASSETS`; SPA fallback **test**; cache-control stated; success logs API-only; error logs global.
 - [ ] Board: three modes, compose with per-ref states, FAIL_CLOSED ≠ empty board.
+- [ ] Provisional-exception count badge + list panel consume the reads-slice routes (recovery surface next to queued-command log).
 - [ ] Assign-room FAIL_CLOSED + check-in QUEUE_PROVISIONAL; check-in without room; outage: assign refuses, check-in queues.
+- [ ] Classification table is total (incl. default 4xx/5xx); canary #13 green.
 - [ ] Query retry delegated to client-core; credential providers both ship; shell does not branch on provider.
 - [ ] Shift strip read-only; watermark / nav filter / `ui` manifest **absent** (not stubbed).
 - [ ] Tenant org/property from configuration; leftover recorded for bootstrap API.

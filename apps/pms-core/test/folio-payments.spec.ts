@@ -339,4 +339,158 @@ describe('folio payments DO', () => {
     expect(read.ok && read.payment.status).toBe('authorized');
     expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
   });
+
+  it('Test 6: simulate-off authorize → 501 psp_unavailable', async () => {
+    const actor = 'user_pay_owner6';
+    const { arrival, guestRef, propertyId, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_http_6';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    // Vitest bindings always enable PSP simulate; force the production refuse path on the DO.
+    await stub.setForcePspUnavailableForTest(true);
+    try {
+      const res = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/payments/authorize`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              paymentId: `pay_${crypto.randomUUID()}`,
+              amountMinor: 1000,
+              idempotencyKey: `idem-http-6-${crypto.randomUUID()}`,
+            }),
+          },
+        ),
+        env,
+      );
+      expect(res.status).toBe(501);
+      const body = (await res.json()) as { ok: false; error: string };
+      expect(body.error).toBe('psp_unavailable');
+    } finally {
+      await stub.setForcePspUnavailableForTest(false);
+    }
+  });
+
+  it('Test 18: kill-switch on authorize → 503 (distinct from 501)', async () => {
+    const actor = 'user_pay_owner18';
+    const { orgId, arrival, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_http_18';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await setKillSwitch(env, 'pms.core', true);
+    try {
+      const res = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/payments/authorize`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              paymentId: `pay_${crypto.randomUUID()}`,
+              amountMinor: 1000,
+              idempotencyKey: `idem-http-18-${crypto.randomUUID()}`,
+            }),
+          },
+        ),
+        env,
+      );
+      expect(res.status).toBe(503);
+    } finally {
+      await setKillSwitch(env, 'pms.core', false);
+      void orgId;
+    }
+  });
+
+  it('Test 19: HOSPAI_PSP_MODE=simulate without unsafe-local → 500 misconfigured', async () => {
+    const badEnv = {
+      ...env,
+      HOSPAI_PSP_MODE: 'simulate',
+      HOSPAI_UNSAFE_LOCAL: undefined,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      HOSPAI_JURISDICTION_MODE: undefined,
+    };
+    const res = await worker.fetch(new Request('http://localhost/'), badEnv);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('misconfigured');
+  });
+
+  it('HTTP authorize then capture happy path', async () => {
+    const actor = 'user_pay_http_happy';
+    const { arrival, guestRef, propertyId, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_http_ok';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    const authRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/payments/authorize`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            paymentId,
+            amountMinor: 2500,
+            idempotencyKey: `idem-http-auth-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(authRes.status).toBe(200);
+    expect(await authRes.json()).toMatchObject({ ok: true, status: 'authorized' });
+
+    const capRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/payments/${encodeURIComponent(paymentId)}/capture`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            amountMinor: 2500,
+            idempotencyKey: `idem-http-cap-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(capRes.status).toBe(200);
+    expect(await capRes.json()).toMatchObject({ ok: true, status: 'captured' });
+
+    const getPay = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/payments/${encodeURIComponent(paymentId)}`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(getPay.status).toBe(200);
+    expect(await getPay.json()).toMatchObject({
+      ok: true,
+      payment: { paymentId, status: 'captured' },
+    });
+
+    const listPay = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/payments`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(listPay.status).toBe(200);
+    const listed = (await listPay.json()) as { ok: true; payments: unknown[] };
+    expect(listed.payments).toHaveLength(1);
+
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
+  });
 });

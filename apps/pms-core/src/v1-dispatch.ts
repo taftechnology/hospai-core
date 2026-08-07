@@ -39,6 +39,8 @@ import {
   MONEY_INVALID,
   SPLIT_AMOUNT_MISMATCH,
   LINE_NOT_SPLITTABLE,
+  PSP_UNAVAILABLE,
+  PAYMENT_NOT_CAPTURABLE,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -2028,6 +2030,228 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+function mapPaymentCommandErrorStatus(error: string): number {
+  if (error === PSP_UNAVAILABLE) return 501;
+  if (error === IDEM_KEY_REUSED) return 409;
+  if (error === NOT_FOUND) return 404;
+  if (
+    error === PAYMENT_NOT_CAPTURABLE ||
+    error === LINE_NOT_SPLITTABLE ||
+    error === SPLIT_AMOUNT_MISMATCH ||
+    error === MONEY_INVALID ||
+    error === CURRENCY_UNSET
+  ) {
+    return 422;
+  }
+  if (error === ENTITLEMENT_REQUIRED) return 402;
+  if (error === ENTITLEMENT_UNAVAILABLE) return 503;
+  return mapReservationCommandErrorStatus(error);
+}
+
+async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    paymentId: string;
+    amountMinor: number;
+    idempotencyKey: string;
+  };
+  if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const requestFingerprint = await fingerprintPayload({
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint,
+  };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAuthorizePayment']>>>({
+    env: ctx.env,
+    commandId: 'folio.authorize',
+    routeId: 'post_folio_authorize',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryAuthorizePayment(actor, commandPayload),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const paymentId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    amountMinor: number;
+    idempotencyKey: string;
+  };
+  if (body?.amountMinor == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const captureFingerprint = await fingerprintPayload({
+    paymentId,
+    amountMinor: body.amountMinor,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    paymentId,
+    amountMinor: body.amountMinor,
+    idempotencyKey: body.idempotencyKey,
+    captureFingerprint,
+  };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCapturePayment']>>>({
+    env: ctx.env,
+    commandId: 'folio.capture',
+    routeId: 'post_folio_capture',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: captureFingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCapturePayment(actor, commandPayload),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostFolioSplitPayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    splits: Array<{ folioLineId: string; amountMinor: number }>;
+    idempotencyKey: string;
+  };
+  if (!body?.splits?.length || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { sourceFolioLineId, splits: body.splits };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySplitChargePayment']>>>({
+    env: ctx.env,
+    commandId: 'folio.split_charge_payment',
+    routeId: 'post_folio_split_payment',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.trySplitChargePayment(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handleGetFolioPayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const paymentId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readPayment(paymentId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetFolioPayments(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listPaymentsForReservation(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'bootstrap',
@@ -2379,6 +2603,46 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'settings:configure',
     commandId: 'config.put_domain',
     handler: handlePutDomainConfig,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/authorize$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.authorize',
+    handler: handlePostFolioAuthorize,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/capture$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.capture',
+    handler: handlePostFolioCapture,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split-payment$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.split_charge_payment',
+    handler: handlePostFolioSplitPayment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFolioPayment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFolioPayments,
   },
 ];
 

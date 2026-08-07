@@ -476,6 +476,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private transportBlockedForTest = false;
   private simulateBugForTest = false;
   private pspSimulateOutcomeForTest: PspSimulateOutcome | null = null;
+  /** Vitest only — DO bindings always have simulate on; force the production refuse path. */
+  private forcePspUnavailableForTest = false;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -1045,6 +1047,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setPspSimulateOutcomeForTest(outcome: PspSimulateOutcome | null): Promise<void> {
     this.assertUnsafeLocal('setPspSimulateOutcomeForTest');
     this.pspSimulateOutcomeForTest = outcome;
+  }
+
+  async setForcePspUnavailableForTest(force: boolean): Promise<void> {
+    this.assertUnsafeLocal('setForcePspUnavailableForTest');
+    this.forcePspUnavailableForTest = force;
+  }
+
+  private pspSimulateEnabled(): boolean {
+    return !this.forcePspUnavailableForTest && isPspSimulate(this.env);
   }
 
   /** Test-only: insert rate_day without plan validation (orphan / pre-slice data). */
@@ -4918,7 +4929,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'folio:adjust');
     if (permDenied) return permDenied;
 
-    if (!isPspSimulate(this.env)) return { ok: false, error: PSP_UNAVAILABLE };
+    if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
 
     if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
       return { ok: false, error: MONEY_INVALID };
@@ -5090,7 +5101,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'folio:adjust');
     if (permDenied) return permDenied;
 
-    if (!isPspSimulate(this.env)) return { ok: false, error: PSP_UNAVAILABLE };
+    if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
 
     if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
       return { ok: false, error: MONEY_INVALID };

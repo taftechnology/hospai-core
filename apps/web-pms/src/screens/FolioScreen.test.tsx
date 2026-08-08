@@ -63,7 +63,7 @@ function invokeReactClick(el: HTMLElement) {
   const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
   if (!key) throw new Error('missing __reactProps$ on element');
   const props = (el as unknown as Record<string, { onClick?: (e: unknown) => void }>)[key];
-  if (typeof props.onClick !== 'function') throw new Error('missing onClick');
+  if (!props || typeof props.onClick !== 'function') throw new Error('missing onClick');
   props.onClick({ preventDefault() {}, stopPropagation() {} });
 }
 

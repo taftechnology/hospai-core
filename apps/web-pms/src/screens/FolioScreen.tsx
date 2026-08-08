@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState } from 'react';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
+import { FOLIO_MUTATION_ROUTES } from './folio-mutation-routes.js';
 import { guestLabel } from './guest-row.js';
 
 function readState(q: {
@@ -161,7 +162,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.charge ?? 'Charge refused.');
         return;
       }
-      onClassifiedError(err, 'Charge failed', 'post_folio_lines');
+      onClassifiedError(err, 'Charge failed', FOLIO_MUTATION_ROUTES.addCharge);
     },
   });
 
@@ -189,7 +190,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Payment refused.');
         return;
       }
-      onClassifiedError(err, 'Cash failed', 'post_cash_payment');
+      onClassifiedError(err, 'Cash failed', FOLIO_MUTATION_ROUTES.cash);
     },
   });
 
@@ -216,7 +217,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Authorize refused.');
         return;
       }
-      onClassifiedError(err, 'Authorize failed', 'post_folio_authorize');
+      onClassifiedError(err, 'Authorize failed', FOLIO_MUTATION_ROUTES.authorize);
     },
   });
 
@@ -242,7 +243,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Capture refused.');
         return;
       }
-      onClassifiedError(err, 'Capture failed', 'post_folio_capture');
+      onClassifiedError(err, 'Capture failed', FOLIO_MUTATION_ROUTES.capture);
     },
   });
 
@@ -272,7 +273,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.split ?? 'Split refused.');
         return;
       }
-      onClassifiedError(err, 'Split failed', 'post_folio_split');
+      onClassifiedError(err, 'Split failed', FOLIO_MUTATION_ROUTES.split);
     },
   });
 
@@ -291,7 +292,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.split ?? 'Split refused.');
         return;
       }
-      onClassifiedError(err, 'Split payment failed', 'post_folio_split_payment');
+      onClassifiedError(err, 'Split payment failed', FOLIO_MUTATION_ROUTES.splitPayment);
     },
   });
 
@@ -325,7 +326,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.checkout ?? 'Checkout unavailable.');
         return;
       }
-      onClassifiedError(err, 'Checkout failed', 'post_reservation_check_out');
+      onClassifiedError(err, 'Checkout failed', FOLIO_MUTATION_ROUTES.checkOut);
     },
   });
 

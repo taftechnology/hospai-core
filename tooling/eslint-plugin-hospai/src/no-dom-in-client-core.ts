@@ -1,9 +1,15 @@
 /**
- * Second net for bare DOM globals in @hospai/client-core.
+ * Primary lint net for bare DOM globals in @hospai/client-core.
  * Package deps catch React/Query/Clerk; this catches `window` / `document` / etc.
+ *
+ * Not a typecheck backstop: client-core's tsconfig uses `lib: ["ES2022", "DOM"]`
+ * because `fetch` / `Headers` / `RequestInit` / `URLSearchParams` / `crypto` are
+ * only typed via the DOM lib — so `window.localStorage` typechecks cleanly.
  *
  * Property keys and type-member names that happen to match a DOM global name
  * (e.g. folio wire field `window`) are not references and must not be flagged.
+ * Deliberate aliasing via non-shorthand destructuring (`const { window: w } = g`)
+ * is also skipped — shorthand `const { window } = g` still flags.
  */
 
 type RuleContext = {

@@ -39,6 +39,7 @@ vi.mock('../client.js', () => ({
 }));
 
 import { FolioScreen } from './FolioScreen.js';
+import { FOLIO_MUTATION_ROUTES } from './folio-mutation-routes.js';
 
 function renderFolio() {
   const client = new QueryClient({
@@ -157,7 +158,8 @@ describe('FolioScreen wiring', () => {
     });
   });
 
-  it('403 on add-charge names folio:post not folio:adjust', async () => {
+  it('403 on add-charge uses FOLIO_MUTATION_ROUTES.addCharge (folio:post)', async () => {
+    expect(FOLIO_MUTATION_ROUTES.addCharge).toBe('post_folio_lines');
     getFolio.mockResolvedValue({
       ok: true,
       window: null,

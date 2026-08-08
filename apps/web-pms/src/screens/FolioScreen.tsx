@@ -2,17 +2,16 @@ import {
   foldFolioLines,
   folioActionPolicy,
   partitionQueuedByReservation,
-  permissionForForbidden,
   type FolioLine,
   type FolioPaymentRow,
   type FolioReadState,
 } from '@hospai/client-core';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState } from 'react';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
-import { FOLIO_MUTATION_ROUTES } from './folio-mutation-routes.js';
 import { guestLabel } from './guest-row.js';
+import { useFolioActionMutation } from './use-folio-action-mutation.js';
 
 function readState(q: {
   isPending: boolean;
@@ -106,41 +105,29 @@ export function FolioScreen() {
   const held = heldAmount(payments);
   const balanceMinor = folioQ.data?.balanceMinor;
 
-  function onClassifiedError(err: unknown, fallback: string, routeId: string) {
-    const c = asClassified(err);
-    if (c.class === 'forbidden') {
-      const perm = permissionForForbidden(c.body, routeId);
-      setMessage(
-        perm
-          ? `Requires permission ${perm}. Ask a manager.`
-          : 'Forbidden — insufficient permission.',
-      );
-      return;
-    }
-    if (c.class === 'not_configured') {
-      setMessage('Card payments are not configured for this property.');
-      return;
-    }
-    if (c.class === 'idempotency_key_reused') {
-      setMessage('An earlier submission of this form already posted; refresh the folio to see it.');
-      return;
-    }
-    if (c.class === 'fail_closed') {
-      setMessage('Property unreachable.');
-      return;
-    }
-    if (c.class === 'queue_unavailable') {
-      setMessage('Could not queue — queue unavailable.');
-      return;
-    }
-    setMessage(`${fallback} (${c.class})`);
+  function splitPayload() {
+    const a = Math.round(Number(splitA) * 100);
+    const b = Math.round(Number(splitB) * 100);
+    return {
+      splits: [
+        { folioLineId: `${splitLineId}:a`, amountMinor: a },
+        { folioLineId: `${splitLineId}:b`, amountMinor: b },
+      ],
+    };
   }
 
-  const addCharge = useMutation({
-    mutationFn: () => {
-      if (!policy.canPostCharge) {
-        throw new Error('policy_blocked_charge');
+  const addCharge = useFolioActionMutation('addCharge', {
+    fallback: 'Charge failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_charge') {
+        setMessage(policy.reasons.charge ?? 'Charge refused.');
+        return true;
       }
+      return false;
+    },
+    mutationFn: () => {
+      if (!policy.canPostCharge) throw new Error('policy_blocked_charge');
       const amountMinor = Math.round(Number(chargeAmount) * 100);
       return api.addFolioLine(
         propertyId,
@@ -157,24 +144,25 @@ export function FolioScreen() {
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_charge') {
-        setMessage(policy.reasons.charge ?? 'Charge refused.');
-        return;
-      }
-      onClassifiedError(err, 'Charge failed', FOLIO_MUTATION_ROUTES.addCharge);
-    },
   });
 
-  const cashPay = useMutation({
+  const cashPay = useFolioActionMutation('cash', {
+    fallback: 'Cash failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_pay') {
+        setMessage(policy.reasons.pay ?? 'Payment refused.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: () => {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
       const amountMinor = Math.round(Number(cashAmount) * 100);
-      const paymentId = `pay_${cashOpId}`;
       return api.recordCashPayment(
         propertyId,
         reservationId,
-        { paymentId, amountMinor },
+        { paymentId: `pay_${cashOpId}`, amountMinor },
         cashOpId,
       );
     },
@@ -185,24 +173,25 @@ export function FolioScreen() {
         queryKey: ['folio-payments', propertyId, reservationId],
       });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_pay') {
-        setMessage(policy.reasons.pay ?? 'Payment refused.');
-        return;
-      }
-      onClassifiedError(err, 'Cash failed', FOLIO_MUTATION_ROUTES.cash);
-    },
   });
 
-  const authorize = useMutation({
+  const authorize = useFolioActionMutation('authorize', {
+    fallback: 'Authorize failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_pay') {
+        setMessage(policy.reasons.pay ?? 'Authorize refused.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: () => {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
       const amountMinor = Math.round(Number(authAmount) * 100);
-      const paymentId = `pay_${authOpId}`;
       return api.authorizePayment(
         propertyId,
         reservationId,
-        { paymentId, amountMinor },
+        { paymentId: `pay_${authOpId}`, amountMinor },
         authOpId,
       );
     },
@@ -212,16 +201,18 @@ export function FolioScreen() {
         queryKey: ['folio-payments', propertyId, reservationId],
       });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_pay') {
-        setMessage(policy.reasons.pay ?? 'Authorize refused.');
-        return;
-      }
-      onClassifiedError(err, 'Authorize failed', FOLIO_MUTATION_ROUTES.authorize);
-    },
   });
 
-  const capture = useMutation({
+  const capture = useFolioActionMutation('capture', {
+    fallback: 'Capture failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_pay') {
+        setMessage(policy.reasons.pay ?? 'Capture refused.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: (input: { paymentId: string; amountMinor: number; opId: string }) => {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
       return api.capturePayment(
@@ -238,27 +229,18 @@ export function FolioScreen() {
         queryKey: ['folio-payments', propertyId, reservationId],
       });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_pay') {
-        setMessage(policy.reasons.pay ?? 'Capture refused.');
-        return;
-      }
-      onClassifiedError(err, 'Capture failed', FOLIO_MUTATION_ROUTES.capture);
-    },
   });
 
-  function splitPayload() {
-    const a = Math.round(Number(splitA) * 100);
-    const b = Math.round(Number(splitB) * 100);
-    return {
-      splits: [
-        { folioLineId: `${splitLineId}:a`, amountMinor: a },
-        { folioLineId: `${splitLineId}:b`, amountMinor: b },
-      ],
-    };
-  }
-
-  const split = useMutation({
+  const split = useFolioActionMutation('split', {
+    fallback: 'Split failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_split') {
+        setMessage(policy.reasons.split ?? 'Split refused.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: () => {
       if (!policy.canSplit) throw new Error('policy_blocked_split');
       const opId = `split:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
@@ -268,16 +250,18 @@ export function FolioScreen() {
       setMessage('Split posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_split') {
-        setMessage(policy.reasons.split ?? 'Split refused.');
-        return;
-      }
-      onClassifiedError(err, 'Split failed', FOLIO_MUTATION_ROUTES.split);
-    },
   });
 
-  const splitPayment = useMutation({
+  const splitPayment = useFolioActionMutation('splitPayment', {
+    fallback: 'Split payment failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_split') {
+        setMessage(policy.reasons.split ?? 'Split refused.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: () => {
       if (!policy.canSplit) throw new Error('policy_blocked_split');
       const opId = `splitpay:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
@@ -287,16 +271,19 @@ export function FolioScreen() {
       setMessage('Payment split posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_split') {
-        setMessage(policy.reasons.split ?? 'Split refused.');
-        return;
-      }
-      onClassifiedError(err, 'Split payment failed', FOLIO_MUTATION_ROUTES.splitPayment);
-    },
   });
 
-  const checkOut = useMutation({
+  const checkOut = useFolioActionMutation('checkOut', {
+    fallback: 'Checkout failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'checkout_cancelled') return true;
+      if (err instanceof Error && err.message === 'policy_blocked_checkout') {
+        setMessage(policy.reasons.checkout ?? 'Checkout unavailable.');
+        return true;
+      }
+      return false;
+    },
     mutationFn: () => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
       if (
@@ -319,14 +306,6 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
       });
-    },
-    onError: (err) => {
-      if (err instanceof Error && err.message === 'checkout_cancelled') return;
-      if (err instanceof Error && err.message === 'policy_blocked_checkout') {
-        setMessage(policy.reasons.checkout ?? 'Checkout unavailable.');
-        return;
-      }
-      onClassifiedError(err, 'Checkout failed', FOLIO_MUTATION_ROUTES.checkOut);
     },
   });
 

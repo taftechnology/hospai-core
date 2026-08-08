@@ -23,4 +23,17 @@ export { createIdempotencyKey, stableKeyForOperation } from './idempotency.js';
 export { createClient, type FrontDeskItem, type PropertyRead } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
 export { permissionForForbidden } from './permission-copy.js';
+export {
+  foldFolioLines,
+  type FolioLine,
+  type FolioDisplayNode,
+  type FolioFoldResult,
+} from './folio-fold.js';
+export {
+  folioActionPolicy,
+  type FolioActionPolicy,
+  type FolioActionPolicyInput,
+  type FolioReadState,
+} from './folio-action-policy.js';
+
 

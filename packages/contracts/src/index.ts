@@ -10,4 +10,5 @@ export * from './availability.js';
 export * from './entitlements.js';
 export * from './permissions.js';
 export * from './v1-http-routes.js';
+export * from './reservation-status.js';
 export * from './money.js';

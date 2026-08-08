@@ -20,6 +20,10 @@
     "./provisional-command": {
       "types": "./dist/provisional-command.d.ts",
       "import": "./dist/provisional-command.js"
+    },
+    "./reservation-status": {
+      "types": "./dist/reservation-status.d.ts",
+      "import": "./dist/reservation-status.js"
     }
   },
   "scripts": {

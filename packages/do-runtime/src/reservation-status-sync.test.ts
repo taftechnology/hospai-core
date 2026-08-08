@@ -5,8 +5,13 @@ import { RESERVATION_V8_SQL } from './property-migrations.js';
 describe('RESERVATION_STATUSES ↔ SQL CHECK', () => {
   it('every status appears in the v8 CHECK and the set is exact', () => {
     const match = RESERVATION_V8_SQL.match(/CHECK \(status IN \(([^)]+)\)\)/);
-    expect(match).toBeTruthy();
-    const fromSql = [...match![1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+    const list = match?.[1];
+    expect(list).toBeTruthy();
+    if (!list) return;
+    const fromSql = [...list.matchAll(/'([^']+)'/g)]
+      .map((m) => m[1])
+      .filter((s): s is string => s != null)
+      .sort();
     expect(fromSql).toEqual([...RESERVATION_STATUSES].sort());
   });
 });

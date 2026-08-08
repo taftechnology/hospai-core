@@ -5,7 +5,11 @@ export {
   type ClassifiedResponse,
   type ClientResultClass,
 } from './classify.js';
-export { createQueuedCommandLog, type QueuedCommandEntry } from './queued-commands.js';
+export {
+  createQueuedCommandLog,
+  partitionQueuedByReservation,
+  type QueuedCommandEntry,
+} from './queued-commands.js';
 export {
   createTransport,
   type CredentialHeaders,
@@ -18,3 +22,5 @@ export { accumulatePage } from './paging.js';
 export { createIdempotencyKey, stableKeyForOperation } from './idempotency.js';
 export { createClient, type FrontDeskItem, type PropertyRead } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
+export { permissionForForbidden } from './permission-copy.js';
+

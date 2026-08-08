@@ -357,7 +357,7 @@ Env: `HOSPAI_PSP_MODE` on `PmsEnv`; `isPspSimulate`; `assertEnvSafeForRequest` b
 
 | Item | Note |
 |---|---|
-| Auth holds invisible on `readFolio` | Balance ignores `authorized`; SPA must not assume folio read is the whole money story |
+| Auth holds invisible on `readFolio` | **UI half retired** by [folio front-desk](./2026-08-08-folio-front-desk-design.md) (`get_folio_payments` beside balance). Remaining: `balanceMinor` still ignores `authorized` by design |
 | Departed-with-balance | Checkout ≠ settled; no operator view surfaces open balances after `checked_out` |
 | Auth expiry | `authorized` never ages out; no hold-lapse process |
 | `unknown` has no exit | Reachable via simulate timeout; no reconciliation transition this slice |

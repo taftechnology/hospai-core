@@ -65,4 +65,49 @@ describe('classifyResponse', () => {
     expect(c.class).toBe('entitlement_required');
     expect(shouldRetry(c)).toBe(false);
   });
+
+  it('403 is forbidden never retry', () => {
+    const c = classifyResponse({
+      status: 403,
+      headers: hdr(),
+      body: { error: 'forbidden', permission: 'folio:adjust' },
+    });
+    expect(c.class).toBe('forbidden');
+    expect(shouldRetry(c)).toBe(false);
+  });
+
+  it('501 psp_unavailable is not_configured never retry', () => {
+    const c = classifyResponse({
+      status: 501,
+      headers: hdr(),
+      body: { ok: false, error: 'psp_unavailable' },
+    });
+    expect(c.class).toBe('not_configured');
+    expect(shouldRetry(c)).toBe(false);
+  });
+
+  it('501 without psp_unavailable stays server_error', () => {
+    const c = classifyResponse({
+      status: 501,
+      headers: hdr(),
+      body: { error: 'not_implemented' },
+    });
+    expect(c.class).toBe('server_error');
+  });
+
+  it('409 idempotency_key_reused is dedicated class; other 409 is client_error', () => {
+    const a = classifyResponse({
+      status: 409,
+      headers: hdr(),
+      body: { error: 'idempotency_key_reused' },
+    });
+    const b = classifyResponse({
+      status: 409,
+      headers: hdr(),
+      body: { error: 'guest_exists' },
+    });
+    expect(a.class).toBe('idempotency_key_reused');
+    expect(shouldRetry(a)).toBe(false);
+    expect(b.class).toBe('client_error');
+  });
 });

@@ -6,6 +6,9 @@ export type ClientResultClass =
   | 'queue_unavailable'
   | 'entitlement_required'
   | 'unauthorized'
+  | 'forbidden'
+  | 'not_configured'
+  | 'idempotency_key_reused'
   | 'client_error'
   | 'server_error';
 
@@ -43,6 +46,9 @@ export function classifyResponse(res: {
   if (status === 402) {
     return { class: 'entitlement_required', status, body, retryAfterMs: null };
   }
+  if (status === 403) {
+    return { class: 'forbidden', status, body, retryAfterMs: null };
+  }
   if (status === 202) {
     const provisional = record?.provisional === true || record?.ok === true;
     if (provisional || record?.commandId != null) {
@@ -64,6 +70,12 @@ export function classifyResponse(res: {
       return { class: 'read_stale', status, body, retryAfterMs };
     }
     return { class: 'server_error', status, body, retryAfterMs: null };
+  }
+  if (status === 409 && record?.error === 'idempotency_key_reused') {
+    return { class: 'idempotency_key_reused', status, body, retryAfterMs: null };
+  }
+  if (status === 501 && record?.error === 'psp_unavailable') {
+    return { class: 'not_configured', status, body, retryAfterMs: null };
   }
   if (status >= 400 && status < 500) {
     return { class: 'client_error', status, body, retryAfterMs: null };

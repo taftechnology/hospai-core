@@ -1,0 +1,75 @@
+:root {
+  color-scheme: light;
+
+  /* --- primitives (literals allowed only on --color-*) --- */
+  --color-ink: #1a1f24;
+  --color-muted: #5c6670;
+  --color-line: #d5dbe1;
+  --color-bg: #f3f5f7;
+  --color-surface-base: #ffffff;
+
+  --color-status-settled-fg: #0d5c2e;
+  --color-status-settled-surface: #e8f5ee;
+  --color-status-informational-fg: #1a4a6e;
+  --color-status-informational-surface: #e8f1f8;
+  --color-status-attention-fg: #8a5a00;
+  --color-status-attention-surface: #fff6e5;
+  --color-status-exception-fg: #9b1c1c;
+  --color-status-exception-surface: #fff5f5;
+
+  --color-action-primary-fg: #ffffff;
+  --color-action-primary-surface: #1a4a6e;
+  --color-action-destructive-fg: #ffffff;
+  --color-action-destructive-surface: #9b1c1c;
+
+  --color-badge-fg-on-exception: #ffffff;
+
+  /* --- chrome aliases (no literals) --- */
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --line: var(--color-line);
+  --bg: var(--color-bg);
+  --panel: var(--color-surface-base);
+  --danger: var(--color-status-exception-fg);
+  --warn: var(--color-status-attention-fg);
+
+  /* --- status semantics --- */
+  --status-settled-fg: var(--color-status-settled-fg);
+  --status-settled-surface: var(--color-status-settled-surface);
+  --status-settled-border: color-mix(
+    in srgb,
+    var(--status-settled-fg) 35%,
+    var(--color-surface-base)
+  );
+  --status-informational-fg: var(--color-status-informational-fg);
+  --status-informational-surface: var(--color-status-informational-surface);
+  --status-informational-border: color-mix(
+    in srgb,
+    var(--status-informational-fg) 35%,
+    var(--color-surface-base)
+  );
+  --status-attention-fg: var(--color-status-attention-fg);
+  --status-attention-surface: var(--color-status-attention-surface);
+  --status-attention-border: color-mix(
+    in srgb,
+    var(--status-attention-fg) 35%,
+    var(--color-surface-base)
+  );
+  --status-exception-fg: var(--color-status-exception-fg);
+  --status-exception-surface: var(--color-status-exception-surface);
+  --status-exception-border: color-mix(
+    in srgb,
+    var(--status-exception-fg) 35%,
+    var(--color-surface-base)
+  );
+
+  /* --- action intent (destructive unexercised this slice) --- */
+  --action-default-fg: var(--color-ink);
+  --action-default-surface: var(--color-surface-base);
+  --action-primary-fg: var(--color-action-primary-fg);
+  --action-primary-surface: var(--color-action-primary-surface);
+  --action-destructive-fg: var(--color-action-destructive-fg);
+  --action-destructive-surface: var(--color-action-destructive-surface);
+
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}

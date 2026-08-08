@@ -16,7 +16,8 @@
     "check:entitlements": "pnpm --filter @hospai/contracts build && pnpm --filter @hospai/do-runtime build && node scripts/entitlements-check.mjs",
     "check:permissions": "pnpm --filter @hospai/contracts build && node scripts/permissions-check.mjs",
     "check:degraded": "pnpm --filter @hospai/contracts build && node scripts/degraded-check.mjs",
-    "check:class-denylist": "pnpm --filter eslint-plugin-hospai build && node scripts/class-denylist-check.mjs"
+    "check:class-denylist": "pnpm --filter eslint-plugin-hospai build && node scripts/class-denylist-check.mjs",
+    "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.26.0",

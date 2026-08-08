@@ -1,14 +1,4 @@
-:root {
-  color-scheme: light;
-  --ink: #1a1f24;
-  --muted: #5c6670;
-  --line: #d5dbe1;
-  --bg: #f3f5f7;
-  --panel: #ffffff;
-  --danger: #9b1c1c;
-  --warn: #8a5a00;
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-}
+@import './styles/tokens.css';
 
 * {
   box-sizing: border-box;
@@ -61,10 +51,10 @@ a {
 }
 
 .error {
-  color: var(--danger);
-  border: 1px solid var(--danger);
+  color: var(--status-exception-fg);
+  border: 1px solid var(--status-exception-border);
+  background: var(--status-exception-surface);
   padding: 0.75rem 1rem;
-  background: #fff5f5;
 }
 
 .muted {
@@ -94,9 +84,42 @@ button {
   min-width: 1.25rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: var(--warn);
-  color: #fff;
+  background: var(--color-line);
+  color: var(--color-ink);
   font-size: 0.8rem;
+}
+
+.badge.status-exception {
+  background: var(--status-exception-fg);
+  color: var(--color-badge-fg-on-exception);
+}
+
+.status-settled {
+  color: var(--status-settled-fg);
+  background: var(--status-settled-surface);
+  border-color: var(--status-settled-border);
+}
+
+.status-informational {
+  color: var(--status-informational-fg);
+  background: var(--status-informational-surface);
+  border-color: var(--status-informational-border);
+}
+
+.status-attention {
+  color: var(--status-attention-fg);
+  background: var(--status-attention-surface);
+  border-color: var(--status-attention-border);
+}
+
+.status-exception {
+  color: var(--status-exception-fg);
+  background: var(--status-exception-surface);
+  border-color: var(--status-exception-border);
+}
+
+/* Intentionally empty — do not add transparent borders (erases td separators). */
+.status-neutral {
 }
 
 .side-panels {
@@ -106,3 +129,4 @@ button {
   border-top: 1px solid var(--line);
   border-bottom: none;
 }
+

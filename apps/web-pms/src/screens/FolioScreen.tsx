@@ -246,23 +246,22 @@ export function FolioScreen() {
     },
   });
 
+  function splitPayload() {
+    const a = Math.round(Number(splitA) * 100);
+    const b = Math.round(Number(splitB) * 100);
+    return {
+      splits: [
+        { folioLineId: `${splitLineId}:a`, amountMinor: a },
+        { folioLineId: `${splitLineId}:b`, amountMinor: b },
+      ],
+    };
+  }
+
   const split = useMutation({
     mutationFn: () => {
       if (!policy.canSplit) throw new Error('policy_blocked_split');
-      const a = Math.round(Number(splitA) * 100);
-      const b = Math.round(Number(splitB) * 100);
       const opId = `split:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
-      return api.splitFolioLine(
-        propertyId,
-        splitLineId,
-        {
-          splits: [
-            { folioLineId: `${splitLineId}:a`, amountMinor: a },
-            { folioLineId: `${splitLineId}:b`, amountMinor: b },
-          ],
-        },
-        opId,
-      );
+      return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
     onSuccess: () => {
       setMessage('Split posted.');
@@ -274,6 +273,25 @@ export function FolioScreen() {
         return;
       }
       onClassifiedError(err, 'Split failed');
+    },
+  });
+
+  const splitPayment = useMutation({
+    mutationFn: () => {
+      if (!policy.canSplit) throw new Error('policy_blocked_split');
+      const opId = `splitpay:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
+      return api.splitFolioPayment(propertyId, splitLineId, splitPayload(), opId);
+    },
+    onSuccess: () => {
+      setMessage('Payment split posted.');
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_split') {
+        setMessage(policy.reasons.split ?? 'Split refused.');
+        return;
+      }
+      onClassifiedError(err, 'Split payment failed');
     },
   });
 
@@ -530,6 +548,13 @@ export function FolioScreen() {
           onClick={() => split.mutate()}
         >
           Split
+        </button>
+        <button
+          type="button"
+          disabled={!policy.canSplit || splitPayment.isPending || !splitLineId}
+          onClick={() => splitPayment.mutate()}
+        >
+          Split payment
         </button>
         {!policy.canSplit && policy.reasons.split ? (
           <p className="muted">{policy.reasons.split}</p>

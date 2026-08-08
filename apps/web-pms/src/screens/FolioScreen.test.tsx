@@ -110,10 +110,11 @@ describe('FolioScreen wiring', () => {
   });
 
   it('balance chrome uses server balanceMinor not liveTotalMinor', async () => {
+    // Deliberately diverge from line sum (110 → 1.10) so rendering fold.liveTotalMinor fails.
     getFolio.mockResolvedValue({
       ok: true,
       window: null,
-      balanceMinor: 110,
+      balanceMinor: 999,
       lines: [
         {
           folioLineId: 'c',
@@ -149,7 +150,41 @@ describe('FolioScreen wiring', () => {
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
 
     renderFolio();
-    await waitFor(() => expect(screen.getByTestId('folio-balance').textContent).toMatch(/1\.10/));
+    await waitFor(() => {
+      const text = screen.getByTestId('folio-balance').textContent ?? '';
+      expect(text).toMatch(/9\.99/);
+      expect(text).not.toMatch(/1\.10/);
+    });
+  });
+
+  it('403 on add-charge names folio:post not folio:adjust', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    addFolioLine.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden' },
+        retryAfterMs: null,
+      }),
+    );
+
+    renderFolio();
+    await waitFor(() => {
+      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
+    });
+    screen.getByTestId('add-charge').click();
+    await waitFor(() => {
+      const msg = screen.getByTestId('folio-message').textContent ?? '';
+      expect(msg).toMatch(/folio:post/);
+      expect(msg).not.toMatch(/folio:adjust/);
+    });
   });
 
   it('authorize invalidates payments query and not folio', async () => {

@@ -105,10 +105,10 @@ export function FolioScreen() {
   const held = heldAmount(payments);
   const balanceMinor = folioQ.data?.balanceMinor;
 
-  function onClassifiedError(err: unknown, fallback: string) {
+  function onClassifiedError(err: unknown, fallback: string, routeId: string) {
     const c = asClassified(err);
     if (c.class === 'forbidden') {
-      const perm = permissionForForbidden(c.body, 'post_folio_split');
+      const perm = permissionForForbidden(c.body, routeId);
       setMessage(
         perm
           ? `Requires permission ${perm}. Ask a manager.`
@@ -161,7 +161,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.charge ?? 'Charge refused.');
         return;
       }
-      onClassifiedError(err, 'Charge failed');
+      onClassifiedError(err, 'Charge failed', 'post_folio_lines');
     },
   });
 
@@ -189,7 +189,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Payment refused.');
         return;
       }
-      onClassifiedError(err, 'Cash failed');
+      onClassifiedError(err, 'Cash failed', 'post_cash_payment');
     },
   });
 
@@ -216,7 +216,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Authorize refused.');
         return;
       }
-      onClassifiedError(err, 'Authorize failed');
+      onClassifiedError(err, 'Authorize failed', 'post_folio_authorize');
     },
   });
 
@@ -242,7 +242,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.pay ?? 'Capture refused.');
         return;
       }
-      onClassifiedError(err, 'Capture failed');
+      onClassifiedError(err, 'Capture failed', 'post_folio_capture');
     },
   });
 
@@ -272,7 +272,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.split ?? 'Split refused.');
         return;
       }
-      onClassifiedError(err, 'Split failed');
+      onClassifiedError(err, 'Split failed', 'post_folio_split');
     },
   });
 
@@ -291,7 +291,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.split ?? 'Split refused.');
         return;
       }
-      onClassifiedError(err, 'Split payment failed');
+      onClassifiedError(err, 'Split payment failed', 'post_folio_split_payment');
     },
   });
 
@@ -325,7 +325,7 @@ export function FolioScreen() {
         setMessage(policy.reasons.checkout ?? 'Checkout unavailable.');
         return;
       }
-      onClassifiedError(err, 'Checkout failed');
+      onClassifiedError(err, 'Checkout failed', 'post_reservation_check_out');
     },
   });
 

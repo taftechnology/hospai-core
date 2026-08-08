@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClassifiedError } from '@hospai/client-core';
 
 vi.mock('../client.js', () => {
@@ -24,20 +24,30 @@ vi.mock('../client.js', () => {
       getArrivals: failClosed,
       getDepartures: failClosed,
       getInHouse: failClosed,
+      getFolio: failClosed,
+      getReservation: failClosed,
+      getFolioPayments: failClosed,
+      postGuestsBatch: failClosed,
     },
     queuedCommands: { entries: () => [] },
-    asClassified: () => ({
-      class: 'fail_closed',
-      status: 503,
-      body: {},
-      retryAfterMs: null,
-    }),
+    asClassified: (err: unknown) => {
+      if (err instanceof ClassifiedError) return err.classified;
+      return {
+        class: 'fail_closed' as const,
+        status: 503,
+        body: {},
+        retryAfterMs: null,
+      };
+    },
   };
 });
 
+import { FolioScreen } from '../screens/FolioScreen.js';
 import { AppShell } from './AppShell.js';
 
 describe('AppShell boot path', () => {
+  afterEach(() => cleanup());
+
   it('mounts nav, queued log, and exceptions when PropertyDO calls fail', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -60,4 +70,27 @@ describe('AppShell boot path', () => {
     expect(screen.getByText(/Replay exceptions/i)).toBeTruthy();
     expect(screen.getByText('board-outlet')).toBeTruthy();
   });
+
+  it('mounts FolioScreen under PropertyDO failure with policy chrome', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/folio/res_boot']}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="/folio/:reservationId" element={<FolioScreen />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole('navigation', { name: /front desk/i })).toBeTruthy();
+    expect(screen.getByText(/Queued commands/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('folio-unread')).toBeTruthy());
+    expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);
+  });
 });
+

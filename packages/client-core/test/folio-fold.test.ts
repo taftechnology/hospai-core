@@ -221,4 +221,32 @@ describe('foldFolioLines', () => {
     expect(fold.liveTotalMinor).toBe(600);
     expect(fold.roots.map((r) => r.line.folioLineId)).toEqual(['c', 'p']);
   });
+
+  it('tax whose taxOf points at another live tax is an orphan defect', () => {
+    const lines = [
+      line({ folioLineId: 'c', ledgerAmountMinor: 1000, createdAt: 1 }),
+      line({
+        folioLineId: 't1',
+        ledgerAmountMinor: 100,
+        createdAt: 2,
+        source: 'TAX',
+        taxOf: 'c',
+        taxRuleId: 'tr',
+      }),
+      line({
+        folioLineId: 't2',
+        ledgerAmountMinor: 10,
+        createdAt: 3,
+        source: 'TAX',
+        taxOf: 't1',
+        taxRuleId: 'tr2',
+      }),
+    ];
+    const fold = foldFolioLines(lines);
+    expect(fold.liveTotalMinor).toBe(1110);
+    expect(fold.roots).toHaveLength(2);
+    const orphan = fold.roots.find((r) => r.line.folioLineId === 't2');
+    expect(orphan?.orphanTax).toBe(true);
+    expect(fold.roots[0]!.taxes.map((t) => t.line.folioLineId)).toEqual(['t1']);
+  });
 });

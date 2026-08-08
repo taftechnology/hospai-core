@@ -91,7 +91,8 @@ function BoardTable({
               <td>
                 {mode === 'arrivals' ? (
                   <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                ) : null}
+                ) : null}{' '}
+                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
               </td>
             </tr>
           );

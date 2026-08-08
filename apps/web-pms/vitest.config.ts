@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-    environmentMatchGlobs: [['src/**/*.boot.test.tsx', 'jsdom']],
+    environmentMatchGlobs: [
+      ['src/**/*.boot.test.tsx', 'jsdom'],
+      ['src/screens/**/*.test.tsx', 'jsdom'],
+    ],
   },
 });

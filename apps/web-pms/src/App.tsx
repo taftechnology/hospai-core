@@ -4,6 +4,7 @@ import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { asClassified } from './client.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
+import { FolioScreen } from './screens/FolioScreen.js';
 import { AppShell } from './shell/AppShell.js';
 
 const queryClient = new QueryClient({
@@ -27,6 +28,7 @@ export function App() {
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
+            <Route path="folio/:reservationId" element={<FolioScreen />} />
           </Route>
           <Route path="sign-in" element={<p className="main">Sign in required</p>} />
         </Routes>

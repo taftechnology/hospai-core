@@ -3,9 +3,10 @@ import { Link } from 'react-router';
 import { useMemo, useState } from 'react';
 import { ClassifiedError } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
+import type { BoardMode } from '../status/board-mode.js';
 import { guestLabel } from './guest-row.js';
 
-export type BoardMode = 'arrivals' | 'departures' | 'in-house';
+export type { BoardMode };
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);

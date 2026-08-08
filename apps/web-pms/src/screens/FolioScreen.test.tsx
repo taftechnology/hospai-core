@@ -55,6 +55,18 @@ function renderFolio() {
   );
 }
 
+/**
+ * React swallows mouse events when props.disabled is true (DOM enable / fireEvent
+ * still no-op). Reach mutationFn by calling the fiber onClick directly.
+ */
+function invokeReactClick(el: HTMLElement) {
+  const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
+  if (!key) throw new Error('missing __reactProps$ on element');
+  const props = (el as unknown as Record<string, { onClick?: (e: unknown) => void }>)[key];
+  if (typeof props.onClick !== 'function') throw new Error('missing onClick');
+  props.onClick({ preventDefault() {}, stopPropagation() {} });
+}
+
 const liveReservation = {
   reservationId: 'res_1',
   roomTypeId: 'rt',
@@ -105,12 +117,8 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('folio-unread')).toBeTruthy());
     const btn = screen.getByTestId('add-charge') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    // Exercise mutationFn policy guard — not only the disabled prop (a disabled
-    // button click is a no-op and would pass even if the guard were removed).
-    // Clear both the content attribute and the IDL property React sets.
-    btn.removeAttribute('disabled');
-    btn.disabled = false;
-    btn.click();
+    // Exercise mutationFn's canPostCharge guard — not only the disabled prop.
+    invokeReactClick(btn);
     expect(addFolioLine).not.toHaveBeenCalled();
   });
 

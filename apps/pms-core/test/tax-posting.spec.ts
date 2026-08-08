@@ -338,6 +338,14 @@ describe('tax posting matrix', () => {
       taxOf: folioLineId,
       taxRuleId: 'tr_v1',
     });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok).toBe(true);
+    if (!folio.ok) return;
+    const wireTax = folio.lines.find((l) => l.source === 'TAX');
+    expect(wireTax).toBeTruthy();
+    expect(wireTax!.taxOf).toBe(folioLineId);
+    expect(wireTax!.taxRuleId).toBe('tr_v1');
   });
 
   it('Test 2: tax_group NULL code posts no tax line', async () => {

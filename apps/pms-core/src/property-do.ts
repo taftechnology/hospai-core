@@ -7650,6 +7650,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           splitOf: string | null;
           createdAt: number;
           paymentId: string | null;
+          taxOf: string | null;
+          taxRuleId: string | null;
         }>;
         balanceMinor: number;
       }
@@ -7671,7 +7673,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const lineRows = this.ctx.storage.sql
       .exec(
         `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
-                source, business_date, split_of, created_at, payment_id
+                source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
          FROM folio_line WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -7687,6 +7689,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       split_of: string | null;
       created_at: number;
       payment_id: string | null;
+      tax_of: string | null;
+      tax_rule_id: string | null;
     }>;
 
     const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
@@ -7708,6 +7712,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         splitOf: row.split_of,
         createdAt: row.created_at,
         paymentId: row.payment_id,
+        taxOf: row.tax_of,
+        taxRuleId: row.tax_rule_id,
       })),
       balanceMinor,
     };

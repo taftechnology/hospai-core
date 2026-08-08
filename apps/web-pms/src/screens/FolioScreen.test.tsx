@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -118,7 +118,11 @@ describe('FolioScreen wiring', () => {
     const btn = screen.getByTestId('add-charge') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     // Exercise mutationFn's canPostCharge guard — not only the disabled prop.
-    invokeReactClick(btn);
+    // mutate() schedules mutationFn; flush so a missing guard would call the API.
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
     expect(addFolioLine).not.toHaveBeenCalled();
   });
 

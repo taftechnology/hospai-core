@@ -1,4 +1,5 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
+import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
 import { stableKeyForOperation } from './idempotency.js';
 import type { createQueuedCommandLog } from './queued-commands.js';
@@ -17,7 +18,18 @@ export type ListPage<T> = {
 export type FrontDeskItem = {
   reservationId: string;
   guestRef: string;
+  status: ReservationStatus;
+  departureDate: string;
+  arrivalDate?: string;
+  roomId?: string | null;
   [key: string]: unknown;
+};
+
+export type PropertyRead = {
+  property: { propertyId: string; timeZone: string; name: string };
+  locationHint?: string;
+  recordedJurisdiction?: unknown;
+  schemaVersion?: number;
 };
 
 function enc(s: string): string {
@@ -72,6 +84,10 @@ export function createClient(opts: {
   }
 
   return {
+    async getProperty(propertyId: string): Promise<PropertyRead> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}`);
+      return body as PropertyRead;
+    },
     async getArrivals(propertyId: string, date: string, cursor?: string | null) {
       return listFrontDesk('arrivals', propertyId, {
         date,

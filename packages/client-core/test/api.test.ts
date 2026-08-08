@@ -105,6 +105,44 @@ describe('createClient degraded writes', () => {
     expect(result.states.g1).toEqual({ kind: 'name_pending' });
   });
 
+  it('getProperty returns property.timeZone', async () => {
+    const client = createClient({
+      transport: mockTransport((path) => {
+        expect(path).toBe('/v1/properties/p1');
+        return new Response(
+          JSON.stringify({
+            property: {
+              propertyId: 'p1',
+              orgId: 'o1',
+              name: 'Demo',
+              jurisdiction: null,
+              timeZone: 'America/New_York',
+              status: 'active',
+              createdAt: 1,
+            },
+            locationHint: 'x',
+            recordedJurisdiction: null,
+            schemaVersion: 18,
+          }),
+          { status: 200 },
+        );
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    const result = await client.getProperty('p1');
+    expect(result.property.timeZone).toBe('America/New_York');
+  });
+
   it('reuses idempotency key across check-in retries of same opId', async () => {
     const keys: string[] = [];
     const client = createClient({

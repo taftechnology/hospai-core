@@ -1,6 +1,7 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
+import type { FolioLine } from './folio-fold.js';
 import { stableKeyForOperation } from './idempotency.js';
 import type { createQueuedCommandLog } from './queued-commands.js';
 import { ClassifiedError, requestJson } from './request.js';
@@ -32,6 +33,38 @@ export type PropertyRead = {
   schemaVersion?: number;
 };
 
+export type FolioRead = {
+  ok: true;
+  window: { folioWindowId: string; kind: string; status: string } | null;
+  lines: FolioLine[];
+  balanceMinor: number;
+};
+
+export type ReservationRead = {
+  reservationId: string;
+  roomTypeId: string;
+  guestRef: string;
+  piiKeyId: string;
+  arrivalDate: string;
+  departureDate: string;
+  status: string;
+  roomId: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type FolioPaymentRow = {
+  paymentId: string;
+  reservationId: string;
+  amountMinor: number;
+  currency: string;
+  status: string;
+  gatewayReference: string | null;
+  capturedAmountMinor: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 function enc(s: string): string {
   return encodeURIComponent(s);
 }
@@ -44,7 +77,11 @@ export function createClient(opts: {
 }) {
   const on402 = () => opts.entitlements.onEntitlementRequired();
 
-  async function getJson(path: string, init?: RequestInit) {
+  async function getJson(
+    path: string,
+    init?: RequestInit,
+    queueContext?: { reservationId?: string },
+  ) {
     const { classified, body } = await requestJson({
       transport: opts.transport,
       path,
@@ -56,7 +93,7 @@ export function createClient(opts: {
       classified.class === 'provisional'
     ) {
       if (classified.class === 'provisional') {
-        opts.queued.recordFromProvisionalBody(body);
+        opts.queued.recordFromProvisionalBody(body, queueContext);
       }
       return { classified, body };
     }
@@ -179,6 +216,158 @@ export function createClient(opts: {
           },
           body: JSON.stringify({}),
         },
+        { reservationId },
+      );
+    },
+    async getFolio(propertyId: string, reservationId: string): Promise<FolioRead> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio`,
+      );
+      return body as FolioRead;
+    },
+    async getReservation(propertyId: string, reservationId: string): Promise<ReservationRead> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}`,
+      );
+      return body as ReservationRead;
+    },
+    async getFolioPayments(
+      propertyId: string,
+      reservationId: string,
+    ): Promise<{ ok: true; payments: FolioPaymentRow[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/payments`,
+      );
+      const r = body as { ok?: true; payments?: FolioPaymentRow[] };
+      return { ok: true, payments: Array.isArray(r.payments) ? r.payments : [] };
+    },
+    async addFolioLine(
+      propertyId: string,
+      reservationId: string,
+      input: { chargeCode: string; amountMinor: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/lines`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            chargeCode: input.chargeCode,
+            amountMinor: input.amountMinor,
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
+    async recordCashPayment(
+      propertyId: string,
+      reservationId: string,
+      input: { paymentId: string; amountMinor: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/payments/cash`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            paymentId: input.paymentId,
+            amountMinor: input.amountMinor,
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
+    async authorizePayment(
+      propertyId: string,
+      reservationId: string,
+      input: { paymentId: string; amountMinor: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/payments/authorize`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            paymentId: input.paymentId,
+            amountMinor: input.amountMinor,
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
+    async capturePayment(
+      propertyId: string,
+      paymentId: string,
+      input: { amountMinor: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/payments/${enc(paymentId)}/capture`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: input.amountMinor,
+            idempotencyKey,
+          }),
+        },
+      );
+    },
+    async splitFolioLine(
+      propertyId: string,
+      sourceFolioLineId: string,
+      input: { splits: Array<{ folioLineId: string; amountMinor: number }> },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ splits: input.splits, idempotencyKey }),
+        },
+      );
+    },
+    async splitFolioPayment(
+      propertyId: string,
+      sourceFolioLineId: string,
+      input: { splits: Array<{ folioLineId: string; amountMinor: number }> },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split-payment`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ splits: input.splits, idempotencyKey }),
+        },
+      );
+    },
+    async checkOut(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/check-out`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify({}),
+        },
+        { reservationId },
       );
     },
   };

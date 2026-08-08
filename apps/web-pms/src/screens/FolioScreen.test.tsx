@@ -105,6 +105,11 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('folio-unread')).toBeTruthy());
     const btn = screen.getByTestId('add-charge') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
+    // Exercise mutationFn policy guard — not only the disabled prop (a disabled
+    // button click is a no-op and would pass even if the guard were removed).
+    // Clear both the content attribute and the IDL property React sets.
+    btn.removeAttribute('disabled');
+    btn.disabled = false;
     btn.click();
     expect(addFolioLine).not.toHaveBeenCalled();
   });

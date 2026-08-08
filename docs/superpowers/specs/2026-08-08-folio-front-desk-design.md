@@ -278,6 +278,7 @@ Wire test: taxed line on `readFolio` includes `taxOf` / `taxRuleId`.
 | 7 | Departed-with-balance workflow | Now producible via outage checkout |
 | 8 | Charge-code / tax-rule settings UI | Different audience |
 | 9 | client-core DOM lib + lint net | `tsconfig` needs `DOM` for `fetch`/`Headers`/…; `no-dom-in-client-core` is the only net, not a second net behind types. Non-shorthand `const { window: w } = g` aliases past the rule (shorthand still flags). Pre-existing since shell slice. |
+| 10 | Folio action↔route key swap | `useFolioActionMutation(routeKey)` + exactly-once source canary catch orphans/duplicates, not a clean swap (`cash`↔`split`). Closing properly needs per-action SPA 403 drives (setup diverges: split needs line id, capture needs a hold). Wrong outcome is a misnamed permission toast — accepted residual. |
 
 **Retired this slice (mark done on payments leftover list):** UI half of auth-holds-invisible — screen shows holds beside balance via `get_folio_payments`. `balanceMinor` ignoring holds remains intentional.
 

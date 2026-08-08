@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, asClassified, tenant } from '../client.js';
+import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
+import { statusClass } from '../status/status-class.js';
 
 export function ExceptionsPanel() {
   const [open, setOpen] = useState(false);
@@ -17,13 +19,14 @@ export function ExceptionsPanel() {
   });
 
   const count = countQ.data?.exceptionCount ?? 0;
+  const badgeSev = exceptionBadgeSeverity(count);
 
   return (
     <section className="panel">
       <h2>
         Replay exceptions{' '}
         <button type="button" onClick={() => setOpen((v) => !v)}>
-          <span className="badge">{count}</span>
+          <span className={`badge ${statusClass(badgeSev)}`}>{count}</span>
         </button>
       </h2>
       {countQ.isError && asClassified(countQ.error).class === 'fail_closed' ? (

@@ -142,6 +142,15 @@ button {
   text-transform: capitalize;
 }
 
+.board-group {
+  margin-bottom: 1.25rem;
+}
+
+.board-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
 .stack-row {
   display: flex;
   gap: 0.5rem;

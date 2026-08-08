@@ -1,9 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { useMemo, useState } from 'react';
-import { ClassifiedError } from '@hospai/client-core';
+import { useMemo, useState, type ReactNode } from 'react';
+import {
+  ClassifiedError,
+  type FrontDeskItem,
+  type GuestRowState,
+} from '@hospai/client-core';
+import {
+  RESERVATION_STATUSES,
+  type ReservationStatus,
+} from '@hospai/contracts/reservation-status';
 import { api, asClassified, tenant } from '../client.js';
 import type { BoardMode } from '../status/board-mode.js';
+import { boardRowSeverity } from '../status/board-row-severity.js';
+import { guestSeverity } from '../status/guest-severity.js';
+import { propertyLocalToday } from '../status/property-local-today.js';
+import { statusClass } from '../status/status-class.js';
+import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { guestLabel } from './guest-row.js';
 
 export type { BoardMode };
@@ -12,9 +25,123 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function asReservationStatus(value: unknown): ReservationStatus | null {
+  if (typeof value !== 'string') return null;
+  return (RESERVATION_STATUSES as readonly string[]).includes(value)
+    ? (value as ReservationStatus)
+    : null;
+}
+
+function partitionDepartures(items: FrontDeskItem[]) {
+  const dueOut: FrontDeskItem[] = [];
+  const departed: FrontDeskItem[] = [];
+  const other: FrontDeskItem[] = [];
+  for (const row of items) {
+    const status = asReservationStatus(row.status);
+    if (status === 'checked_in') dueOut.push(row);
+    else if (status === 'checked_out') departed.push(row);
+    else other.push(row);
+  }
+  return { dueOut, departed, other };
+}
+
+function BoardTable({
+  mode,
+  items,
+  states,
+  timeZone,
+}: {
+  mode: BoardMode;
+  items: FrontDeskItem[];
+  states: Record<string, GuestRowState>;
+  timeZone: string | null;
+}) {
+  const today = timeZone ? propertyLocalToday(timeZone) : null;
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Reservation</th>
+          <th>Guest</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((row) => {
+          const status = asReservationStatus(row.status);
+          const overstay =
+            mode === 'in-house' &&
+            today != null &&
+            typeof row.departureDate === 'string' &&
+            row.departureDate < today;
+          // Unrecognized wire status → informational (not a silent neutral/confirmed).
+          const rowSev = status
+            ? boardRowSeverity({ mode, status, overstay })
+            : 'informational';
+          const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
+          const guestSev = guestSeverity(guestState);
+          return (
+            <tr key={row.reservationId} className={statusClass(rowSev)}>
+              <td>
+                {row.reservationId}
+                {overstay ? ' (overstay)' : ''}
+              </td>
+              <td className={statusClass(guestSev)}>{guestLabel(guestState, row.guestRef)}</td>
+              <td>
+                {mode === 'arrivals' ? (
+                  <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
+                ) : null}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function DeparturesBoard({
+  items,
+  states,
+  timeZone,
+}: {
+  items: FrontDeskItem[];
+  states: Record<string, GuestRowState>;
+  timeZone: string | null;
+}) {
+  const { dueOut, departed, other } = partitionDepartures(items);
+  const sections: Array<{ title: string; rows: FrontDeskItem[] }> = [
+    { title: 'Due out', rows: dueOut },
+    { title: 'Departed', rows: departed },
+    { title: 'Other', rows: other },
+  ];
+
+  return (
+    <>
+      {sections.map((section) => (
+        <section key={section.title} className="board-group">
+          <h2 className="board-group-title">{section.title}</h2>
+          {section.rows.length === 0 ? (
+            <p className="muted">None</p>
+          ) : (
+            <BoardTable
+              mode="departures"
+              items={section.rows}
+              states={states}
+              timeZone={timeZone}
+            />
+          )}
+        </section>
+      ))}
+    </>
+  );
+}
+
 export function BoardScreen({ mode }: { mode: BoardMode }) {
   const [date, setDate] = useState(todayUtc());
   const [cursor, setCursor] = useState<string | null>(null);
+  const timeZone = usePropertyTimeZone();
 
   const listQ = useQuery({
     queryKey: ['board', mode, tenant.propertyId, date, cursor],
@@ -58,6 +185,17 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const items = listQ.data?.items ?? [];
   const states = batchQ.data?.states ?? {};
 
+  let body: ReactNode;
+  if (listQ.isLoading) {
+    body = <p className="muted">Loading…</p>;
+  } else if (items.length === 0) {
+    body = <p className="muted">No reservations for this view</p>;
+  } else if (mode === 'departures') {
+    body = <DeparturesBoard items={items} states={states} timeZone={timeZone} />;
+  } else {
+    body = <BoardTable mode={mode} items={items} states={states} timeZone={timeZone} />;
+  }
+
   return (
     <div>
       <header className="board-header">
@@ -78,33 +216,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
       </header>
 
       <div className="panel">
-        {listQ.isLoading ? <p className="muted">Loading…</p> : null}
-        {!listQ.isLoading && items.length === 0 ? (
-          <p className="muted">No reservations for this view</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Reservation</th>
-                <th>Guest</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((row) => (
-                <tr key={row.reservationId}>
-                  <td>{row.reservationId}</td>
-                  <td>{guestLabel(states[row.guestRef], row.guestRef)}</td>
-                  <td>
-                    {mode === 'arrivals' ? (
-                      <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {body}
         {listQ.data?.nextCursor ? (
           <button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>
             Next page

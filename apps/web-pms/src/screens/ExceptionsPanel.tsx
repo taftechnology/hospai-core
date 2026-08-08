@@ -33,7 +33,7 @@ export function ExceptionsPanel() {
         listQ.isLoading ? (
           <p className="muted">Loading…</p>
         ) : (
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem' }}>
+          <pre className="exceptions-json">
             {JSON.stringify(listQ.data ?? [], null, 2)}
           </pre>
         )

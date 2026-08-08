@@ -5,6 +5,7 @@
 
 import { noDomInClientCore } from './no-dom-in-client-core.js';
 import { noFetchInComponents } from './no-fetch-in-components.js';
+import { noInlineStylesInWebPms } from './no-inline-styles-in-web-pms.js';
 import { noNonCloneableBoundaryTypes } from './no-non-cloneable-boundary-types.js';
 
 export { CLASS_DENYLIST, CLASS_DENYLIST_SET } from './class-denylist.js';
@@ -290,6 +291,7 @@ export const rules = {
   'no-non-cloneable-boundary-types': noNonCloneableBoundaryTypes,
   'no-dom-in-client-core': noDomInClientCore,
   'no-fetch-in-components': noFetchInComponents,
+  'no-inline-styles-in-web-pms': noInlineStylesInWebPms,
 };
 
 const plugin = {
@@ -308,6 +310,7 @@ const plugin = {
         'hospai/no-non-cloneable-boundary-types': 'error',
         'hospai/no-dom-in-client-core': 'error',
         'hospai/no-fetch-in-components': 'error',
+        'hospai/no-inline-styles-in-web-pms': 'error',
       },
     },
   },

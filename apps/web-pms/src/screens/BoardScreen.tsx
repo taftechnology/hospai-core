@@ -59,8 +59,8 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
   return (
     <div>
-      <header style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
-        <h1 style={{ margin: 0, textTransform: 'capitalize' }}>{mode.replace('-', ' ')}</h1>
+      <header className="board-header">
+        <h1 className="board-title">{mode.replace('-', ' ')}</h1>
         {mode !== 'in-house' ? (
           <label>
             Date{' '}

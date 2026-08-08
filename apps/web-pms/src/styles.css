@@ -130,3 +130,26 @@ button {
   border-bottom: none;
 }
 
+.board-header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.board-title {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.stack-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.exceptions-json {
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+}
+

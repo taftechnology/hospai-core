@@ -55,7 +55,7 @@ export function CheckInScreen() {
         Room assignment is optional. During an outage, assignment refuses and check-in can still
         queue.
       </p>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+      <div className="stack-row">
         <input
           placeholder="room id"
           value={roomId}

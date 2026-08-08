@@ -11,6 +11,7 @@ const RULE_IDS = [
   'no-non-cloneable-boundary-types',
   'no-dom-in-client-core',
   'no-fetch-in-components',
+  'no-inline-styles-in-web-pms',
 ] as const;
 
 describe('eslint-plugin-hospai', () => {

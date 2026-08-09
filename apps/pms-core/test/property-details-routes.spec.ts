@@ -183,10 +183,12 @@ describe('property details HTTP routes', () => {
     });
 
     expect((await getProperty(env, propertyId))?.name).toBe('After Fault');
+    // Unblock before probing the mirror — listPropertyRefs now honors transport block
+    // (needed for get_org_properties FAIL_CLOSED). Staleness is from the failed write.
+    await org.setTransportBlockedForTest(false);
     const refsBefore = await org.listPropertyRefs();
     expect(refsBefore.find((r) => r.propertyId === propertyId)?.name).not.toBe('After Fault');
 
-    await org.setTransportBlockedForTest(false);
     expect((await patchPropertyDetails(propertyId, owner, req)).status).toBe(200);
     expect((await org.listPropertyRefs()).find((r) => r.propertyId === propertyId)?.name).toBe(
       'After Fault',

@@ -99,6 +99,8 @@ return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
 
 **Canonical path already correct.** `requirePermission` in `auth.ts` returns `{ error: 'forbidden', permission }` with `permission` from `route.permission`. Most client-visible 403s never needed the audit fallback. Handler-level 403s are the **secondary** path: PropertyDO `gatePermission` re-checks after the dispatcher gate already passed (same permission via role grants / cache). Reachable under role race, cache skew, or a DO check that disagrees with the route — not the steady-state staff path. The check still governs that secondary path; the three bare bodies were the only production load-bearing gap for the client fallback.
 
+**`inventory-stack` 403 assertions exercise the gate, not the handlers.** Staff denials never reach the room-type handler bodies — `auth.ts` stamps `permission` first. Reverting all three handler literals to bare leaves those specs green; `check:forbidden-bodies` is the sole guard for the handler fix. Do not delete the check thinking the HTTP specs cover it.
+
 **Algorithm (`check:forbidden-bodies`):**
 
 1. Parse `V1_ROUTES` → `handlerName` → set of audit permissions.

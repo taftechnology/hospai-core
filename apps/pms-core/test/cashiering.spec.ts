@@ -588,6 +588,37 @@ describe('cashiering matrix', () => {
     expect(empty).toEqual({ ok: true, shifts: [] });
   });
 
+  it('recent shifts cap at 5: DO default (no opts) and HTTP route', async () => {
+    const owner = 'user_cash_recent_cap';
+    const { propertyId, stub } = await provisionHotel(owner);
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const shiftId = `shift_cap_${i}_${crypto.randomUUID()}`;
+      ids.push(shiftId);
+      expect((await postShift(propertyId, owner, { shiftId, openingFloat: i })).status).toBe(201);
+      expect((await putCloseShift(propertyId, owner, shiftId, { closingCount: i })).status).toBe(
+        200,
+      );
+    }
+    const newestFive = ids.slice().reverse().slice(0, 5);
+    // Call without opts so `?? 5` is the only cap — `{ limit: 5 }` would miss a default change.
+    const fromDo = await stub.readRecentShiftsForActor({ kind: 'user', userId: owner });
+    expect(fromDo.shifts).toHaveLength(5);
+    expect(fromDo.shifts.map((s) => s.shiftId)).toEqual(newestFive);
+
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/shifts/recent`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { shifts: Array<{ shiftId: string }> };
+    expect(body.shifts).toHaveLength(5);
+    expect(body.shifts.map((s) => s.shiftId)).toEqual(newestFive);
+  });
+
   it('get_front_desk_recent_shifts: own CLOSED/FORCE_CLOSED newest first; excludes OPEN', async () => {
     const owner = 'user_cash_recent';
     const staffB = 'user_cash_recent_b';

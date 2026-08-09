@@ -101,6 +101,32 @@ describe('ShiftStrip', () => {
     ).toBe(false);
   });
 
+  it('mints open shiftId once across retries of the same attempt', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    openShift.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'money_invalid' },
+        retryAfterMs: null,
+      }),
+    );
+    renderStrip();
+    await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
+    });
+    await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
+    });
+    await waitFor(() => expect(openShift).toHaveBeenCalledTimes(2));
+    const firstId = (openShift.mock.calls[0]?.[1] as { shiftId: string }).shiftId;
+    const secondId = (openShift.mock.calls[1]?.[1] as { shiftId: string }).shiftId;
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBe(firstId);
+  });
+
   it('force-close callout only for current/previous businessDate', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2026-08-09T15:00:00Z'));

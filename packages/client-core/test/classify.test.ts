@@ -1,29 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import { classifyResponse, retryDelay, shouldRetry } from '../src/classify.js';
+import {
+  classifyResponse,
+  retryDelay,
+  shouldRetry,
+  type ClientResultClass,
+} from '../src/classify.js';
 
 function hdr(init?: Record<string, string>) {
   return new Headers(init);
 }
 
+/** Exhaustive map — adding a ClientResultClass without a key is a type error. */
+const ALL_CLASSES_MAP: Record<ClientResultClass, true> = {
+  live: true,
+  provisional: true,
+  fail_closed: true,
+  read_stale: true,
+  queue_unavailable: true,
+  entitlement_required: true,
+  unauthorized: true,
+  forbidden: true,
+  not_configured: true,
+  idempotency_key_reused: true,
+  shift_not_open: true,
+  shift_already_open: true,
+  client_error: true,
+  server_error: true,
+};
+const ALL_CLASSES = Object.keys(ALL_CLASSES_MAP) as ClientResultClass[];
+
+describe('shouldRetry', () => {
+  it.each(ALL_CLASSES.filter((c) => c !== 'read_stale'))('%s never retries', (cls) => {
+    expect(
+      shouldRetry({ class: cls, status: 0, body: {}, retryAfterMs: null }),
+    ).toBe(false);
+  });
+
+  it('read_stale retries', () => {
+    expect(
+      shouldRetry({ class: 'read_stale', status: 503, body: {}, retryAfterMs: 1000 }),
+    ).toBe(true);
+  });
+});
+
 describe('classifyResponse', () => {
-  it('FAIL_CLOSED never retries', () => {
+  it('FAIL_CLOSED classifies', () => {
     const c = classifyResponse({
       status: 503,
       headers: hdr(),
       body: { degraded: 'FAIL_CLOSED' },
     });
     expect(c.class).toBe('fail_closed');
-    expect(shouldRetry(c)).toBe(false);
   });
 
-  it('queue_unavailable never retries', () => {
+  it('queue_unavailable classifies', () => {
     const c = classifyResponse({
       status: 503,
       headers: hdr(),
       body: { error: 'queue_unavailable' },
     });
     expect(c.class).toBe('queue_unavailable');
-    expect(shouldRetry(c)).toBe(false);
   });
 
   it('READ_STALE delay from Retry-After', () => {
@@ -33,57 +69,50 @@ describe('classifyResponse', () => {
       body: { degraded: 'READ_STALE' },
     });
     expect(c.class).toBe('read_stale');
-    expect(shouldRetry(c)).toBe(true);
     expect(retryDelay(c, 0)).toBe(7000);
   });
 
-  it('401 unauthorized never retries', () => {
+  it('401 unauthorized', () => {
     const c = classifyResponse({
       status: 401,
       headers: hdr(),
       body: { error: 'unauthorized' },
     });
     expect(c.class).toBe('unauthorized');
-    expect(shouldRetry(c)).toBe(false);
   });
 
-  it('422 is client_error never retry; 500 is server_error never retry', () => {
+  it('422 is client_error; 500 is server_error', () => {
     const a = classifyResponse({ status: 422, headers: hdr(), body: { error: 'invalid' } });
     const b = classifyResponse({ status: 500, headers: hdr(), body: { error: 'boom' } });
     expect(a.class).toBe('client_error');
-    expect(shouldRetry(a)).toBe(false);
     expect(b.class).toBe('server_error');
-    expect(shouldRetry(b)).toBe(false);
   });
 
-  it('402 is entitlement_required never retry', () => {
+  it('402 is entitlement_required', () => {
     const c = classifyResponse({
       status: 402,
       headers: hdr(),
       body: { error: 'entitlement_required' },
     });
     expect(c.class).toBe('entitlement_required');
-    expect(shouldRetry(c)).toBe(false);
   });
 
-  it('403 is forbidden never retry', () => {
+  it('403 is forbidden', () => {
     const c = classifyResponse({
       status: 403,
       headers: hdr(),
       body: { error: 'forbidden', permission: 'folio:adjust' },
     });
     expect(c.class).toBe('forbidden');
-    expect(shouldRetry(c)).toBe(false);
   });
 
-  it('501 psp_unavailable is not_configured never retry', () => {
+  it('501 psp_unavailable is not_configured', () => {
     const c = classifyResponse({
       status: 501,
       headers: hdr(),
       body: { ok: false, error: 'psp_unavailable' },
     });
     expect(c.class).toBe('not_configured');
-    expect(shouldRetry(c)).toBe(false);
   });
 
   it('501 without psp_unavailable stays server_error', () => {
@@ -107,7 +136,6 @@ describe('classifyResponse', () => {
       body: { error: 'guest_exists' },
     });
     expect(a.class).toBe('idempotency_key_reused');
-    expect(shouldRetry(a)).toBe(false);
     expect(b.class).toBe('client_error');
   });
 

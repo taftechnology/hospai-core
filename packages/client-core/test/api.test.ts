@@ -237,4 +237,33 @@ describe('createClient degraded writes', () => {
     expect(bodies[0]?.idempotencyKey).toBeTruthy();
     expect(bodies[0]?.idempotencyKey).toBe(bodies[1]?.idempotencyKey);
   });
+
+  it('openShift reuses stable body idempotencyKey for same shiftId', async () => {
+    const bodies: Array<{ shiftId?: string; idempotencyKey?: string }> = [];
+    const client = createClient({
+      transport: mockTransport((_path, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as {
+          shiftId?: string;
+          idempotencyKey?: string;
+        });
+        return new Response(JSON.stringify({ ok: true, shiftId: 's_open' }), { status: 201 });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    await client.openShift('p', { shiftId: 's_open', openingFloat: 100 });
+    await client.openShift('p', { shiftId: 's_open', openingFloat: 100 });
+    expect(bodies[0]?.shiftId).toBe('s_open');
+    expect(bodies[0]?.idempotencyKey).toBeTruthy();
+    expect(bodies[0]?.idempotencyKey).toBe(bodies[1]?.idempotencyKey);
+  });
 });

@@ -20,6 +20,8 @@ export function ShiftStrip() {
   const localToday = timeZone ? propertyLocalToday(timeZone) : null;
   const [floatMajor, setFloatMajor] = useState('100.00');
   const [message, setMessage] = useState<string | null>(null);
+  /** §2.7 — mint once when the open form is prepared; remint only after success. */
+  const [openShiftId, setOpenShiftId] = useState(() => `shift_${crypto.randomUUID()}`);
 
   const openQ = useQuery({
     queryKey: ['open-shift', propertyId],
@@ -34,15 +36,14 @@ export function ShiftStrip() {
   });
 
   const openMut = useMutation({
-    mutationFn: () => {
-      const shiftId = `shift_${crypto.randomUUID()}`;
-      return api.openShift(propertyId, {
-        shiftId,
+    mutationFn: () =>
+      api.openShift(propertyId, {
+        shiftId: openShiftId,
         openingFloat: parseMajorToMinor(floatMajor),
-      });
-    },
+      }),
     onSuccess: async () => {
       setMessage(null);
+      setOpenShiftId(`shift_${crypto.randomUUID()}`);
       await queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     },
     onError: (err) => {

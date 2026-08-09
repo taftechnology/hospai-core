@@ -1,18 +1,22 @@
-export type ClientResultClass =
-  | 'live'
-  | 'provisional'
-  | 'fail_closed'
-  | 'read_stale'
-  | 'queue_unavailable'
-  | 'entitlement_required'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'not_configured'
-  | 'idempotency_key_reused'
-  | 'shift_not_open'
-  | 'shift_already_open'
-  | 'client_error'
-  | 'server_error';
+/** Runtime source of truth — union and shouldRetry coverage both derive from this. */
+export const CLIENT_RESULT_CLASSES = [
+  'live',
+  'provisional',
+  'fail_closed',
+  'read_stale',
+  'queue_unavailable',
+  'entitlement_required',
+  'unauthorized',
+  'forbidden',
+  'not_configured',
+  'idempotency_key_reused',
+  'shift_not_open',
+  'shift_already_open',
+  'client_error',
+  'server_error',
+] as const;
+
+export type ClientResultClass = (typeof CLIENT_RESULT_CLASSES)[number];
 
 export type ClassifiedResponse = {
   class: ClientResultClass;

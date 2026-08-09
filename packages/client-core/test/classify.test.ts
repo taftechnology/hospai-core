@@ -1,36 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLIENT_RESULT_CLASSES,
   classifyResponse,
   retryDelay,
   shouldRetry,
-  type ClientResultClass,
 } from '../src/classify.js';
 
 function hdr(init?: Record<string, string>) {
   return new Headers(init);
 }
 
-/** Exhaustive map — adding a ClientResultClass without a key is a type error. */
-const ALL_CLASSES_MAP: Record<ClientResultClass, true> = {
-  live: true,
-  provisional: true,
-  fail_closed: true,
-  read_stale: true,
-  queue_unavailable: true,
-  entitlement_required: true,
-  unauthorized: true,
-  forbidden: true,
-  not_configured: true,
-  idempotency_key_reused: true,
-  shift_not_open: true,
-  shift_already_open: true,
-  client_error: true,
-  server_error: true,
-};
-const ALL_CLASSES = Object.keys(ALL_CLASSES_MAP) as ClientResultClass[];
-
 describe('shouldRetry', () => {
-  it.each(ALL_CLASSES.filter((c) => c !== 'read_stale'))('%s never retries', (cls) => {
+  // Iterates the exported array — a class enters the union only by entering CLIENT_RESULT_CLASSES.
+  it.each(CLIENT_RESULT_CLASSES.filter((c) => c !== 'read_stale'))('%s never retries', (cls) => {
     expect(
       shouldRetry({ class: cls, status: 0, body: {}, retryAfterMs: null }),
     ).toBe(false);

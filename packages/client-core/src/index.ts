@@ -1,4 +1,5 @@
 export {
+  CLIENT_RESULT_CLASSES,
   classifyResponse,
   shouldRetry,
   retryDelay,

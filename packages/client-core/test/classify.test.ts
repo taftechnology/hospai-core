@@ -110,4 +110,28 @@ describe('classifyResponse', () => {
     expect(shouldRetry(a)).toBe(false);
     expect(b.class).toBe('client_error');
   });
+
+  it('422 shift_not_open / shift_already_open are dedicated classes', () => {
+    expect(
+      classifyResponse({
+        status: 422,
+        headers: hdr(),
+        body: { ok: false, error: 'shift_not_open' },
+      }).class,
+    ).toBe('shift_not_open');
+    expect(
+      classifyResponse({
+        status: 422,
+        headers: hdr(),
+        body: { ok: false, error: 'shift_already_open' },
+      }).class,
+    ).toBe('shift_already_open');
+    expect(
+      classifyResponse({
+        status: 422,
+        headers: hdr(),
+        body: { ok: false, error: 'money_invalid' },
+      }).class,
+    ).toBe('client_error');
+  });
 });

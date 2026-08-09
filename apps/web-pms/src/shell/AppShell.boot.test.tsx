@@ -18,7 +18,9 @@ vi.mock('../client.js', () => {
     tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
     api: {
       getProperty: failClosed,
-      getShift: failClosed,
+      getOpenShift: failClosed,
+      getRecentShifts: failClosed,
+      openShift: failClosed,
       getProvisionalExceptionCount: failClosed,
       getProvisionalExceptions: failClosed,
       getArrivals: failClosed,

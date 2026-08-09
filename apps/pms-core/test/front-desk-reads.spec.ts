@@ -418,6 +418,24 @@ describe('front-desk read HTTP routes', () => {
     expect(body.shift).toBeNull();
   });
 
+  it('PropertyDO blocked: front-desk/shifts/recent returns FAIL_CLOSED 503', async () => {
+    const propertyId = 'fd_http_recent_blocked';
+    const { stub } = await provisionHttpProperty(propertyId);
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/shifts/recent`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'property_unreachable',
+      degraded: 'FAIL_CLOSED',
+    });
+  });
+
   it('PropertyDO blocked: arrivals returns FAIL_CLOSED 503', async () => {
     const propertyId = 'fd_http_blocked';
     const { stub } = await provisionHttpProperty(propertyId);

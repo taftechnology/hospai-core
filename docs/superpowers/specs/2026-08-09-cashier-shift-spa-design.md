@@ -1,7 +1,7 @@
 # Cashier Shift SPA (Open / Close / Force-Close Visibility)
 
 **Date:** 2026-08-09  
-**Status:** Ready for review — locks Q1=C, Q2=B, Q3=B (+ pinned read), Q4=B, Q5 as scoped  
+**Status:** Approved — locks Q1=C, Q2=B, Q3=B (+ pinned read), Q4=B, Q5 as scoped; `propertyLocalToday: string | null` on `shiftSeverity` / callout (null → neutral / suppress)  
 **Sources:** [cashiering](./2026-08-07-cashiering-design.md) (server shifts + cash tender); [folio front desk](./2026-08-08-folio-front-desk-design.md) §2.3–2.4 (authority unknown → attempt; unattributed cash until this vertical); [web-pms status tokens](./2026-08-07-web-pms-status-tokens-design.md); [front-desk operational reads](./2026-08-07-front-desk-operational-reads-design.md); [get_property partial / forbidden bodies](./2026-08-09-get-property-partial-forbidden-bodies-design.md) (`check:do-transport-guards`); `ShiftStrip.tsx`; `tryOpenShift` / `tryCloseShift` / `readCurrentOpenShift` / `forceCloseCashierShiftsSync` in `property-do.ts`
 
 **Implementation order:** after folio front-desk SPA + the 2026-08-09 transport/403 slice (CI already enforces GET transport guards).

@@ -9,6 +9,8 @@ export type ClientResultClass =
   | 'forbidden'
   | 'not_configured'
   | 'idempotency_key_reused'
+  | 'shift_not_open'
+  | 'shift_already_open'
   | 'client_error'
   | 'server_error';
 
@@ -76,6 +78,12 @@ export function classifyResponse(res: {
   }
   if (status === 501 && record?.error === 'psp_unavailable') {
     return { class: 'not_configured', status, body, retryAfterMs: null };
+  }
+  if (status === 422 && record?.error === 'shift_not_open') {
+    return { class: 'shift_not_open', status, body, retryAfterMs: null };
+  }
+  if (status === 422 && record?.error === 'shift_already_open') {
+    return { class: 'shift_already_open', status, body, retryAfterMs: null };
   }
   if (status >= 400 && status < 500) {
     return { class: 'client_error', status, body, retryAfterMs: null };

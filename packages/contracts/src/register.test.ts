@@ -267,6 +267,14 @@ describe('command catalog', () => {
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[68]?.id).toBe('get_front_desk_recent_shifts');
+    expect(V1_HTTP_ROUTE_AUDIT[68]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[68] ?? {})).toBe(false);
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

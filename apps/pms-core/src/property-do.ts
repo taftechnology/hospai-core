@@ -4407,6 +4407,62 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  async readRecentShiftsForActor(
+    actor: ActorContext,
+    opts?: { limit?: number },
+  ): Promise<{
+    ok: true;
+    shifts: Array<{
+      shiftId: string;
+      businessDate: string;
+      openedAt: number;
+      closedAt: number | null;
+      openingFloat: number;
+      closingCount: number | null;
+      variance: number | null;
+      status: 'CLOSED' | 'FORCE_CLOSED';
+    }>;
+  }> {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: true, shifts: [] };
+    const limit = opts?.limit ?? 5;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id, business_date, opened_at, closed_at, opening_float,
+                closing_count, variance, status
+         FROM shift
+         WHERE cashier_user_id = ?
+           AND status IN ('CLOSED', 'FORCE_CLOSED')
+         ORDER BY opened_at DESC
+         LIMIT ?`,
+        actor.userId,
+        limit,
+      )
+      .toArray() as Array<{
+      shift_id: string;
+      business_date: string;
+      opened_at: number;
+      closed_at: number | null;
+      opening_float: number;
+      closing_count: number | null;
+      variance: number | null;
+      status: string;
+    }>;
+    return {
+      ok: true,
+      shifts: rows.map((row) => ({
+        shiftId: row.shift_id,
+        businessDate: row.business_date,
+        openedAt: row.opened_at,
+        closedAt: row.closed_at,
+        openingFloat: row.opening_float,
+        closingCount: row.closing_count,
+        variance: row.variance,
+        status: row.status as 'CLOSED' | 'FORCE_CLOSED',
+      })),
+    };
+  }
+
   /** Test helper: read reservation status, or null if absent. */
   async getReservationStatus(reservationId: string): Promise<string | null> {
     const rows = this.ctx.storage.sql

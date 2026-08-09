@@ -8,9 +8,11 @@ const addFolioLine = vi.fn();
 const getFolio = vi.fn();
 const getReservation = vi.fn();
 const getFolioPayments = vi.fn();
+const getOpenShift = vi.fn();
 const authorizePayment = vi.fn();
 const checkOut = vi.fn();
 const postGuestsBatch = vi.fn();
+const recordCashPayment = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -28,11 +30,12 @@ vi.mock('../client.js', () => ({
     getFolio: (...args: unknown[]) => getFolio(...args),
     getReservation: (...args: unknown[]) => getReservation(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
+    getOpenShift: (...args: unknown[]) => getOpenShift(...args),
     addFolioLine: (...args: unknown[]) => addFolioLine(...args),
     authorizePayment: (...args: unknown[]) => authorizePayment(...args),
     checkOut: (...args: unknown[]) => checkOut(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
-    recordCashPayment: vi.fn(),
+    recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     capturePayment: vi.fn(),
     splitFolioLine: vi.fn(),
   },
@@ -83,6 +86,7 @@ const liveReservation = {
 describe('FolioScreen wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getOpenShift.mockResolvedValue({ ok: true, shift: { shiftId: 's1' } });
     postGuestsBatch.mockResolvedValue({
       ok: true,
       guests: {},
@@ -124,6 +128,29 @@ describe('FolioScreen wiring', () => {
       await Promise.resolve();
     });
     expect(addFolioLine).not.toHaveBeenCalled();
+  });
+
+  it('cash with no open shift: warning visible; mutation still fires', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    recordCashPayment.mockResolvedValue({ ok: true });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('cash-no-shift-warn')).toBeTruthy());
+    const btn = screen.getByTestId('record-cash') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+    expect(recordCashPayment).toHaveBeenCalled();
   });
 
   it('balance chrome uses server balanceMinor not liveTotalMinor', async () => {

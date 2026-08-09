@@ -174,9 +174,66 @@ export function createClient(opts: {
         throw e;
       }
     },
-    async getShift(propertyId: string) {
+    async getOpenShift(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/front-desk/shift`);
       return body;
+    },
+    async getRecentShifts(propertyId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/front-desk/shifts/recent`,
+      );
+      return body as {
+        ok: true;
+        shifts: Array<{
+          shiftId: string;
+          businessDate: string;
+          openedAt: number;
+          closedAt: number | null;
+          openingFloat: number;
+          closingCount: number | null;
+          variance: number | null;
+          status: 'CLOSED' | 'FORCE_CLOSED';
+        }>;
+      };
+    },
+    async getShiftById(propertyId: string, shiftId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/shifts/${enc(shiftId)}`,
+      );
+      return body;
+    },
+    async openShift(
+      propertyId: string,
+      input: { shiftId: string; openingFloat: number },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `shift:open:${input.shiftId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/shifts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          shiftId: input.shiftId,
+          openingFloat: input.openingFloat,
+          idempotencyKey,
+        }),
+      });
+    },
+    async closeShift(
+      propertyId: string,
+      shiftId: string,
+      input: { closingCount: number },
+    ) {
+      const idempotencyKey = stableKeyForOperation(`shift:close:${shiftId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/shifts/${enc(shiftId)}/close`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          closingCount: input.closingCount,
+          idempotencyKey,
+        }),
+      });
     },
     async getProvisionalExceptionCount(propertyId: string) {
       const { body } = await getJson(

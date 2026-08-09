@@ -1398,6 +1398,23 @@ async function handleGetFrontDeskShift(ctx: V1DispatchContext): Promise<Response
   }
 }
 
+async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await resolvedCtx.resolved.stub.readRecentShiftsForActor(actor, { limit: 5 });
+    return json({ ok: true, shifts: result.shifts }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -3616,6 +3633,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetFrontDeskShift,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/shifts\/recent$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskRecentShifts,
   },
 ];
 

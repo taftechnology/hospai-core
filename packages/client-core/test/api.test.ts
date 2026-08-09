@@ -209,4 +209,32 @@ describe('createClient degraded writes', () => {
     expect(keys[0]).toBeTruthy();
     expect(keys[0]).toBe(keys[1]);
   });
+
+  it('closeShift reuses stable body idempotencyKey for same shiftId', async () => {
+    const bodies: Array<{ idempotencyKey?: string }> = [];
+    const client = createClient({
+      transport: mockTransport((_path, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as { idempotencyKey?: string });
+        return new Response(
+          JSON.stringify({ ok: true, shiftId: 's1', variance: 0, unattributedCashCount: 0 }),
+          { status: 200 },
+        );
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    await client.closeShift('p', 's1', { closingCount: 100 });
+    await client.closeShift('p', 's1', { closingCount: 100 });
+    expect(bodies[0]?.idempotencyKey).toBeTruthy();
+    expect(bodies[0]?.idempotencyKey).toBe(bodies[1]?.idempotencyKey);
+  });
 });

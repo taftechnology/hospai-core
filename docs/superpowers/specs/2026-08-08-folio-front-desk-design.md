@@ -272,7 +272,7 @@ Wire test: taxed line on `readFolio` includes `taxOf` / `taxRuleId`.
 | 1 | Catalog: `folio.add_item` class | Still `QUEUE_PROVISIONAL` if no client queues blind? |
 | 2 | Session / permissions (or `/me`) | Enables hide vs disable; pairs with org-bootstrap |
 | 3 | Normalize 403 bodies | **Retired** in [2026-08-09](./2026-08-09-get-property-partial-forbidden-bodies-design.md) — `check:forbidden-bodies` + room-type literals; client audit fallback removed |
-| 4 | Unattributed cash | Until cashiering open+close UI |
+| 4 | Unattributed cash | **Retired** in [2026-08-09 cashier shift SPA](./2026-08-09-cashier-shift-spa-design.md) — open/close chrome + folio warn-allow; posts may still be unattributed when cashier chooses no open shift |
 | 5 | Collapsed split audit projection | Same fold inputs, different projection |
 | 6 | Printable flat folio | Nesting off |
 | 7 | Departed-with-balance workflow | Now producible via outage checkout |

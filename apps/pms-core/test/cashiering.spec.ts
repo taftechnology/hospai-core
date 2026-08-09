@@ -574,4 +574,68 @@ describe('cashiering matrix', () => {
     expect(closed.status).toBe(200);
     expect(await closed.json()).toMatchObject({ unattributedCashCount: 1 });
   });
+
+  it('readRecentShiftsForActor: non-user actor returns empty list', async () => {
+    const owner = 'user_cash_recent_sys';
+    const { propertyId, stub } = await provisionHotel(owner);
+    const shiftId = `shift_sys_${crypto.randomUUID()}`;
+    expect((await postShift(propertyId, owner, { shiftId, openingFloat: 0 })).status).toBe(201);
+    expect((await putCloseShift(propertyId, owner, shiftId, { closingCount: 0 })).status).toBe(200);
+    const empty = await stub.readRecentShiftsForActor(
+      { kind: 'system', reason: 'provision' },
+      { limit: 5 },
+    );
+    expect(empty).toEqual({ ok: true, shifts: [] });
+  });
+
+  it('get_front_desk_recent_shifts: own CLOSED/FORCE_CLOSED newest first; excludes OPEN', async () => {
+    const owner = 'user_cash_recent';
+    const staffB = 'user_cash_recent_b';
+    const { propertyId, stub, org } = await provisionHotel(owner);
+    await org.ensureMember(staffB, 'staff');
+
+    const older = `shift_old_${crypto.randomUUID()}`;
+    const newer = `shift_new_${crypto.randomUUID()}`;
+    expect((await postShift(propertyId, owner, { shiftId: older, openingFloat: 100 })).status).toBe(
+      201,
+    );
+    expect((await putCloseShift(propertyId, owner, older, { closingCount: 100 })).status).toBe(200);
+    expect((await postShift(propertyId, owner, { shiftId: newer, openingFloat: 200 })).status).toBe(
+      201,
+    );
+    const businessDate = (await stub.readBusinessDate())!;
+    expect((await stub.runAuditStep(businessDate, 'CLOSE_CASHIER_SHIFTS')).status).toBe('COMPLETED');
+
+    const other = `shift_other_${crypto.randomUUID()}`;
+    expect((await postShift(propertyId, staffB, { shiftId: other, openingFloat: 0 })).status).toBe(
+      201,
+    );
+    expect((await putCloseShift(propertyId, staffB, other, { closingCount: 0 })).status).toBe(200);
+
+    const stillOpen = `shift_open_${crypto.randomUUID()}`;
+    expect((await postShift(propertyId, owner, { shiftId: stillOpen, openingFloat: 50 })).status).toBe(
+      201,
+    );
+
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/shifts/recent`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: true;
+      shifts: Array<{ shiftId: string; status: string; unattributedCashCount?: number }>;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.shifts.map((s) => s.shiftId)).toEqual([newer, older]);
+    expect(body.shifts.every((s) => s.status === 'CLOSED' || s.status === 'FORCE_CLOSED')).toBe(
+      true,
+    );
+    expect(body.shifts.some((s) => s.shiftId === stillOpen)).toBe(false);
+    expect(body.shifts.some((s) => s.shiftId === other)).toBe(false);
+    expect(body.shifts[0]).not.toHaveProperty('unattributedCashCount');
+  });
 });

@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState } from 'react';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
+import { formatMinor } from '../money.js';
 import { guestLabel } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 
@@ -23,10 +24,6 @@ function readState(q: {
   if (q.isSuccess) return 'live';
   if (q.isError) return asClassified(q.error).class;
   return 'pending';
-}
-
-function formatMinor(n: number): string {
-  return (n / 100).toFixed(2);
 }
 
 function heldAmount(payments: FolioPaymentRow[]): number {
@@ -71,6 +68,10 @@ export function FolioScreen() {
     queryKey: ['folio-payments', propertyId, reservationId],
     queryFn: () => api.getFolioPayments(propertyId, reservationId),
     enabled: Boolean(reservationId),
+  });
+  const openShiftQ = useQuery({
+    queryKey: ['open-shift', propertyId],
+    queryFn: () => api.getOpenShift(propertyId),
   });
 
   const guestRef = reservationQ.data?.guestRef;
@@ -469,6 +470,12 @@ export function FolioScreen() {
 
       <section className="stack-row">
         <h2>Cash</h2>
+        {openShiftQ.isSuccess &&
+        (openShiftQ.data as { shift?: unknown } | undefined)?.shift == null ? (
+          <p className="muted" data-testid="cash-no-shift-warn">
+            No open shift — this payment will be unattributed until close discloses the count.
+          </p>
+        ) : null}
         <input
           aria-label="cash-amount"
           value={cashAmount}
@@ -477,6 +484,7 @@ export function FolioScreen() {
         />
         <button
           type="button"
+          data-testid="record-cash"
           disabled={!policy.canPay || cashPay.isPending}
           onClick={() => cashPay.mutate()}
         >

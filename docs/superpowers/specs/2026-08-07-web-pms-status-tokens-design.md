@@ -31,7 +31,7 @@ Everything else is honesty about what cannot be verified yet.
 
 - Folio / payment / shift **alias tokens** (paper mapping only).
 - Server `isOverstay` / open business date on the wire.
-- Fixing `get_property` FAIL_CLOSED classification (leftover; named).
+- Fixing `get_property` FAIL_CLOSED classification — **retired** in [2026-08-09 get_property partial](./2026-08-09-get-property-partial-forbidden-bodies-design.md) (partial 200 + sibling FAIL_CLOSED).
 - Spacing scale (leftover; converted inlines are the input).
 - Dark theme / second brand palette.
 
@@ -105,7 +105,7 @@ Colour check matches hex, `rgb()`/`hsl()`, and **named CSS colours**. Allowlist 
 
 `GET …/properties/:id` for `timeZone` is **non-blocking** after first paint. Shell renders without it; overstay is *not computed* until `timeZone` arrives (honest unknown). During PropertyDO outage, shell still shows queued log / exceptions / hard-refusal UI.
 
-**Server leftover:** `get_property` today makes unguarded DO calls and can return an unclassified 500 — should map transport failure like sibling reads (`FAIL_CLOSED`).
+**Server leftover (retired 2026-08-09):** `get_property` unguarded DO calls — superseded by partial `propertyDo: 'unreachable'` + exception/org FAIL_CLOSED guards.
 
 ### 3.2 Contracts: `RESERVATION_STATUSES`
 
@@ -275,7 +275,7 @@ If a future folio state cannot land on a rung, **widen the scale in a design pas
 | FG 4.5:1 | contrast in colour check | — |
 | Colour check script + no-inline ESLint | those tools | — |
 | Mapper in web-pms not client-core | package boundary / review | — |
-| Boot path ⊀ PropertyDO | non-canary render test (PropertyDO stub fails; shell mounts) | get_property FAIL_CLOSED leftover |
+| Boot path ⊀ PropertyDO | non-canary render test (PropertyDO stub fails; shell mounts) | get_property leftover retired 2026-08-09 (boot test still mocks api — see that spec §5) |
 | RESERVATION_STATUSES + exhaustive board map | union + CHECK sync + vitest | — |
 | Departed → neutral on board | mapper test | folio settled leftover |
 | Departures + `confirmed` → `attention` | mapper test | PROCESS_NO_SHOWS leftover |

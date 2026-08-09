@@ -131,3 +131,11 @@ export function degradedFailClosedReadResponse(retryAfterSec = DEGRADED_RETRY_AF
     { 'Retry-After': String(retryAfterSec) },
   );
 }
+
+export function degradedFailClosedOrgReadResponse(retryAfterSec = DEGRADED_RETRY_AFTER_SEC): Response {
+  return json(
+    { error: 'org_unreachable', degraded: 'FAIL_CLOSED' },
+    503,
+    { 'Retry-After': String(retryAfterSec) },
+  );
+}

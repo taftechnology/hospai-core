@@ -5,25 +5,11 @@ import {
   type UseMutationResult,
 } from '@tanstack/react-query';
 import { asClassified } from '../client.js';
-import {
-  FOLIO_MUTATION_ROUTES,
-  type FolioMutationRouteKey,
-} from './folio-mutation-routes.js';
 
-/** Pure: route id is always derived from the action key — never chosen at the call site. */
-export function routeIdForFolioAction(routeKey: FolioMutationRouteKey): string {
-  return FOLIO_MUTATION_ROUTES[routeKey];
-}
-
-export function messageForFolioMutationError(
-  err: unknown,
-  fallback: string,
-  routeKey: FolioMutationRouteKey,
-): string {
-  const routeId = routeIdForFolioAction(routeKey);
+export function messageForFolioMutationError(err: unknown, fallback: string): string {
   const c = asClassified(err);
   if (c.class === 'forbidden') {
-    const perm = permissionForForbidden(c.body, routeId);
+    const perm = permissionForForbidden(c.body);
     return perm
       ? `Requires permission ${perm}. Ask a manager.`
       : 'Forbidden — insufficient permission.';
@@ -44,27 +30,23 @@ export function messageForFolioMutationError(
 }
 
 /**
- * useMutation whose 403 path is bound to `routeKey` structurally.
- * Callers cannot pass a mismatched FOLIO_MUTATION_ROUTES.* into onError.
+ * useMutation whose onError path classifies folio mutation failures.
  */
-export function useFolioActionMutation<TData, TVariables = void>(
-  routeKey: FolioMutationRouteKey,
-  opts: {
-    fallback: string;
-    setMessage: (message: string | null) => void;
-    /** Return true if the error was handled locally (policy blocks, cancel, etc.). */
-    onLocalError?: (err: unknown) => boolean;
-    mutationFn: (variables: TVariables) => Promise<TData>;
-    onSuccess?: UseMutationOptions<TData, unknown, TVariables>['onSuccess'];
-  },
-): UseMutationResult<TData, unknown, TVariables> {
+export function useFolioActionMutation<TData, TVariables = void>(opts: {
+  fallback: string;
+  setMessage: (message: string | null) => void;
+  /** Return true if the error was handled locally (policy blocks, cancel, etc.). */
+  onLocalError?: (err: unknown) => boolean;
+  mutationFn: (variables: TVariables) => Promise<TData>;
+  onSuccess?: UseMutationOptions<TData, unknown, TVariables>['onSuccess'];
+}): UseMutationResult<TData, unknown, TVariables> {
   const { fallback, setMessage, onLocalError, mutationFn, onSuccess } = opts;
   return useMutation<TData, unknown, TVariables>({
     mutationFn,
     onSuccess,
     onError: (err) => {
       if (onLocalError?.(err)) return;
-      setMessage(messageForFolioMutationError(err, fallback, routeKey));
+      setMessage(messageForFolioMutationError(err, fallback));
     },
   });
 }

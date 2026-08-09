@@ -116,7 +116,7 @@ export function FolioScreen() {
     };
   }
 
-  const addCharge = useFolioActionMutation('addCharge', {
+  const addCharge = useFolioActionMutation({
     fallback: 'Charge failed',
     setMessage,
     onLocalError: (err) => {
@@ -146,7 +146,7 @@ export function FolioScreen() {
     },
   });
 
-  const cashPay = useFolioActionMutation('cash', {
+  const cashPay = useFolioActionMutation({
     fallback: 'Cash failed',
     setMessage,
     onLocalError: (err) => {
@@ -175,7 +175,7 @@ export function FolioScreen() {
     },
   });
 
-  const authorize = useFolioActionMutation('authorize', {
+  const authorize = useFolioActionMutation({
     fallback: 'Authorize failed',
     setMessage,
     onLocalError: (err) => {
@@ -203,7 +203,7 @@ export function FolioScreen() {
     },
   });
 
-  const capture = useFolioActionMutation('capture', {
+  const capture = useFolioActionMutation({
     fallback: 'Capture failed',
     setMessage,
     onLocalError: (err) => {
@@ -231,7 +231,7 @@ export function FolioScreen() {
     },
   });
 
-  const split = useFolioActionMutation('split', {
+  const split = useFolioActionMutation({
     fallback: 'Split failed',
     setMessage,
     onLocalError: (err) => {
@@ -252,7 +252,7 @@ export function FolioScreen() {
     },
   });
 
-  const splitPayment = useFolioActionMutation('splitPayment', {
+  const splitPayment = useFolioActionMutation({
     fallback: 'Split payment failed',
     setMessage,
     onLocalError: (err) => {
@@ -273,7 +273,7 @@ export function FolioScreen() {
     },
   });
 
-  const checkOut = useFolioActionMutation('checkOut', {
+  const checkOut = useFolioActionMutation({
     fallback: 'Checkout failed',
     setMessage,
     onLocalError: (err) => {

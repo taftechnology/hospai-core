@@ -17,6 +17,8 @@
     "check:permissions": "pnpm --filter @hospai/contracts build && node scripts/permissions-check.mjs",
     "check:degraded": "pnpm --filter @hospai/contracts build && node scripts/degraded-check.mjs",
     "check:class-denylist": "pnpm --filter eslint-plugin-hospai build && node scripts/class-denylist-check.mjs",
+    "check:forbidden-bodies": "pnpm --filter @hospai/contracts build && node scripts/forbidden-body-check.mjs",
+    "check:do-transport-guards": "node scripts/do-transport-guards-check.mjs",
     "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
 # get_property Partial Read + Forbidden Body Enforcement
 
 **Date:** 2026-08-09  
-**Status:** Ready for review — locks Q1=B, Q2=B, Q3=A; scope widened (unguarded GET class + guard check)  
+**Status:** Approved — implemented  
 **Sources:** [web-pms status tokens](./2026-08-07-web-pms-status-tokens-design.md) (`get_property` leftover); [folio front desk](./2026-08-08-folio-front-desk-design.md) leftovers #3 / #10; [degraded mode server](./2026-08-04-degraded-mode-server-design.md); `PropertyTimeZone.tsx`; `ExceptionsPanel.tsx`; `AppShell.boot.test.tsx`; `requirePermission` in `auth.ts`; `handleGetProperty` / exception GETs / `handleGetOrgProperties` in `v1-dispatch.ts`
 
 ---

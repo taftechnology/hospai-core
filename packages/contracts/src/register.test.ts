@@ -231,8 +231,9 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[19]).toMatchObject({
       scope: 'property',
       permission: 'property:read',
+      degradedRead: 'FAIL_CLOSED',
     });
-    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[19] ?? {})).toBe(false);
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[19] ?? {})).toBe(false);
 
     expect(V1_HTTP_ROUTE_AUDIT[43]?.id).toBe('patch_property_details');
     expect(V1_HTTP_ROUTE_AUDIT[44]?.id).toBe('put_domain_config');

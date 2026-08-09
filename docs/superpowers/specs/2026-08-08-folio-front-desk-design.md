@@ -271,14 +271,14 @@ Wire test: taxed line on `readFolio` includes `taxOf` / `taxRuleId`.
 |---|---|---|
 | 1 | Catalog: `folio.add_item` class | Still `QUEUE_PROVISIONAL` if no client queues blind? |
 | 2 | Session / permissions (or `/me`) | Enables hide vs disable; pairs with org-bootstrap |
-| 3 | Normalize 403 bodies | Always include `permission`; client works around via audit |
+| 3 | Normalize 403 bodies | **Retired** in [2026-08-09](./2026-08-09-get-property-partial-forbidden-bodies-design.md) — `check:forbidden-bodies` + room-type literals; client audit fallback removed |
 | 4 | Unattributed cash | Until cashiering open+close UI |
 | 5 | Collapsed split audit projection | Same fold inputs, different projection |
 | 6 | Printable flat folio | Nesting off |
 | 7 | Departed-with-balance workflow | Now producible via outage checkout |
 | 8 | Charge-code / tax-rule settings UI | Different audience |
 | 9 | client-core DOM lib + lint net | `tsconfig` needs `DOM` for `fetch`/`Headers`/…; `no-dom-in-client-core` is the only net, not a second net behind types. Non-shorthand `const { window: w } = g` aliases past the rule (shorthand still flags). Pre-existing since shell slice. |
-| 10 | Folio action↔route key swap | `useFolioActionMutation(routeKey)` + exactly-once source canary catch orphans/duplicates, not a clean swap (`cash`↔`split`). Closing properly needs per-action SPA 403 drives (setup diverges: split needs line id, capture needs a hold). Wrong outcome is a misnamed permission toast — accepted residual. |
+| 10 | Folio action↔route key swap | **Retired** in [2026-08-09](./2026-08-09-get-property-partial-forbidden-bodies-design.md) — `routeKey` / `FOLIO_MUTATION_ROUTES` deleted; body.permission only |
 
 **Retired this slice (mark done on payments leftover list):** UI half of auth-holds-invisible — screen shows holds beside balance via `get_folio_payments`. `balanceMinor` ignoring holds remains intentional.
 

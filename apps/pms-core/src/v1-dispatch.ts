@@ -72,6 +72,7 @@ import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import {
+  degradedFailClosedOrgReadResponse,
   degradedFailClosedReadResponse,
   degradedReadStaleResponse,
   invokePropertyDo,
@@ -406,7 +407,12 @@ async function handleGetOrgProperties(ctx: V1DispatchContext): Promise<Response>
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
-  return json({ orgId, properties: await org.listPropertyRefs() });
+  try {
+    return json({ orgId, properties: await org.listPropertyRefs() });
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
 }
 
 async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
@@ -416,13 +422,26 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
   const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
   if (!resolved) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = resolved.property.orgId;
-  const recorded = await resolved.stub.getRecordedJurisdiction();
-  return json({
-    property: resolved.property,
-    locationHint: resolved.locationHint,
-    recordedJurisdiction: recorded ?? null,
-    schemaVersion: await resolved.stub.getSchemaVersion(),
-  });
+
+  try {
+    const recorded = await resolved.stub.getRecordedJurisdiction();
+    const schemaVersion = await resolved.stub.getSchemaVersion();
+    return json({
+      property: resolved.property,
+      locationHint: resolved.locationHint,
+      recordedJurisdiction: recorded ?? null,
+      schemaVersion,
+    });
+  } catch (e) {
+    if (!isPropertyDoTransportFailure(e)) throw e;
+    return json({
+      property: resolved.property,
+      locationHint: resolved.locationHint,
+      recordedJurisdiction: null,
+      schemaVersion: null,
+      propertyDo: 'unreachable',
+    });
+  }
 }
 
 async function handleGetRegistryProperty(ctx: V1DispatchContext): Promise<Response> {
@@ -490,7 +509,9 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   );
 
   if (!result.ok) {
-    if (result.error === 'forbidden') return json({ error: 'forbidden' }, 403);
+    if (result.error === 'forbidden') {
+      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    }
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
   }
@@ -545,7 +566,9 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
 
   if (!result.ok) {
     if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (result.error === FORBIDDEN) return json({ error: 'forbidden' }, 403);
+    if (result.error === FORBIDDEN) {
+      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    }
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     if (result.error === OVERSELL) {
       return json({ ok: false, error: result.error, dates: result.dates }, 409);
@@ -583,7 +606,9 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
 
   if (!result.ok) {
     if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (result.error === FORBIDDEN) return json({ error: 'forbidden' }, 403);
+    if (result.error === FORBIDDEN) {
+      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    }
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
     if (result.error === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: result.error }, 409);
@@ -1230,8 +1255,13 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const result = await resolvedCtx.resolved.stub.listProvisionalExceptions();
-  return json(result, 200);
+  try {
+    const result = await resolvedCtx.resolved.stub.listProvisionalExceptions();
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
 }
 
 async function handleGetProvisionalExceptionCount(ctx: V1DispatchContext): Promise<Response> {
@@ -1241,8 +1271,13 @@ async function handleGetProvisionalExceptionCount(ctx: V1DispatchContext): Promi
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const exceptionCount = await resolvedCtx.resolved.stub.countProvisionalExceptions();
-  return json({ propertyId, exceptionCount }, 200);
+  try {
+    const exceptionCount = await resolvedCtx.resolved.stub.countProvisionalExceptions();
+    return json({ propertyId, exceptionCount }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
 }
 
 async function handleGetFrontDeskArrivals(ctx: V1DispatchContext): Promise<Response> {

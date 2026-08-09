@@ -641,6 +641,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async getRecordedJurisdiction(): Promise<Jurisdiction | null | undefined> {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.jurisdiction')
       .toArray() as Array<{ value_json: string }>;
@@ -1376,6 +1377,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async listProvisionalExceptions(): Promise<{ exceptions: ProvisionalExceptionRow[] }> {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT exception_id, idempotency_key, command_type, payload,
@@ -1411,6 +1413,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async countProvisionalExceptions(): Promise<number> {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(`SELECT COUNT(*) AS n FROM provisional_exception`)
       .toArray() as Array<{ n: number }>;
@@ -1722,6 +1725,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   async getSchemaVersion(): Promise<number> {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
       .toArray() as Array<{ v: number }>;

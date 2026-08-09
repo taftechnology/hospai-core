@@ -27,10 +27,11 @@ export type FrontDeskItem = {
 };
 
 export type PropertyRead = {
-  property: { propertyId: string; timeZone: string; name: string };
+  property: { propertyId: string; timeZone: string; name: string; [key: string]: unknown };
   locationHint?: string;
   recordedJurisdiction?: unknown;
-  schemaVersion?: number;
+  schemaVersion?: number | null;
+  propertyDo?: 'unreachable';
 };
 
 export type FolioRead = {

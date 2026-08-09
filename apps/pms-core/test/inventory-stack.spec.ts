@@ -353,6 +353,7 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
       idempotencyKey: `idem-put-staff-${crypto.randomUUID()}`,
     });
     expect(staffPut.status).toBe(403);
+    expect(await staffPut.json()).toEqual({ error: 'forbidden', permission: 'inventory:write' });
 
     // Owner PUT gets 200
     const ownerPut = await putRoomType(propertyId, 'rt_king', owner, {
@@ -364,6 +365,7 @@ describe('pms.inventory whole-stack seam (Phase 0 exit)', () => {
     // Staff DELETE gets 403
     const staffDel = await deleteRoomType(propertyId, 'rt_king', staff, `idem-del-staff-${crypto.randomUUID()}`);
     expect(staffDel.status).toBe(403);
+    expect(await staffDel.json()).toEqual({ error: 'forbidden', permission: 'inventory:write' });
 
     // Owner DELETE gets 200 with roomTypeId & ariVersion
     const ownerDel = await deleteRoomType(propertyId, 'rt_king', owner, `idem-del-owner-${crypto.randomUUID()}`);

@@ -803,4 +803,42 @@ describe('degraded mode §4.6 fault injection', () => {
     await dispatchPendingBatch(sent);
     expect(await stub.getReservationStatus('res_deg_26')).toBe('checked_in');
   });
+
+  it('get_property: PropertyDO blocked returns 200 partial with propertyDo unreachable', async () => {
+    const actor = 'user_get_prop_partial';
+    const { propertyId, stub } = await provisionHotel(actor);
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      property: { timeZone: string };
+      propertyDo?: string;
+      schemaVersion: unknown;
+      recordedJurisdiction: unknown;
+    };
+    expect(body.property.timeZone).toBeTruthy();
+    expect(body.propertyDo).toBe('unreachable');
+    expect(body.schemaVersion).toBeNull();
+    expect(body.recordedJurisdiction).toBeNull();
+  });
+
+  it('get_property: healthy omits propertyDo', async () => {
+    const actor = 'user_get_prop_ok';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { propertyDo?: string; schemaVersion: number };
+    expect(body.propertyDo).toBeUndefined();
+    expect(typeof body.schemaVersion).toBe('number');
+  });
 });

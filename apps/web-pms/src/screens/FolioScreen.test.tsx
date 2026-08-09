@@ -174,7 +174,7 @@ describe('FolioScreen wiring', () => {
     });
   });
 
-  it('403 on add-charge names folio:post not folio:adjust', async () => {
+  it('403 on add-charge renders server-supplied permission', async () => {
     getFolio.mockResolvedValue({
       ok: true,
       window: null,
@@ -187,7 +187,7 @@ describe('FolioScreen wiring', () => {
       new ClassifiedError({
         class: 'forbidden',
         status: 403,
-        body: { error: 'forbidden' },
+        body: { error: 'forbidden', permission: 'folio:post' },
         retryAfterMs: null,
       }),
     );
@@ -200,7 +200,6 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => {
       const msg = screen.getByTestId('folio-message').textContent ?? '';
       expect(msg).toMatch(/folio:post/);
-      expect(msg).not.toMatch(/folio:adjust/);
     });
   });
 

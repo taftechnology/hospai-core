@@ -506,6 +506,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       status: string;
     }>
   > {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(`SELECT property_id, name, jurisdiction, time_zone, status FROM property_ref ORDER BY property_id`)
       .toArray() as Array<{

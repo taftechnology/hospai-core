@@ -427,4 +427,57 @@ describe('front-desk read HTTP routes', () => {
     const body = (await res.json()) as { degraded: string };
     expect(body.degraded).toBe('FAIL_CLOSED');
   });
+
+  it('PropertyDO blocked: provisional-exception-count returns FAIL_CLOSED 503', async () => {
+    const propertyId = 'fd_http_exc_blocked';
+    const { stub } = await provisionHttpProperty(propertyId);
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/provisional-exception-count`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'property_unreachable',
+      degraded: 'FAIL_CLOSED',
+    });
+  });
+
+  it('PropertyDO blocked: provisional-exceptions list returns FAIL_CLOSED 503', async () => {
+    const propertyId = 'fd_http_exc_list_blocked';
+    const { stub } = await provisionHttpProperty(propertyId);
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/provisional-exceptions`,
+        { headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'property_unreachable',
+      degraded: 'FAIL_CLOSED',
+    });
+  });
+
+  it('OrgDO blocked: get_org_properties returns org_unreachable FAIL_CLOSED 503', async () => {
+    const propertyId = 'fd_http_org_props_blocked';
+    const { orgId } = await provisionHttpProperty(propertyId);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/properties`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ error: 'org_unreachable', degraded: 'FAIL_CLOSED' });
+    expect(body).not.toHaveProperty('commandId');
+  });
 });

@@ -100,11 +100,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     id: 'get_provisional_exceptions',
     scope: 'property',
     permission: 'property:read',
+    degradedRead: 'FAIL_CLOSED',
   },
   {
     id: 'get_provisional_exception_count',
     scope: 'property',
     permission: 'property:read',
+    degradedRead: 'FAIL_CLOSED',
   },
   {
     id: 'put_rate_days',

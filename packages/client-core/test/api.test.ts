@@ -266,4 +266,45 @@ describe('createClient degraded writes', () => {
     expect(bodies[0]?.idempotencyKey).toBeTruthy();
     expect(bodies[0]?.idempotencyKey).toBe(bodies[1]?.idempotencyKey);
   });
+
+  it('membership methods hit org/property member paths', async () => {
+    const calls: Array<{ path: string; method?: string }> = [];
+    const client = createClient({
+      transport: mockTransport((path, init) => {
+        calls.push({ path, method: init?.method });
+        return new Response(JSON.stringify({ ok: true, members: [], userId: 'u1', role: 'staff' }), {
+          status: path.includes('members') && init?.method === 'POST' ? 201 : 200,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    await client.listOrgMembers('org_1');
+    await client.createOrgMember('org_1', { email: 'a@x.com', role: 'admin' });
+    await client.updateOrgMember('org_1', 'u1', { role: 'staff' });
+    await client.deleteOrgMember('org_1', 'u1');
+    await client.listPropertyMembers('prop_1');
+    await client.createPropertyMember('prop_1', { email: 'b@x.com', role: 'staff' });
+    await client.updatePropertyMember('prop_1', 'u2', { role: 'admin' });
+    await client.deletePropertyMember('prop_1', 'u2');
+    expect(calls.map((c) => `${c.method ?? 'GET'} ${c.path}`)).toEqual([
+      'GET /v1/orgs/org_1/members',
+      'POST /v1/orgs/org_1/members',
+      'PATCH /v1/orgs/org_1/members/u1',
+      'DELETE /v1/orgs/org_1/members/u1',
+      'GET /v1/properties/prop_1/members',
+      'POST /v1/properties/prop_1/members',
+      'PATCH /v1/properties/prop_1/members/u2',
+      'DELETE /v1/properties/prop_1/members/u2',
+    ]);
+  });
 });

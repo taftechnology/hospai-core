@@ -187,6 +187,99 @@ export function createClient(opts: {
         orgPermissions: OrgScopedPermission[];
       };
     },
+    /** Callers that mutate the current actor's grants should invalidate `['me', propertyId]`. */
+    async listOrgMembers(orgId: string) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/members`);
+      return body as {
+        ok: true;
+        members: Array<{
+          userId: string;
+          role: 'owner' | 'admin' | 'staff';
+          createdAt: number;
+          updatedAt: number | null;
+        }>;
+      };
+    },
+    async createOrgMember(
+      orgId: string,
+      input: { email: string; role: 'owner' | 'admin' | 'staff' },
+    ) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/members`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      return body as { ok: true; userId: string; role: 'owner' | 'admin' | 'staff' };
+    },
+    async updateOrgMember(
+      orgId: string,
+      userId: string,
+      input: { role: 'owner' | 'admin' | 'staff' },
+    ) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/members/${enc(userId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      return body as {
+        ok: true;
+        userId: string;
+        role: 'owner' | 'admin' | 'staff';
+        previousRole?: 'owner' | 'admin' | 'staff';
+      };
+    },
+    async deleteOrgMember(orgId: string, userId: string) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/members/${enc(userId)}`, {
+        method: 'DELETE',
+      });
+      return body as { ok: true; userId: string };
+    },
+    async listPropertyMembers(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/members`);
+      return body as {
+        ok: true;
+        members: Array<{
+          userId: string;
+          role: 'owner' | 'admin' | 'staff';
+          createdAt: number;
+          updatedAt: number | null;
+        }>;
+      };
+    },
+    async createPropertyMember(
+      propertyId: string,
+      input: { email: string; role: 'admin' | 'staff' },
+    ) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/members`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      return body as { ok: true; userId: string; role: 'admin' | 'staff' };
+    },
+    async updatePropertyMember(
+      propertyId: string,
+      userId: string,
+      input: { role: 'admin' | 'staff' },
+    ) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/members/${enc(userId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      return body as {
+        ok: true;
+        userId: string;
+        role: 'admin' | 'staff';
+        previousRole?: 'owner' | 'admin' | 'staff';
+      };
+    },
+    async deletePropertyMember(propertyId: string, userId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/members/${enc(userId)}`, {
+        method: 'DELETE',
+      });
+      return body as { ok: true; userId: string };
+    },
     async getOpenShift(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/front-desk/shift`);
       return body;

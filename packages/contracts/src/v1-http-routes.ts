@@ -399,4 +399,10 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'get_property_me',
+    scope: 'property',
+    permission: 'property:read',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

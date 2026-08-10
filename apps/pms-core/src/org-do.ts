@@ -14,7 +14,9 @@ import {
   type EventSource,
   type IdempotencyKey,
   type OrgRole,
+  type OrgScopedPermission,
   type Permission,
+  type PropertyScopedPermission,
 } from '@hospai/contracts';
 import {
   ORG_MIGRATIONS,
@@ -393,6 +395,33 @@ export class OrgDO extends DurableObject<PmsEnv> {
       return { ok: false, error: 'forbidden' };
     }
     return { ok: true, role };
+  }
+
+  async readPropertyMe(
+    actor: ActorContext,
+    propertyId: string,
+  ): Promise<
+    | {
+        ok: true;
+        role: OrgRole;
+        permissions: PropertyScopedPermission[];
+        orgPermissions: OrgScopedPermission[];
+      }
+    | { ok: false; error: 'not_member' }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+
+    const role = await this.getEffectiveRole(actor.userId, propertyId);
+    if (!role) return { ok: false, error: 'not_member' };
+
+    const grants = ROLE_GRANTS[role];
+    return {
+      ok: true,
+      role,
+      permissions: grants.filter(isPropertyScopedPermission),
+      orgPermissions: grants.filter(isOrgScopedPermission),
+    };
   }
 
   async upsertPropertyMember(

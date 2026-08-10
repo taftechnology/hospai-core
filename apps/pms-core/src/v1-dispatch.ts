@@ -1415,6 +1415,50 @@ async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<R
   }
 }
 
+const ME_HEADERS = { 'Cache-Control': 'private, no-store' };
+
+async function handleGetPropertyMe(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, {
+    orgId: resolvedCtx.property.orgId,
+  }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    const result = await org.readPropertyMe(actor, propertyId);
+    if (!result.ok) {
+      // Defensive: HTTP gate normally 404s before handler; keep for direct-style parity
+      return json({ error: 'not_found' }, 404, ME_HEADERS);
+    }
+    return json(
+      {
+        ok: true,
+        orgId: resolvedCtx.property.orgId,
+        propertyId,
+        userId: ctx.actor.userId,
+        role: result.role,
+        permissions: result.permissions,
+        orgPermissions: result.orgPermissions,
+      },
+      200,
+      ME_HEADERS,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      const degraded = degradedFailClosedOrgReadResponse();
+      const headers = new Headers(degraded.headers);
+      headers.set('Cache-Control', 'private, no-store');
+      return new Response(degraded.body, { status: degraded.status, headers });
+    }
+    throw e;
+  }
+}
+
 async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -3641,6 +3685,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetFrontDeskRecentShifts,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/me$/,
+    permission: 'property:read',
+    // no entitlement — kill-switch must not brick /me
+    handler: handleGetPropertyMe,
   },
 ];
 

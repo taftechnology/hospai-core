@@ -275,6 +275,14 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[68] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[69]?.id).toBe('get_property_me');
+    expect(V1_HTTP_ROUTE_AUDIT[69]).toMatchObject({
+      scope: 'property',
+      permission: 'property:read',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('entitlement');
+    expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('commandId');
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

@@ -308,6 +308,16 @@ describe('command catalog', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.add_item')?.degraded).toBe(
       'QUEUE_PROVISIONAL',
     );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'staff.update')?.degraded).toBe('FAIL_CLOSED');
+  });
+
+  it('staff.* FAIL_CLOSED commands share tenancy opt-out reason', () => {
+    const STAFF_OPT_REASON =
+      'Tenancy membership on OrgDO — HTTP routes omit commandId; not a feature-gated PMS command. Kill-switch must not brick staff/org membership.';
+    for (const id of ['staff.add', 'staff.update', 'staff.delete'] as const) {
+      const row = ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === id);
+      expect(row?.reason).toBe(STAFF_OPT_REASON);
+    }
   });
 
   it('mutating non-shell commands are idempotent', () => {

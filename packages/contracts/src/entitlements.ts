@@ -33,8 +33,21 @@ export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
   { id: 'channels.sync', reason: 'Phase 1 — not yet gated at a DO boundary' },
   { id: 'channels.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
   { id: 'housekeeping.staff_delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
-  { id: 'staff.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
-  { id: 'staff.delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
+  {
+    id: 'staff.add',
+    reason:
+      'Tenancy membership on OrgDO — HTTP routes omit commandId; not a feature-gated PMS command. Kill-switch must not brick staff/org membership.',
+  },
+  {
+    id: 'staff.update',
+    reason:
+      'Tenancy membership on OrgDO — HTTP routes omit commandId; not a feature-gated PMS command. Kill-switch must not brick staff/org membership.',
+  },
+  {
+    id: 'staff.delete',
+    reason:
+      'Tenancy membership on OrgDO — HTTP routes omit commandId; not a feature-gated PMS command. Kill-switch must not brick staff/org membership.',
+  },
   {
     id: 'property.update_details',
     reason: 'Tenancy metadata, not product data — no feature gate applies.',

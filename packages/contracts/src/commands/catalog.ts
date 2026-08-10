@@ -569,7 +569,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     id: 'staff.update',
     prototypeAction: 'UPDATE_STAFF',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['staff.changed'],
     permission: 'staff:write',

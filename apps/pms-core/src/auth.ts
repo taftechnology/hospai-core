@@ -4,7 +4,6 @@ import type { Permission } from '@hospai/contracts';
 
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
-import { getOrg, getProperty } from './registry.js';
 
 const DEV_ACTOR_HEADER = 'x-dev-actor';
 
@@ -82,39 +81,6 @@ export async function resolveActor(request: Request, env: PmsEnv): Promise<Actor
   }
 
   return { userId, source: 'clerk' };
-}
-
-/** D1 org must exist; actor must be in OrgDO member table. Unknown org or non-member → 404. */
-export async function requireOrgMember(
-  env: PmsEnv,
-  orgId: string,
-  userId: string,
-): Promise<Response | null> {
-  const orgRow = await getOrg(env, orgId);
-  if (!orgRow) {
-    return Response.json({ error: 'not_found' }, { status: 404 });
-  }
-
-  const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
-  const role = await org.getMemberRole(userId);
-  if (!role) {
-    // Same status + body as unknown org — do not distinguish (org existence oracle).
-    return Response.json({ error: 'not_found' }, { status: 404 });
-  }
-  return null;
-}
-
-/** Resolve property org from D1, then membership check. Unknown property → 404. */
-export async function requirePropertyOrgMember(
-  env: PmsEnv,
-  propertyId: string,
-  userId: string,
-): Promise<Response | null> {
-  const property = await getProperty(env, propertyId);
-  if (!property) {
-    return Response.json({ error: 'not_found' }, { status: 404 });
-  }
-  return requireOrgMember(env, property.orgId, userId);
 }
 
 /** Caller must have confirmed org/property exists in D1 via resolveTenant. */

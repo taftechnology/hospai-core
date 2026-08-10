@@ -96,7 +96,11 @@ type MembershipDoError =
   | 'last_owner'
   | 'invalid_role';
 
-function membershipErrorResponse(error: MembershipDoError): Response {
+function membershipErrorResponse(
+  error: MembershipDoError,
+  /** Route permission — required on 403 so the body matches the forbidden-bodies contract if the DO branch is ever reached after the HTTP gate. */
+  permission: Permission,
+): Response {
   switch (error) {
     case 'role_escalation':
     case 'last_owner':
@@ -107,7 +111,7 @@ function membershipErrorResponse(error: MembershipDoError): Response {
     case 'not_member':
       return json({ error: 'not_member' }, 404);
     case 'forbidden':
-      return json({ error: 'forbidden' }, 403);
+      return json({ error: 'forbidden', permission }, 403);
   }
 }
 
@@ -1459,7 +1463,7 @@ async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   try {
     const result = await org.listOrgMembers(actor);
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
     return json({ ok: true, members: result.members }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1488,7 +1492,7 @@ async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       role: body.role,
       mode: 'create',
     });
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1512,7 +1516,7 @@ async function handleUpdateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       role: body.role,
       mode: 'update',
     });
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
     return json(
       {
         ok: true,
@@ -1536,7 +1540,7 @@ async function handleDeleteOrgMember(ctx: V1DispatchContext): Promise<Response> 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   try {
     const result = await org.removeOrgMember(actor, targetUserId);
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1555,7 +1559,7 @@ async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Respon
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   try {
     const result = await org.listPropertyMembers(actor, propertyId);
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'staff:read');
     return json({ ok: true, members: result.members }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1597,7 +1601,7 @@ async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       role: body.role,
       mode: 'create',
     });
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1628,7 +1632,7 @@ async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       role: body.role,
       mode: 'update',
     });
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
     return json(
       {
         ok: true,
@@ -1656,7 +1660,7 @@ async function handleDeletePropertyMember(ctx: V1DispatchContext): Promise<Respo
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   try {
     const result = await org.removePropertyMember(actor, propertyId, targetUserId);
-    if (!result.ok) return membershipErrorResponse(result.error);
+    if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();

@@ -283,6 +283,32 @@ describe('command catalog', () => {
     });
     expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('entitlement');
     expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('commandId');
+
+    const membershipIds = [
+      'list_org_members',
+      'create_org_member',
+      'update_org_member',
+      'delete_org_member',
+      'list_property_members',
+      'create_property_member',
+      'update_property_member',
+      'delete_property_member',
+    ] as const;
+    for (let i = 0; i < membershipIds.length; i++) {
+      const row = V1_HTTP_ROUTE_AUDIT[70 + i];
+      expect(row?.id).toBe(membershipIds[i]);
+      expect(row).not.toHaveProperty('entitlement');
+      expect(row).not.toHaveProperty('commandId');
+      expect(row).not.toHaveProperty('degradedRead');
+    }
+    expect(V1_HTTP_ROUTE_AUDIT[70]).toMatchObject({ scope: 'org', permission: 'org:manage' });
+    expect(V1_HTTP_ROUTE_AUDIT[71]).toMatchObject({ scope: 'org', permission: 'org:manage' });
+    expect(V1_HTTP_ROUTE_AUDIT[72]).toMatchObject({ scope: 'org', permission: 'org:manage' });
+    expect(V1_HTTP_ROUTE_AUDIT[73]).toMatchObject({ scope: 'org', permission: 'org:manage' });
+    expect(V1_HTTP_ROUTE_AUDIT[74]).toMatchObject({ scope: 'property', permission: 'staff:read' });
+    expect(V1_HTTP_ROUTE_AUDIT[75]).toMatchObject({ scope: 'property', permission: 'staff:write' });
+    expect(V1_HTTP_ROUTE_AUDIT[76]).toMatchObject({ scope: 'property', permission: 'staff:write' });
+    expect(V1_HTTP_ROUTE_AUDIT[77]).toMatchObject({ scope: 'property', permission: 'staff:write' });
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

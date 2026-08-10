@@ -405,4 +405,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'property:read',
     degradedRead: 'FAIL_CLOSED',
   },
+  { id: 'list_org_members', scope: 'org', permission: 'org:manage' },
+  { id: 'create_org_member', scope: 'org', permission: 'org:manage' },
+  { id: 'update_org_member', scope: 'org', permission: 'org:manage' },
+  { id: 'delete_org_member', scope: 'org', permission: 'org:manage' },
+  { id: 'list_property_members', scope: 'property', permission: 'staff:read' },
+  { id: 'create_property_member', scope: 'property', permission: 'staff:write' },
+  { id: 'update_property_member', scope: 'property', permission: 'staff:write' },
+  { id: 'delete_property_member', scope: 'property', permission: 'staff:write' },
 ];

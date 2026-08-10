@@ -70,6 +70,10 @@ import {
 import { logError, logWarn, type ObservabilityContext } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
+import {
+  clerkUnreachableResponse,
+  lookupUserIdByEmail,
+} from './clerk-lookup.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
 import {
   degradedFailClosedOrgReadResponse,
@@ -83,6 +87,37 @@ import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { createOrg, getOrg, getProperty, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
+
+type MembershipDoError =
+  | 'not_member'
+  | 'forbidden'
+  | 'already_member'
+  | 'role_escalation'
+  | 'last_owner'
+  | 'invalid_role';
+
+function membershipErrorResponse(error: MembershipDoError): Response {
+  switch (error) {
+    case 'role_escalation':
+    case 'last_owner':
+    case 'invalid_role':
+      return json({ error }, 422);
+    case 'already_member':
+      return json({ error }, 409);
+    case 'not_member':
+      return json({ error: 'not_member' }, 404);
+    case 'forbidden':
+      return json({ error: 'forbidden' }, 403);
+  }
+}
+
+function isOrgRole(role: unknown): role is 'owner' | 'admin' | 'staff' {
+  return role === 'owner' || role === 'admin' || role === 'staff';
+}
+
+function isPropertyWriteRole(role: unknown): role is 'admin' | 'staff' {
+  return role === 'admin' || role === 'staff';
+}
 
 function json(data: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(data, { status, headers });
@@ -1416,6 +1451,218 @@ async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<R
 }
 
 const ME_HEADERS = { 'Cache-Control': 'private, no-store' };
+
+async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.listOrgMembers(actor);
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, members: result.members }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const body = (await ctx.request.json()) as { email?: string; role?: string };
+  const email = typeof body.email === 'string' ? body.email.trim() : '';
+  if (!email || !isOrgRole(body.role)) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  const looked = await lookupUserIdByEmail(ctx.env, email);
+  if (!looked.ok) {
+    if (looked.error === 'clerk_unreachable') return clerkUnreachableResponse();
+    return json({ error: looked.error }, 422);
+  }
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.setOrgMember(actor, {
+      targetUserId: looked.userId,
+      role: body.role,
+      mode: 'create',
+    });
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, userId: result.userId, role: result.role }, 201);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleUpdateOrgMember(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  const targetUserId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.orgId = orgId;
+  const body = (await ctx.request.json()) as { role?: string };
+  if (!isOrgRole(body.role)) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.setOrgMember(actor, {
+      targetUserId,
+      role: body.role,
+      mode: 'update',
+    });
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json(
+      {
+        ok: true,
+        userId: result.userId,
+        role: result.role,
+        previousRole: result.previousRole,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleDeleteOrgMember(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  const targetUserId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.orgId = orgId;
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.removeOrgMember(actor, targetUserId);
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, userId: result.userId }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const org = resolveOrgStub(ctx.env.ORG_DO, {
+    orgId: resolvedCtx.property.orgId,
+  }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.listPropertyMembers(actor, propertyId);
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, members: result.members }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { email?: string; role?: string };
+  // Body email wins over any query param (person-identifier hygiene).
+  const queryEmail = ctx.url.searchParams.get('email');
+  void queryEmail;
+  const email = typeof body.email === 'string' ? body.email.trim() : '';
+  if (!email) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  if (body.role === 'owner') {
+    return json({ error: 'invalid_role' }, 422);
+  }
+  if (!isPropertyWriteRole(body.role)) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  const looked = await lookupUserIdByEmail(ctx.env, email);
+  if (!looked.ok) {
+    if (looked.error === 'clerk_unreachable') return clerkUnreachableResponse();
+    return json({ error: looked.error }, 422);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const org = resolveOrgStub(ctx.env.ORG_DO, {
+    orgId: resolvedCtx.property.orgId,
+  }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.setPropertyMember(actor, propertyId, {
+      targetUserId: looked.userId,
+      role: body.role,
+      mode: 'create',
+    });
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, userId: result.userId, role: result.role }, 201);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const targetUserId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { role?: string };
+  if (body.role === 'owner') {
+    return json({ error: 'invalid_role' }, 422);
+  }
+  if (!isPropertyWriteRole(body.role)) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const org = resolveOrgStub(ctx.env.ORG_DO, {
+    orgId: resolvedCtx.property.orgId,
+  }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.setPropertyMember(actor, propertyId, {
+      targetUserId,
+      role: body.role,
+      mode: 'update',
+    });
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json(
+      {
+        ok: true,
+        userId: result.userId,
+        role: result.role,
+        previousRole: result.previousRole,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handleDeletePropertyMember(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const targetUserId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const org = resolveOrgStub(ctx.env.ORG_DO, {
+    orgId: resolvedCtx.property.orgId,
+  }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await org.removePropertyMember(actor, propertyId, targetUserId);
+    if (!result.ok) return membershipErrorResponse(result.error);
+    return json({ ok: true, userId: result.userId }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
 
 async function handleGetPropertyMe(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
@@ -3693,6 +3940,62 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'property:read',
     // no entitlement — kill-switch must not brick /me
     handler: handleGetPropertyMe,
+  },
+  {
+    scope: 'org',
+    method: 'GET',
+    pattern: /^\/v1\/orgs\/([^/]+)\/members$/,
+    permission: 'org:manage',
+    handler: handleListOrgMembers,
+  },
+  {
+    scope: 'org',
+    method: 'POST',
+    pattern: /^\/v1\/orgs\/([^/]+)\/members$/,
+    permission: 'org:manage',
+    handler: handleCreateOrgMember,
+  },
+  {
+    scope: 'org',
+    method: 'PATCH',
+    pattern: /^\/v1\/orgs\/([^/]+)\/members\/([^/]+)$/,
+    permission: 'org:manage',
+    handler: handleUpdateOrgMember,
+  },
+  {
+    scope: 'org',
+    method: 'DELETE',
+    pattern: /^\/v1\/orgs\/([^/]+)\/members\/([^/]+)$/,
+    permission: 'org:manage',
+    handler: handleDeleteOrgMember,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/members$/,
+    permission: 'staff:read',
+    handler: handleListPropertyMembers,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/members$/,
+    permission: 'staff:write',
+    handler: handleCreatePropertyMember,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/members\/([^/]+)$/,
+    permission: 'staff:write',
+    handler: handleUpdatePropertyMember,
+  },
+  {
+    scope: 'property',
+    method: 'DELETE',
+    pattern: /^\/v1\/properties\/([^/]+)\/members\/([^/]+)$/,
+    permission: 'staff:write',
+    handler: handleDeletePropertyMember,
   },
 ];
 

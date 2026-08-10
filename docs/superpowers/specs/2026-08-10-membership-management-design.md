@@ -314,10 +314,10 @@ Direct-DO `not_member` on list/set helpers covered separately from HTTP gate (do
 |---|---|---|
 | 1 | PropertyDO / `get_audit_log` for membership | Cross-DO; `staff.changed` interim |
 | 2 | Clerk Invitations + webhook | Invite-before-account |
-| 3 | SPA staff management UI | |
+| 3 | SPA staff management UI | Spec: [staff management SPA](./2026-08-10-staff-management-spa-design.md) |
 | 4 | Idempotency keys on membership writes | |
 | 5 | Org directory list for admins (`org:read`) | List stays `org:manage` |
-| 6 | Sync invalidate `me` across all properties on org-role change | |
+| 6 | Sync invalidate `me` across all properties on org-role change | Inert while SPA has one `tenant.propertyId`. **Coupled to property switcher** — that slice inherits this leftover (see staff SPA §2.6 / §7). |
 | 7 | Post-image rank check for caller after deleting own override | Coupled to `ROLE_GRANTS`; see §2.2 note |
 | 8 | Fully retire unrouted `staff.*` catalog rows | Only if product wants zero unrouted staff commands; this slice restates degraded instead |
 | 9 | `check:forbidden-bodies` two escape routes | (1) **Non-literal error** — skips bodies that do not literally contain `error: 'forbidden'` (`json({ error }, 403)` / computed vars). Mutation: `role_escalation`→403 left the check green. (2) **Helper-emitted 403s** — check walks only registered `handler:` function bodies; shared helpers are invisible even with a correct literal body. Membership helper now carries `permission`, but the check still cannot see it — and worse than the original missing-field case, a **wrong-but-valid** `Permission` (e.g. property handler passing `org:manage`) is accepted silently by typecheck, tests (unreachable branch), and the check. Correctness of the eight literals is review-only today; cheapest close is a contracts-side handler→permission pin, not widening the grep. Third grep-family scope limit after `check:web-pms-me-gating` (`apps/web-pms/src` only) — consider a shared AST-based walker. |

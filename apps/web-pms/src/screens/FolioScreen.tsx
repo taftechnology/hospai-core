@@ -9,6 +9,11 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState } from 'react';
+import {
+  hasPropertyPermission,
+  meShellStateFromQuery,
+  type PropertyMe,
+} from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
 import { guestLabel } from './guest-row.js';
@@ -73,6 +78,11 @@ export function FolioScreen() {
     queryKey: ['open-shift', propertyId],
     queryFn: () => api.getOpenShift(propertyId),
   });
+  const meQ = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    staleTime: 60_000,
+  });
 
   const guestRef = reservationQ.data?.guestRef;
   const guestsQ = useQuery({
@@ -86,6 +96,20 @@ export function FolioScreen() {
     reservationReadClass: readState(reservationQ),
     reservationStatus: reservationQ.data?.status ?? null,
   });
+
+  const meShell = meShellStateFromQuery({
+    status: meQ.status,
+    data: meQ.data as PropertyMe | undefined,
+    classified: meQ.isError ? asClassified(meQ.error) : undefined,
+  });
+  const adjustDenied =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    !hasPropertyPermission(meShell.authority.me, 'folio:adjust');
+  const canSplit = policy.canSplit && !adjustDenied;
+  const splitReason = adjustDenied
+    ? 'Requires permission folio:adjust. Ask a manager.'
+    : policy.reasons.split;
 
   const fold = useMemo(() => {
     const lines = (folioQ.data?.lines ?? []) as FolioLine[];
@@ -237,13 +261,13 @@ export function FolioScreen() {
     setMessage,
     onLocalError: (err) => {
       if (err instanceof Error && err.message === 'policy_blocked_split') {
-        setMessage(policy.reasons.split ?? 'Split refused.');
+        setMessage(splitReason ?? 'Split refused.');
         return true;
       }
       return false;
     },
     mutationFn: () => {
-      if (!policy.canSplit) throw new Error('policy_blocked_split');
+      if (!canSplit) throw new Error('policy_blocked_split');
       const opId = `split:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
       return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
@@ -258,13 +282,13 @@ export function FolioScreen() {
     setMessage,
     onLocalError: (err) => {
       if (err instanceof Error && err.message === 'policy_blocked_split') {
-        setMessage(policy.reasons.split ?? 'Split refused.');
+        setMessage(splitReason ?? 'Split refused.');
         return true;
       }
       return false;
     },
     mutationFn: () => {
-      if (!policy.canSplit) throw new Error('policy_blocked_split');
+      if (!canSplit) throw new Error('policy_blocked_split');
       const opId = `splitpay:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
       return api.splitFolioPayment(propertyId, splitLineId, splitPayload(), opId);
     },
@@ -532,21 +556,21 @@ export function FolioScreen() {
         />
         <button
           type="button"
-          disabled={!policy.canSplit || split.isPending || !splitLineId}
+          data-testid="split-charge"
+          disabled={!canSplit || split.isPending || !splitLineId}
           onClick={() => split.mutate()}
         >
           Split
         </button>
         <button
           type="button"
-          disabled={!policy.canSplit || splitPayment.isPending || !splitLineId}
+          data-testid="split-payment"
+          disabled={!canSplit || splitPayment.isPending || !splitLineId}
           onClick={() => splitPayment.mutate()}
         >
           Split payment
         </button>
-        {!policy.canSplit && policy.reasons.split ? (
-          <p className="muted">{policy.reasons.split}</p>
-        ) : null}
+        {!canSplit && splitReason ? <p className="muted">{splitReason}</p> : null}
       </section>
 
       <section>

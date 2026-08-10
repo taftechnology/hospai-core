@@ -9,6 +9,7 @@ const getFolio = vi.fn();
 const getReservation = vi.fn();
 const getFolioPayments = vi.fn();
 const getOpenShift = vi.fn();
+const getMe = vi.fn();
 const authorizePayment = vi.fn();
 const checkOut = vi.fn();
 const postGuestsBatch = vi.fn();
@@ -27,6 +28,7 @@ vi.mock('../client.js', () => ({
     };
   },
   api: {
+    getMe: (...args: unknown[]) => getMe(...args),
     getFolio: (...args: unknown[]) => getFolio(...args),
     getReservation: (...args: unknown[]) => getReservation(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
@@ -47,7 +49,8 @@ function renderFolio() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+  render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/folio/res_1']}>
         <Routes>
@@ -56,6 +59,7 @@ function renderFolio() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { client, invalidateSpy };
 }
 
 /**
@@ -87,6 +91,15 @@ describe('FolioScreen wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getOpenShift.mockResolvedValue({ ok: true, shift: { shiftId: 's1' } });
+    // Default: authority unknown → fail open (split not permission-gated)
+    getMe.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
     postGuestsBatch.mockResolvedValue({
       ok: true,
       guests: {},
@@ -201,7 +214,7 @@ describe('FolioScreen wiring', () => {
     });
   });
 
-  it('403 on add-charge renders server-supplied permission', async () => {
+  it('403 on add-charge renders server-supplied permission and invalidates me', async () => {
     getFolio.mockResolvedValue({
       ok: true,
       window: null,
@@ -219,7 +232,7 @@ describe('FolioScreen wiring', () => {
       }),
     );
 
-    renderFolio();
+    const { invalidateSpy } = renderFolio();
     await waitFor(() => {
       expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
     });
@@ -228,6 +241,37 @@ describe('FolioScreen wiring', () => {
       const msg = screen.getByTestId('folio-message').textContent ?? '';
       expect(msg).toMatch(/folio:post/);
     });
+    expect(
+      invalidateSpy.mock.calls.some(
+        (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['me', 'prop_demo'] }),
+      ),
+    ).toBe(true);
+  });
+
+  it('staff-shaped me without folio:adjust disables split with permission copy', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_staff',
+      role: 'staff',
+      permissions: ['folio:read', 'folio:post', 'reservations:read'],
+      orgPermissions: ['org:read'],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => {
+      expect(screen.getByText(/Requires permission folio:adjust/i)).toBeTruthy();
+    });
+    expect((screen.getByTestId('split-charge') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('authorize invalidates payments query and not folio', async () => {

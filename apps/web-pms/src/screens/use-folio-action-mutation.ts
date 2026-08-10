@@ -1,10 +1,11 @@
 import { permissionForForbidden } from '@hospai/client-core';
 import {
   useMutation,
+  useQueryClient,
   type UseMutationOptions,
   type UseMutationResult,
 } from '@tanstack/react-query';
-import { asClassified } from '../client.js';
+import { asClassified, tenant } from '../client.js';
 
 export function messageForFolioMutationError(err: unknown, fallback: string): string {
   const c = asClassified(err);
@@ -31,6 +32,7 @@ export function messageForFolioMutationError(err: unknown, fallback: string): st
 
 /**
  * useMutation whose onError path classifies folio mutation failures.
+ * Forbidden → invalidate `['me', propertyId]` (spec §2.6).
  */
 export function useFolioActionMutation<TData, TVariables = void>(opts: {
   fallback: string;
@@ -41,11 +43,16 @@ export function useFolioActionMutation<TData, TVariables = void>(opts: {
   onSuccess?: UseMutationOptions<TData, unknown, TVariables>['onSuccess'];
 }): UseMutationResult<TData, unknown, TVariables> {
   const { fallback, setMessage, onLocalError, mutationFn, onSuccess } = opts;
+  const queryClient = useQueryClient();
+  const propertyId = tenant.propertyId;
   return useMutation<TData, unknown, TVariables>({
     mutationFn,
     onSuccess,
     onError: (err) => {
       if (onLocalError?.(err)) return;
+      if (asClassified(err).class === 'forbidden') {
+        void queryClient.invalidateQueries({ queryKey: ['me', propertyId] });
+      }
       setMessage(messageForFolioMutationError(err, fallback));
     },
   });

@@ -815,7 +815,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
-    if (input.role === 'owner') return { ok: false, error: 'invalid_role' };
+    // admin|staff only — `owner` (and any other value) → invalid_role
     if (input.role !== 'admin' && input.role !== 'staff') return { ok: false, error: 'invalid_role' };
 
     const gate = await this.assertPermission({

@@ -107,7 +107,7 @@ Rank: `owner` > `admin` > `staff`.
 
 Self-demotion / self-removal: legal under rank-below when the new state is below current (or remove), subject to last-owner on org table.
 
-**`role_escalation` → HTTP `422` everywhere** (POST / PATCH / DELETE). The caller is authorized for the route (`staff:write` / `org:manage`) but requested an invalid transition. Not `403` — that would collide with `check:forbidden-bodies` (`permission` required on 403 bodies; no honest permission to name when they already hold the route permission).
+**`role_escalation` → HTTP `422` everywhere** (POST / PATCH / DELETE). The caller is authorized for the route (`staff:write` / `org:manage`) but requested an invalid transition. Not `403` — that would misrepresent what failed (gate already passed). Protected by membership HTTP tests, not by `check:forbidden-bodies` (see leftover #9: that check only matches literal `error: 'forbidden'` bodies).
 
 **Coupling note (accepted):** rank checks use the target's **current** role / requested role, not a simulated post-image of the *caller's* effective role. Deleting your own property override can raise your effective role at that property; today anyone whose override left them at `staff` lacks `staff:write` and is gated out first. That safety rests on `ROLE_GRANTS` — record it; do not build a post-image rank check this slice.
 
@@ -320,6 +320,7 @@ Direct-DO `not_member` on list/set helpers covered separately from HTTP gate (do
 | 6 | Sync invalidate `me` across all properties on org-role change | |
 | 7 | Post-image rank check for caller after deleting own override | Coupled to `ROLE_GRANTS`; see §2.2 note |
 | 8 | Fully retire unrouted `staff.*` catalog rows | Only if product wants zero unrouted staff commands; this slice restates degraded instead |
+| 9 | `check:forbidden-bodies` blind spot | `scripts/forbidden-body-check.mjs` skips any 403 body that does not literally contain `error: 'forbidden'`. Handlers returning `json({ error }, 403)` / `json({ error: someVar }, 403)` escape audit-match entirely — repo-wide, same family as the me-gating `apps/web-pms/src` scope limit. Mutation: `role_escalation`→403 left the check green. |
 
 ---
 

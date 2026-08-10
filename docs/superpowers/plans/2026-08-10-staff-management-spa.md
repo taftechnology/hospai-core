@@ -11,13 +11,17 @@
 ## Global Constraints
 
 - Reverse lookup **result union, never throws** (same contract as `lookupUserIdByEmail`)
+- List enrichment: handler wraps lookup in its own `try`/`catch` → any throw becomes `directory: 'unavailable'` (not 500)
 - List Clerk failure → **200 + `directory: 'unavailable'`** (not 500, not `org_unreachable`)
 - Never persist email/name on member tables
 - No new `V1_HTTP_ROUTE_AUDIT` / `V1_ROUTES` rows
 - DO `already_member` **widens** with `role` — update exact-match DO pins deliberately (do not loosen to `toMatchObject`)
+- `409 already_member` via dedicated `alreadyMemberResponse(userId, role)` — **do not** widen `membershipErrorResponse`
 - Org section **disable with reason**, not hide
+- Deep-link without `staff:read` → **route wrapper** redirect (not inside StaffScreen — avoids Clerk-backed list fetch before bounce)
 - Self org-DELETE → harsh confirm → no-access shell
 - Member list queries: behavioural no-refetch-on-focus (not `staleTime === 60000` literal assert)
+- **Rebuild `@hospai/client-core` before web-pms runs** (`dist` resolution — mid-slice type edits otherwise test stale build)
 - Unsharded `pnpm --filter @hospai/pms-core test` segfaults — use shards or targeted `vitest run`
 - Spec: `docs/superpowers/specs/2026-08-10-staff-management-spa-design.md`
 
@@ -25,7 +29,7 @@
 
 | Mutation | Expected kill |
 |---|---|
-| Reverse lookup throws into list handler try | #7 → 500 |
+| Enrichment throw escapes handler wrap → 500 | #7 |
 | List Clerk fail returns `org_unreachable` / omits rows | #1 |
 | Directory ok + nulls treated as outage (no dangling path) | #3 |
 | Drop `hasOrgRole` | #4 / Remove copy |
@@ -44,7 +48,7 @@
 |---|---|
 | `apps/pms-core/src/org-do.ts` | `already_member` + `role`; `hasOrgRole` on property list |
 | `apps/pms-core/src/clerk-lookup.ts` | `lookupDirectoryByUserIds` + test inject |
-| `apps/pms-core/src/v1-dispatch.ts` | Enrich lists; cache headers; 409 body; never-throw placement |
+| `apps/pms-core/src/v1-dispatch.ts` | Enrich lists (handler try/catch → marker); cache headers; `alreadyMemberResponse`; leave `membershipErrorResponse` unchanged |
 | `apps/pms-core/test/membership-org-do.spec.ts` | Exact DO pins for `already_member` + `role`; `hasOrgRole` |
 | `apps/pms-core/test/membership-http.spec.ts` | List directory / dangling / cache / 409 / throw inject |
 | `packages/client-core/src/api.ts` | List + create error types |
@@ -92,7 +96,7 @@ Add property create duplicate with role; add `hasOrgRole` true (org member + ove
 
 **Files:**
 - Modify: `apps/pms-core/src/clerk-lookup.ts`
-- Modify: `apps/pms-core/src/v1-dispatch.ts` — `handleListOrgMembers` / `handleListPropertyMembers`; `membershipErrorResponse` for `already_member`; create handlers pass through role
+- Modify: `apps/pms-core/src/v1-dispatch.ts` — list handlers only for enrichment; create handlers call `alreadyMemberResponse`; **do not** change `membershipErrorResponse`
 - Modify: `apps/pms-core/test/membership-http.spec.ts`
 - Reuse: `ME_HEADERS` / shared `private, no-store` constant for lists
 
@@ -104,33 +108,44 @@ type DirectoryLookupResult =
   | { ok: false; error: 'clerk_unreachable' };
 
 lookupDirectoryByUserIds(env, userIds: string[]): Promise<DirectoryLookupResult>
-// never throws; inject via __setLookupDirectoryByUserIdsForTest (before configured check)
+// production: never throws (result union); inject via __setLookupDirectoryByUserIdsForTest (before configured check)
+
+function alreadyMemberResponse(userId: string, role: OrgRole): Response
+// → 409 { error: 'already_member', userId, role }
+// Called only from create_org_member / create_property_member
 ```
 
-List JSON per spec §3.1–3.2. Handler order:
+List JSON per spec §3.1–3.2. Handler order (locked #7):
 
 ```ts
 const result = await org.list…(…);
-if (!result.ok) return membershipErrorResponse(…);
-const dir = await lookupDirectoryByUserIds(…); // outside OrgDO-only semantics; must not throw
-// merge fields; if !dir.ok → directory: 'unavailable'
-return json(body, 200, LIST_HEADERS);
+if (!result.ok) return membershipErrorResponse(…); // unchanged helper — no identity args
+let directory: 'unavailable' | undefined;
+let byUserId = new Map(…);
+try {
+  const dir = await lookupDirectoryByUserIds(env, ids);
+  if (!dir.ok) directory = 'unavailable';
+  else byUserId = dir.byUserId;
+} catch {
+  directory = 'unavailable'; // violated never-throw contract → degrade, not 500
+}
+return json({ ok: true, members: merged, ...(directory ? { directory } : {}) }, 200, LIST_HEADERS);
 ```
 
-`membershipErrorResponse`:
+Create handlers on DO `already_member`:
 
 ```ts
-case 'already_member':
-  return json({ error, userId: /* from caller */, role: /* from DO */ }, 409);
+if (!result.ok) {
+  if (result.error === 'already_member') {
+    return alreadyMemberResponse(looked.userId, result.role);
+  }
+  return membershipErrorResponse(result.error, 'org:manage' | 'staff:write');
+}
 ```
 
-Widen helper signature as needed so create handlers pass `userId` + DO `role`.
+- [ ] **Step 1: Failing HTTP tests** — matrix #1, #2 (inject ok), #3 dangling, #5 Cache-Control, #6 409 via `alreadyMemberResponse`, **#7: inject seam plants a throw; assert 200 + `directory: 'unavailable'`, not 500** (handler wrap — production lookup still never throws).
 
-- [ ] **Step 1: Failing HTTP tests** — matrix #1, #2 (inject), #3 dangling, #5 Cache-Control, #6 409 body, #7 inject **throw** through seam still → 200+marker (handler must catch if inject simulates broken contract — or implement lookup to never throw and still plant a throwing inject that the **handler** wraps; prefer lookup never-throws + handler `try/catch` around enrichment that maps to marker — pin #7 as: force inject to throw, assert not 500).
-
-Recommended #7 shape: inject throws; `lookupDirectoryByUserIds` production path catches; if a test bypass sets raw throw from override, **handler** still catches enrichment errors → marker. Spec wants boundary tested.
-
-- [ ] **Step 2: Implement** lookup + enrich both list handlers + 409 + headers.
+- [ ] **Step 2: Implement** lookup + list handler wrap + `alreadyMemberResponse` + headers. Leave `membershipErrorResponse` signature/body untouched.
 
 - [ ] **Step 3: Verify**
 
@@ -164,13 +179,14 @@ pnpm check:ddl
 - Modify: `apps/web-pms/src/shell/nav.ts`
 - Modify: `apps/web-pms/src/App.tsx`
 - Modify: `apps/web-pms/src/auth/me.test.ts` (Staff entry hide with fabricated me / staff role)
+- Create: `apps/web-pms/src/screens/StaffRoute.tsx` (or equivalent) — permission gate **before** StaffScreen
 - Create stub: `apps/web-pms/src/screens/StaffScreen.tsx` (minimal placeholder ok)
 
 - [ ] **Step 1:** Add `{ id: 'staff', label: 'Staff', path: '/staff', permission: 'staff:read' }`; route under `AppShell`.
 
 - [ ] **Step 2:** Unit-test filter hides Staff when fabricated live me lacks `staff:read`; real staff role lacks it.
 
-- [ ] **Step 3:** Deep-link without permission → redirect (wire in StaffScreen or route wrapper).
+- [ ] **Step 3:** Deep-link without `staff:read` → redirect in a **route wrapper** that does **not** mount `StaffScreen` (no member-list queries / no Clerk read). Reason: same external-dependency argument as spec §2.7. Do **not** redirect from inside `StaffScreen`.
 
 - [ ] **Step 4: Commit** `feat(web-pms): Staff nav gated on staff:read`
 
@@ -197,7 +213,7 @@ pnpm check:ddl
 
 - [ ] **Step 2: Implement** screen.
 
-- [ ] **Step 3:** `pnpm --filter web-pms test`
+- [ ] **Step 3:** `pnpm --filter @hospai/client-core build` (if Task 3 dist may be stale) && `pnpm --filter web-pms test`
 
 - [ ] **Step 4: Commit** `feat(web-pms): Staff management screen`
 
@@ -217,8 +233,10 @@ pnpm check:entitlements
 pnpm check:ddl
 pnpm check:do-transport-guards
 pnpm check:forbidden-bodies
+pnpm check:class-denylist
 pnpm check:web-pms-colors
 pnpm check:web-pms-me-gating
+pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/client-core test
 pnpm --filter web-pms test
 for s in 1 2 3 4; do pnpm --filter @hospai/pms-core exec vitest run --shard=$s/4; done

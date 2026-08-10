@@ -10,6 +10,7 @@ import {
   ORG_GUEST_PII_SQL,
   ORG_MIGRATIONS,
   ORG_PROPERTY_MEMBER_SQL,
+  ORG_MEMBER_AUDIT_COLUMNS_SQL,
   ORG_SCHEMA_HEAD,
   ORG_SPINE_SQL,
   PLATFORM_REGISTRY_SQL,
@@ -123,6 +124,20 @@ class MemorySql implements SqlStorageLike {
       return { toArray: () => [] };
     }
     if (q.startsWith('ALTER TABLE payment ADD COLUMN shift_id')) {
+      return { toArray: () => [] };
+    }
+    if (
+      q.startsWith('ALTER TABLE member ADD COLUMN updated_at') ||
+      q.startsWith('ALTER TABLE member ADD COLUMN updated_by') ||
+      q.startsWith('ALTER TABLE property_member ADD COLUMN updated_at') ||
+      q.startsWith('ALTER TABLE property_member ADD COLUMN updated_by')
+    ) {
+      return { toArray: () => [] };
+    }
+    if (
+      q.startsWith('UPDATE member SET updated_at') ||
+      q.startsWith('UPDATE property_member SET updated_at')
+    ) {
       return { toArray: () => [] };
     }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
@@ -409,6 +424,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_PROPERTY_MEMBER_SQL.trim());
   });
 
+  it('migrations/do-org/0005_member_audit_columns.sql matches ORG_MEMBER_AUDIT_COLUMNS_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0005_member_audit_columns.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_MEMBER_AUDIT_COLUMNS_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -445,7 +472,7 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(4);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(5);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -459,7 +486,7 @@ describe('freeAvailability', () => {
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(18);
-    expect(ORG_SCHEMA_HEAD).toBe(4);
+    expect(ORG_SCHEMA_HEAD).toBe(5);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 });

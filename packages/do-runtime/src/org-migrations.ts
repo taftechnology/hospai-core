@@ -86,6 +86,18 @@ export const ORG_PROPERTY_MEMBER_SQL = ORG_PROPERTY_MEMBER_STATEMENTS.join(';\n\
 /** Never DROP/rebuild `data_key` while `guest.pii_key_id` FK references it — DO storage enforces FKs.
  *  Shred destroys material via in-place UPDATE (`wrapped_key = x''`), not table rebuild. */
 
+export const ORG_MEMBER_AUDIT_COLUMNS_STATEMENTS: string[] = [
+  `ALTER TABLE member ADD COLUMN updated_at INTEGER`,
+  `ALTER TABLE member ADD COLUMN updated_by TEXT`,
+  `ALTER TABLE property_member ADD COLUMN updated_at INTEGER`,
+  `ALTER TABLE property_member ADD COLUMN updated_by TEXT`,
+  `UPDATE member SET updated_at = created_at WHERE updated_at IS NULL`,
+  `UPDATE property_member SET updated_at = created_at WHERE updated_at IS NULL`,
+];
+
+export const ORG_MEMBER_AUDIT_COLUMNS_SQL =
+  ORG_MEMBER_AUDIT_COLUMNS_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -106,5 +118,10 @@ export const ORG_MIGRATIONS = [
     version: 4,
     name: '0004_property_member',
     statements: ORG_PROPERTY_MEMBER_STATEMENTS,
+  },
+  {
+    version: 5,
+    name: '0005_member_audit_columns',
+    statements: ORG_MEMBER_AUDIT_COLUMNS_STATEMENTS,
   },
 ] as const;

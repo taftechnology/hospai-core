@@ -1,4 +1,5 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
+import type { OrgScopedPermission, PropertyScopedPermission } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
 import type { FolioLine } from './folio-fold.js';
@@ -173,6 +174,18 @@ export function createClient(opts: {
         }
         throw e;
       }
+    },
+    async getMe(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/me`);
+      return body as {
+        ok: true;
+        orgId: string;
+        propertyId: string;
+        userId: string;
+        role: 'owner' | 'admin' | 'staff';
+        permissions: PropertyScopedPermission[];
+        orgPermissions: OrgScopedPermission[];
+      };
     },
     async getOpenShift(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/front-desk/shift`);

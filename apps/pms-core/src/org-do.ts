@@ -365,13 +365,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
   async getEffectiveRole(userId: string, propertyId: string | null): Promise<OrgRole | null> {
     const orgRole = await this.getMemberRole(userId);
-    if (!orgRole) return null;
+    // Org scope — never consult property_member overrides.
     if (!propertyId) return orgRole;
 
     const row = this.ctx.storage.sql
       .exec(`SELECT role FROM property_member WHERE user_id = ? AND property_id = ?`, userId, propertyId)
       .toArray()[0] as { role: string } | undefined;
-    return (row?.role as OrgRole | undefined) ?? orgRole;
+    if (orgRole) return (row?.role as OrgRole | undefined) ?? orgRole;
+    return (row?.role as OrgRole | undefined) ?? null;
   }
 
   async assertPermission(input: {

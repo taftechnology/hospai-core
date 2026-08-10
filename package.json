@@ -19,7 +19,8 @@
     "check:class-denylist": "pnpm --filter eslint-plugin-hospai build && node scripts/class-denylist-check.mjs",
     "check:forbidden-bodies": "pnpm --filter @hospai/contracts build && node scripts/forbidden-body-check.mjs",
     "check:do-transport-guards": "node scripts/do-transport-guards-check.mjs",
-    "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs"
+    "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs",
+    "check:web-pms-me-gating": "node scripts/web-pms-me-gating-check.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.26.0",

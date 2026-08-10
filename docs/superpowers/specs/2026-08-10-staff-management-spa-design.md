@@ -1,10 +1,10 @@
 # Staff Management SPA
 
 **Date:** 2026-08-10  
-**Status:** Ready for review  
-**Sources:** [membership management](./2026-08-10-membership-management-design.md) (leftover #3 SPA staff UI; leftover #6 invalidate-`me` across properties; leftover #9 forbidden-bodies); [property `/me`](./2026-08-09-property-me-permissions-design.md) (§2.4 hide/disable, §2.5 Authority); `apps/web-pms` `filterNavEntries` / `Authority`; `packages/client-core` membership methods; `apps/pms-core` `clerk-lookup.ts` / OrgDO membership RPCs
+**Status:** Ready for review — rev 2 (review 1–4 + A–D)  
+**Sources:** [membership management](./2026-08-10-membership-management-design.md) (leftover #3 SPA staff UI; leftover #6 invalidate-`me` across properties; leftover #9 forbidden-bodies); [property `/me`](./2026-08-09-property-me-permissions-design.md) (§2.4 hide/disable, §2.5 Authority, `ME_HEADERS`); `apps/web-pms` `filterNavEntries` / `Authority`; `packages/client-core` membership methods; `apps/pms-core` `clerk-lookup.ts` / OrgDO membership RPCs / list handlers
 
-**Implementation order:** after membership management (live on `main`). **Server list-shape + Clerk reverse lookup first**, then SPA — SPA builds against final response shapes.
+**Implementation order:** after membership management (live on `main`). **Server list-shape + Clerk reverse lookup + 409 body + list cache headers first**, then SPA — SPA builds against final response shapes.
 
 ---
 
@@ -18,18 +18,19 @@ Housekeeping remains deferred: `housekeeping:read` is universal across today's t
 
 ### Scope in
 
-1. **Server (first):** enrich `GET` org/property members with per-request Clerk directory fields; property rows gain `hasOrgRole`; Clerk blip → **200 + `directory: 'unavailable'`** (not FAIL_CLOSED); never persist email/name on member tables; injectable reverse-lookup seam (mirror `__setLookupUserIdByEmailForTest`).
-2. **client-core:** extend list response types for enrichment + markers.
-3. **web-pms:** Staff nav entry (`staff:read`); Staff screen with Property + Org sections; add-by-email; inline role + Remove; confirms; oracle / 422 / degraded copy; self-mutation invalidates `['me', propertyId]`.
+1. **Server (first):** reverse Clerk lookup (**result union, never throws**); enrich list GETs; property rows gain `hasOrgRole`; Clerk blip → **200 + `directory: 'unavailable'`**; dangling-grant row signal when lookup succeeds but id unresolved; **`Cache-Control: private, no-store`** on both list handlers; **`409 already_member` includes `userId` + `role`**; never persist email/name; injectable reverse-lookup seam.
+2. **client-core:** extend list + create error types; pin query `staleTime` / no refetch-on-focus for member lists (or document in web-pms if queries live only there).
+3. **web-pms:** Staff nav (`staff:read`); Staff screen; add-by-email; inline role + Remove; confirms (incl. self-remove); oracle / 422 / degraded / dangling-grant copy; self-mutation invalidates `['me', propertyId]`; graceful flip to no-access after self org-DELETE.
 
 ### Scope out
 
-- Property switcher / multi-property `me` invalidate (membership leftover #6 — **coupled**: whoever builds the tenant picker inherits #6 in the same slice; see §7).
-- Closing the account-existence oracle in the SPA (not closable by copy; API rate-limit / audit if ever closed — membership leftover).
+- Property switcher / multi-property `me` invalidate (membership leftover #6 — **coupled**; see §7).
+- Closing the account-existence oracle in the SPA.
 - Clerk Invitations + webhook.
 - New `ROLE_GRANTS` roles / housekeeper.
-- New audit / `V1_ROUTES` rows (list shapes are **additive** — no index alignment).
+- New audit / `V1_ROUTES` rows (additive shapes only — no index alignment).
 - Widening `check:forbidden-bodies` (membership leftover #9).
+- List pagination (accepted Phase-0 unbounded; leftover §7).
 
 ---
 
@@ -40,16 +41,16 @@ Housekeeping remains deferred: `housekeeping:read` is universal across today's t
 | Role | Nav (`staff:read`) | Property section | Org section |
 |---|---|---|---|
 | staff | **hidden** | — | — |
-| admin | visible | usable (`staff:write` for mutations) | **disabled** with reason (lacks `org:manage`) |
+| admin | visible | usable (holds `staff:write`) | **disabled** with reason (lacks `org:manage`) |
 | owner | visible | usable | usable |
 
 **Nav:** `{ id: 'staff', label: 'Staff', path: '/staff', permission: 'staff:read' }` via existing `filterNavEntries`.
 
-**Org section when denied:** render section header + reason, **no body** (admin cannot `GET` org members). Copy shape matches folio permission messaging:
+**Org section when denied:** render section header + reason, **no body** (admin cannot `GET` org members):
 
 > Org membership — Requires `org:manage`. Ask an owner.
 
-Do **not** invent a third affordance category (vanish in-page sections). Absent Org would be a new `/me` §2.4 row; avoid.
+Do **not** invent a third affordance category (vanish in-page sections).
 
 **Section subtitles (pinned):**
 
@@ -58,80 +59,103 @@ Do **not** invent a third affordance category (vanish in-page sections). Absent 
 | Org | *People in your company* |
 | Property | *People who work at this property* |
 
-### 2.2 Directory enrichment → B (per-request Clerk; never persist)
+**Read-only property roster is unexercisable today.** `staff:read` and `staff:write` have **identical holders** (owner, admin; staff has neither) — same class of latent affordance as `/me` hide rows before this slice. Spec still gates mutations on `staff:write` and list on `staff:read`; unit-test any read-only chrome only with a **fabricated** `me`, labelled not E2E. Do not write an integration test that would pass vacuously.
 
-List handlers already return membership from OrgDO. After DO success, resolve directory via Clerk Backend `users.getUserList({ userId: [...] })` (or equivalent batch-by-id API) for the ids on the page.
+### 2.2 Directory enrichment → B (per-request Clerk; never persist; never throws)
 
-**Display preference:** primary = name; secondary = email; fallback email alone; then `userId`. **Always show `userId`** on the row (PATCH/DELETE address, outbox, support).
+List handlers: OrgDO first, then directory enrichment. Resolve via Clerk Backend batch-by-id for the ids on the page.
 
-**Never persist** `email` / `displayName` on `member` / `property_member`. Resolve per request only — avoids stale SoT and staff PII in OrgDO erasure scope.
+**Never-throws contract (load-bearing):** `lookupDirectoryByUserIds(env, userIds)` returns a **result union** and **never throws**, matching `lookupUserIdByEmail` (catch internally; unconfigured secrets and SDK exceptions → unreachable / failed outcome). Placing the call inside the existing handler `try` that maps `isOrgDoTransportFailure` → `org_unreachable` must not turn a Clerk blip into a **500**. `check:do-transport-guards` does not cover this.
+
+**Test seam:** `__setLookupDirectoryByUserIdsForTest` in `clerk-lookup.ts` — consulted **before** the configured check (same as email override), so matrix happy-path enrichment works without real Clerk secrets. Locally, unconfigured Clerk is the **default** → every list response carries `directory: 'unavailable'` unless the inject seam supplies data. Matrix #2 **must** use the inject seam.
+
+**Two distinct null/unavailable facts:**
+
+| Signal | Meaning |
+|---|---|
+| Page-level `directory: 'unavailable'` | Lookup **failed** (blip / unconfigured); **nothing** was resolved. UI: ids + “Names unavailable”. |
+| Per-row `displayName` / `email` null while directory ok | Lookup **succeeded**; this id did not resolve (e.g. deleted Clerk user). **Dangling grant** — flag in UI: *Account no longer exists* + Remove. Do **not** render indistinguishable from a Clerk outage. |
+
+**Display preference:** primary = name; secondary = email; fallback email alone; then `userId`. **Always show `userId`**. Dangling rows: emphasize Remove.
+
+**Never persist** `email` / `displayName` on `member` / `property_member`. Matrix #9 asserts **schema** (columns absent / `check:ddl` would catch a persisted column), not merely “handler didn’t write.”
 
 **Degraded — separate failure domain from OrgDO:**
 
 | Failure | Behaviour |
 |---|---|
-| OrgDO transport | existing `org_unreachable` FAIL_CLOSED 503 |
-| Clerk directory blip / unset secrets | **200** with membership rows intact + `directory: 'unavailable'`; UI shows ids + “Names unavailable” note |
+| OrgDO transport | `org_unreachable` FAIL_CLOSED 503 (unchanged) |
+| Clerk directory failure / unset secrets | **200** + rows + `directory: 'unavailable'` |
 
-Do **not** FAIL_CLOSED the list when Clerk is down — that would make a Clerk blip look like a membership outage. Contrast with add-by-email POST, which stays FAIL_CLOSED on `clerk_unreachable` (must not grant on a guessed id).
+Do **not** FAIL_CLOSED the list when Clerk is down. Contrast with add-by-email POST (`clerk_unreachable` FAIL_CLOSED — must not grant on a guessed id).
 
-**Test seam:** `__setLookupDirectoryByUserIdsForTest` in `clerk-lookup.ts` (same inject pattern as email lookup) — Vitest faults Clerk on **list** routes and asserts rows present + marker set (not merely that the field exists on the type).
+**Unbounded lists (accepted Phase-0):** neither members GET paginates; Clerk batch-by-id has its own cap. Accept full-list enrichment with in-handler chunking as needed for typical org sizes; leftover for pagination / hard caps (§7). §2.2 fallback (list+create only if batch proves non-trivial) remains the escape hatch.
 
-**Fallback if batch lookup proves non-trivial in implementation:** list + create only; PATCH/DELETE deferred with directory-display leftover. Prefer not to take this path; pin it so the slice stays shippable.
+**Cache headers:** both list handlers set `Cache-Control: private, no-store` (reuse / share `ME_HEADERS` or equivalent). Enriched bodies are identity-shaped PII for **other people** — stricter need than `/me`. Additive; do this in server step 1, not a repo-wide leftover.
 
 ### 2.3 Property list → `hasOrgRole: boolean`
-
-Every property roster row is a `property_member` override. Remove consequences differ:
 
 | `hasOrgRole` | Remove meaning |
 |---|---|
 | `false` | Property-only — revoke all access at this property |
-| `true` | Drop override; effective role falls back to org role (access may remain, possibly higher) |
+| `true` | Drop override; effective role falls back to org role |
 
-Projection in `listPropertyMembers` (DO already consults both tables in `getEffectiveRole` / can cheaply `EXISTS` org `member`). **Do not expose `orgRole`** to property readers — that would leak org-table detail past `org:manage`. Boolean only; confirm copy stays generic (“company role”) when true.
+Projection in `listPropertyMembers`. **Do not expose `orgRole`**. Confirm copy uses generic “company role” when true.
 
 ### 2.4 Mutation chrome → inline + targeted confirms
 
-- **Inline** role `<select>` + Remove on each mutable row.
+- **Inline** role `<select>` + Remove.
 - **Confirm required when:**
-  1. **Org DELETE** — name cascade: removes company membership **and** all property roles for that user.
-  2. **Any self-affecting mutation** (role change or remove where `targetUserId === me.userId`) — name consequence, e.g. self-demote: *You'll lose access to staff management. Only another owner can restore your role.*
-- **No confirm** for routine other-user role changes (avoid confirm fatigue).
-- Property Remove confirm copy branches on `hasOrgRole` (§2.3).
+  1. **Org DELETE** (any target) — name cascade (company membership + all property roles).
+  2. **Self-demote / self role change** — *You'll lose access to staff management. Only another owner can restore your role.*
+  3. **Self org-DELETE** — **harsher distinct variant** (not the demote copy): total loss — cascade drops property overrides; `/me` → 404 → no-access shell. E.g. *You'll lose all access to this organization and every property. Only another owner can restore you.*
+  4. **Self property-DELETE** — consequence-named (property-only vs keep company role via `hasOrgRole`).
+- **No confirm** for routine other-user role changes.
+- Property Remove (other user) branches on `hasOrgRole`.
 
-Role options: org select `owner | admin | staff`; property select `admin | staff` only (never `owner`).
+Role options: org `owner | admin | staff`; property `admin | staff` only.
 
-### 2.5 Oracle / error copy → A (actionable, match API)
+### 2.5 Oracle / error copy → A (actionable); 409 carries identity
 
 | API | SPA treatment |
 |---|---|
-| `422 no_such_user` | **Instruction, not failure:** *No Hospai account for that email yet. Ask them to sign up, then add them here.* |
-| `409 already_member` | **Redirect:** *{Name or email} is already a member ({role}). Change their role instead* → focus/scroll to that row |
-| `422 email_ambiguous` | Generic + support path (defensive; no user remedy) |
-| `422 role_escalation` | Permission/rank copy (existing permission-copy patterns) |
-| `422 last_owner` | *This is the last owner. Add another owner before removing or demoting this one.* |
-| `503 clerk_unreachable` | Distinct from org outage — retry / try later (add path only) |
+| `422 no_such_user` | Instruction: *No Hospai account for that email yet. Ask them to sign up, then add them here.* |
+| `409 already_member` | Redirect using **body `userId` + `role`** (required — see §3.3). Copy: *Already a member ({role}). Change their role instead* → focus row by `userId` (works when directory unavailable / dangling email null). |
+| `422 email_ambiguous` | Generic + support path |
+| `422 role_escalation` / `last_owner` | Rank / last-owner copy |
+| `503 clerk_unreachable` | Distinct from org outage (add path) |
 | `503 org_unreachable` | Existing org FAIL_CLOSED copy |
 
-**Pin:** the account-existence oracle is **not closable in the SPA**. Closing it (rate limits, audit) is an API leftover on the membership spec, not half-attempted in copy.
+**Pin:** oracle not closable in the SPA.
 
-### 2.6 Self-mutation → invalidate `['me', propertyId]`
+### 2.6 Self-mutation → invalidate `me` + list; self-remove → no-access
 
-On success, if the mutation’s `targetUserId === me.userId`, `invalidateQueries(['me', propertyId])` for the active tenant property (same spirit as folio 403→invalidate).
+On success, if `targetUserId === me.userId`, `invalidateQueries(['me', propertyId])`. After **self org-DELETE**, expect `/me` → 404 → existing **no-access** shell — matrix must assert graceful transition (not a thrown render / stuck error).
 
-**Leftover #6 stays out:** SPA has a single `tenant.propertyId` today — one cache key. Cross-property stale `me` only arises with a property switcher; that slice **inherits membership leftover #6** (cross-link both leftovers).
+**Leftover #6 stays out** (single `tenant.propertyId` today); property switcher inherits it.
 
-Also invalidate the relevant members list query(s) after any successful mutation.
+Also invalidate members list queries after any successful mutation.
 
-### 2.7 No new audit rows
+### 2.7 Member-list query freshness (SPA)
 
-List response fields and Clerk enrichment are additive on existing `list_*_members` handlers. **No** `V1_HTTP_ROUTE_AUDIT` / `V1_ROUTES` append, no register index pins, no `check:permissions` element-wise churn.
+Unlike most SPA queries, member lists hit **Clerk on the read path**. Pin for these two queries only:
+
+- `staleTime` ≥ 60_000 (same order as `/me`)
+- `refetchOnWindowFocus: false`
+
+Reason: cost / Clerk rate-limit exposure; incidental refetches work against the membership plan to eventually control the oracle via API rate limits. Document the external dependency as the stated reason in code.
+
+### 2.8 No new audit rows
+
+Additive list/409 shapes only. **No** `V1_HTTP_ROUTE_AUDIT` / `V1_ROUTES` append.
 
 ---
 
 ## 3. HTTP response shapes (additive)
 
 ### 3.1 `GET /v1/orgs/:orgId/members`
+
+Headers: `Cache-Control: private, no-store`.
 
 ```ts
 {
@@ -144,23 +168,25 @@ List response fields and Clerk enrichment are additive on existing `list_*_membe
     displayName: string | null;
     email: string | null;
   }>,
-  directory?: 'unavailable', // omit or absent when ok
+  directory?: 'unavailable', // present only when lookup failed; omit when ok
 }
 ```
 
+When `directory` omitted/ok and both name/email null → dangling grant (UI flag). When `directory: 'unavailable'`, null name/email means unresolved globally — do not flag as dangling.
+
 ### 3.2 `GET /v1/properties/:propertyId/members`
 
-Same enrichment fields, plus:
+Same enrichment + headers + directory marker, plus `hasOrgRole: boolean`.
+
+### 3.3 Writes — `409 already_member` body
 
 ```ts
-hasOrgRole: boolean
+{ error: 'already_member', userId: string, role: 'owner' | 'admin' | 'staff' }
 ```
 
-and the same optional `directory: 'unavailable'`.
+Server already has both from the existing row. No new oracle — caller could `GET` the roster. Required for §2.5 redirect under directory unavailable / dangling email.
 
-### 3.3 Writes unchanged
-
-POST/PATCH/DELETE status vocabulary from membership spec unchanged. SPA consumes existing client-core methods.
+Other write statuses unchanged.
 
 ---
 
@@ -169,16 +195,14 @@ POST/PATCH/DELETE status vocabulary from membership spec unchanged. SPA consumes
 ```
 /staff
   Property — People who work at this property
-    [add email + role] when staff:write
-    roster (enriched) + inline role / Remove when staff:write
+    [add] when staff:write (unexercisable read-only today — §2.1)
+    roster + mutations when staff:write
   Org — People in your company
     if !org:manage → disabled reason, no body
-    else add + roster + confirms as above
+    else add + roster + confirms
 ```
 
-Route registered in the SPA router; deep-link `/staff` with withhold/fail-open via existing Authority helpers (nav already filtered).
-
-Direct URL while lacking `staff:read` (live authority): treat as no-access or redirect home — pin: **redirect to first visible nav entry** (or board) when live authority lacks `staff:read`; do not render an empty Staff shell.
+Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (or board).
 
 ---
 
@@ -186,25 +210,30 @@ Direct URL while lacking `staff:read` (live authority): treat as no-access or re
 
 | # | Behaviour | Layer |
 |---|---|---|
-| 1 | Clerk fault on **list** → 200, rows present, `directory: 'unavailable'` | HTTP |
-| 2 | Clerk ok on list → `displayName` / `email` populated when Clerk returns them | HTTP |
-| 3 | Property list `hasOrgRole` true/false for org member vs property-only | DO / HTTP |
-| 4 | Nav hides Staff for fabricated / real staff lacking `staff:read` | unit + E2E-capable |
-| 5 | Admin: Staff visible; Org section disabled with reason; property mutations work | SPA |
-| 6 | Owner: both sections usable; org DELETE confirm mentions cascade | SPA |
-| 7 | Self-demote confirm + success invalidates `me` | SPA |
-| 8 | `no_such_user` instructional copy; `already_member` routes to row | SPA |
-| 9 | Enrichment never written to SQL member tables | DO / HTTP |
-| 10 | List OrgDO transport still `org_unreachable` (Clerk mock irrelevant) | HTTP |
+| 1 | Clerk fault / inject fail on **list** → 200, rows present, `directory: 'unavailable'` | HTTP |
+| 2 | Injected Clerk ok → `displayName` / `email` populated (must use inject; secrets unset locally) | HTTP |
+| 3 | Directory ok + unresolved id → dangling UI path (nulls, no page marker) | HTTP + SPA |
+| 4 | Property list `hasOrgRole` true/false | DO / HTTP |
+| 5 | List responses include `Cache-Control: private, no-store` | HTTP |
+| 6 | `409 already_member` body includes `userId` + `role` | HTTP |
+| 7 | Reverse lookup never throws into OrgDO catch (inject throw → still 200 + marker, not 500) | HTTP |
+| 8 | Nav hides Staff for staff role / fabricated me | unit + E2E-capable |
+| 9 | Admin: Org disabled with reason; property usable | SPA |
+| 10 | Owner: org DELETE confirm cascade; self-demote confirm + invalidate `me` | SPA |
+| 11 | Self org-DELETE → confirm (harsh copy) → no-access shell | SPA |
+| 12 | `no_such_user` instructional; `already_member` focuses row by body `userId` | SPA |
+| 13 | Schema: no email/name columns on member tables (`check:ddl` / migrate pin) | DDL |
+| 14 | List OrgDO transport → `org_unreachable` (Clerk inject irrelevant) | HTTP |
+| 15 | Member list queries: `staleTime` + no refetch-on-focus | SPA unit |
 
 ---
 
 ## 6. Sequence
 
-1. Clerk reverse-lookup helper + test inject + list handler enrichment + `hasOrgRole` + directory marker tests (incl. faulted Clerk).
-2. client-core list types.
-3. Staff nav + screen + confirms + copy + invalidate.
-4. Sweep: existing check scripts; no new audit pins expected.
+1. **Server:** never-throw reverse lookup + inject; list enrichment + directory marker + dangling distinction; `hasOrgRole`; list `Cache-Control`; `409` body `userId`/`role`; HTTP tests #1–7, #13–14.
+2. **client-core:** list + 409 types.
+3. **SPA:** Staff nav/screen; confirms; copy; invalidate; query freshness; tests #8–12, #15.
+4. Sweep: existing checks; no new audit pins.
 
 ---
 
@@ -212,28 +241,32 @@ Direct URL while lacking `staff:read` (live authority): treat as no-access or re
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | Directory display if batch lookup blocked → list+create-only fallback | Escape hatch from §2.2 |
-| 2 | Membership leftover #6 × property switcher | **Coupled:** switcher slice must invalidate `me` for affected properties on org-role change; single-property SPA makes #6 inert today |
-| 3 | API-side oracle controls (rate limit / audit) | Not SPA copy |
-| 4 | `check:forbidden-bodies` helper / non-literal escapes | Membership leftover #9 |
+| 1 | Directory batch non-trivial → list+create-only | Escape hatch §2.2 |
+| 2 | Membership leftover #6 × property switcher | Coupled |
+| 3 | API-side oracle controls | Not SPA copy |
+| 4 | `check:forbidden-bodies` helper / non-literal | Membership leftover #9 |
 | 5 | Clerk Invitations | Membership leftover #2 |
+| 6 | Members list pagination / hard page cap | Phase-0 unbounded accepted |
+| 7 | Repo-wide cache headers on other identity-shaped routes | Lists fixed this slice via `/me` precedent |
 
 ---
 
 ## 8. Acceptance checklist
 
-- [ ] Server list enrichment + `directory: 'unavailable'` on Clerk fault (rows still present)
-- [ ] `hasOrgRole` on property list; Remove copy branches
-- [ ] Never persist directory fields on member tables
+- [ ] Reverse lookup result union, never throws; list Clerk fault → 200 + marker (not 500 / not `org_unreachable`)
+- [ ] `directory: 'unavailable'` vs per-row null (dangling) distinguished in API + UI
+- [ ] `hasOrgRole`; Remove / confirm copy branches
+- [ ] List `Cache-Control: private, no-store`; `409` includes `userId` + `role`
+- [ ] Schema: no persisted directory columns; `check:ddl` green
 - [ ] No new audit / `V1_ROUTES` rows
-- [ ] Staff nav gated on `staff:read` (hidden for staff role)
-- [ ] Org section disable-with-reason for admin; usable for owner
-- [ ] Actionable oracle copy; org DELETE + self-mutation confirms
-- [ ] Self-mutation invalidates `['me', propertyId]`
-- [ ] client-core types updated; web-pms tests cover hide + disable + confirms
+- [ ] Staff nav hide for staff; Org disable for admin; owner full
+- [ ] Self-demote + self org-DELETE confirms; self org-DELETE → no-access
+- [ ] Oracle copy; `already_member` redirect by body `userId`
+- [ ] Member queries: staleTime + no refetch-on-focus
+- [ ] Read-only `staff:read` without write labelled unexercisable / fabricated-me only
 
 ---
 
 ## 9. Open questions
 
-None for drafting. Plan owns task order (server before SPA) and Clerk batch API details within §2.2.
+None. Plan owns Clerk batch chunking details and exact dangling-row chrome within §2.2.

@@ -1,7 +1,7 @@
 # Staff Management SPA
 
 **Date:** 2026-08-10  
-**Status:** Ready for review — rev 2 (review 1–4 + A–D)  
+**Status:** Approved — plan at `docs/superpowers/plans/2026-08-10-staff-management-spa.md`. Rev 2 + DO `already_member` widens with `role`  
 **Sources:** [membership management](./2026-08-10-membership-management-design.md) (leftover #3 SPA staff UI; leftover #6 invalidate-`me` across properties; leftover #9 forbidden-bodies); [property `/me`](./2026-08-09-property-me-permissions-design.md) (§2.4 hide/disable, §2.5 Authority, `ME_HEADERS`); `apps/web-pms` `filterNavEntries` / `Authority`; `packages/client-core` membership methods; `apps/pms-core` `clerk-lookup.ts` / OrgDO membership RPCs / list handlers
 
 **Implementation order:** after membership management (live on `main`). **Server list-shape + Clerk reverse lookup + 409 body + list cache headers first**, then SPA — SPA builds against final response shapes.
@@ -120,7 +120,7 @@ Role options: org `owner | admin | staff`; property `admin | staff` only.
 | API | SPA treatment |
 |---|---|
 | `422 no_such_user` | Instruction: *No Hospai account for that email yet. Ask them to sign up, then add them here.* |
-| `409 already_member` | Redirect using **body `userId` + `role`** (required — see §3.3). Copy: *Already a member ({role}). Change their role instead* → focus row by `userId` (works when directory unavailable / dangling email null). |
+| `409 already_member` | Redirect using **body `userId` + `role`** (required — see §3.3 DO widen). Copy: *Already a member ({role}). Change their role instead* → focus row by `userId` (works when directory unavailable / dangling email null). |
 | `422 email_ambiguous` | Generic + support path |
 | `422 role_escalation` / `last_owner` | Rank / last-owner copy |
 | `503 clerk_unreachable` | Distinct from org outage (add path) |
@@ -178,13 +178,24 @@ When `directory` omitted/ok and both name/email null → dangling grant (UI flag
 
 Same enrichment + headers + directory marker, plus `hasOrgRole: boolean`.
 
-### 3.3 Writes — `409 already_member` body
+### 3.3 Writes — `409 already_member` body (+ DO widen)
 
 ```ts
 { error: 'already_member', userId: string, role: 'owner' | 'admin' | 'staff' }
 ```
 
-Server already has both from the existing row. No new oracle — caller could `GET` the roster. Required for §2.5 redirect under directory unavailable / dangling email.
+**Lock — widen the DO result**, not HTTP-only additive:
+
+```ts
+// setOrgMember / setPropertyMember create mode
+{ ok: false, error: 'already_member', role: OrgRole }
+```
+
+The handler has `userId` from Clerk lookup but **not** the existing role — that lives on the member row and today is discarded (`membership-org-do.spec.ts` exact `toEqual({ ok: false, error: 'already_member' })`). Widening is an **RPC contract change**: update that pin deliberately to include `role` (keep exact-match shape — do **not** loosen to `toMatchObject`). Same for property create.
+
+Rejected alternative: omit `role` from 409 and read it off the client roster after focus-by-`userId` — works but couples copy to refetch timing.
+
+No new oracle — caller could `GET` the roster. HTTP audit / `V1_ROUTES` still unchanged.
 
 Other write statuses unchanged.
 
@@ -224,13 +235,13 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 | 12 | `no_such_user` instructional; `already_member` focuses row by body `userId` | SPA |
 | 13 | Schema: no email/name columns on member tables (`check:ddl` / migrate pin) | DDL |
 | 14 | List OrgDO transport → `org_unreachable` (Clerk inject irrelevant) | HTTP |
-| 15 | Member list queries: `staleTime` + no refetch-on-focus | SPA unit |
+| 15 | Member list queries: simulate window focus → **no** second list fetch (behavioural; do not assert `staleTime === 60_000` literal) | SPA |
 
 ---
 
 ## 6. Sequence
 
-1. **Server:** never-throw reverse lookup + inject; list enrichment + directory marker + dangling distinction; `hasOrgRole`; list `Cache-Control`; `409` body `userId`/`role`; HTTP tests #1–7, #13–14.
+1. **Server:** DO `already_member` + `role` (exact-match DO pin update); never-throw reverse lookup + inject; list enrichment + directory marker + dangling distinction; `hasOrgRole`; list `Cache-Control`; HTTP `409` `userId`/`role`; tests #1–7, #13–14 + DO pin.
 2. **client-core:** list + 409 types.
 3. **SPA:** Staff nav/screen; confirms; copy; invalidate; query freshness; tests #8–12, #15.
 4. Sweep: existing checks; no new audit pins.
@@ -258,7 +269,7 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 - [ ] `hasOrgRole`; Remove / confirm copy branches
 - [ ] List `Cache-Control: private, no-store`; `409` includes `userId` + `role`
 - [ ] Schema: no persisted directory columns; `check:ddl` green
-- [ ] No new audit / `V1_ROUTES` rows
+- [ ] No new audit / `V1_ROUTES` rows (DO `already_member` **does** widen with `role` — RPC, not audit)
 - [ ] Staff nav hide for staff; Org disable for admin; owner full
 - [ ] Self-demote + self org-DELETE confirms; self org-DELETE → no-access
 - [ ] Oracle copy; `already_member` redirect by body `userId`
@@ -269,4 +280,4 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 
 ## 9. Open questions
 
-None. Plan owns Clerk batch chunking details and exact dangling-row chrome within §2.2.
+None. `already_member.role` via DO widen locked; plan at `docs/superpowers/plans/2026-08-10-staff-management-spa.md`.

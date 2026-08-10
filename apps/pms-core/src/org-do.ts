@@ -47,6 +47,80 @@ import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observabil
 import { SqlKeyStore } from './org-key-store.js';
 import { ORG_DO_TRANSPORT_BLOCKED_MESSAGE } from './org-do-transport.js';
 
+type MembershipError =
+  | 'not_member'
+  | 'forbidden'
+  | 'already_member'
+  | 'role_escalation'
+  | 'last_owner'
+  | 'invalid_role';
+
+const ROLE_RANK: Record<OrgRole, number> = { owner: 3, admin: 2, staff: 1 };
+
+function isOrgRole(role: string): role is OrgRole {
+  return role === 'owner' || role === 'admin' || role === 'staff';
+}
+
+function wouldLeaveZeroOwners(
+  sql: DurableObjectState['storage']['sql'],
+  targetUserId: string,
+): boolean {
+  const rows = sql
+    .exec(
+      `SELECT COUNT(*) AS c FROM member WHERE role = 'owner' AND user_id != ?`,
+      targetUserId,
+    )
+    .toArray() as Array<{ c: number }>;
+  return Number(rows[0]?.c ?? 0) === 0;
+}
+
+/** Org writes: strictly-below, plus symmetric owner↔owner peer ops. Self-raise forbidden. */
+function assertOrgRankAllowed(
+  callerRole: OrgRole,
+  requestedOrInvolved: OrgRole,
+  currentRole: OrgRole | null,
+  ctx: { actorUserId: string; targetUserId: string; removing?: boolean },
+): MembershipError | null {
+  if (
+    ctx.actorUserId === ctx.targetUserId &&
+    currentRole &&
+    !ctx.removing &&
+    ROLE_RANK[requestedOrInvolved] > ROLE_RANK[currentRole]
+  ) {
+    return 'role_escalation';
+  }
+  const rolesToCheck: OrgRole[] = [requestedOrInvolved];
+  if (currentRole && currentRole !== requestedOrInvolved) rolesToCheck.push(currentRole);
+  for (const role of rolesToCheck) {
+    if (callerRole === 'owner' && role === 'owner') continue;
+    if (ROLE_RANK[role] >= ROLE_RANK[callerRole]) return 'role_escalation';
+  }
+  return null;
+}
+
+/** Property writes: strictly-below only (no peer-owner). Roles admin|staff validated by caller. */
+function assertPropertyRankAllowed(
+  callerRole: OrgRole,
+  requestedOrInvolved: OrgRole,
+  currentRole: OrgRole | null,
+  ctx: { actorUserId: string; targetUserId: string; removing?: boolean },
+): MembershipError | null {
+  if (
+    ctx.actorUserId === ctx.targetUserId &&
+    currentRole &&
+    !ctx.removing &&
+    ROLE_RANK[requestedOrInvolved] > ROLE_RANK[currentRole]
+  ) {
+    return 'role_escalation';
+  }
+  const rolesToCheck: OrgRole[] = [requestedOrInvolved];
+  if (currentRole && currentRole !== requestedOrInvolved) rolesToCheck.push(currentRole);
+  for (const role of rolesToCheck) {
+    if (ROLE_RANK[role] >= ROLE_RANK[callerRole]) return 'role_escalation';
+  }
+  return null;
+}
+
 class GuestExistsError extends Error {
   constructor() {
     super('Guest already exists');
@@ -439,6 +513,484 @@ export class OrgDO extends DurableObject<PmsEnv> {
       role,
       Date.now(),
     );
+  }
+
+  async listOrgMembers(
+    actor: ActorContext,
+  ): Promise<
+    | {
+        ok: true;
+        members: Array<{
+          userId: string;
+          role: OrgRole;
+          createdAt: number;
+          updatedAt: number | null;
+        }>;
+      }
+    | { ok: false; error: MembershipError }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId: null,
+      permission: 'org:manage',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT user_id, role, created_at, updated_at FROM member ORDER BY created_at ASC, user_id ASC`,
+      )
+      .toArray() as Array<{
+      user_id: string;
+      role: string;
+      created_at: number;
+      updated_at: number | null;
+    }>;
+    return {
+      ok: true,
+      members: rows.map((r) => ({
+        userId: r.user_id,
+        role: r.role as OrgRole,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at ?? r.created_at,
+      })),
+    };
+  }
+
+  async setOrgMember(
+    actor: ActorContext,
+    input: { targetUserId: string; role: OrgRole; mode: 'create' | 'update' },
+  ): Promise<
+    | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
+    | { ok: false; error: MembershipError }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+    if (!isOrgRole(input.role)) return { ok: false, error: 'invalid_role' };
+
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId: null,
+      permission: 'org:manage',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const callerRole = await this.getMemberRole(actor.userId);
+    if (!callerRole) return { ok: false, error: 'not_member' };
+
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'forbidden' };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.ctx.storage.sql
+          .exec(`SELECT role FROM member WHERE user_id = ?`, input.targetUserId)
+          .toArray()[0] as { role: string } | undefined;
+
+        if (input.mode === 'create') {
+          if (existing) return { ok: false as const, error: 'already_member' as const };
+          const rankErr = assertOrgRankAllowed(callerRole, input.role, null, {
+            actorUserId: actor.userId,
+            targetUserId: input.targetUserId,
+          });
+          if (rankErr) return { ok: false as const, error: rankErr };
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO member (user_id, role, created_at, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?)`,
+            input.targetUserId,
+            input.role,
+            now,
+            now,
+            actor.userId,
+          );
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'staff.changed',
+            payload: {
+              orgId,
+              actorUserId: actor.userId,
+              targetUserId: input.targetUserId,
+              action: 'added',
+              role: input.role,
+              propertyId: null,
+              createdAt: now,
+            },
+          });
+          return { ok: true as const, userId: input.targetUserId, role: input.role };
+        }
+
+        if (!existing) return { ok: false as const, error: 'not_member' as const };
+        const previousRole = existing.role as OrgRole;
+        if (previousRole === input.role) {
+          return {
+            ok: true as const,
+            userId: input.targetUserId,
+            role: input.role,
+            previousRole,
+          };
+        }
+        const rankErr = assertOrgRankAllowed(callerRole, input.role, previousRole, {
+          actorUserId: actor.userId,
+          targetUserId: input.targetUserId,
+        });
+        if (rankErr) return { ok: false as const, error: rankErr };
+        if (previousRole === 'owner' && wouldLeaveZeroOwners(this.ctx.storage.sql, input.targetUserId)) {
+          return { ok: false as const, error: 'last_owner' as const };
+        }
+        const now = Date.now();
+        this.ctx.storage.sql.exec(
+          `UPDATE member SET role = ?, updated_at = ?, updated_by = ? WHERE user_id = ?`,
+          input.role,
+          now,
+          actor.userId,
+          input.targetUserId,
+        );
+        this.appendOrgOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'staff.changed',
+          payload: {
+            orgId,
+            actorUserId: actor.userId,
+            targetUserId: input.targetUserId,
+            action: 'updated',
+            role: input.role,
+            previousRole,
+            propertyId: null,
+            createdAt: now,
+          },
+        });
+        return {
+          ok: true as const,
+          userId: input.targetUserId,
+          role: input.role,
+          previousRole,
+        };
+      });
+    } catch {
+      return { ok: false, error: 'forbidden' };
+    }
+  }
+
+  async removeOrgMember(
+    actor: ActorContext,
+    targetUserId: string,
+  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipError }> {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId: null,
+      permission: 'org:manage',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const callerRole = await this.getMemberRole(actor.userId);
+    if (!callerRole) return { ok: false, error: 'not_member' };
+
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'forbidden' };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.ctx.storage.sql
+          .exec(`SELECT role FROM member WHERE user_id = ?`, targetUserId)
+          .toArray()[0] as { role: string } | undefined;
+        if (!existing) return { ok: false as const, error: 'not_member' as const };
+        const previousRole = existing.role as OrgRole;
+
+        const rankErr = assertOrgRankAllowed(callerRole, previousRole, previousRole, {
+          actorUserId: actor.userId,
+          targetUserId,
+          removing: true,
+        });
+        if (rankErr) return { ok: false as const, error: rankErr };
+
+        if (previousRole === 'owner' && wouldLeaveZeroOwners(this.ctx.storage.sql, targetUserId)) {
+          return { ok: false as const, error: 'last_owner' as const };
+        }
+
+        const overrides = this.ctx.storage.sql
+          .exec(`SELECT property_id, role FROM property_member WHERE user_id = ?`, targetUserId)
+          .toArray() as Array<{ property_id: string; role: string }>;
+
+        const now = Date.now();
+        this.ctx.storage.sql.exec(`DELETE FROM member WHERE user_id = ?`, targetUserId);
+        this.ctx.storage.sql.exec(`DELETE FROM property_member WHERE user_id = ?`, targetUserId);
+
+        this.appendOrgOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'staff.changed',
+          payload: {
+            orgId,
+            actorUserId: actor.userId,
+            targetUserId,
+            action: 'removed',
+            role: previousRole,
+            previousRole,
+            propertyId: null,
+            createdAt: now,
+          },
+        });
+        for (const o of overrides) {
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'staff.changed',
+            payload: {
+              orgId,
+              actorUserId: actor.userId,
+              targetUserId,
+              action: 'removed',
+              role: o.role,
+              previousRole: o.role,
+              propertyId: o.property_id,
+              createdAt: now,
+            },
+          });
+        }
+        return { ok: true as const, userId: targetUserId };
+      });
+    } catch {
+      return { ok: false, error: 'forbidden' };
+    }
+  }
+
+  async listPropertyMembers(
+    actor: ActorContext,
+    propertyId: string,
+  ): Promise<
+    | {
+        ok: true;
+        members: Array<{
+          userId: string;
+          role: OrgRole;
+          createdAt: number;
+          updatedAt: number | null;
+        }>;
+      }
+    | { ok: false; error: MembershipError }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId,
+      permission: 'staff:read',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT user_id, role, created_at, updated_at FROM property_member
+         WHERE property_id = ? ORDER BY created_at ASC, user_id ASC`,
+        propertyId,
+      )
+      .toArray() as Array<{
+      user_id: string;
+      role: string;
+      created_at: number;
+      updated_at: number | null;
+    }>;
+    return {
+      ok: true,
+      members: rows.map((r) => ({
+        userId: r.user_id,
+        role: r.role as OrgRole,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at ?? r.created_at,
+      })),
+    };
+  }
+
+  async setPropertyMember(
+    actor: ActorContext,
+    propertyId: string,
+    input: { targetUserId: string; role: OrgRole; mode: 'create' | 'update' },
+  ): Promise<
+    | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
+    | { ok: false; error: MembershipError }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+    if (input.role === 'owner') return { ok: false, error: 'invalid_role' };
+    if (input.role !== 'admin' && input.role !== 'staff') return { ok: false, error: 'invalid_role' };
+
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId,
+      permission: 'staff:write',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
+    if (!callerRole) return { ok: false, error: 'not_member' };
+
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'forbidden' };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.ctx.storage.sql
+          .exec(
+            `SELECT role FROM property_member WHERE user_id = ? AND property_id = ?`,
+            input.targetUserId,
+            propertyId,
+          )
+          .toArray()[0] as { role: string } | undefined;
+
+        if (input.mode === 'create') {
+          if (existing) return { ok: false as const, error: 'already_member' as const };
+          const rankErr = assertPropertyRankAllowed(callerRole, input.role, null, {
+            actorUserId: actor.userId,
+            targetUserId: input.targetUserId,
+          });
+          if (rankErr) return { ok: false as const, error: rankErr };
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO property_member (user_id, property_id, role, created_at, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            input.targetUserId,
+            propertyId,
+            input.role,
+            now,
+            now,
+            actor.userId,
+          );
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'staff.changed',
+            payload: {
+              orgId,
+              actorUserId: actor.userId,
+              targetUserId: input.targetUserId,
+              action: 'added',
+              role: input.role,
+              propertyId,
+              createdAt: now,
+            },
+          });
+          return { ok: true as const, userId: input.targetUserId, role: input.role };
+        }
+
+        if (!existing) return { ok: false as const, error: 'not_member' as const };
+        const previousRole = existing.role as OrgRole;
+        if (previousRole === input.role) {
+          return {
+            ok: true as const,
+            userId: input.targetUserId,
+            role: input.role,
+            previousRole,
+          };
+        }
+        const rankErr = assertPropertyRankAllowed(callerRole, input.role, previousRole, {
+          actorUserId: actor.userId,
+          targetUserId: input.targetUserId,
+        });
+        if (rankErr) return { ok: false as const, error: rankErr };
+        const now = Date.now();
+        this.ctx.storage.sql.exec(
+          `UPDATE property_member SET role = ?, updated_at = ?, updated_by = ?
+           WHERE user_id = ? AND property_id = ?`,
+          input.role,
+          now,
+          actor.userId,
+          input.targetUserId,
+          propertyId,
+        );
+        this.appendOrgOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'staff.changed',
+          payload: {
+            orgId,
+            actorUserId: actor.userId,
+            targetUserId: input.targetUserId,
+            action: 'updated',
+            role: input.role,
+            previousRole,
+            propertyId,
+            createdAt: now,
+          },
+        });
+        return {
+          ok: true as const,
+          userId: input.targetUserId,
+          role: input.role,
+          previousRole,
+        };
+      });
+    } catch {
+      return { ok: false, error: 'forbidden' };
+    }
+  }
+
+  async removePropertyMember(
+    actor: ActorContext,
+    propertyId: string,
+    targetUserId: string,
+  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipError }> {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
+
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId,
+      permission: 'staff:write',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+    const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
+    if (!callerRole) return { ok: false, error: 'not_member' };
+
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'forbidden' };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.ctx.storage.sql
+          .exec(
+            `SELECT role FROM property_member WHERE user_id = ? AND property_id = ?`,
+            targetUserId,
+            propertyId,
+          )
+          .toArray()[0] as { role: string } | undefined;
+        if (!existing) return { ok: false as const, error: 'not_member' as const };
+        const previousRole = existing.role as OrgRole;
+
+        const rankErr = assertPropertyRankAllowed(callerRole, previousRole, previousRole, {
+          actorUserId: actor.userId,
+          targetUserId,
+          removing: true,
+        });
+        if (rankErr) return { ok: false as const, error: rankErr };
+
+        const now = Date.now();
+        this.ctx.storage.sql.exec(
+          `DELETE FROM property_member WHERE user_id = ? AND property_id = ?`,
+          targetUserId,
+          propertyId,
+        );
+        this.appendOrgOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'staff.changed',
+          payload: {
+            orgId,
+            actorUserId: actor.userId,
+            targetUserId,
+            action: 'removed',
+            role: previousRole,
+            previousRole,
+            propertyId,
+            createdAt: now,
+          },
+        });
+        return { ok: true as const, userId: targetUserId };
+      });
+    } catch {
+      return { ok: false, error: 'forbidden' };
+    }
   }
 
   /** Test helper (unsafe-local only): remove property-scoped membership. */

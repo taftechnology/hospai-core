@@ -4,6 +4,7 @@ import {
   canShowShellOpen,
   filterNavEntries,
   hasPropertyPermission,
+  meShellStateFromQuery,
   type PropertyMe,
 } from './me.js';
 
@@ -56,5 +57,41 @@ describe('me authority helpers', () => {
       permissions: ['folio:post', 'folio:read'],
     };
     expect(hasPropertyPermission(me, 'folio:adjust')).toBe(false);
+  });
+
+  it('meShellStateFromQuery: 404 → no_access; unauthorized → unauthorized; fail_closed → unknown', () => {
+    expect(
+      meShellStateFromQuery({
+        status: 'error',
+        classified: {
+          class: 'client_error',
+          status: 404,
+          body: {},
+          retryAfterMs: null,
+        },
+      }),
+    ).toEqual({ kind: 'no_access' });
+    expect(
+      meShellStateFromQuery({
+        status: 'error',
+        classified: {
+          class: 'unauthorized',
+          status: 401,
+          body: {},
+          retryAfterMs: null,
+        },
+      }),
+    ).toEqual({ kind: 'unauthorized' });
+    expect(
+      meShellStateFromQuery({
+        status: 'error',
+        classified: {
+          class: 'fail_closed',
+          status: 503,
+          body: {},
+          retryAfterMs: null,
+        },
+      }),
+    ).toEqual({ kind: 'authority', authority: { kind: 'unknown' } });
   });
 });

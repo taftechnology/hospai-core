@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import {
   formatMinor,
@@ -13,8 +14,9 @@ import { shiftSeverity } from '../status/shift-severity.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from './PropertyTimeZone.js';
 
-export function ShiftStrip() {
+export function ShiftStrip({ authority }: { authority: Authority }) {
   const propertyId = tenant.propertyId;
+  const showOpen = canShowShellOpen(authority);
   const queryClient = useQueryClient();
   const timeZone = usePropertyTimeZone();
   const localToday = timeZone ? propertyLocalToday(timeZone) : null;
@@ -104,25 +106,27 @@ export function ShiftStrip() {
     return (
       <div className="shift-strip">
         <span className={statusClass('neutral')}>No open shift</span>
-        <form
-          className="shift-open-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            openMut.mutate();
-          }}
-        >
-          <label>
-            Opening float
-            <input
-              aria-label="opening-float"
-              value={floatMajor}
-              onChange={(e) => setFloatMajor(e.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={openMut.isPending}>
-            Open shift
-          </button>
-        </form>
+        {showOpen ? (
+          <form
+            className="shift-open-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              openMut.mutate();
+            }}
+          >
+            <label>
+              Opening float
+              <input
+                aria-label="opening-float"
+                value={floatMajor}
+                onChange={(e) => setFloatMajor(e.target.value)}
+              />
+            </label>
+            <button type="submit" disabled={openMut.isPending}>
+              Open shift
+            </button>
+          </form>
+        ) : null}
         {message ? <p className="muted">{message}</p> : null}
         {callout}
       </div>

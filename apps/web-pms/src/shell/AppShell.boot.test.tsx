@@ -17,6 +17,7 @@ vi.mock('../client.js', () => {
   return {
     tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
     api: {
+      getMe: failClosed,
       getProperty: failClosed,
       getOpenShift: failClosed,
       getRecentShifts: failClosed,
@@ -68,6 +69,8 @@ describe('AppShell boot path', () => {
 
     expect(screen.getByRole('navigation', { name: /front desk/i })).toBeTruthy();
     expect(screen.getByText('HospAI')).toBeTruthy();
+    // fail_closed on /me → fail open: full nav after settle (not withheld forever)
+    await waitFor(() => expect(screen.getByRole('link', { name: /arrivals/i })).toBeTruthy());
     expect(screen.getByText(/Queued commands/i)).toBeTruthy();
     expect(screen.getByText(/Replay exceptions/i)).toBeTruthy();
     expect(screen.getByText('board-outlet')).toBeTruthy();

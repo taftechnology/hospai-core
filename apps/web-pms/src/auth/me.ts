@@ -1,3 +1,4 @@
+import type { ClassifiedResponse } from '@hospai/client-core';
 import type {
   OrgScopedPermission,
   PropertyScopedPermission,
@@ -19,6 +20,29 @@ export type Authority =
   | { kind: 'live'; me: PropertyMe }
   | { kind: 'unknown' } // fail_closed / transport after settle → fail open
   | { kind: 'pending' }; // withhold until settle
+
+/** Shell outcomes that are not filterable Authority (404 / 401). */
+export type MeShellState =
+  | { kind: 'authority'; authority: Authority }
+  | { kind: 'no_access' }
+  | { kind: 'unauthorized' };
+
+export function meShellStateFromQuery(input: {
+  status: 'pending' | 'error' | 'success';
+  data?: PropertyMe;
+  classified?: ClassifiedResponse;
+}): MeShellState {
+  if (input.status === 'pending') {
+    return { kind: 'authority', authority: { kind: 'pending' } };
+  }
+  if (input.status === 'success' && input.data) {
+    return { kind: 'authority', authority: { kind: 'live', me: input.data } };
+  }
+  const c = input.classified;
+  if (c?.class === 'unauthorized') return { kind: 'unauthorized' };
+  if (c?.status === 404) return { kind: 'no_access' };
+  return { kind: 'authority', authority: { kind: 'unknown' } };
+}
 
 export function hasPropertyPermission(
   me: PropertyMe,

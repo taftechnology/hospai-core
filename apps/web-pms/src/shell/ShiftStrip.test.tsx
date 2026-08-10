@@ -30,9 +30,10 @@ vi.mock('./PropertyTimeZone.js', () => ({
   usePropertyTimeZone: () => 'UTC',
 }));
 
+import type { Authority } from '../auth/me.js';
 import { ShiftStrip } from './ShiftStrip.js';
 
-function renderStrip() {
+function renderStrip(authority: Authority = { kind: 'unknown' }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -40,7 +41,7 @@ function renderStrip() {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <ShiftStrip />
+        <ShiftStrip authority={authority} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -125,6 +126,34 @@ describe('ShiftStrip', () => {
     const secondId = (openShift.mock.calls[1]?.[1] as { shiftId: string }).shiftId;
     expect(firstId).toBeTruthy();
     expect(secondId).toBe(firstId);
+  });
+
+  it('withholds Open when authority pending; shows when unknown', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    renderStrip({ kind: 'pending' });
+    await waitFor(() => expect(screen.getByText(/No open shift/i)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /open shift/i })).toBeNull();
+    cleanup();
+    renderStrip({ kind: 'unknown' });
+    await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
+  });
+
+  it('hides Open when live me lacks folio:post', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    renderStrip({
+      kind: 'live',
+      me: {
+        ok: true,
+        orgId: 'org_demo',
+        propertyId: 'prop_demo',
+        userId: 'user_x',
+        role: 'staff',
+        permissions: ['folio:read'],
+        orgPermissions: ['org:read'],
+      },
+    });
+    await waitFor(() => expect(screen.getByText(/No open shift/i)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /open shift/i })).toBeNull();
   });
 
   it('force-close callout only for current/previous businessDate', async () => {

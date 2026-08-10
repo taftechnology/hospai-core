@@ -264,7 +264,7 @@ Non-user actors: HTTP gate already requires a user actor for permissioned routes
 | 1 | Proactive entitlement chrome | Snapshot exists (402-reactive); gate UI before first 402 |
 | 2 | Org-scope `/me` | Only if multi-property org chrome needs org-id-scoped grants without a property |
 | 3 | Housekeeper / role lacking `reservations:read` | Makes Q4 hide E2E-live; confirm ordering with housekeeping slice |
-| 4 | Folio leftover #2 | **Retired** by this slice when landed — mark on folio spec |
+| 4 | Folio leftover #2 | **Retired** — marked on folio spec |
 | 5 | Shell leftover `GET /v1/me` / org listing | Partially discharged (property `/me`); org listing / tenant picker still open |
 | 6 | client-core `tsconfig` `"include": ["test"]` | Standing risk from cashier review; not this slice |
 | 7 | Guests-batch OrgDO failure returning `property_unreachable` | Pre-existing inconsistency; optional cleanup |
@@ -272,6 +272,8 @@ Non-user actors: HTTP gate already requires a user actor for permissioned routes
 | 9 | Repo-wide `Cache-Control` on per-tenant GETs | `/me` pins `private, no-store` now; sweep others later |
 | 10 | Key `me` on `userId` / clear cache on auth change | When actor can switch without remount, **or** a transport-level 401 uses client-side routing instead of full navigation |
 | 11 | OrgDO gate failures bypass the FAIL_CLOSED read design | `assertPermission` has no `assertRpcAvailable`; `requirePermission` has no try/catch. Method-selective `setTransportBlockedForTest` proves the handler catch only; a genuine OrgDO outage fails the gate first and never reaches the handler's `org_unreachable` path. Same for `get_org_properties` / guests-batch. Not this slice. |
+| 12 | `never` exhaustiveness on Authority mappers | `filterNavEntries` / `canShowShellOpen` rely on return-type coverage today (every branch returns). Weaker than `shiftSeverity`'s `const _exhaustive: never` — a new `Authority` member fails at whatever call site TS notices, not at the mapper. Align when either file is next touched. |
+| 13 | `check:web-pms-me-gating` walks only `apps/web-pms/src` | Gating logic that migrated into `client-core` would be invisible. Contained today by the DOM-free rule on that package; boundary assumption to remember if advisory permission helpers ever move. |
 
 ---
 
@@ -293,4 +295,4 @@ Non-user actors: HTTP gate already requires a user actor for permissioned routes
 
 ## 8. Open questions
 
-None. A–E, 401-as-definitive, and the corrected query-key rationale locked above. Implementer follows §2–§5; leftovers #1 / #3 / #9 / #10 / #11 are explicitly out of this slice.
+None. A–E, 401-as-definitive, and the corrected query-key rationale locked above. Implementer follows §2–§5; leftovers #1 / #3 / #9 / #10 / #11 / #12 / #13 are explicitly out of this slice (or deferred-touch).

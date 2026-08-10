@@ -325,19 +325,19 @@ Direct-DO `not_member` on list/set helpers covered separately from HTTP gate (do
 
 ## 8. Acceptance checklist
 
-- [ ] Eight routes; permissions §2.1; no entitlement / commandId / degradedRead
-- [ ] `getEffectiveRole` (b) + org-scope unchanged; property-only member org-route 404 canary
-- [ ] Org DELETE cascades `property_member`
-- [ ] Rank-below + symmetric owner peer ops + last-owner in DO transaction
-- [ ] Property writes never set `owner` (admin **and** owner callers)
-- [ ] Add-by-email; `422 no_such_user`; `503 clerk_unreachable`; email body-only (query ignored)
-- [ ] `role_escalation` is 422 everywhere
-- [ ] `staff.update` → `FAIL_CLOSED` + opt-out; shared restated reason for all three `staff.*` opt-outs; `check:entitlements` green
-- [ ] Outbox `staff.changed` only; org DELETE emits **1+N**
-- [ ] `requireOrgMember` / `requirePropertyOrgMember` deleted
-- [ ] Migration 0005 + `pnpm generate:ddl`; `check:ddl` green
-- [ ] Never queue; OrgDO transport → `org_unreachable`
-- [ ] `check:permissions` / `check:degraded` / `check:do-transport-guards` / `check:entitlements` / sharded pms-core
+- [x] Eight routes; permissions §2.1; no entitlement / commandId / degradedRead
+- [x] `getEffectiveRole` (b) + org-scope unchanged; property-only member org-route 404 canary
+- [x] Org DELETE cascades `property_member`
+- [x] Rank-below + symmetric owner peer ops + last-owner in DO transaction
+- [x] Property writes never set `owner` (admin **and** owner callers)
+- [x] Add-by-email; `422 no_such_user`; `503 clerk_unreachable`; email body-only (query ignored)
+- [x] `role_escalation` is 422 everywhere
+- [x] `staff.update` → `FAIL_CLOSED` + opt-out; shared restated reason for all three `staff.*` opt-outs; `check:entitlements` green
+- [x] Outbox `staff.changed` only; org DELETE emits **1+N**
+- [x] `requireOrgMember` / `requirePropertyOrgMember` deleted
+- [x] Migration 0005 + `pnpm generate:ddl`; `check:ddl` green
+- [x] Never queue; OrgDO transport → `org_unreachable`
+- [x] `check:permissions` / `check:degraded` / `check:do-transport-guards` / `check:entitlements` / sharded pms-core
 
 ---
 

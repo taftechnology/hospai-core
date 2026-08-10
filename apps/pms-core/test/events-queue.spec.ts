@@ -207,9 +207,9 @@ describe('Queues consumer (Phase 0)', () => {
     expect(await stub.outboxUnackedCount()).toBeGreaterThan(0);
   });
 
-  it('OrgDO migrates to schema version 3 with alarm_schedule', async () => {
+  it('OrgDO migrates through member audit columns (schema head 5)', async () => {
     const org = await provisionedOrg(`org-migrate-${crypto.randomUUID()}`);
-    expect(await org.getSchemaVersion()).toBe(4);
+    expect(await org.getSchemaVersion()).toBe(5);
     expect(await org.getAlarmSchedule('outbox')).not.toBeNull();
   });
 });

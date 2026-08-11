@@ -221,9 +221,9 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 
 | # | Behaviour | Layer |
 |---|---|---|
-| 1 | Clerk fault / inject fail on **list** → 200, rows present, `directory: 'unavailable'` | HTTP |
+| 1 | Clerk fault / inject fail on **list** → 200, rows present, `directory: 'unavailable'` (org **and** property) | HTTP |
 | 2 | Injected Clerk ok → `displayName` / `email` populated (must use inject; secrets unset locally) | HTTP |
-| 3 | Directory ok + unresolved id → dangling UI path (nulls, no page marker) | HTTP + SPA |
+| 3 | Directory ok + unresolved id → dangling UI path (nulls, no page marker) (org **and** property) | HTTP + SPA |
 | 4 | Property list `hasOrgRole` true/false | DO / HTTP |
 | 5 | List responses include `Cache-Control: private, no-store` | HTTP |
 | 6 | `409 already_member` body includes `userId` + `role` | HTTP |
@@ -259,6 +259,7 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 | 5 | Clerk Invitations | Membership leftover #2 |
 | 6 | Members list pagination / hard page cap | Phase-0 unbounded accepted |
 | 7 | Repo-wide cache headers on other identity-shaped routes | Lists fixed this slice via `/me` precedent |
+| 8 | Rooms fixture dates from inventory seed window | `dbca8f7` bumped literals to `2026-08-20` — dated fuse; derive from PropertyDO seed `fromDate` (today+1) instead |
 
 ---
 

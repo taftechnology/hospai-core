@@ -403,6 +403,89 @@ describe('membership HTTP families', () => {
     expect(body.members[0]).toMatchObject({ displayName: null, email: null });
   });
 
+  async function seedPropertyStaff(orgId: string, propertyId: string, owner: string, targetUserId: string) {
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setPropertyMember(
+      { kind: 'user', userId: owner },
+      propertyId,
+      { targetUserId, role: 'staff', mode: 'create' },
+    );
+  }
+
+  it('#1 property list: Clerk fault → 200 rows + directory unavailable (not org_unreachable)', async () => {
+    const owner = 'user_memh_dir_1p';
+    const { orgId, propertyId } = await provision(owner);
+    await seedPropertyStaff(orgId, propertyId, owner, 'user_prop_dir_1p');
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: false,
+      error: 'clerk_unreachable',
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: true;
+      members: Array<{ userId: string; displayName: string | null }>;
+      directory?: string;
+      error?: string;
+    };
+    expect(body.error).toBeUndefined();
+    expect(body.directory).toBe('unavailable');
+    expect(body.members.some((m) => m.userId === 'user_prop_dir_1p')).toBe(true);
+    expect(body.members.every((m) => m.displayName === null)).toBe(true);
+  });
+
+  it('#3 property list: directory ok + unresolved id → nulls without page marker', async () => {
+    const owner = 'user_memh_dir_3p';
+    const { orgId, propertyId } = await provision(owner);
+    await seedPropertyStaff(orgId, propertyId, owner, 'user_prop_dir_3p');
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: true,
+      byUserId: new Map(),
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      members: Array<{ displayName: string | null; email: string | null }>;
+      directory?: string;
+    };
+    expect(body.directory).toBeUndefined();
+    expect(body.members[0]).toMatchObject({ displayName: null, email: null });
+  });
+
+  it('#7 property list: inject throw → 200 + directory unavailable (not 500 / not org_unreachable)', async () => {
+    const owner = 'user_memh_dir_7p';
+    const { orgId, propertyId } = await provision(owner);
+    await seedPropertyStaff(orgId, propertyId, owner, 'user_prop_dir_7p');
+    __setLookupDirectoryByUserIdsForTest(async () => {
+      throw new Error('injected clerk blowup');
+    });
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      directory?: string;
+      members: unknown[];
+      error?: string;
+    };
+    expect(body.error).toBeUndefined();
+    expect(body.directory).toBe('unavailable');
+    expect(body.members.length).toBeGreaterThan(0);
+  });
+
   it('#5+#6: Cache-Control on property list; 409 already_member has userId+role', async () => {
     const owner = 'user_memh_dir_56';
     const { propertyId } = await provision(owner);
@@ -426,7 +509,7 @@ describe('membership HTTP families', () => {
           new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
             method: 'POST',
             headers: headers(owner),
-            body: JSON.stringify({ email: 'dup@example.com', role: 'staff' }),
+            body: JSON.stringify({ email: 'dup@example.com', role: 'admin' }),
           }),
           env,
         )
@@ -437,7 +520,7 @@ describe('membership HTTP families', () => {
       new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
         method: 'POST',
         headers: headers(owner),
-        body: JSON.stringify({ email: 'dup@example.com', role: 'admin' }),
+        body: JSON.stringify({ email: 'dup@example.com', role: 'staff' }),
       }),
       env,
     );
@@ -445,7 +528,7 @@ describe('membership HTTP families', () => {
     expect(await dup.json()).toEqual({
       error: 'already_member',
       userId: 'user_from_dup',
-      role: 'staff',
+      role: 'admin',
     });
   });
 

@@ -240,17 +240,18 @@ describe('OrgDO membership RPCs', () => {
     it('create → already_member; update → not_member when absent', async () => {
       const orgId = `org_mem_${crypto.randomUUID()}`;
       const org = await provisionedOrg(orgId);
+      // Existing role ≠ requested role so a hardcoded 'staff' / echo of request both fail.
       await org.setOrgMember(owner, {
-        targetUserId: 'user_a',
-        role: 'staff',
-        mode: 'create',
-      });
-      const dup = await org.setOrgMember(owner, {
         targetUserId: 'user_a',
         role: 'admin',
         mode: 'create',
       });
-      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'staff' });
+      const dup = await org.setOrgMember(owner, {
+        targetUserId: 'user_a',
+        role: 'staff',
+        mode: 'create',
+      });
+      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'admin' });
 
       const missing = await org.setOrgMember(owner, {
         targetUserId: 'user_missing',
@@ -267,15 +268,15 @@ describe('OrgDO membership RPCs', () => {
 
       await org.setPropertyMember(owner, propertyId, {
         targetUserId: 'user_prop_only',
-        role: 'staff',
+        role: 'admin',
         mode: 'create',
       });
       const dup = await org.setPropertyMember(owner, propertyId, {
         targetUserId: 'user_prop_only',
-        role: 'admin',
+        role: 'staff',
         mode: 'create',
       });
-      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'staff' });
+      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'admin' });
 
       await org.setOrgMember(owner, {
         targetUserId: 'user_org_staff',

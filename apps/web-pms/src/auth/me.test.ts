@@ -31,14 +31,22 @@ describe('me authority helpers', () => {
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me: baseMe })).toEqual([]);
   });
 
-  it('filterNavEntries: live with reservations:read → board only (no staff:read)', () => {
+  it('filterNavEntries: live with reservations:read (no write) → board only (hide staff + book)', () => {
     const me: PropertyMe = {
       ...baseMe,
       permissions: ['reservations:read', 'folio:read'],
     };
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
-      NAV_ENTRIES.filter((e) => e.id !== 'staff'),
+      NAV_ENTRIES.filter((e) => e.id !== 'staff' && e.id !== 'book'),
     );
+  });
+
+  it('filterNavEntries: live with reservations:write → includes Book', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'reservations:write', 'folio:read'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).toContain('book');
   });
 
   it('#8 filterNavEntries: staff role grants lack staff:read → hide Staff', () => {

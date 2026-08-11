@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { asClassified } from './client.js';
+import { BookRoute } from './screens/BookRoute.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
@@ -33,6 +34,7 @@ export function App() {
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="shift" element={<ShiftScreen />} />
             <Route path="shift/:shiftId" element={<ShiftScreen />} />
+            <Route path="book" element={<BookRoute />} />
             <Route path="staff" element={<StaffRoute />} />
           </Route>
           <Route path="sign-in" element={<p className="main">Sign in required</p>} />

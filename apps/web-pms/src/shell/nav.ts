@@ -12,5 +12,6 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'arrivals', label: 'Arrivals', path: '/arrivals', permission: 'reservations:read' },
   { id: 'in-house', label: 'In-house', path: '/in-house', permission: 'reservations:read' },
   { id: 'departures', label: 'Departures', path: '/departures', permission: 'reservations:read' },
+  { id: 'book', label: 'Book', path: '/book', permission: 'reservations:write' },
   { id: 'staff', label: 'Staff', path: '/staff', permission: 'staff:read' },
 ];

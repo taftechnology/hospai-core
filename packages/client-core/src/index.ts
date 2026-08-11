@@ -22,6 +22,15 @@ export { composeGuestStates, type GuestRowState } from './compose.js';
 export { accumulatePage } from './paging.js';
 export { createIdempotencyKey, stableKeyForOperation } from './idempotency.js';
 export {
+  MAX_AVAILABILITY_INCLUSIVE_NIGHTS,
+  addCalendarDays,
+  availabilityRangeForStay,
+  bookingReservationOpId,
+  selectableRoomTypeIds,
+  stayNightsExceedAvailabilityCap,
+  type AvailabilityItem,
+} from './booking.js';
+export {
   createClient,
   type FrontDeskItem,
   type PropertyRead,

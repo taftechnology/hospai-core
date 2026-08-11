@@ -67,6 +67,25 @@ export type FolioPaymentRow = {
   updatedAt: number;
 };
 
+export type AvailabilityRead = {
+  propertyId: string;
+  fromDate: string;
+  toDate: string;
+  ariVersion: number;
+  source: 'kv' | 'do';
+  cache: 'hit' | 'miss';
+  items: Array<{
+    roomTypeId: string;
+    stayDate: string;
+    physical: number;
+    blocked: number;
+    held: number;
+    sold: number;
+    oversell: number;
+    free: number;
+  }>;
+};
+
 function enc(s: string): string {
   return encodeURIComponent(s);
 }
@@ -550,6 +569,72 @@ export function createClient(opts: {
         },
         { reservationId },
       );
+    },
+
+    /**
+     * Deliberately no roomTypeId — booking quotes must use DO ariVersion (Branch 2), not KV min.
+     * HTTP accepts roomTypeId; this client method does not expose it.
+     */
+    async getAvailability(
+      propertyId: string,
+      range: { fromDate: string; toDate: string },
+    ): Promise<AvailabilityRead> {
+      const qs = new URLSearchParams({
+        fromDate: range.fromDate,
+        toDate: range.toDate,
+      });
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/availability?${qs.toString()}`,
+      );
+      return body as AvailabilityRead;
+    },
+
+    async createGuest(
+      propertyId: string,
+      input: { guestId: string; displayName: string; email?: string; phone?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const payload: Record<string, unknown> = {
+        guestId: input.guestId,
+        displayName: input.displayName,
+        idempotencyKey,
+      };
+      if (input.email !== undefined) payload.email = input.email;
+      if (input.phone !== undefined) payload.phone = input.phone;
+      return getJson(`/v1/properties/${enc(propertyId)}/guests`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async createReservation(
+      propertyId: string,
+      input: {
+        reservationId: string;
+        roomTypeId: string;
+        guestRef: string;
+        arrivalDate: string;
+        departureDate: string;
+        quoteAriVersion: number;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/reservations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          reservationId: input.reservationId,
+          roomTypeId: input.roomTypeId,
+          guestRef: input.guestRef,
+          arrivalDate: input.arrivalDate,
+          departureDate: input.departureDate,
+          quoteAriVersion: input.quoteAriVersion,
+          idempotencyKey,
+        }),
+      });
     },
   };
 }

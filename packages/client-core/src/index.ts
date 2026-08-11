@@ -37,6 +37,7 @@ export {
   type FolioRead,
   type ReservationRead,
   type FolioPaymentRow,
+  type AvailabilityRead,
 } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
 export { permissionForForbidden } from './permission-copy.js';

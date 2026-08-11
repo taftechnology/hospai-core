@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createClient, ClassifiedError } from '../src/api.js';
+import { bookingReservationOpId } from '../src/booking.js';
 import { createEntitlementStore } from '../src/entitlements-state.js';
 import { createQueuedCommandLog } from '../src/queued-commands.js';
 import type { Transport } from '../src/transport.js';
@@ -306,5 +307,81 @@ describe('createClient degraded writes', () => {
       'PATCH /v1/properties/prop_1/members/u2',
       'DELETE /v1/properties/prop_1/members/u2',
     ]);
+  });
+});
+
+describe('createClient booking', () => {
+  const entitlementsStub = () =>
+    createEntitlementStore({
+      loadSnapshot: async () => ({
+        orgId: 'o',
+        version: 1,
+        features: {},
+        limits: {},
+        computedAt: new Date(0).toISOString(),
+      }),
+    });
+
+  it('getAvailability omits roomTypeId from query', async () => {
+    let path = '';
+    const client = createClient({
+      transport: mockTransport((p) => {
+        path = p;
+        return new Response(
+          JSON.stringify({
+            propertyId: 'p',
+            fromDate: '2026-08-11',
+            toDate: '2026-08-11',
+            ariVersion: 3,
+            source: 'do',
+            cache: 'miss',
+            items: [],
+          }),
+          { status: 200 },
+        );
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    await client.getAvailability('p', { fromDate: '2026-08-11', toDate: '2026-08-11' });
+    expect(path).toContain('fromDate=2026-08-11');
+    expect(path).not.toMatch(/roomTypeId/);
+  });
+
+  it('createReservation always sends quoteAriVersion and reuses key for same opId', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({ ok: false, error: 'no_availability', date: '2026-08-11', ariVersion: 9 }),
+          { status: 409 },
+        );
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    const input = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      quoteAriVersion: 7,
+    };
+    const opId = bookingReservationOpId(input);
+    await expect(client.createReservation('p', input, opId)).rejects.toBeInstanceOf(ClassifiedError);
+    await expect(client.createReservation('p', input, opId)).rejects.toBeInstanceOf(ClassifiedError);
+    expect(bodies[0]?.quoteAriVersion).toBe(7);
+    expect(bodies[1]?.quoteAriVersion).toBe(7);
+    expect(bodies[0]?.idempotencyKey).toBe(bodies[1]?.idempotencyKey);
+
+    const opIdB = bookingReservationOpId({ ...input, roomTypeId: 'rt_b' });
+    await expect(
+      client.createReservation('p', { ...input, roomTypeId: 'rt_b' }, opIdB),
+    ).rejects.toBeInstanceOf(ClassifiedError);
+    expect(bodies[2]?.idempotencyKey).not.toBe(bodies[0]?.idempotencyKey);
   });
 });

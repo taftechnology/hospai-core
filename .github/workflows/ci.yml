@@ -26,6 +26,7 @@ jobs:
       - run: pnpm check:do-transport-guards
       - run: pnpm check:web-pms-colors
       - run: pnpm check:web-pms-me-gating
+      - run: pnpm check:pms-core-test-dates
       - run: pnpm typecheck
       # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).
       - run: pnpm exec turbo run test --filter=!@hospai/pms-core

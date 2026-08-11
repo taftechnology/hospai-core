@@ -7,6 +7,7 @@ import {
   AUDIT_WRITER_EXEMPTIONS,
   CONFIG_REGISTER,
   COMMAND_CATALOG,
+  INVENTORY_FAIL_CLOSED_NOTES,
   ENTITLEMENT_FAIL_CLOSED_OPT_OUT,
   EXCLUDED_PROTOTYPE_KEYS,
   PLATFORM_GAPS,
@@ -430,6 +431,17 @@ describe('command catalog', () => {
     expect(create?.notes).toBe(update?.notes);
     expect(create?.notes).toMatch(/KV permission projection/i);
     expect(create?.notes).toMatch(/pre-handler permission gate/i);
+  });
+
+  it('inventory-affecting reservation commands share INVENTORY_FAIL_CLOSED_NOTES', () => {
+    for (const id of [
+      'reservations.create',
+      'reservations.modify',
+      'reservations.cancel',
+      'reservations.no_show',
+    ] as const) {
+      expect(COMMAND_CATALOG.find((c) => c.id === id)?.notes).toBe(INVENTORY_FAIL_CLOSED_NOTES);
+    }
   });
 
   it('guests.erase remains FAIL_CLOSED with guests:erase', () => {

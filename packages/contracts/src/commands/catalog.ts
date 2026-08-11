@@ -39,6 +39,9 @@ export const PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES =
   'for GET property). Residual: D1 may lead the OrgDO mirror if OrgDO fails after ' +
   'D1 — client retry converges; both writes are idempotent.';
 
+export const INVENTORY_FAIL_CLOSED_NOTES =
+  'Inventory-affecting — must not invent stock during outage.';
+
 /**
  * Each entry has ONE degraded class. Compound prototype actions that mixed
  * FAIL_CLOSED with softer classes are split so an omission cannot silently
@@ -58,6 +61,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['reservation.created', 'availability.changed'],
     entitlement: 'pms.core',
     permission: 'reservations:write',
+    notes: INVENTORY_FAIL_CLOSED_NOTES,
   },
   // UPDATE_RESERVATION_STATUS split — inventory/legal transitions fail closed
   {
@@ -87,7 +91,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
-    notes: 'Inventory-affecting — must not invent stock during outage.',
+    notes: INVENTORY_FAIL_CLOSED_NOTES,
     entitlement: 'pms.core',
     permission: 'reservations:write',
   },
@@ -98,7 +102,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['reservation.status_changed', 'availability.changed'],
-    notes: 'Inventory-affecting — must not invent stock during outage.',
+    notes: INVENTORY_FAIL_CLOSED_NOTES,
     entitlement: 'pms.core',
     permission: 'reservations:write',
   },
@@ -140,6 +144,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['reservation.modified', 'availability.changed'],
     entitlement: 'pms.core',
     permission: 'reservations:write',
+    notes: INVENTORY_FAIL_CLOSED_NOTES,
   },
   {
     id: 'rooms.create',

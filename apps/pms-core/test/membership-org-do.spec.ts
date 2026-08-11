@@ -250,7 +250,7 @@ describe('OrgDO membership RPCs', () => {
         role: 'admin',
         mode: 'create',
       });
-      expect(dup).toEqual({ ok: false, error: 'already_member' });
+      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'staff' });
 
       const missing = await org.setOrgMember(owner, {
         targetUserId: 'user_missing',
@@ -258,6 +258,45 @@ describe('OrgDO membership RPCs', () => {
         mode: 'update',
       });
       expect(missing).toEqual({ ok: false, error: 'not_member' });
+    });
+
+    it('property create → already_member includes role; hasOrgRole true/false', async () => {
+      const orgId = `org_mem_${crypto.randomUUID()}`;
+      const propertyId = `prop_${crypto.randomUUID()}`;
+      const org = await provisionedOrg(orgId);
+
+      await org.setPropertyMember(owner, propertyId, {
+        targetUserId: 'user_prop_only',
+        role: 'staff',
+        mode: 'create',
+      });
+      const dup = await org.setPropertyMember(owner, propertyId, {
+        targetUserId: 'user_prop_only',
+        role: 'admin',
+        mode: 'create',
+      });
+      expect(dup).toEqual({ ok: false, error: 'already_member', role: 'staff' });
+
+      await org.setOrgMember(owner, {
+        targetUserId: 'user_org_staff',
+        role: 'staff',
+        mode: 'create',
+      });
+      await org.setPropertyMember(owner, propertyId, {
+        targetUserId: 'user_org_staff',
+        role: 'admin',
+        mode: 'create',
+      });
+
+      const listed = await org.listPropertyMembers(owner, propertyId);
+      expect(listed.ok).toBe(true);
+      if (!listed.ok) return;
+      expect(listed.members.find((m) => m.userId === 'user_prop_only')).toMatchObject({
+        hasOrgRole: false,
+      });
+      expect(listed.members.find((m) => m.userId === 'user_org_staff')).toMatchObject({
+        hasOrgRole: true,
+      });
     });
 
     it('admin cannot grant org admin (rank-below)', async () => {

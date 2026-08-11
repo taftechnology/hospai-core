@@ -74,13 +74,15 @@ function wouldLeaveZeroOwners(
   return Number(rows[0]?.c ?? 0) === 0;
 }
 
+type RankMembershipError = Exclude<MembershipError, 'already_member' | 'not_member'>;
+
 /** Org writes: strictly-below, plus symmetric owner↔owner peer ops. Self-raise forbidden. */
 function assertOrgRankAllowed(
   callerRole: OrgRole,
   requestedOrInvolved: OrgRole,
   currentRole: OrgRole | null,
   ctx: { actorUserId: string; targetUserId: string; removing?: boolean },
-): MembershipError | null {
+): RankMembershipError | null {
   if (
     ctx.actorUserId === ctx.targetUserId &&
     currentRole &&
@@ -104,7 +106,7 @@ function assertPropertyRankAllowed(
   requestedOrInvolved: OrgRole,
   currentRole: OrgRole | null,
   ctx: { actorUserId: string; targetUserId: string; removing?: boolean },
-): MembershipError | null {
+): RankMembershipError | null {
   if (
     ctx.actorUserId === ctx.targetUserId &&
     currentRole &&
@@ -564,7 +566,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
     input: { targetUserId: string; role: OrgRole; mode: 'create' | 'update' },
   ): Promise<
     | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
-    | { ok: false; error: MembershipError }
+    | { ok: false; error: 'already_member'; role: OrgRole }
+    | { ok: false; error: Exclude<MembershipError, 'already_member'> }
   > {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
@@ -590,7 +593,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
           .toArray()[0] as { role: string } | undefined;
 
         if (input.mode === 'create') {
-          if (existing) return { ok: false as const, error: 'already_member' as const };
+          if (existing) {
+            return {
+              ok: false as const,
+              error: 'already_member' as const,
+              role: existing.role as OrgRole,
+            };
+          }
           const rankErr = assertOrgRankAllowed(callerRole, input.role, null, {
             actorUserId: actor.userId,
             targetUserId: input.targetUserId,
@@ -769,6 +778,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           role: OrgRole;
           createdAt: number;
           updatedAt: number | null;
+          hasOrgRole: boolean;
         }>;
       }
     | { ok: false; error: MembershipError }
@@ -784,8 +794,12 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT user_id, role, created_at, updated_at FROM property_member
-         WHERE property_id = ? ORDER BY created_at ASC, user_id ASC`,
+        `SELECT pm.user_id, pm.role, pm.created_at, pm.updated_at,
+                CASE WHEN m.user_id IS NOT NULL THEN 1 ELSE 0 END AS has_org_role
+         FROM property_member pm
+         LEFT JOIN member m ON m.user_id = pm.user_id
+         WHERE pm.property_id = ?
+         ORDER BY pm.created_at ASC, pm.user_id ASC`,
         propertyId,
       )
       .toArray() as Array<{
@@ -793,6 +807,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       role: string;
       created_at: number;
       updated_at: number | null;
+      has_org_role: number;
     }>;
     return {
       ok: true,
@@ -801,6 +816,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
         role: r.role as OrgRole,
         createdAt: r.created_at,
         updatedAt: r.updated_at ?? r.created_at,
+        hasOrgRole: Number(r.has_org_role) === 1,
       })),
     };
   }
@@ -811,7 +827,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
     input: { targetUserId: string; role: OrgRole; mode: 'create' | 'update' },
   ): Promise<
     | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
-    | { ok: false; error: MembershipError }
+    | { ok: false; error: 'already_member'; role: OrgRole }
+    | { ok: false; error: Exclude<MembershipError, 'already_member'> }
   > {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
@@ -842,7 +859,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
           .toArray()[0] as { role: string } | undefined;
 
         if (input.mode === 'create') {
-          if (existing) return { ok: false as const, error: 'already_member' as const };
+          if (existing) {
+            return {
+              ok: false as const,
+              error: 'already_member' as const,
+              role: existing.role as OrgRole,
+            };
+          }
           const rankErr = assertPropertyRankAllowed(callerRole, input.role, null, {
             actorUserId: actor.userId,
             targetUserId: input.targetUserId,

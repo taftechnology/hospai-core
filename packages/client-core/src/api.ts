@@ -197,9 +197,17 @@ export function createClient(opts: {
           role: 'owner' | 'admin' | 'staff';
           createdAt: number;
           updatedAt: number | null;
+          displayName: string | null;
+          email: string | null;
         }>;
+        /** Present only when Clerk directory lookup failed; omit when ok. */
+        directory?: 'unavailable';
       };
     },
+    /**
+     * On conflict, `ClassifiedError.classified` is `client_error` / 409 with body
+     * `{ error: 'already_member', userId: string, role: 'owner' | 'admin' | 'staff' }`.
+     */
     async createOrgMember(
       orgId: string,
       input: { email: string; role: 'owner' | 'admin' | 'staff' },
@@ -243,9 +251,18 @@ export function createClient(opts: {
           role: 'owner' | 'admin' | 'staff';
           createdAt: number;
           updatedAt: number | null;
+          displayName: string | null;
+          email: string | null;
+          hasOrgRole: boolean;
         }>;
+        /** Present only when Clerk directory lookup failed; omit when ok. */
+        directory?: 'unavailable';
       };
     },
+    /**
+     * On conflict, `ClassifiedError.classified` is `client_error` / 409 with body
+     * `{ error: 'already_member', userId: string, role: 'owner' | 'admin' | 'staff' }`.
+     */
     async createPropertyMember(
       propertyId: string,
       input: { email: string; role: 'admin' | 'staff' },

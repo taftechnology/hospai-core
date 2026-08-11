@@ -179,7 +179,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'INTERACTIVE',
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
-    events: ['room.status_changed'],
+    events: ['room.status_changed', 'availability.changed'],
     permission: 'housekeeping:write',
   },
   {

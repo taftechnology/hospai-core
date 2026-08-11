@@ -1,7 +1,7 @@
 # Booking Wizard (reservation creation SPA)
 
 **Date:** 2026-08-11  
-**Status:** Accepted — plan at `docs/superpowers/plans/2026-08-11-booking-wizard.md`  
+**Status:** Accepted — implemented on `feat/booking-wizard`. Plan: `docs/superpowers/plans/2026-08-11-booking-wizard.md`.  
 **Sources:** ARCHITECTURE.md §4.6 / §7.1; command catalog `reservations.create` / `guests.create`; [availability read route](./2026-07-29-booking-availability-read-route-design.md); [guests PII vertical](./2026-08-06-guests-pii-vertical-design.md); [reservations vertical](./2026-08-04-reservations-vertical-design.md); [property `/me`](./2026-08-09-property-me-permissions-design.md); [front-desk SPA shell](./2026-08-07-front-desk-spa-shell-design.md); [folio front desk](./2026-08-08-folio-front-desk-design.md); [pms-core fixture dates](./2026-08-11-pms-core-fixture-dates-design.md); `packages/client-core` (`stableKeyForOperation`, `postGuestsBatch`); `apps/pms-core` `handlePostReservations` / `handleGetAvailability` / `logAriRejectOnCommit`
 
 **Implementation order:** Task 0 (catalog notes + `check:degraded` rule) → client-core methods → web-pms wizard. Task 0 is cherry-pickable without SPA work.

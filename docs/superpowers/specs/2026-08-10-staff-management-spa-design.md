@@ -259,7 +259,7 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 | 5 | Clerk Invitations | Membership leftover #2 |
 | 6 | Members list pagination / hard page cap | Phase-0 unbounded accepted |
 | 7 | Repo-wide cache headers on other identity-shaped routes | Lists fixed this slice via `/me` precedent |
-| 8 | Rooms fixture dates from inventory seed window | `dbca8f7` bumped literals to `2026-08-20` — dated fuse; derive from PropertyDO seed `fromDate` (today+1) instead |
+| 8 | Rooms fixture dates from inventory seed window | **Resolved** — [pms-core fixture dates](./2026-08-11-pms-core-fixture-dates-design.md): derive from property-local `business_date` / seed `fromDate` (stub read or `businessDateForInstant`). `dbca8f7` was a TZ-skew workaround, not a seed off-by-one. |
 
 ---
 

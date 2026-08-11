@@ -8,14 +8,18 @@ import {
   ROOM_UNITS_EXCEED_COUNT,
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
+import { addCalendarDays, daysFromPropertyToday } from './date-helpers';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 import { provisionedPropertyWithGuest } from './guest-helpers';
 
 /** Half-open [arrival, departure) adversarial fixtures from the plan. */
-// Keep arrivals after PropertyDO inventory seed fromDate (property-local today+1).
-const A = { arrival: '2026-08-20', departure: '2026-08-22' };
-const B_overlap = { arrival: '2026-08-21', departure: '2026-08-23' };
-const B_adjacent = { arrival: '2026-08-22', departure: '2026-08-24' };
+// Module-level: +1 is slack for a mid-run UTC rollover, not a property of the seed window —
+// the seed starts at business_date. FIXTURE_TZ must match provision TZ in this file (default UTC).
+const FIXTURE_TZ = 'UTC';
+const aArrival = daysFromPropertyToday(1, FIXTURE_TZ);
+const A = { arrival: aArrival, departure: addCalendarDays(aArrival, 2) };
+const B_overlap = { arrival: addCalendarDays(aArrival, 1), departure: addCalendarDays(aArrival, 3) };
+const B_adjacent = { arrival: addCalendarDays(aArrival, 2), departure: addCalendarDays(aArrival, 4) };
 
 async function addRoomType(
   stub: DurableObjectStub<PropertyDO>,

@@ -556,13 +556,22 @@ Otherwise done — no empty commit.
 
 ## Appendix A — Scan classification table
 
-**Scan `business_date` (UTC):** _fill in Task 4_  
-**Scan `business_date` (Europe/Berlin):** _fill in Task 4_  
-**Machine local at scan:** _fill in_  
-**N:** 25
+**Scan `business_date` (UTC):** `2026-08-11`  
+**Scan `business_date` (Europe/Berlin):** `2026-08-11`  
+**Machine local at scan:** `Tue Aug 11 2026 00:40:06 GMT-0700 (Pacific Daylight Time)`  
+**N:** 25  
+**SHIFT_EXCLUDE:** `date-helpers.spec.ts`  
+**Shards:** 1–4 collected (shard 3 green)
 
 | File | Site / literals | Bucket | Shape | Offset | Provision TZ (shape 2) |
 |------|-----------------|--------|-------|--------|-------------------------|
-| _pending Task 4_ | | | | | |
+| `rooms.spec.ts` | `A` / `B_overlap` / `B_adjacent` (`2026-08-20`…`2026-08-24`) — 6 booking tests → `ok: false` after −25 | Horizon / seed (`unbookable` via missing ledger) | 2 | ≥ 1 | `UTC` |
+| `rooms-routes.spec.ts` | same `A` / `B_*` — postReservation → 422 not 201 | Horizon / seed | 2 | ≥ 1 | `UTC` |
 
-_Rooms-only (or empty beyond rooms) is a valid completed appendix._
+**Ignored (not edit targets):**
+
+| File | Why |
+|------|-----|
+| `availability-read.spec.ts` Test 4 | Scan artifact: URL dates live inside a template string (not matched by quoted-literal regex); expects shifted → Expected `2026-07-07` Received `2026-08-01`. Original literals are already-past query bounds, not fuses. |
+
+_Rooms-only table is success — do not widen buckets._

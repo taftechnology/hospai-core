@@ -2085,7 +2085,43 @@ to a rule already stated in this document.
    commands. Each needs a lane (§4.2), a degraded-mode class (§4.6), an idempotency contract
    (§10.1), and its emitted events (§8).
 3. **Rebuild screens against live APIs**, module by module, following Phase 1 order (§14).
-   Preserve the interaction design; discard the state layer entirely.
+   Preserve the interaction design; discard the state layer entirely. *Interaction* design —
+   not visual identity, which §16.4 governs separately.
 4. **Keep the prototype runnable** as the behavioural reference for as long as Phase 1 lasts.
    When platform behaviour and prototype behaviour diverge, that is a product decision to
    record — in this document or the module's spec — not a bug to be silently resolved.
+
+### 16.4 Visual identity
+
+Rule 16 says *copy what it does, copy nothing of how it does it*, and §16.3 says *preserve the
+interaction design*. Visual identity — palette, typography, spacing, iconography, motion — sits
+between those two and was unnamed in earlier revisions. This section names it.
+
+**Interaction design is specification. Visual identity is reference.** Screen flow, step order,
+field grouping, affordance placement, and state vocabulary come from the prototype and are
+rebuilt faithfully per vertical. Its *appearance* is not binding: the platform is free to
+diverge, and today it does.
+
+| | Prototype | `apps/web-pms` today |
+|---|---|---|
+| Styling | Tailwind v4 `@theme` block | Hand-written CSS + `src/styles/tokens.css` |
+| Palette | Warm neutrals, sage `#4A5D4E`, tan `#C18C5D` | Cool greys, institutional blue `#1a4a6e` |
+| Icons / motion / charts | `lucide-react`, `motion`, `recharts` | none |
+| Contrast | unconstrained | `check:web-pms-colors` — WCAG AA 4.5:1 on every `--status-*-fg` |
+
+Two consequences worth stating, because both are easy to get wrong later:
+
+- **The contrast gate outranks the palette.** The prototype's colours were never designed
+  against `check:web-pms-colors`. Adopting them is a re-derivation of every status pair with
+  contrast proved, not a copy. The gate is not negotiable to win visual fidelity.
+- **`ui-kit` is extracted, not designed.** `packages/ui-kit` appears in the §11 layout and does
+  not exist yet — deliberately. A design system is extracted from screens that exist; building
+  it before the Phase 1 screens land means extracting from an incomplete sample.
+
+**When.** Convergence on a single visual system is a Phase 1 slice of its own, sequenced after
+the front-desk verticals are built, not a finishing pass and not a per-screen concern. Until
+that slice runs, screens ship against the existing token system and any visual divergence from
+the prototype is expected rather than debt. The slice owns three decisions: whether to adopt
+the prototype palette or re-skin existing token values; whether Tailwind enters the platform at
+all; and whether `ui-kit` becomes a package or stays inside `apps/web-pms` until a second
+consumer exists.

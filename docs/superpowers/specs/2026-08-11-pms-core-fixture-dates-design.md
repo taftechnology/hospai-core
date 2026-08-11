@@ -78,6 +78,8 @@ Prefer a window where **machine-local date ≠ UTC date** (evening PDT after 17:
 
 Do **not** use `process.env` probes inside pool-workers tests for offsets — env does not reach the workerd isolate.
 
+**Self-referential exclusion:** Skip files whose `YYYY-MM-DD` literals assert date arithmetic against pinned expectations (not stay fixtures). Shifting those moves expects while pinned instants (`'…T23:30:00.000Z'`) stay put → noise failures. Named exclusion set in the plan (`SHIFT_EXCLUDE`); start with `date-helpers.spec.ts`.
+
 ### Classification (by error, not pass/fail)
 
 | Bucket | Signal | Action |
@@ -199,7 +201,7 @@ This guards the seed-boundary contract and TZ discipline. It does **not** assert
 
 ### 5.2 Wrapper unit test (pms-core, not inventory package)
 
-**Deliberate home:** `apps/pms-core/test/date-helpers.test.ts` (dedicated file). Adding a vitest file re-partitions `--shard` boundaries; with `isolatedStorage: false` that can surface latent order-dependence in **unrelated** specs. Prefer a clear home for the helper + the §8 re-partition note over burying tests inside an existing file to dodge the file-count change.
+**Deliberate home:** `apps/pms-core/test/date-helpers.spec.ts` (dedicated file; `.spec.ts` to match the rest of `apps/pms-core/test/`). Adding a vitest file re-partitions `--shard` boundaries; with `isolatedStorage: false` that can surface latent order-dependence in **unrelated** specs. Prefer a clear home for the helper + the §8 re-partition note over burying tests inside an existing file to dodge the file-count change.
 
 Import **`propertyToday` from `date-helpers.ts`**, not `businessDateForInstant` alone. Risk is replacing the wrapper body with `new Date().toISOString().slice(0, 10)`.
 
@@ -282,7 +284,7 @@ With resolution pointing at this design: derive from property-local `business_da
 
 ## 8. Implementation order (for the plan)
 
-1. Add `date-helpers.ts` + `date-helpers.test.ts` (TDD the TZ-disagree case). **Shard re-partitioning:** adding a file moves vitest `--shard` boundaries; with `isolatedStorage: false`, an unrelated shard may go red from latent order-dependence. If a shard fails on a test this slice did not touch, suspect re-partitioning first — run that spec file alone before investigating the helper.
+1. Add `date-helpers.ts` + `date-helpers.spec.ts` (TDD the TZ-disagree case). **Shard re-partitioning:** adding a file moves vitest `--shard` boundaries; with `isolatedStorage: false`, an unrelated shard may go red from latent order-dependence. If a shard fails on a test this slice did not touch, suspect re-partitioning first — run that spec file alone before investigating the helper.
 2. Add Berlin before-window negative test; prove it fails if day 0 is wrong, then passes.
 3. Add `check:pms-core-test-dates` + CI wiring. Pre-existing hits are a verified no-op on today’s tree; only fix true day-0 ban hits if any appear.
 4. Run scan (N=25, 4 shards, clear `.wrangler`); produce table. Tiny/rooms-only table is success.

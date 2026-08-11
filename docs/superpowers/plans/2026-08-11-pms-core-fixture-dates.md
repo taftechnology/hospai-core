@@ -21,25 +21,27 @@
 - **Gate is preventive** — three bans have zero hits on today’s tree; no collateral required to land green.
 - **Unsharded pms-core test segfaults** — always shard `1/4`–`4/4`; clear `apps/pms-core/.wrangler` around full-suite / scan runs.
 - **Tiny/rooms-only scan table = success** — do not widen error buckets to manufacture edits.
+- **Scan `SHIFT_EXCLUDE`** — skip self-referential arithmetic-assert files (at least `date-helpers.spec.ts`); extend the named set when adding more.
 - **No production DO/handler changes** this slice.
 
 ### Reviewer mutation targets
 
 | Mutation | Must be caught by |
 |---|---|
-| Wrapper body → `new Date().toISOString().slice(0,10)` | `date-helpers.test.ts` UTC vs Berlin pinned instant |
+| Wrapper body → `new Date().toISOString().slice(0,10)` | `date-helpers.spec.ts` UTC vs Berlin pinned instant |
 | Negative test on UTC property only | Spec / review — CI hides the bug; plan requires Berlin |
 | Shape (2) `daysFromPropertyToday(1, 'UTC')` in a Berlin file | Scan table TZ column + review |
 | Comment “seed is today+1” regenerated | Spec wording + rooms rewrite steps |
 | Ban `.getUTCDate` as if it were `.getDate` | Gate must use `\.getDate\(\)` not UTC variants |
 | Widen scan buckets when table is tiny | Spec §3 — rooms-only is success |
+| Targeted verify filtered to zero tests (`-t` on wrong files) | Task 5 Step 5 — assert non-zero tests in each command’s output |
 
 ## File Structure
 
 | File | Responsibility |
 |------|----------------|
 | `apps/pms-core/test/date-helpers.ts` | `propertyToday`, `daysFromPropertyToday`, `addCalendarDays` |
-| `apps/pms-core/test/date-helpers.test.ts` | Wrapper unit tests (dedicated file — re-partitions shards; see Task 1 note) |
+| `apps/pms-core/test/date-helpers.spec.ts` | Wrapper unit tests (dedicated file — re-partitions shards; see Task 1 note) |
 | `apps/pms-core/test/reservations.spec.ts` | Berlin before-window negative test |
 | `scripts/pms-core-test-dates-check.mjs` | Grep gate |
 | `package.json` | `check:pms-core-test-dates` script |
@@ -55,18 +57,18 @@
 
 **Files:**
 - Create: `apps/pms-core/test/date-helpers.ts`
-- Create: `apps/pms-core/test/date-helpers.test.ts`
+- Create: `apps/pms-core/test/date-helpers.spec.ts`
 
 **Interfaces:**
 - Produces: `propertyToday(timeZone, instant?)`, `daysFromPropertyToday(offsetDays, timeZone, instant?)`, `addCalendarDays(isoDate, days)`
 - Consumes: `businessDateForInstant`, `enumerateFromDate` from `@hospai/pms-inventory`
 
-**Shard note:** Adding `date-helpers.test.ts` re-partitions vitest `--shard` file boundaries. With `isolatedStorage: false`, an unrelated shard may later go red from latent order-dependence. If that happens, run the failing spec **alone** before investigating this helper.
+**Shard note:** Adding `date-helpers.spec.ts` re-partitions vitest `--shard` file boundaries. With `isolatedStorage: false`, an unrelated shard may later go red from latent order-dependence. If that happens, run the failing spec **alone** before investigating this helper.
 
 - [ ] **Step 1: Write the failing wrapper tests**
 
 ```ts
-// apps/pms-core/test/date-helpers.test.ts
+// apps/pms-core/test/date-helpers.spec.ts
 import { describe, expect, it } from 'vitest';
 import { enumerateFromDate } from '@hospai/pms-inventory';
 import { addCalendarDays, daysFromPropertyToday, propertyToday } from './date-helpers';
@@ -100,7 +102,7 @@ describe('date-helpers (property-local day 0)', () => {
 - [ ] **Step 2: Run tests — expect FAIL (module missing)**
 
 ```bash
-pnpm --filter @hospai/pms-core exec vitest run test/date-helpers.test.ts
+pnpm --filter @hospai/pms-core exec vitest run test/date-helpers.spec.ts
 ```
 
 Expected: FAIL — cannot resolve `./date-helpers` or exports missing.
@@ -155,7 +157,7 @@ export function addCalendarDays(isoDate: string, days: number): string {
 - [ ] **Step 4: Run tests — expect PASS**
 
 ```bash
-pnpm --filter @hospai/pms-core exec vitest run test/date-helpers.test.ts
+pnpm --filter @hospai/pms-core exec vitest run test/date-helpers.spec.ts
 ```
 
 Expected: PASS (all four tests).
@@ -163,7 +165,7 @@ Expected: PASS (all four tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/pms-core/test/date-helpers.ts apps/pms-core/test/date-helpers.test.ts
+git add apps/pms-core/test/date-helpers.ts apps/pms-core/test/date-helpers.spec.ts
 git commit -m "$(cat <<'EOF'
 test(pms-core): add property-local date helpers
 
@@ -363,19 +365,33 @@ Prefer running when machine-local date ≠ UTC date; otherwise the −25 shift s
 # Do NOT commit. Do NOT use process.env probes inside workers tests.
 ```
 
+**Self-referential exclusion list:** The shift regex matches bare quoted `YYYY-MM-DD` literals. That corrupts tests whose literals are **self-referential** — they assert date arithmetic against pinned expectations rather than using dates as stay/arrival fixtures. The pinned *instant* (`'2026-08-10T23:30:00.000Z'`) is not matched (quote not adjacent to the day), so expectations move and computed values do not → guaranteed noise failures.
+
+Named exclusion set for this plan (extend when adding more arithmetic-assertion files):
+
+```js
+const SHIFT_EXCLUDE = new Set([
+  'date-helpers.spec.ts', // self-referential: pinned Y-M-D expectations vs propertyToday / addCalendarDays
+]);
+```
+
 Concrete approach (temporary in-tree, then `git checkout -- apps/pms-core/test`):
 
 ```bash
 node <<'NODE'
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 const root = 'apps/pms-core/test';
 const N = 25;
+/** Tests with self-referential Y-M-D literals (arithmetic asserts), not stay fixtures. */
+const SHIFT_EXCLUDE = new Set([
+  'date-helpers.spec.ts',
+]);
 function walk(d, out=[]) {
   for (const e of readdirSync(d)) {
     const p = join(d, e);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.ts$/.test(e)) out.push(p);
+    else if (/\.ts$/.test(e) && !SHIFT_EXCLUDE.has(e) && !SHIFT_EXCLUDE.has(basename(p))) out.push(p);
   }
   return out;
 }
@@ -389,7 +405,7 @@ for (const f of walk(root)) {
   const next = src.replace(/['"](\d{4}-\d{2}-\d{2})['"]/g, (all, iso) => all[0] + shift(iso) + all[0]);
   if (next !== src) writeFileSync(f, next);
 }
-console.log('shifted by', N);
+console.log('shifted by', N, 'excluded', [...SHIFT_EXCLUDE].join(', '));
 NODE
 ```
 
@@ -472,13 +488,19 @@ Prefer shape (1). For shape (2), copy TZ from appendix. Leave already-past liter
 
 In `docs/superpowers/specs/2026-08-10-staff-management-spa-design.md` leftovers table, replace item 8 notes with resolved text pointing at `2026-08-11-pms-core-fixture-dates-design.md`: derive from property-local `business_date` / seed `fromDate`; `dbca8f7` was a TZ-skew workaround, not a seed off-by-one.
 
-- [ ] **Step 5: Targeted verify**
+- [ ] **Step 5: Targeted verify (two commands — do not combine with `-t`)**
+
+`-t` filters across **all** listed files. The Berlin negative test lives only in `reservations.spec.ts`; combining it with rooms/helpers via one `-t` matches **zero** tests and reports success. Run separately and confirm each reports a **non-zero** test count:
 
 ```bash
-pnpm --filter @hospai/pms-core exec vitest run test/rooms.spec.ts test/rooms-routes.spec.ts test/date-helpers.test.ts -t 'before business_date'
+pnpm --filter @hospai/pms-core exec vitest run test/rooms.spec.ts test/rooms-routes.spec.ts test/date-helpers.spec.ts
+# Expect: Tests  N passed (N > 0) — rooms + helpers actually ran
+
+pnpm --filter @hospai/pms-core exec vitest run test/reservations.spec.ts -t 'before business_date'
+# Expect: Tests  1 passed (or N > 0 matching the filter) — not "0 tests"
 ```
 
-Expected: PASS. (Adjust file list if appendix added more.)
+(Adjust the first file list if appendix added more rewrite targets.)
 
 - [ ] **Step 6: Commit**
 

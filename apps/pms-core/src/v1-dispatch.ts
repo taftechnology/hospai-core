@@ -72,6 +72,7 @@ import { resolveOrgStub } from '@hospai/tenant-router';
 import { resolveActor, requirePermission, type Actor } from './auth.js';
 import {
   clerkUnreachableResponse,
+  lookupDirectoryByUserIds,
   lookupUserIdByEmail,
 } from './clerk-lookup.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
@@ -107,12 +108,51 @@ function membershipErrorResponse(
     case 'invalid_role':
       return json({ error }, 422);
     case 'already_member':
+      // Prefer alreadyMemberResponse from create handlers (includes userId + role).
       return json({ error }, 409);
     case 'not_member':
       return json({ error: 'not_member' }, 404);
     case 'forbidden':
       return json({ error: 'forbidden', permission }, 403);
   }
+}
+
+function alreadyMemberResponse(
+  userId: string,
+  role: 'owner' | 'admin' | 'staff',
+): Response {
+  return json({ error: 'already_member', userId, role }, 409);
+}
+
+type DirectoryFields = { displayName: string | null; email: string | null };
+
+async function enrichMembersDirectory<T extends { userId: string }>(
+  env: PmsEnv,
+  members: T[],
+): Promise<{ members: Array<T & DirectoryFields>; directory?: 'unavailable' }> {
+  let directory: 'unavailable' | undefined;
+  let byUserId = new Map<string, DirectoryFields>();
+  try {
+    const dir = await lookupDirectoryByUserIds(
+      env,
+      members.map((m) => m.userId),
+    );
+    if (!dir.ok) directory = 'unavailable';
+    else byUserId = dir.byUserId;
+  } catch {
+    directory = 'unavailable';
+  }
+  return {
+    members: members.map((m) => {
+      const entry = byUserId.get(m.userId);
+      return {
+        ...m,
+        displayName: entry?.displayName ?? null,
+        email: entry?.email ?? null,
+      };
+    }),
+    ...(directory ? { directory } : {}),
+  };
 }
 
 function isOrgRole(role: unknown): role is 'owner' | 'admin' | 'staff' {
@@ -1464,7 +1504,8 @@ async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
   try {
     const result = await org.listOrgMembers(actor);
     if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
-    return json({ ok: true, members: result.members }, 200);
+    const enriched = await enrichMembersDirectory(ctx.env, result.members);
+    return json({ ok: true, ...enriched }, 200, ME_HEADERS);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
     throw e;
@@ -1492,7 +1533,12 @@ async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       role: body.role,
       mode: 'create',
     });
-    if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
+    if (!result.ok) {
+      if (result.error === 'already_member') {
+        return alreadyMemberResponse(looked.userId, result.role);
+      }
+      return membershipErrorResponse(result.error, 'org:manage');
+    }
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
@@ -1560,7 +1606,8 @@ async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Respon
   try {
     const result = await org.listPropertyMembers(actor, propertyId);
     if (!result.ok) return membershipErrorResponse(result.error, 'staff:read');
-    return json({ ok: true, members: result.members }, 200);
+    const enriched = await enrichMembersDirectory(ctx.env, result.members);
+    return json({ ok: true, ...enriched }, 200, ME_HEADERS);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
     throw e;
@@ -1601,7 +1648,12 @@ async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       role: body.role,
       mode: 'create',
     });
-    if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
+    if (!result.ok) {
+      if (result.error === 'already_member') {
+        return alreadyMemberResponse(looked.userId, result.role);
+      }
+      return membershipErrorResponse(result.error, 'staff:write');
+    }
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();

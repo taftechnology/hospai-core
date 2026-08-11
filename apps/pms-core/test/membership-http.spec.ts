@@ -2,7 +2,10 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
-import { __setLookupUserIdByEmailForTest } from '../src/clerk-lookup.js';
+import {
+  __setLookupDirectoryByUserIdsForTest,
+  __setLookupUserIdByEmailForTest,
+} from '../src/clerk-lookup.js';
 import type { OrgDO } from '../src/org-do.js';
 import {
   ensurePlatformSchema,
@@ -64,6 +67,7 @@ describe('membership HTTP families', () => {
 
   afterEach(() => {
     __setLookupUserIdByEmailForTest(null);
+    __setLookupDirectoryByUserIdsForTest(null);
   });
 
   it('#1 HTTP: admin → org members routes forbidden/not_found gate', async () => {
@@ -320,5 +324,171 @@ describe('membership HTTP families', () => {
       env,
     );
     expect(deleted.status).toBe(200);
+  });
+
+  it('#1 list: Clerk fault → 200 rows + directory unavailable', async () => {
+    const owner = 'user_memh_dir_1';
+    const { orgId } = await provision(owner);
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: false,
+      error: 'clerk_unreachable',
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    const body = (await res.json()) as {
+      ok: true;
+      members: Array<{ userId: string; displayName: string | null }>;
+      directory?: string;
+    };
+    expect(body.directory).toBe('unavailable');
+    expect(body.members.some((m) => m.userId === owner)).toBe(true);
+    expect(body.members.every((m) => m.displayName === null)).toBe(true);
+  });
+
+  it('#2 list: inject ok → displayName/email populated', async () => {
+    const owner = 'user_memh_dir_2';
+    const { orgId } = await provision(owner);
+    __setLookupDirectoryByUserIdsForTest(async (_env, userIds) => ({
+      ok: true,
+      byUserId: new Map(
+        userIds.map((id) => [
+          id,
+          { displayName: `Name ${id}`, email: `${id}@example.com` },
+        ]),
+      ),
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      members: Array<{ userId: string; displayName: string | null; email: string | null }>;
+      directory?: string;
+    };
+    expect(body.directory).toBeUndefined();
+    const row = body.members.find((m) => m.userId === owner);
+    expect(row).toMatchObject({
+      displayName: `Name ${owner}`,
+      email: `${owner}@example.com`,
+    });
+  });
+
+  it('#3 list: directory ok + unresolved id → nulls without page marker (dangling)', async () => {
+    const owner = 'user_memh_dir_3';
+    const { orgId } = await provision(owner);
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: true,
+      byUserId: new Map(), // no entries resolved
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    const body = (await res.json()) as {
+      members: Array<{ displayName: string | null; email: string | null }>;
+      directory?: string;
+    };
+    expect(body.directory).toBeUndefined();
+    expect(body.members[0]).toMatchObject({ displayName: null, email: null });
+  });
+
+  it('#5+#6: Cache-Control on property list; 409 already_member has userId+role', async () => {
+    const owner = 'user_memh_dir_56';
+    const { propertyId } = await provision(owner);
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: true,
+      byUserId: new Map(),
+    }));
+
+    const list = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(list.status).toBe(200);
+    expect(list.headers.get('Cache-Control')).toBe('private, no-store');
+
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+            method: 'POST',
+            headers: headers(owner),
+            body: JSON.stringify({ email: 'dup@example.com', role: 'staff' }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+
+    const dup = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        method: 'POST',
+        headers: headers(owner),
+        body: JSON.stringify({ email: 'dup@example.com', role: 'admin' }),
+      }),
+      env,
+    );
+    expect(dup.status).toBe(409);
+    expect(await dup.json()).toEqual({
+      error: 'already_member',
+      userId: 'user_from_dup',
+      role: 'staff',
+    });
+  });
+
+  it('#7 list: inject throw → 200 + directory unavailable (not 500)', async () => {
+    const owner = 'user_memh_dir_7';
+    const { orgId } = await provision(owner);
+    __setLookupDirectoryByUserIdsForTest(async () => {
+      throw new Error('injected clerk blowup');
+    });
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { directory?: string; members: unknown[] };
+    expect(body.directory).toBe('unavailable');
+    expect(body.members.length).toBeGreaterThan(0);
+  });
+
+  it('property list includes hasOrgRole', async () => {
+    const owner = 'user_memh_hasorg';
+    const { orgId, propertyId } = await provision(owner);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setPropertyMember(
+      { kind: 'user', userId: owner },
+      propertyId,
+      { targetUserId: 'user_only', role: 'staff', mode: 'create' },
+    );
+    __setLookupDirectoryByUserIdsForTest(async () => ({
+      ok: true,
+      byUserId: new Map(),
+    }));
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/members`, {
+        headers: headers(owner),
+      }),
+      env,
+    );
+    const body = (await res.json()) as {
+      members: Array<{ userId: string; hasOrgRole: boolean }>;
+    };
+    expect(body.members.find((m) => m.userId === 'user_only')?.hasOrgRole).toBe(false);
   });
 });

@@ -18,9 +18,10 @@ import {
 } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 
-const A = { arrival: '2026-08-10', departure: '2026-08-12' };
-const B_overlap = { arrival: '2026-08-11', departure: '2026-08-13' };
-const B_adjacent = { arrival: '2026-08-12', departure: '2026-08-14' };
+// Keep arrivals after PropertyDO inventory seed fromDate (property-local today+1).
+const A = { arrival: '2026-08-20', departure: '2026-08-22' };
+const B_overlap = { arrival: '2026-08-21', departure: '2026-08-23' };
+const B_adjacent = { arrival: '2026-08-22', departure: '2026-08-24' };
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);

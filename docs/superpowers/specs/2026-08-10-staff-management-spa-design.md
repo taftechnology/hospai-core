@@ -1,7 +1,7 @@
 # Staff Management SPA
 
 **Date:** 2026-08-10  
-**Status:** Approved — plan at `docs/superpowers/plans/2026-08-10-staff-management-spa.md`. Rev 2 + DO `already_member` widens with `role`  
+**Status:** Accepted — implemented on `main`. Plan: `docs/superpowers/plans/2026-08-10-staff-management-spa.md`. Rev 2 + DO `already_member` widens with `role`  
 **Sources:** [membership management](./2026-08-10-membership-management-design.md) (leftover #3 SPA staff UI; leftover #6 invalidate-`me` across properties; leftover #9 forbidden-bodies); [property `/me`](./2026-08-09-property-me-permissions-design.md) (§2.4 hide/disable, §2.5 Authority, `ME_HEADERS`); `apps/web-pms` `filterNavEntries` / `Authority`; `packages/client-core` membership methods; `apps/pms-core` `clerk-lookup.ts` / OrgDO membership RPCs / list handlers
 
 **Implementation order:** after membership management (live on `main`). **Server list-shape + Clerk reverse lookup + 409 body + list cache headers first**, then SPA — SPA builds against final response shapes.
@@ -264,17 +264,17 @@ Deep-link lacking `staff:read` (live): **redirect** to first visible nav entry (
 
 ## 8. Acceptance checklist
 
-- [ ] Reverse lookup result union, never throws; list Clerk fault → 200 + marker (not 500 / not `org_unreachable`)
-- [ ] `directory: 'unavailable'` vs per-row null (dangling) distinguished in API + UI
-- [ ] `hasOrgRole`; Remove / confirm copy branches
-- [ ] List `Cache-Control: private, no-store`; `409` includes `userId` + `role`
-- [ ] Schema: no persisted directory columns; `check:ddl` green
-- [ ] No new audit / `V1_ROUTES` rows (DO `already_member` **does** widen with `role` — RPC, not audit)
-- [ ] Staff nav hide for staff; Org disable for admin; owner full
-- [ ] Self-demote + self org-DELETE confirms; self org-DELETE → no-access
-- [ ] Oracle copy; `already_member` redirect by body `userId`
-- [ ] Member queries: staleTime + no refetch-on-focus
-- [ ] Read-only `staff:read` without write labelled unexercisable / fabricated-me only
+- [x] Reverse lookup result union, never throws; list Clerk fault → 200 + marker (not 500 / not `org_unreachable`)
+- [x] `directory: 'unavailable'` vs per-row null (dangling) distinguished in API + UI
+- [x] `hasOrgRole`; Remove / confirm copy branches
+- [x] List `Cache-Control: private, no-store`; `409` includes `userId` + `role`
+- [x] Schema: no persisted directory columns; `check:ddl` green
+- [x] No new audit / `V1_ROUTES` rows (DO `already_member` **does** widen with `role` — RPC, not audit)
+- [x] Staff nav hide for staff; Org disable for admin; owner full
+- [x] Self-demote + self org-DELETE confirms; self org-DELETE → no-access
+- [x] Oracle copy; `already_member` redirect by body `userId`
+- [x] Member queries: staleTime + no refetch-on-focus
+- [x] Read-only `staff:read` without write labelled unexercisable / fabricated-me only
 
 ---
 

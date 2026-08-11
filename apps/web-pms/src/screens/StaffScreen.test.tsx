@@ -79,7 +79,7 @@ const adminMe = {
   orgPermissions: ['org:read'] as const,
 };
 
-function renderStaff(me = ownerMe) {
+function renderStaff(me: typeof ownerMe | typeof adminMe = ownerMe) {
   getMe.mockResolvedValue(me);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },

@@ -358,20 +358,25 @@ export function StaffScreen() {
                   ) : null}
                   {canWriteStaff ? (
                     <>
-                      <select
-                        aria-label={`Role for ${m.userId}`}
-                        value={m.role === 'owner' ? 'admin' : m.role}
-                        disabled={m.role === 'owner'}
-                        onChange={(e) =>
-                          void updatePropertyRole(m.userId, e.target.value as PropertyWriteRole)
-                        }
-                      >
-                        {PROPERTY_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                      {(PROPERTY_ROLES as readonly string[]).includes(m.role) ? (
+                        <select
+                          aria-label={`Role for ${m.userId}`}
+                          value={m.role}
+                          onChange={(e) =>
+                            void updatePropertyRole(m.userId, e.target.value as PropertyWriteRole)
+                          }
+                        >
+                          {PROPERTY_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="muted" data-testid={`property-role-readonly-${m.userId}`}>
+                          {m.role}
+                        </span>
+                      )}
                       <button type="button" onClick={() => void removePropertyMember(m)}>
                         Remove
                       </button>

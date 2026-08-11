@@ -75,5 +75,15 @@ for (const id of REPLAY_COMMAND_IDS) {
   }
 }
 
+for (const entry of COMMAND_CATALOG) {
+  if (!entry.events?.includes('availability.changed')) continue;
+  if (entry.degraded !== 'FAIL_CLOSED') {
+    console.error(
+      `Command ${entry.id} emits availability.changed but degraded=${entry.degraded} (must be FAIL_CLOSED)`,
+    );
+    failed = true;
+  }
+}
+
 if (failed) process.exit(1);
 console.log('check:degraded OK');

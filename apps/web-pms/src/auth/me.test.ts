@@ -31,12 +31,51 @@ describe('me authority helpers', () => {
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me: baseMe })).toEqual([]);
   });
 
-  it('filterNavEntries: live with reservations:read → show all', () => {
+  it('filterNavEntries: live with reservations:read → board only (no staff:read)', () => {
     const me: PropertyMe = {
       ...baseMe,
       permissions: ['reservations:read', 'folio:read'],
     };
-    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(NAV_ENTRIES);
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
+      NAV_ENTRIES.filter((e) => e.id !== 'staff'),
+    );
+  });
+
+  it('#8 filterNavEntries: staff role grants lack staff:read → hide Staff', () => {
+    // Mirrors ROLE_GRANTS.staff property-scoped set used by /me (no staff:*).
+    const me: PropertyMe = {
+      ...baseMe,
+      role: 'staff',
+      permissions: [
+        'property:read',
+        'inventory:read',
+        'reservations:read',
+        'reservations:write',
+        'guests:read',
+        'guests:write',
+        'rates:read',
+        'folio:read',
+        'folio:post',
+        'housekeeping:read',
+        'housekeeping:write',
+      ],
+      orgPermissions: ['org:read'],
+    };
+    const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
+    expect(filtered.map((e) => e.id)).not.toContain('staff');
+    expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
+  });
+
+  it('#8 filterNavEntries: fabricated me with staff:read → show Staff', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      role: 'admin',
+      permissions: ['reservations:read', 'staff:read', 'staff:write'],
+      orgPermissions: ['org:read'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).toContain(
+      'staff',
+    );
   });
 
   it('canShowShellOpen: pending false; unknown true; live needs folio:post', () => {

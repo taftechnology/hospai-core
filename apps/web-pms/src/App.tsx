@@ -6,6 +6,7 @@ import { BoardScreen } from './screens/BoardScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
+import { StaffRoute } from './screens/StaffRoute.js';
 import { AppShell } from './shell/AppShell.js';
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ export function App() {
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="shift" element={<ShiftScreen />} />
             <Route path="shift/:shiftId" element={<ShiftScreen />} />
+            <Route path="staff" element={<StaffRoute />} />
           </Route>
           <Route path="sign-in" element={<p className="main">Sign in required</p>} />
         </Routes>

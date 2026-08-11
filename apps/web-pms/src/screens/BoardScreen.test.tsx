@@ -38,13 +38,26 @@ const item = {
   arrivalDate: '2026-08-08',
 };
 
-function renderBoard(mode: 'arrivals' | 'departures' | 'in-house') {
+function renderBoard(
+  mode: 'arrivals' | 'departures' | 'in-house',
+  initialEntry: string | { pathname: string; search?: string; state?: unknown } = '/',
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const entries =
+    typeof initialEntry === 'string'
+      ? [initialEntry]
+      : [
+          {
+            pathname: initialEntry.pathname,
+            search: initialEntry.search ?? '',
+            state: initialEntry.state,
+          },
+        ];
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={entries}>
         <BoardScreen mode={mode} />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -85,4 +98,27 @@ describe('BoardScreen folio links', () => {
       });
     },
   );
+
+  it('arrivals seeds date from ?date= and shows created banner once', async () => {
+    renderBoard('arrivals', {
+      pathname: '/arrivals',
+      search: '?date=2026-09-14',
+      state: { createdReservationId: 'res_x' },
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId('board-date') as HTMLInputElement).value).toBe('2026-09-14');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('created-banner').textContent).toMatch(/res_x/);
+    });
+    expect(getArrivals.mock.calls.some((c) => c[1] === '2026-09-14')).toBe(true);
+  });
+
+  it('links Book for guest with guestRef', async () => {
+    renderBoard('arrivals');
+    await waitFor(() => {
+      const link = screen.getByRole('link', { name: /Book for guest/i });
+      expect(link.getAttribute('href')).toBe('/book?guestRef=g1');
+    });
+  });
 });

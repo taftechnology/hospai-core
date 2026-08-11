@@ -349,6 +349,11 @@ export function FolioScreen() {
           : null}
         {reservationQ.data?.roomId ? ` · room ${reservationQ.data.roomId}` : null}
       </p>
+      {guestRef ? (
+        <p>
+          <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`}>Book for guest</Link>
+        </p>
+      ) : null}
 
       {folioQ.isError ? (
         <p className="error" data-testid="folio-unread">

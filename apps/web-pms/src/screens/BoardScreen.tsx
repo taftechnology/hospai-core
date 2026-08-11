@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ClassifiedError,
   type FrontDeskItem,
@@ -23,6 +23,11 @@ export type { BoardMode };
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function dateFromSearchParam(raw: string | null): string | null {
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return null;
 }
 
 function asReservationStatus(value: unknown): ReservationStatus | null {
@@ -92,7 +97,10 @@ function BoardTable({
                 {mode === 'arrivals' ? (
                   <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
                 ) : null}{' '}
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
+                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
+                <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                  Book for guest
+                </Link>
               </td>
             </tr>
           );
@@ -140,9 +148,22 @@ function DeparturesBoard({
 }
 
 export function BoardScreen({ mode }: { mode: BoardMode }) {
-  const [date, setDate] = useState(todayUtc());
+  const [params] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const dateParam = dateFromSearchParam(params.get('date'));
+  const [date, setDate] = useState(() => dateParam ?? todayUtc());
   const [cursor, setCursor] = useState<string | null>(null);
   const timeZone = usePropertyTimeZone();
+  const [createdBanner, setCreatedBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    const state = location.state as { createdReservationId?: string } | null;
+    const id = state?.createdReservationId;
+    if (!id) return;
+    setCreatedBanner(id);
+    navigate('.', { replace: true, state: {} });
+  }, [location.state, navigate]);
 
   const listQ = useQuery({
     queryKey: ['board', mode, tenant.propertyId, date, cursor],
@@ -206,6 +227,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             Date{' '}
             <input
               type="date"
+              data-testid="board-date"
               value={date}
               onChange={(e) => {
                 setCursor(null);
@@ -215,6 +237,12 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           </label>
         ) : null}
       </header>
+
+      {createdBanner ? (
+        <p className="panel" role="status" data-testid="created-banner">
+          Reservation {createdBanner} created
+        </p>
+      ) : null}
 
       <div className="panel">
         {body}

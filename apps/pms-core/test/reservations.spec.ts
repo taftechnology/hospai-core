@@ -15,6 +15,7 @@ import {
 } from '@hospai/contracts';
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
+import { addCalendarDays } from './date-helpers';
 import { createGuest, idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
 
 /** Provisions org + property, then mints one org guest and returns its `guestRef`. */
@@ -131,6 +132,30 @@ describe('PropertyDO reservations.create + availability.book', () => {
     };
     const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, input, await idemFor('book-gap', input));
     expect(result).toEqual({ ok: false, error: UNBOOKABLE, date: gapDate });
+  });
+
+  it('rejects arrival before business_date as unbookable (Europe/Berlin)', async () => {
+    const name = `res-before-window-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'Europe/Berlin', 'EUR');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const day0 = (await stub.readBusinessDate())!;
+    expect(day0).toBe(added.fromDate);
+
+    const before = addCalendarDays(day0, -1);
+    const departure = addCalendarDays(before, 2);
+    const input = {
+      reservationId: 'res_before',
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: before,
+      departureDate: departure,
+    };
+    const result = await stub.tryCreateReservation(
+      TEST_OWNER_ACTOR,
+      input,
+      await idemFor('book-before', input),
+    );
+    expect(result).toEqual({ ok: false, error: UNBOOKABLE, date: before });
   });
 
   it('4. idempotency replay does not double-sell', async () => {

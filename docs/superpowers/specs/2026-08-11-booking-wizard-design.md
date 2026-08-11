@@ -23,7 +23,7 @@ Both server routes exist (`post_reservations`, `get_property_availability`). Gue
 1. **Task 0:** `INVENTORY_FAIL_CLOSED_NOTES` shared by create / modify / cancel / no_show; rule in `degraded-check.mjs`: `availability.changed` ∈ events ⇒ `FAIL_CLOSED` (no opt-out).
 2. **client-core:** `getAvailability` (no `roomTypeId` param), `createGuest`, `createReservation` (always send `quoteAriVersion`); booking opId composition via existing `stableKeyForOperation` — **no client fingerprint helper**.
 3. **web-pms:** Nav `Book` (`reservations:write`) → `/book`; wizard (dates → room-type picker → guest create or context guest); `?guestRef=` entry; success → `/arrivals?date=<arrivalDate>` + one-shot banner with `reservationId`.
-4. Commit / guest rejection UX per §2.4 (409 auto-re-read only for `no_availability`).
+4. Commit / guest rejection UX per §2.4 (branch on `body.error`; auto-re-read only for `no_availability`, never for `idempotency_key_reused`).
 5. Leftovers written (§7).
 
 ### Scope out
@@ -91,9 +91,12 @@ via existing `stableKeyForOperation`. Same type re-pick → same key (DO never c
 
 ### 2.4 Commit / guest rejection matrix
 
+**Branch on `body.error`, never on HTTP status alone.** `no_availability` and `idempotency_key_reused` are both 409 (`mapReservationCommandErrorStatus` / create handler). A status-only handler would treat key-reuse — a client bug or opId/fingerprint mismatch — as sold-out and silently re-read + clear selection, hiding the defect the opId design exists to prevent.
+
 | error | status | Recovery |
 |---|---|---|
 | `no_availability` | 409 | Surface `date`; auto re-read; clear type; keep guest/dates |
+| `idempotency_key_reused` | 409 | Client-side defect (opId/fingerprint drift). Surface a generic failure; **no** auto-retry, **no** re-read, **no** clearing selection |
 | `restriction_violated` | 422 | Surface `rule` / `date` / `required?`; point at **dates**; do not clear type as if sold out |
 | `unbookable` | 422 | Surface `date` (missing `availability_day` / horizon); operator adjusts dates |
 | `not_found` | 404 | Type archived since quote; re-read types; clear selection; no auto-retry of same type |
@@ -102,6 +105,8 @@ via existing `stableKeyForOperation`. Same type re-pick → same key (DO never c
 | `entitlement_required` (402) | — | Inherit 402-reactive store; no new proactive entitlement chrome |
 
 **Date-step (read-side, not commit):** availability rejects `toDate > fromDate + 89` with `date_range_exceeds_max` (400). Date step validates the 90-night cap locally before calling; still handle the wire error if it lands.
+
+**Type step — zero selectable:** a successful all-types read can return `ariVersion` with no type meeting `free >= 1` (empty property, or sold out across the stay). Distinct from §2.6 read failure: copy points at **dates** (“No room types available for these dates — adjust dates”), not retry. Confirm stays disabled (no `roomTypeId`).
 
 ### 2.5 Type-only, quantity-only
 
@@ -117,7 +122,7 @@ Labels = `roomTypeId`. No GET `/room-types`. Archived types zero `physical` forw
 
 Not new to the SPA. Same query retry as Board/ShiftStrip (`read_stale` ×2, `retryAfterMs`).
 
-**After retries exhausted:** **block the type step / Confirm** — do not commit on a failed quote. Confirm is enabled iff `quoteAriVersion` is non-null. Distinct from board (rendering slightly old rows is OK).
+**After retries exhausted:** **block the type step / Confirm** — do not commit on a failed quote. Clear / leave `quoteAriVersion` null. Distinct from board (rendering slightly old rows is OK). Full Confirm enablement is the §3.5 conjunction (quote alone is necessary, not sufficient).
 
 ### 2.7 Entry, defaults, success
 
@@ -192,13 +197,13 @@ Stay nights: `enumerateStayDates` half-open `[arrival, departure)`. Availability
 
 ### 3.5 Wizard state (session)
 
-Mint once on mount and hold: `guestId`, `reservationId`, `quoteAriVersion` (from last successful all-types read; cleared on read failure), dates, selected `roomTypeId`, guest profile / context mode.
+Mint once on mount and hold: `reservationId`; `guestId` (create-default path only — **unused in context mode**, where `guestRef` comes from the URL and `createGuest` must not fire); `quoteAriVersion` (from last successful all-types read; cleared on read failure); dates; selected `roomTypeId`; guest profile / context mode.
 
-**Steps:** (1) Dates → (2) Room type (read_stale retry; exhaust blocks Confirm) → (3) Guest create or context hydrate → (4) Confirm (`createGuest` if needed, then `createReservation`).
+**Steps:** (1) Dates → (2) Room type (read_stale retry; exhaust blocks Confirm; zero-selectable copy per §2.4) → (3) Guest create or context hydrate → (4) Confirm (`createGuest` only on create-default path when guest not yet created this session, then `createReservation`).
 
 Success → `navigate(/arrivals?date=${arrivalDate}, { state: { createdReservationId } })`.
 
-**Invariant:** Confirm enabled iff `quoteAriVersion != null`.
+**Invariant (conjunction):** Confirm enabled iff `quoteAriVersion != null && roomTypeId != null && guestResolved`. `guestResolved` means context hydrate succeeded **or** create-default profile fields are valid (and after first successful `createGuest` in-session, the held `guestRef` stands). The `quoteAriVersion` clause remains the interesting TOCTOU gate and keeps its own necessary-direction test; do not treat quote-alone as sufficient.
 
 ### 3.6 Permissions at call sites
 
@@ -240,11 +245,13 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 
 - Nav Book gated on `reservations:write`; BookRoute redirects without write.
 - Defaults use `propertyLocalToday` (+1 calendar arithmetic) — not `todayUtc` / local multi-arg `Date`.
-- Confirm disabled when `quoteAriVersion == null`.
-- Context `?guestRef=`: batch hydrate; skip create; held ids reused.
+- Confirm disabled when `quoteAriVersion == null` (necessary). Confirm disabled when quote present but no `roomTypeId` or guest unresolved (conjunction).
+- Zero selectable types after successful read: dates-adjustment copy; Confirm disabled.
+- Context `?guestRef=`: batch hydrate; skip create; held `reservationId` reused; minted `guestId` unused.
 - Session ids: guest create then failed book → retry does not mint a second `guestId` / `reservationId`.
-- **409 same-type retry:** after 409, re-picking the same type sends an **identical** `idempotencyKey` to the first attempt; different-type retry sends a different one (captured fetch across two calls in one screen test).
-- 409 path: surfaces `date`; clears type; keeps dates/guest; re-read updates quote version.
+- **409 same-type retry:** after `no_availability`, re-picking the same type sends an **identical** `idempotencyKey` to the first attempt; different-type retry sends a different one (captured fetch across two calls in one screen test).
+- `no_availability` path: surfaces `date`; clears type; keeps dates/guest; re-read updates quote version.
+- **`idempotency_key_reused` 409:** must **not** trigger re-read / clear-selection path; surfaces generic failure.
 - `restriction_violated` / `unbookable` / `not_found` (404): distinct recovery copy/state.
 - **90-night cap:** 91-night stay blocks without issuing availability request; wire `date_range_exceeds_max` still handled.
 - **Context-path guest error:** `guest_not_found` / `guest_already_erased` → clear invalid ref, fall back to create form.
@@ -267,7 +274,7 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 - [ ] client-core: `getAvailability` / `createGuest` / `createReservation` with required `quoteAriVersion` and booking opId
 - [ ] Nav Book + `/book` wizard (type-only, quantity-only, create-default guest + context path)
 - [ ] Session ids minted once; Confirm gated on `quoteAriVersion`
-- [ ] 409 / restriction / unbookable / not_found / context-guest recoveries per §2.4
+- [ ] Commit recoveries per §2.4 including `idempotency_key_reused` (no re-read) and zero-selectable copy
 - [ ] Success → arrivals dated board + banner with `reservationId`
 - [ ] Leftovers §7 recorded; multi-line gate residual explicitly out
 
@@ -278,7 +285,7 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 | # | Item | Notes |
 |---|---|---|
 | 1 | **Rates in booking** | `reservation` carries no `rate_plan_id`; `quoteStay` ([property-do.ts](../../../apps/pms-core/src/property-do.ts)) is DO-only and defaults to `DEFAULT_RATE_PLAN_ID`. Showing a total requires deciding whether a reservation *has* a plan — schema + create-shape — not just an HTTP route. Until then the wizard is quantity-only by decision. `RATE_MISSING` unreachable from create; booking widens operator reach of silent missing `rate_day`. BAR looks safe on a fresh property until a second plan exists. |
-| 2 | **Guest equality lookup** | Blind HMAC over normalized email/phone; key survives PII shred. Equality only — not prototype substring search. |
+| 2 | **Guest equality lookup** | Blind HMAC over normalized email/phone; key survives PII shred. Equality only — not prototype substring search. Abandoned wizard after step-3 `guests.create` leaves a guest with no reservation — legitimate standalone create, but without search that orphan is unreachable and will be re-created next visit, compounding this debt. |
 | 3 | **`BoardScreen` UTC seed** | [BoardScreen.tsx](../../../apps/web-pms/src/screens/BoardScreen.tsx) seeds `useState(todayUtc())` while severity uses `propertyLocalToday`. Not a one-line swap: `usePropertyTimeZone()` resolves after the initializer and can be `null`; `useState` never re-seeds. Needs `date: string \| null` with query gated, or a re-seed effect. Booking defaults use `propertyLocalToday` directly and do not inherit this. |
 | 4 | **Fingerprint field-set coupling** | Booking opId mirrors server fingerprint fields that exist only as an inline literal in `handlePostReservations`. Shared contracts export would want applying across ~10 fingerprinted routes — not this slice. |
 | 5 | **SPA date-helper gate counterpart** | Booking is a second site of property-local calendar arithmetic under `apps/web-pms`. `check:pms-core-test-dates` covers pms-core tests only. Future SPA gate possible; out of this slice. |

@@ -69,10 +69,10 @@
 - Produces: `export const INVENTORY_FAIL_CLOSED_NOTES = 'Inventory-affecting — must not invent stock during outage.'`
 - Consumes: none
 
-- [ ] **Step 1: Failing test** — in `register.test.ts` (near guests notes equality):
+- [ ] **Step 1: Failing test** — in `register.test.ts` (near guests notes equality). Import from `'./index.js'` (same as the rest of that file — `export * from './commands/catalog.js'` already re-exports the new constant):
 
 ```ts
-import { COMMAND_CATALOG, INVENTORY_FAIL_CLOSED_NOTES } from './commands/catalog.js';
+import { COMMAND_CATALOG, INVENTORY_FAIL_CLOSED_NOTES } from './index.js';
 
 it('inventory-affecting reservation commands share INVENTORY_FAIL_CLOSED_NOTES', () => {
   for (const id of [
@@ -86,13 +86,15 @@ it('inventory-affecting reservation commands share INVENTORY_FAIL_CLOSED_NOTES',
 });
 ```
 
+Expected FAIL after adding the test **and** defining/exporting the constant but **before** wiring `notes:` on the four entries (order the constant export in the same edit as the test so Step 2 fails on assertion, not module resolution).
+
 - [ ] **Step 2: Run**
 
 ```bash
 pnpm --filter @hospai/contracts test -- register.test.ts
 ```
 
-Expected: FAIL (constant missing / notes still inline literals not `===` constant).
+Expected: FAIL on `notes` identity (create/modify still missing or cancel/no_show still inline ≠ constant reference until Step 3).
 
 - [ ] **Step 3: Implement** — after `PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES`:
 
@@ -454,17 +456,49 @@ git commit -m "feat(client-core): getAvailability, createGuest, createReservatio
 - Create: `apps/web-pms/src/screens/BookRoute.tsx`
 - Create: `apps/web-pms/src/screens/BookRoute.test.tsx`
 - Modify: `apps/web-pms/src/App.tsx`
-- Modify: `apps/web-pms/src/auth/me.test.ts` — include Book in filterNavEntries cases if needed
+- Modify: `apps/web-pms/src/auth/me.test.ts` — **required** edits (see Step 1); not optional
 
 **Interfaces:**
 - Consumes: `hasPropertyPermission`, `meShellStateFromQuery` (StaffRoute shape)
 - Produces: nav entry `{ id: 'book', label: 'Book', path: '/book', permission: 'reservations:write' }`; `/book` mounts `BookRoute` → placeholder or `BookingScreen` (wire empty screen OK until Task 6)
 
-- [ ] **Step 1: Failing tests**
+- [ ] **Step 1: Failing / update tests (explicit `me.test.ts` edits)**
+
+`me.test.ts` today has a whole-set equality that **will break** when Book lands:
+
+```ts
+// live with reservations:read but NOT reservations:write
+expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
+  NAV_ENTRIES.filter((e) => e.id !== 'staff'), // breaks: actual also excludes 'book'
+);
+```
+
+**Required edits in the same task:**
+
+1. Rename that test to reflect board-only (no write, no staff) — e.g. `live with reservations:read (no write) → board only (hide staff + book)`.
+2. Change the filter to exclude both:
+
+```ts
+expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
+  NAV_ENTRIES.filter((e) => e.id !== 'staff' && e.id !== 'book'),
+);
+```
+
+3. Add the positive case (same file):
+
+```ts
+it('filterNavEntries: live with reservations:write → includes Book', () => {
+  const me: PropertyMe = {
+    ...baseMe,
+    permissions: ['reservations:read', 'reservations:write', 'folio:read'],
+  };
+  expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).toContain('book');
+});
+```
+
+(`#8` staff-grants case already lists `reservations:write` and only asserts Staff hidden / arrivals present — Book appearing there is correct; no change required unless the assertion is tightened.)
 
 `BookRoute.test.tsx` — mirror `StaffRoute.test.tsx`: live me without `reservations:write` → Navigate to `/arrivals`; with write → renders outlet/child; unknown authority → fail-open render.
-
-`me.test.ts` — `filterNavEntries` with live staff (has `reservations:write`) includes Book; fabricated me lacking write excludes it.
 
 - [ ] **Step 2: Run**
 
@@ -679,19 +713,32 @@ git commit -m "feat(web-pms): arrivals date query, created banner, book-for-gues
 ### Task 9: Spec status + acceptance sweep
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-08-11-booking-wizard-design.md` — Status → Accepted — implemented (or “plan at …” while landing; flip to implemented when Tasks 1–8 merged)
+- Modify: `docs/superpowers/specs/2026-08-11-booking-wizard-design.md` — Status → Accepted — implemented when Tasks 1–8 are merged
 
-- [ ] **Step 1: Run full relevant checks**
+- [ ] **Step 1: Full gate** (match prior slice close-out — not a subset)
 
 ```bash
 pnpm --filter @hospai/contracts test
-pnpm check:degraded
 pnpm --filter @hospai/client-core test
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/web-pms test
+pnpm typecheck
+pnpm lint
+pnpm check:ddl
+pnpm check:entitlements
+pnpm check:permissions
+pnpm check:degraded
+pnpm check:class-denylist
+pnpm check:forbidden-bodies
+pnpm check:do-transport-guards
+pnpm check:web-pms-colors
+pnpm check:web-pms-me-gating
+pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 2: Tick acceptance** in spec §6 mentally against canaries; leave leftovers §7 untouched as open.
+`check:web-pms-colors` and `check:forbidden-bodies` are the ones most likely to catch new screen markup / accidental handler-shaped strings. `check:web-pms-me-gating` should stay green if `BookRoute` copies StaffRoute’s `hasPropertyPermission` shape (no `ROLE_GRANTS` import, no `role ===` gating).
+
+- [ ] **Step 2: Tick acceptance** in spec §6 against canaries; leave leftovers §7 open.
 
 - [ ] **Step 3: Commit** docs status if changed.
 
@@ -708,6 +755,6 @@ git commit -m "docs: mark booking wizard design implemented"
 
 **Spec coverage:** Task 0 → T1–T2; client methods → T3–T4; wizard → T5–T7; arrivals/context → T8; leftovers explicitly not tasked. Confirm conjunction, `idempotency_key_reused`, zero-selectable, 90-night, context guest error, session ids, Branch-2 quote — covered in T6–T7.
 
-**Placeholders:** none intentional.
+**Copy-instructions (not TBDs):** Task 4 `api.test.ts` snippets use `entitlements: /* same stub as other tests */` — expand to the full `createEntitlementStore({ loadSnapshot: … })` block already used in that file when implementing. 90/91 fixtures in Task 3 are verified against the wire cap (`fromDate+89`).
 
 **Type consistency:** `bookingReservationOpId` / `AvailabilityRead` / `quoteAriVersion: number` required on create input — same names across T3–T7.

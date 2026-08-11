@@ -33,6 +33,7 @@
 | Shape (2) `daysFromPropertyToday(1, 'UTC')` in a Berlin file | Scan table TZ column + review |
 | Comment “seed is today+1” regenerated | Spec wording + rooms rewrite steps |
 | Ban `.getUTCDate` as if it were `.getDate` | Gate must use `\.getDate\(\)` not UTC variants |
+| `addCalendarDays` uses local `new Date(y, m, d)` | Gate ban 4 — multi-arg `new Date` at paren-depth 1 |
 | Widen scan buckets when table is tiny | Spec §3 — rooms-only is success |
 | Targeted verify filtered to zero tests (`-t` on wrong files) | Task 5 Step 5 — assert non-zero tests in each command’s output |
 

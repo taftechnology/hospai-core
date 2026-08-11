@@ -22,6 +22,22 @@ const BANS = [
   },
 ];
 
+/** True if `new Date(...)` has a comma at paren-depth 1 (local multi-arg ctor). Allows `new Date(Date.UTC(...))`. */
+function hasLocalMultiArgDate(line) {
+  const re = /new\s+Date\s*\(/g;
+  let m;
+  while ((m = re.exec(line))) {
+    let depth = 1;
+    for (let i = m.index + m[0].length; i < line.length && depth > 0; i++) {
+      const ch = line[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      else if (ch === ',' && depth === 1) return true;
+    }
+  }
+  return false;
+}
+
 function walk(dir, out = []) {
   for (const ent of readdirSync(dir)) {
     const p = join(dir, ent);
@@ -40,6 +56,9 @@ for (const file of walk(testRoot)) {
       if (ban.re.test(lines[i])) {
         hits.push(`${relative(root, file)}:${i + 1}: ${ban.name}`);
       }
+    }
+    if (hasLocalMultiArgDate(lines[i])) {
+      hits.push(`${relative(root, file)}:${i + 1}: local multi-arg new Date(y, m, d)`);
     }
   }
 }

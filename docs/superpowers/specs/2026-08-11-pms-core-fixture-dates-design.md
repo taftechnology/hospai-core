@@ -219,21 +219,25 @@ Also cover `daysFromPropertyToday(0|1, 'UTC', fixedInstant)` against `enumerateF
 
 **Include.** CI cannot see machine-local day-0 bugs on UTC fixtures; unit/negative tests cover the helper, not the next `getDate()` in a new file.
 
-**Preventive only on today’s tree:** the three banned patterns have **zero hits** under `apps/pms-core/test/` (verified 2026-08-11). Adding the check needs no collateral edits; §8 “fix pre-existing hits” is a no-op unless someone lands a ban between now and implementation.
+**Preventive only on today’s tree:** the banned patterns have **zero hits** under `apps/pms-core/test/` (verified 2026-08-11; fourth ban added same day). Adding the check needs no collateral edits; §8 “fix pre-existing hits” is a no-op unless someone lands a ban between now and implementation.
 
 Scope: **`apps/pms-core/test/**` only.** Checked non-goal: web-pms tests contain zero clock-derived dates; `propertyLocalToday(timeZone, now = new Date())` already takes the zone explicitly — nothing to gate there. Documented so “why only pms-core?” is not an unexamined boundary.
 
-**Forbidden patterns** (do not false-positive on held-date `addDays`):
+**Forbidden patterns** (do not false-positive on held-date `addDays` or `new Date(Date.UTC(...))`):
 
 | Ban | Notes |
 |---|---|
 | `toLocaleDateString` | machine-local calendar |
 | `.getDate()` / `.getMonth()` / `.getFullYear()` | does **not** match `getUTCDate` / `getUTCMonth` / `getUTCFullYear` |
 | `new Date().toISOString().slice(0, 10)` (flexible whitespace) | does **not** match `d.toISOString().slice(0, 10)` on a held variable |
+| Local multi-arg `new Date(y, m, d)` | comma at paren-depth 1; allows `new Date(Date.UTC(...))` / single-arg ISO strings. Catches `addCalendarDays` swapping `Date.UTC` for local ctor — invisible on PDT laptops and UTC CI, wrong east of Greenwich |
 
-**Ship only if the script stays tiny (~30 lines).** If pattern-crafting balloons, cut to review-enforced and say so in the plan — but the three patterns above should fit. Wire like existing root `check:*` scripts; allowlist by explicit exception list if a true false positive appears later.
+**Ship only if the script stays tiny.** Wire like existing root `check:*` scripts; allowlist by explicit exception list if a true false positive appears later.
 
-**Residual risk the gate cannot see:** shape-(2) `timeZone` mismatch vs provision (see §4). Mitigations: hard prefer shape (1); scan table records required TZ per shape-(2) site.
+**Residual risks the gate cannot see:**
+
+1. **Shape-(2) `timeZone` mismatch vs provision** (see §4). Mitigations: hard prefer shape (1); scan table records required TZ per shape-(2) site.
+2. **Hardcoded stay/arrival literals.** Reverting rooms to `'2026-08-20'` passes the gate and the suite until time catches up. By design the gate bans wall-clock *derivation*, not literals; a dated literal is only wrong once the calendar advances. Nothing prevents reintroducing one except the next shift scan (or review). Do not over-read the gate as “no hardcodes allowed.”
 
 ---
 

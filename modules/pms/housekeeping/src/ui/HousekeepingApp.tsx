@@ -14,6 +14,14 @@ export type HousekeepingAssignment = {
   assigneeRef: string;
 };
 
+export type HousekeepingRosterPerson = {
+  staffId: string;
+  displayName?: string;
+  status: string;
+  exitedAt: number | null;
+  kinds: string[];
+};
+
 export type HousekeepingApi = {
   listRooms: (propertyId: string) => Promise<{ ok: true; rooms: HousekeepingRoom[] }>;
   listHousekeepingAssignments: (
@@ -26,6 +34,14 @@ export type HousekeepingApi = {
     status: string,
     opId: string,
   ) => Promise<unknown>;
+  listRoster: (
+    propertyId: string,
+    query?: { kind?: string },
+  ) => Promise<{ ok: true; staff: HousekeepingRosterPerson[] }>;
+  assignHousekeeping: (
+    propertyId: string,
+    input: { roomId: string; businessDate: string; assigneeRef: string; idempotencyKey: string },
+  ) => Promise<unknown>;
 };
 
 export type HousekeepingAppProps = {
@@ -33,13 +49,23 @@ export type HousekeepingAppProps = {
   /** YYYY-MM-DD default for the board date control. */
   defaultBusinessDate: string;
   api: HousekeepingApi;
+  canAssign: boolean;
   classifyError?: (err: unknown) => { class?: string } | undefined;
 };
+
+function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
+  return (
+    person.status === 'active' &&
+    person.exitedAt == null &&
+    person.kinds.includes('housekeeper')
+  );
+}
 
 export function HousekeepingApp({
   propertyId,
   defaultBusinessDate,
   api,
+  canAssign,
   classifyError,
 }: HousekeepingAppProps) {
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
@@ -55,6 +81,11 @@ export function HousekeepingApp({
     queryFn: () => api.listHousekeepingAssignments(propertyId, businessDate),
   });
 
+  const rosterQuery = useQuery({
+    queryKey: ['roster', propertyId, 'housekeeper'],
+    queryFn: () => api.listRoster(propertyId, { kind: 'housekeeper' }),
+  });
+
   const byRoom = useMemo(() => {
     const map = new Map<string, string>();
     for (const a of assignmentsQuery.data?.assignments ?? []) {
@@ -62,6 +93,19 @@ export function HousekeepingApp({
     }
     return map;
   }, [assignmentsQuery.data]);
+
+  const displayNameByStaffId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const person of rosterQuery.data?.staff ?? []) {
+      if (person.displayName) map.set(person.staffId, person.displayName);
+    }
+    return map;
+  }, [rosterQuery.data]);
+
+  const assignable = useMemo(
+    () => (rosterQuery.data?.staff ?? []).filter(isAssignableHousekeeper),
+    [rosterQuery.data],
+  );
 
   const statusMutation = useMutation({
     mutationFn: (input: { roomId: string; status: string }) =>
@@ -76,10 +120,28 @@ export function HousekeepingApp({
     },
   });
 
+  const assignMutation = useMutation({
+    mutationFn: (input: { roomId: string; assigneeRef: string }) =>
+      api.assignHousekeeping(propertyId, {
+        roomId: input.roomId,
+        businessDate,
+        assigneeRef: input.assigneeRef,
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['housekeeping-assignments', propertyId, businessDate],
+      });
+    },
+  });
+
   const roomsClass = roomsQuery.isError ? classifyError?.(roomsQuery.error)?.class : undefined;
   const assignClass = assignmentsQuery.isError
     ? classifyError?.(assignmentsQuery.error)?.class
     : undefined;
+
+  const emptyRoster =
+    canAssign && rosterQuery.isSuccess && assignable.length === 0;
 
   return (
     <div>
@@ -104,6 +166,8 @@ export function HousekeepingApp({
         </div>
       )}
 
+      {emptyRoster && <p>No housekeepers on the roster</p>}
+
       <table data-testid="hk-board">
         <thead>
           <tr>
@@ -114,31 +178,62 @@ export function HousekeepingApp({
           </tr>
         </thead>
         <tbody>
-          {(roomsQuery.data?.rooms ?? []).map((room) => (
-            <tr key={room.roomId}>
-              <td>{room.code}</td>
-              <td>
-                <select
-                  aria-label={`Status for ${room.code}`}
-                  defaultValue={room.status}
-                  onChange={(e) => {
-                    const status = e.target.value;
-                    if (status !== room.status) {
-                      statusMutation.mutate({ roomId: room.roomId, status });
-                    }
-                  }}
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>{byRoom.get(room.roomId) ?? '—'}</td>
-              <td />
-            </tr>
-          ))}
+          {(roomsQuery.data?.rooms ?? []).map((room) => {
+            const assigneeRef = byRoom.get(room.roomId);
+            const assigneeLabel = assigneeRef
+              ? (displayNameByStaffId.get(assigneeRef) ?? assigneeRef)
+              : '—';
+            return (
+              <tr key={room.roomId}>
+                <td>{room.code}</td>
+                <td>
+                  <select
+                    aria-label={`Status for ${room.code}`}
+                    defaultValue={room.status}
+                    onChange={(e) => {
+                      const status = e.target.value;
+                      if (status !== room.status) {
+                        statusMutation.mutate({ roomId: room.roomId, status });
+                      }
+                    }}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>{assigneeLabel}</td>
+                <td>
+                  {canAssign && assignable.length > 0 ? (
+                    <select
+                      aria-label={`Assign ${room.code}`}
+                      defaultValue=""
+                      onChange={(e) => {
+                        const assignee = e.target.value;
+                        if (assignee) {
+                          assignMutation.mutate({
+                            roomId: room.roomId,
+                            assigneeRef: assignee,
+                          });
+                        }
+                      }}
+                    >
+                      <option value="" disabled>
+                        Assign
+                      </option>
+                      {assignable.map((person) => (
+                        <option key={person.staffId} value={person.staffId}>
+                          {person.displayName ?? person.staffId}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

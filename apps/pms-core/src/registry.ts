@@ -1,19 +1,37 @@
 import type { PlanCode, PropertyRecord } from '@hospai/contracts';
 import { validateTenantId } from '@hospai/contracts';
-import { PLATFORM_ALL_STATEMENTS } from '@hospai/do-runtime';
+import {
+  PLATFORM_ALL_STATEMENTS,
+  PLATFORM_PURGE_ALTERS,
+  PLATFORM_PURGE_STATEMENTS,
+} from '@hospai/do-runtime';
 import type { Jurisdiction } from '@hospai/tenant-router';
 import type { PmsEnv } from './env.js';
 
 let schemaReady: Promise<void> | null = null;
 
+async function tableHasColumn(db: D1Database, table: string, column: string): Promise<boolean> {
+  const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  return (results ?? []).some((r) => r.name === column);
+}
+
 /**
  * Apply Platform D1 registry DDL via discrete statements (safe for triggers).
  * Call from write paths / test setup only — not on every read.
+ * Order: base schema → purge ALTERs (PRAGMA-gated) → purge tables/triggers.
  */
 export async function ensurePlatformSchema(db: D1Database): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
       for (const stmt of PLATFORM_ALL_STATEMENTS) {
+        await db.prepare(stmt).run();
+      }
+      for (const alter of PLATFORM_PURGE_ALTERS) {
+        if (!(await tableHasColumn(db, alter.table, alter.column))) {
+          await db.prepare(alter.sql).run();
+        }
+      }
+      for (const stmt of PLATFORM_PURGE_STATEMENTS) {
         await db.prepare(stmt).run();
       }
     })().catch((err) => {
@@ -259,6 +277,139 @@ export async function trySetSubscriptionStatus(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+export async function trySetOrgStatus(
+  env: PmsEnv,
+  orgId: string,
+  status: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(`UPDATE org SET status = ? WHERE org_id = ?`)
+      .bind(status, orgId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function trySetPropertyStatus(
+  env: PmsEnv,
+  propertyId: string,
+  status: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(`UPDATE property SET status = ? WHERE property_id = ?`)
+      .bind(status, propertyId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function tryDeleteOrg(
+  env: PmsEnv,
+  orgId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(`DELETE FROM org WHERE org_id = ?`).bind(orgId).run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function tryDeleteProperty(
+  env: PmsEnv,
+  propertyId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(`DELETE FROM property WHERE property_id = ?`).bind(propertyId).run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function tryUpdatePurgeCertificate(
+  env: PmsEnv,
+  certificateId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(
+      `UPDATE purge_certificate SET halt_reason = 'mutated' WHERE certificate_id = ?`,
+    )
+      .bind(certificateId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function tryDeletePurgeCertificate(
+  env: PmsEnv,
+  certificateId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  try {
+    await env.PLATFORM_DB.prepare(`DELETE FROM purge_certificate WHERE certificate_id = ?`)
+      .bind(certificateId)
+      .run();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Test-only: insert a purge_certificate row (bypasses app helpers). */
+export async function insertPurgeCertificateRaw(
+  env: PmsEnv,
+  row: {
+    certificateId: string;
+    workflowId: string;
+    kind: 'guest' | 'org';
+    orgId: string | null;
+    outcome?: 'certified' | 'halted';
+  },
+): Promise<void> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const now = Date.now();
+  await env.PLATFORM_DB.prepare(
+    `INSERT INTO purge_certificate (
+      certificate_id, workflow_id, kind, org_id, subject_json, stores_json, limitations_json,
+      operator_user_id, outcome, halt_reason, started, recorded_at, certified
+    ) VALUES (?, ?, ?, ?, '{}', '[]', '[]', NULL, ?, NULL, ?, ?, NULL)`,
+  )
+    .bind(
+      row.certificateId,
+      row.workflowId,
+      row.kind,
+      row.orgId,
+      row.outcome ?? 'halted',
+      now,
+      now,
+    )
+    .run();
+}
+
+/** Test-only: stamp purge_not_before so closing→purging is allowed by trigger. */
+export async function setOrgPurgeNotBefore(
+  env: PmsEnv,
+  orgId: string,
+  purgeNotBefore: number,
+): Promise<void> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  await env.PLATFORM_DB.prepare(`UPDATE org SET purge_not_before = ? WHERE org_id = ?`)
+    .bind(purgeNotBefore, orgId)
+    .run();
 }
 
 /** Test-only: set operational kill-switch for a feature key. */

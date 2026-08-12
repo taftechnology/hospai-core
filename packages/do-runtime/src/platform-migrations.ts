@@ -113,10 +113,120 @@ export const PLATFORM_ENTITLEMENT_STATEMENTS_ALL: string[] = [
   ...PLATFORM_ENTITLEMENT_SEED_STATEMENTS,
 ];
 
+/** Phase 0 platform constant — org cancel → earliest purge (document in DPA). */
+export const ORG_PURGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Additive columns — applied via PRAGMA table_info gate (not blind ALTER). */
+export const PLATFORM_PURGE_ALTERS: ReadonlyArray<{ table: string; column: string; sql: string }> = [
+  { table: 'org', column: 'closing_at', sql: `ALTER TABLE org ADD COLUMN closing_at INTEGER` },
+  {
+    table: 'org',
+    column: 'purge_not_before',
+    sql: `ALTER TABLE org ADD COLUMN purge_not_before INTEGER`,
+  },
+];
+
+/**
+ * §4.8 purge certificate + tenant lifecycle triggers.
+ * ALTERs are listed in PLATFORM_PURGE_ALTERS (not here) so ensurePlatformSchema can gate them.
+ */
+export const PLATFORM_PURGE_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS purge_certificate (
+  certificate_id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('guest', 'org')),
+  org_id TEXT,
+  subject_json TEXT NOT NULL,
+  stores_json TEXT NOT NULL,
+  limitations_json TEXT NOT NULL,
+  operator_user_id TEXT,
+  outcome TEXT NOT NULL CHECK (outcome IN ('certified', 'halted')),
+  halt_reason TEXT,
+  started INTEGER NOT NULL,
+  recorded_at INTEGER NOT NULL,
+  certified INTEGER
+)`,
+
+  `CREATE INDEX IF NOT EXISTS purge_certificate_org_kind_recorded_idx
+ON purge_certificate (org_id, kind, recorded_at)`,
+
+  `CREATE INDEX IF NOT EXISTS purge_certificate_workflow_idx
+ON purge_certificate (workflow_id)`,
+
+  `CREATE TRIGGER IF NOT EXISTS org_no_delete
+BEFORE DELETE ON org
+BEGIN
+  SELECT RAISE(ABORT, 'org rows are retained; update status instead');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS property_no_delete
+BEFORE DELETE ON property
+BEGIN
+  SELECT RAISE(ABORT, 'property rows are retained; update status instead');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS org_status_insert
+BEFORE INSERT ON org
+BEGIN
+  SELECT RAISE(ABORT, 'org status must be active on insert')
+  WHERE NEW.status NOT IN ('active');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS org_status_update
+BEFORE UPDATE OF status ON org
+BEGIN
+  SELECT RAISE(ABORT, 'org status transition forbidden')
+  WHERE NOT (
+    (OLD.status = 'active' AND NEW.status = 'closing')
+    OR (OLD.status = 'closing' AND NEW.status = 'active')
+    OR (OLD.status = 'closing' AND NEW.status = 'purging')
+    OR (OLD.status = 'purging' AND NEW.status = 'purged')
+    OR (OLD.status = NEW.status)
+  );
+  SELECT RAISE(ABORT, 'org closing→purging requires purge_not_before')
+  WHERE OLD.status = 'closing' AND NEW.status = 'purging' AND NEW.purge_not_before IS NULL;
+  SELECT RAISE(ABORT, 'org purged is terminal')
+  WHERE OLD.status = 'purged' AND NEW.status IS NOT OLD.status;
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS property_status_insert
+BEFORE INSERT ON property
+BEGIN
+  SELECT RAISE(ABORT, 'property status must be active on insert')
+  WHERE NEW.status NOT IN ('active');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS property_status_update
+BEFORE UPDATE OF status ON property
+BEGIN
+  SELECT RAISE(ABORT, 'property status transition forbidden')
+  WHERE NOT (
+    (OLD.status = 'active' AND NEW.status = 'purging')
+    OR (OLD.status = 'purging' AND NEW.status = 'purged')
+    OR (OLD.status = NEW.status)
+  );
+  SELECT RAISE(ABORT, 'property purged is terminal')
+  WHERE OLD.status = 'purged' AND NEW.status IS NOT OLD.status;
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS purge_certificate_no_update
+BEFORE UPDATE ON purge_certificate
+BEGIN
+  SELECT RAISE(ABORT, 'purge_certificate is append-only');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS purge_certificate_no_delete
+BEFORE DELETE ON purge_certificate
+BEGIN
+  SELECT RAISE(ABORT, 'purge_certificate is append-only');
+END`,
+];
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
   ...PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
+  // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
 
 /** D1 seed feature keys — kept in sync with @hospai/contracts FEATURE_KEYS via check:entitlements. */
@@ -130,5 +240,9 @@ export const PLATFORM_ENTITLEMENT_SQL =
 
 export const PLATFORM_SUBSCRIPTION_INVARIANT_SQL =
   PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS.join(';\n\n') + ';\n';
+
+/** Wrangler migration body — ALTERs first, then idempotent CREATE/TRIGGER statements. */
+export const PLATFORM_PURGE_SQL =
+  [...PLATFORM_PURGE_ALTERS.map((a) => a.sql), ...PLATFORM_PURGE_STATEMENTS].join(';\n\n') + ';\n';
 
 export const PLATFORM_ALL_SQL = PLATFORM_ALL_STATEMENTS.join(';\n\n') + ';\n';

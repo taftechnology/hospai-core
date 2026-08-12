@@ -1,7 +1,9 @@
 export type Jurisdiction = 'eu' | 'us' | 'fedramp';
 
-export type OrgStatus = 'active' | 'suspended';
-export type PropertyStatus = 'active' | 'suspended' | 'provisioning';
+/** Tenant lifecycle (§4.8). Billing `subscription.status` is a separate vocabulary. */
+export type OrgStatus = 'active' | 'closing' | 'purging' | 'purged' | 'suspended';
+/** Property has no `closing` — cascade goes active → purging. */
+export type PropertyStatus = 'active' | 'purging' | 'purged' | 'suspended' | 'provisioning';
 export type MemberRole = 'owner' | 'admin' | 'staff';
 
 export type OrgRecord = {

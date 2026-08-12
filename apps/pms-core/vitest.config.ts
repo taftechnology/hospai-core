@@ -16,7 +16,7 @@ export default defineWorkersConfig({
       workers: {
         // Queue consumer binding requires a single worker — one consumer per queue name.
         // isolatedStorage must stay false: @cloudflare/vitest-pool-workers refuses true when
-        // the wrangler project defines Workflows (NightAuditWorkflow, MigrationSweepWorkflow).
+        // the wrangler project defines Workflows (NightAuditWorkflow, MigrationSweepWorkflow, PurgeWorkflow).
         // That is a pool hard-error, not a shared-state preference — so the unbounded D1/DO
         // accumulation under singleWorker is mitigated by CI/local sharding, not isolation.
         singleWorker: true,

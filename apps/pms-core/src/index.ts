@@ -9,6 +9,7 @@ import { OrgDO } from './org-do.js';
 import { PropertyDO } from './property-do.js';
 import { NightAuditWorkflow } from './night-audit-workflow.js';
 import { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
+import { PurgeWorkflow } from './purge-workflow.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import {
   DEDUPE_TTL_SEC,
@@ -26,6 +27,7 @@ export { OrgDO } from './org-do.js';
 export { OrgEntitlementDO } from './org-entitlement-do.js';
 export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
+export { PurgeWorkflow } from './purge-workflow.js';
 export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
 function json(data: unknown, status = 200): Response {

@@ -7,6 +7,30 @@ export type NightAuditWorkflowParams = { propertyId: string };
 /** RPC payload for `MigrationSweepWorkflow` — dev-actor userId for audit trail. */
 export type MigrationSweepParams = { triggeredBy: string; pageLimit?: number };
 
+/** RPC payload for `PurgeWorkflow` — caller-computed `workflowId` always. */
+export type PurgeWorkflowParams =
+  | {
+      kind: 'guest';
+      /** Caller-computed: `guestPurgeWorkflowId(guestRef)` — never derive from `event.id`. */
+      workflowId: string;
+      orgId: string;
+      guestRef: string;
+      piiKeyId: string;
+      operatorUserId: string | null;
+      started: number;
+    }
+  | {
+      kind: 'org';
+      /** Caller-computed: `nextOrgPurgeWorkflowId(env, orgId)`. */
+      workflowId: string;
+      orgId: string;
+      operatorUserId: string;
+      started: number;
+      /** Injectable clocks — production omits. */
+      nowMs?: number;
+      retentionMs?: number;
+    };
+
 export type PmsEnv = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
   ORG_DO: DurableObjectNamespace<OrgDO>;
@@ -20,6 +44,8 @@ export type PmsEnv = {
   EVENT_DEDUPE_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;
   MIGRATION_SWEEP_WORKFLOW: Workflow<MigrationSweepParams>;
+  /** §4.8 cross-store purge — guest erase + org cancel/purge. */
+  PURGE_WORKFLOW: Workflow<PurgeWorkflowParams>;
   PLATFORM_DB: D1Database;
   /** ARI projection — availability_day rows projected by the event consumer. */
   ARI_KV: KVNamespace;

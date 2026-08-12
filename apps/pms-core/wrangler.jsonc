@@ -85,6 +85,11 @@
       "binding": "MIGRATION_SWEEP_WORKFLOW",
       "name": "hospai-migration-sweep",
       "class_name": "MigrationSweepWorkflow"
+    },
+    {
+      "binding": "PURGE_WORKFLOW",
+      "name": "hospai-purge",
+      "class_name": "PurgeWorkflow"
     }
   ],
   "d1_databases": [

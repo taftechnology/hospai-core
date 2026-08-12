@@ -21,7 +21,7 @@ Phase 2's premise (§14: build the channel manager as a strictly gated module wi
 ### 1.1 Scope in
 
 1. **`packages/contracts` + `packages/kernel`** — module-facing types (`ModuleManifest`, `ModuleTxnCtx`, `SyncUseCase`, …) live in **contracts** so modules never import kernel. Kernel keeps zod `defineModule` + static `MODULE_REGISTRY` (validates on registration). Wire-or-delete dead `defineConfig`.
-2. **`modules/pms/housekeeping`** — §5 anatomy **minus `jobs/`** (none this chunk): `domain/`, `application/`, `infrastructure/`, `api/`, `events/`, `ui/` + server and UI manifests under `src/` (see §3.1).
+2. **`modules/pms/housekeeping`** — §5 anatomy **as materialized this chunk:** `domain/`, `application/`, `ui/` + server/UI manifests under `src/` (see §3.1). **As-built vs §5 full list:** no `jobs/` (none this chunk); no `infrastructure/` (use cases take txn-scoped `ModuleTxnCtx` / bare `ModuleSql` — ports would be YAGNI until a second store appears); no `api/` folder (`index.ts` re-exports the server manifest); no `events/` folder (declared in manifest `publishes` / outbox payloads). Empty folders are worse than an honest shortfall — module #2 should copy this layout, not invent empty dirs to “match §5.”
 3. **Thin PropertyDO for these commands only** (RPC signatures preserved for `REPLAY_DISPATCH`):
    - `rooms.update_status` → `tryUpdateRoomStatus`
    - `rooms.bulk_update_status` → `tryBulkUpdateRoomStatus`
@@ -52,7 +52,7 @@ Phase 2's premise (§14: build the channel manager as a strictly gated module wi
 
 ### 1.4 Acceptance (mechanism proven when all hold)
 
-- A second module can be registered without editing `packages/kernel` internals (only the hand registry list).
+- A second module can be registered without editing `packages/kernel` internals — only the hand registry list **plus** a workspace dependency entry in `packages/kernel/package.json`.
 - Housekeeping board renders from the SPA registry; nav entry gated on `housekeeping:read`.
 - The three DO RPC entrypoints remain callable from `REPLAY_DISPATCH` with unchanged signatures; existing rooms/housekeeping + degraded-mode tests stay green; **net-new** provisional-extras assertions on those three paths stay green through extraction.
 - `property-do.ts` net line delta is negative for the moved methods (body → thin preamble + module call).
@@ -233,7 +233,7 @@ import { defineModule } from './define-module.js';
 export const MODULE_REGISTRY = [defineModule(housekeeping)] as const;
 ```
 
-Adding a second module = new package + one import/wrap line in the registry — no kernel internals edit. Package main/exports for `.` must resolve the **server** manifest only; UI is a separate `@hospai/pms-housekeeping/ui` subpath.
+Adding a second module = new package + one import/wrap line in the registry + a dependency entry in `packages/kernel/package.json` — no kernel internals edit. Package main/exports for `.` must resolve the **server** manifest only; UI is a separate `@hospai/pms-housekeeping/ui` subpath.
 
 ### 3.3 SPA registry — no `kernel` dependency
 
@@ -286,7 +286,7 @@ Existing degraded-mode tests (e.g. test 23 `housekeeping.assign`, test 22 room s
 
 1. **Write characterization assertions before extraction** (first move of step 2) for all three moved commands — against pre-extraction code — that replayed outbox events carry `provisional`, `issuedAt`, and `replayedAt`. Then extract; those tests prove survival.
 2. Keep existing degraded-mode + rooms/housekeeping tests green through extraction (real DO → real in-process module; do not mock the module away in DO tests).
-3. Module-unit tests with `MemorySql` + captured `appendOutbox` for domain behavior.
+3. Module-unit tests with `MemorySql` + captured `appendOutbox` for domain behavior — **as-built:** all four moved use cases + `isStaffRef` / `isRoomStatus` (shared `memory-sql.fixture.ts`).
 4. At least one **DO integration assertion per moved mutation** remains mandatory for the binder (module unit tests cannot see DO-side provisional merging).
 
 ### 4.2 SPA assign deferred

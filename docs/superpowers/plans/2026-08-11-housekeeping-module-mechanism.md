@@ -801,7 +801,7 @@ git commit -m "chore: wire module-manifest CI and refresh README test count"
 
 ## Acceptance checklist (from spec §1.4)
 
-- [x] Second module can register with only a registry import line (no kernel internals edit)
+- [x] Second module can register with registry import line + kernel `package.json` dependency (no kernel internals edit)
 - [x] Board renders from SPA registry; nav gated on `housekeeping:read`
 - [x] Three DO RPCs unchanged for `REPLAY_DISPATCH`; characterization extras green post-extract
 - [x] `property-do.ts` net line delta negative for moved methods

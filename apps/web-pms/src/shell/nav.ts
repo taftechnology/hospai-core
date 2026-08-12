@@ -4,14 +4,15 @@ export type NavEntry = {
   id: string;
   label: string;
   path: string;
+  order: number;
   permission?: PropertyScopedPermission;
 };
 
-/** Plain data — a later module registry concatenates contributions here. */
+/** Core SPA contribution — module UI registry concatenates alongside this. */
 export const NAV_ENTRIES: NavEntry[] = [
-  { id: 'arrivals', label: 'Arrivals', path: '/arrivals', permission: 'reservations:read' },
-  { id: 'in-house', label: 'In-house', path: '/in-house', permission: 'reservations:read' },
-  { id: 'departures', label: 'Departures', path: '/departures', permission: 'reservations:read' },
-  { id: 'book', label: 'Book', path: '/book', permission: 'reservations:write' },
-  { id: 'staff', label: 'Staff', path: '/staff', permission: 'staff:read' },
+  { id: 'arrivals', label: 'Arrivals', path: '/arrivals', order: 10, permission: 'reservations:read' },
+  { id: 'in-house', label: 'In-house', path: '/in-house', order: 20, permission: 'reservations:read' },
+  { id: 'departures', label: 'Departures', path: '/departures', order: 30, permission: 'reservations:read' },
+  { id: 'book', label: 'Book', path: '/book', order: 40, permission: 'reservations:write' },
+  { id: 'staff', label: 'Staff', path: '/staff', order: 50, permission: 'staff:read' },
 ];

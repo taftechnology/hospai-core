@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ALL_NAV } from '../shell/module-ui-registry.js';
 import { NAV_ENTRIES } from '../shell/nav.js';
 import {
   canShowShellOpen,
@@ -104,6 +105,26 @@ describe('me authority helpers', () => {
       permissions: ['folio:post', 'folio:read'],
     };
     expect(hasPropertyPermission(me, 'folio:adjust')).toBe(false);
+  });
+
+  it('filterNavEntries: live with housekeeping:read includes housekeeping from ALL_NAV', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'housekeeping:read', 'folio:read'],
+    };
+    expect(filterNavEntries(ALL_NAV, { kind: 'live', me }).map((e) => e.id)).toContain(
+      'housekeeping',
+    );
+  });
+
+  it('filterNavEntries: live without housekeeping:read hides housekeeping', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'folio:read'],
+    };
+    expect(filterNavEntries(ALL_NAV, { kind: 'live', me }).map((e) => e.id)).not.toContain(
+      'housekeeping',
+    );
   });
 
   it('meShellStateFromQuery: 404 → no_access; unauthorized → unauthorized; fail_closed → unknown', () => {

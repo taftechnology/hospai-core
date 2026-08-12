@@ -9,7 +9,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { ExceptionsPanel } from '../screens/ExceptionsPanel.js';
-import { NAV_ENTRIES } from './nav.js';
+import { ALL_NAV } from './module-ui-registry.js';
 import { PropertyTimeZoneProvider } from './PropertyTimeZone.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
@@ -55,7 +55,7 @@ export function AppShell() {
   }
 
   const authority: Authority = shell.authority;
-  const navEntries = filterNavEntries(NAV_ENTRIES, authority);
+  const navEntries = filterNavEntries(ALL_NAV, authority);
 
   return (
     <PropertyTimeZoneProvider>

@@ -636,5 +636,83 @@ export function createClient(opts: {
         }),
       });
     },
+    async listRooms(
+      propertyId: string,
+      query?: { roomTypeId?: string; status?: string },
+    ): Promise<{
+      ok: true;
+      rooms: Array<{
+        roomId: string;
+        roomTypeId: string;
+        code: string;
+        status: string;
+        floor: string | null;
+        createdAt: number;
+        updatedAt: number;
+      }>;
+    }> {
+      const qs = new URLSearchParams();
+      if (query?.roomTypeId) qs.set('roomTypeId', query.roomTypeId);
+      if (query?.status) qs.set('status', query.status);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/rooms${q ? `?${q}` : ''}`,
+      );
+      return body as {
+        ok: true;
+        rooms: Array<{
+          roomId: string;
+          roomTypeId: string;
+          code: string;
+          status: string;
+          floor: string | null;
+          createdAt: number;
+          updatedAt: number;
+        }>;
+      };
+    },
+    async listHousekeepingAssignments(
+      propertyId: string,
+      businessDate: string,
+    ): Promise<{
+      ok: true;
+      assignments: Array<{
+        assignmentId: string;
+        roomId: string;
+        businessDate: string;
+        assigneeRef: string;
+        createdAt: number;
+        updatedAt: number;
+      }>;
+    }> {
+      const qs = new URLSearchParams({ businessDate });
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/assignments?${qs}`,
+      );
+      return body as {
+        ok: true;
+        assignments: Array<{
+          assignmentId: string;
+          roomId: string;
+          businessDate: string;
+          assigneeRef: string;
+          createdAt: number;
+          updatedAt: number;
+        }>;
+      };
+    },
+    async updateRoomStatus(
+      propertyId: string,
+      roomId: string,
+      status: string,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status, idempotencyKey }),
+      });
+    },
   };
 }

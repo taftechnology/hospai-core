@@ -12,3 +12,4 @@ export * from './permissions.js';
 export * from './v1-http-routes.js';
 export * from './reservation-status.js';
 export * from './money.js';
+export * from './sync.js';

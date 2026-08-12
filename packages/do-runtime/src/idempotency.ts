@@ -1,4 +1,4 @@
-import type { IdempotencyKey } from '@hospai/contracts';
+import type { IdempotencyKey, Sync } from '@hospai/contracts';
 import type { SqlStorageLike } from './index.js';
 
 /**
@@ -15,11 +15,12 @@ export class IdempotencyKeyReused extends Error {
 /**
  * Lookup → execute (sync) → insert idempotency row.
  * MUST NOT await. Mutation + outbox + idempotency insert share one DO I/O gate (§10.1).
+ * `Sync<T>` makes an async execute a compile error (Promise would JSON.stringify to "{}").
  */
 export function runIdempotent<T>(
   sql: SqlStorageLike,
   idem: IdempotencyKey,
-  execute: () => T,
+  execute: () => Sync<T>,
 ): T {
   if (!idem.key || !idem.fingerprint) {
     throw new Error('IdempotencyKey requires non-empty key and fingerprint');

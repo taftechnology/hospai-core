@@ -201,8 +201,10 @@ Admin route creates the Workflow **before** any status flip — if `create()` fa
 4. PURGE_ORG_DO    UPDATE guest SET profile_cipher = x'', profile_iv = x''
                    (columns are BLOB NOT NULL — must not assign NULL)
 5. R2 / ICEBERG    R2: when binding present → retained, reason pii_by_reference_event_log
-                   (no deleted; event log kept — PII by reference); when absent → skipped
-                   no_r2_binding. Iceberg: skipped no_iceberg_binding.
+                   (no deleted; event log kept — PII by reference). Current-state only:
+                   event log is the only guest-touching R2 this chunk creates; ID-document
+                   prefixes (§4.7) will need a mixed/sub-entry status — see event-log §5.3.
+                   When absent → skipped no_r2_binding. Iceberg: skipped no_iceberg_binding.
 6. VERIFY          key-state only (see §2.6); R2 not scanned when retained or skipped
 7. CERTIFY
 ```

@@ -40,14 +40,23 @@ The moment a binding exists without `PURGE_R2`, that skip reason becomes false a
 
 **Lock: Worker-side `R2.put` under keys we own.**
 
-§4.8 step 4 is specific:
+§4.7 already lists them as **two rows**, not one store:
+
+| Store | Use | Why |
+|---|---|---|
+| **R2** | Invoices, exports, ID documents, property images, **durable event log** | Zero egress; **replay source** |
+| **Pipelines → R2 Data Catalog (Iceberg)** | Warehouse — every domain event, queryable by R2 SQL / DuckDB | Replaces Debezium→BigQuery |
+
+§8’s one sentence collapses those two rows. This chunk implements the R2 row (replay source). Pipelines → Iceberg remains the §4.9 analytics path.
+
+§4.8 step 4 is the matching purge treatment:
 
 ```
 4. PURGE_R2          delete objects by prefix (documents, exports, event-log segments)
 5. PURGE_ICEBERG     row-level delete / partition rewrite in the catalog
 ```
 
-R2 holds tenant-prefixed **event-log segments** deleted by prefix. Iceberg gets row/partition deletes. Pipelines batches across tenants into shared files, which would force R2 purge into step 5’s work against a store the doc assigns step 4. §8’s one sentence covers two jobs; §4.8 step 4 governs this chunk. Pipelines → Iceberg remains the §4.9 analytics path.
+R2 holds tenant-prefixed **event-log segments** deleted by prefix. Iceberg gets row/partition deletes. Pipelines batches across tenants into shared files, which would force R2 purge into step 5’s work against a store both §4.7 and §4.8 assign to a different row.
 
 Dual-write (Worker log + Pipelines now) is rejected: Iceberg is out of scope, and a second failure domain undercuts “the log is durable.”
 
@@ -212,6 +221,8 @@ r2: { status: 'retained', reason: 'pii_by_reference_event_log' }
 // no deleted field
 ```
 
+`retained` reflects **current** R2 contents — the event log is the only guest-touching R2 object this chunk creates. §4.7 also lists R2 as holding **ID documents** (guest PII by value). Those prefixes are out of scope (no layout yet). When they ship, guest erasure must **delete** document objects while **retaining** event-log segments; a single `r2` certificate entry cannot express both. Do not cement “guest R2 = retained” as a rule. Guest-scoped document prefixes will need sub-entries per R2 purpose or a mixed status.
+
 ### 5.4 Derived skip
 
 If `EVENT_LOG_R2` is absent at runtime → `skipped: no_r2_binding` (honest for partial/local deploys). If present → org `reached` / guest `retained`. Do not hardcode the skip off in source.
@@ -294,7 +305,7 @@ R2 binding is configured in `wrangler.jsonc` (simulated locally). No `.dev.vars`
 
 | # | Decision |
 |---|---|
-| 1 | Worker writer; Pipelines deferred to §4.9; cite §4.8 step 4 |
+| 1 | Worker writer; Pipelines deferred to §4.9; cite §4.7 two-row table + §4.8 step 4 |
 | 2 | CHECK survivors → archive per source-group → project → MARK; retry failed group only |
 | 3 | Key: `events/{do}/{id}/{seqStart:020}-{seqEnd:020}-{nonce}.ndjson`; no date; no deterministic overwrite |
 | 4 | Accept unbounded prefix growth + paginated purge |

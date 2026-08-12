@@ -1,13 +1,18 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
+  EMPTY_KINDS,
   FORBIDDEN,
   GUEST_ALREADY_ERASED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
   IDEM_KEY_REUSED,
+  INVALID_KINDS,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   ROLE_GRANTS,
+  STAFF_EXITED,
+  STAFF_NOT_ASSIGNABLE,
+  STAFF_NOT_FOUND,
   isOrgScopedPermission,
   isPropertyScopedPermission,
   type ActorContext,
@@ -40,6 +45,8 @@ import {
   KeyShreddedError,
   PiiVault,
   type GuestProfile,
+  type StaffProfile,
+  type StaffProfileCreate,
 } from '@hospai/crypto-shredding';
 import { assertEntitled, EntitlementDoCache } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
@@ -143,6 +150,53 @@ class GuestNotFoundError extends Error {
     this.name = 'GuestNotFoundError';
   }
 }
+
+class StaffNotFoundError extends Error {
+  constructor() {
+    super('Staff not found');
+    this.name = 'StaffNotFoundError';
+  }
+}
+
+class StaffExitedError extends Error {
+  constructor() {
+    super('Staff exited');
+    this.name = 'StaffExitedError';
+  }
+}
+
+const PHASE1_ROSTER_KINDS = ['housekeeper'] as const;
+
+function rosterKindsError(kinds: string[]): typeof EMPTY_KINDS | typeof INVALID_KINDS | null {
+  if (kinds.length === 0) return EMPTY_KINDS;
+  if (kinds.some((k) => !(PHASE1_ROSTER_KINDS as readonly string[]).includes(k))) return INVALID_KINDS;
+  return null;
+}
+
+function profileHasCompensation(profile: Partial<StaffProfileCreate> | undefined): boolean {
+  if (!profile) return false;
+  return (
+    profile.hourlyRateMinor !== undefined ||
+    profile.hourlyRateCurrency !== undefined ||
+    profile.rating !== undefined ||
+    profile.skills !== undefined
+  );
+}
+
+type RosterRow = {
+  staff_id: string;
+  pii_key_id: string;
+  profile_cipher: Uint8Array;
+  profile_iv: Uint8Array;
+  status: 'active' | 'inactive';
+  exited_at: number | null;
+};
+
+type RosterWriteOk = { ok: true; staffId: string; piiKeyId: string };
+type RosterGateError =
+  | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+  | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+  | { ok: false; error: string };
 
 /**
  * Pre-probe for the hybrid idempotency contract (see `runIdempotent` in `@hospai/do-runtime`).
@@ -1464,6 +1518,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; piiKeyId: string }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
   > {
+    this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(`SELECT pii_key_id, erased_at FROM guest WHERE guest_id = ?`, guestRef)
       .toArray() as Array<{ pii_key_id: string; erased_at: number | null }>;
@@ -1471,6 +1526,462 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
     if (guest.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
     return { ok: true, piiKeyId: guest.pii_key_id };
+  }
+
+  private loadRosterRow(staffId: string): RosterRow | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT staff_id, pii_key_id, profile_cipher, profile_iv, status, exited_at FROM roster WHERE staff_id = ?`,
+        staffId,
+      )
+      .toArray() as unknown as RosterRow[];
+    return rows[0] ?? null;
+  }
+
+  private loadRosterKinds(staffId: string): string[] {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT kind FROM roster_kind WHERE staff_id = ? ORDER BY kind`, staffId)
+      .toArray() as Array<{ kind: string }>;
+    return rows.map((r) => r.kind);
+  }
+
+  private replaceRosterKinds(staffId: string, kinds: string[]): void {
+    this.ctx.storage.sql.exec(`DELETE FROM roster_kind WHERE staff_id = ?`, staffId);
+    for (const kind of [...new Set(kinds)]) {
+      this.ctx.storage.sql.exec(`INSERT INTO roster_kind (staff_id, kind) VALUES (?, ?)`, staffId, kind);
+    }
+  }
+
+  async tryCreateRoster(
+    actor: ActorContext,
+    propertyId: string,
+    input: { profile: StaffProfileCreate; kinds: string[] },
+    idem: IdempotencyKey,
+  ): Promise<
+    | RosterWriteOk
+    | { ok: false; error: typeof EMPTY_KINDS | typeof INVALID_KINDS | typeof IDEM_KEY_REUSED }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
+    if (permDenied) return permDenied;
+    if (profileHasCompensation(input.profile)) {
+      const compensationDenied = await this.gatePermission(actor, propertyId, 'roster:compensation');
+      if (compensationDenied) return compensationDenied;
+    }
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const kindsErr = rosterKindsError(input.kinds);
+    if (kindsErr) return { ok: false, error: kindsErr };
+
+    try {
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+        this.ctx.storage.sql,
+        idem,
+      );
+      if (replay) return replay;
+
+      const staffId = `staff_${crypto.randomUUID()}`;
+      const vault = await this.vault();
+      const material = await vault.preparePiiRecord('staff', staffId, input.profile);
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+            material.piiKeyId,
+            'staff',
+            staffId,
+            material.wrappedKey,
+            now,
+          );
+          this.ctx.storage.sql.exec(
+            `INSERT INTO roster (staff_id, pii_key_id, profile_cipher, profile_iv, status, exited_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'active', NULL, ?, ?)`,
+            staffId,
+            material.piiKeyId,
+            material.profileCipher,
+            material.profileIv,
+            now,
+            now,
+          );
+          this.replaceRosterKinds(staffId, input.kinds);
+
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'roster.created',
+            payload: { orgId, staffRef: staffId, piiKeyId: material.piiKeyId },
+          });
+
+          return { ok: true as const, staffId, piiKeyId: material.piiKeyId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryUpdateRoster(
+    actor: ActorContext,
+    propertyId: string,
+    input: { staffId: string; profile?: Partial<StaffProfileCreate>; kinds?: string[] },
+    idem: IdempotencyKey,
+  ): Promise<
+    | RosterWriteOk
+    | {
+        ok: false;
+        error:
+          | typeof STAFF_NOT_FOUND
+          | typeof STAFF_EXITED
+          | typeof EMPTY_KINDS
+          | typeof INVALID_KINDS
+          | typeof IDEM_KEY_REUSED;
+      }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
+    if (permDenied) return permDenied;
+    if (profileHasCompensation(input.profile)) {
+      const compensationDenied = await this.gatePermission(actor, propertyId, 'roster:compensation');
+      if (compensationDenied) return compensationDenied;
+    }
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    try {
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+        this.ctx.storage.sql,
+        idem,
+      );
+      if (replay) return replay;
+
+      const row = this.loadRosterRow(input.staffId);
+      if (!row) return { ok: false, error: STAFF_NOT_FOUND };
+      if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
+
+      if (input.kinds) {
+        const kindsErr = rosterKindsError(input.kinds);
+        if (kindsErr) return { ok: false, error: kindsErr };
+      }
+
+      let sealed: { profileCipher: Uint8Array; profileIv: Uint8Array } | null = null;
+      if (input.profile) {
+        const vault = await this.vault();
+        const current = await vault.decryptProfile<StaffProfile>(
+          row.pii_key_id,
+          row.profile_cipher,
+          row.profile_iv,
+        );
+        sealed = await vault.prepareProfileSeal(row.pii_key_id, { ...current, ...input.profile });
+      }
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const again = this.loadRosterRow(input.staffId);
+          if (!again) throw new StaffNotFoundError();
+          if (again.exited_at != null) throw new StaffExitedError();
+
+          const now = Date.now();
+          if (sealed) {
+            this.ctx.storage.sql.exec(
+              `UPDATE roster SET profile_cipher = ?, profile_iv = ?, updated_at = ? WHERE staff_id = ? AND exited_at IS NULL`,
+              sealed.profileCipher,
+              sealed.profileIv,
+              now,
+              input.staffId,
+            );
+          } else {
+            this.ctx.storage.sql.exec(
+              `UPDATE roster SET updated_at = ? WHERE staff_id = ? AND exited_at IS NULL`,
+              now,
+              input.staffId,
+            );
+          }
+          if (input.kinds) this.replaceRosterKinds(input.staffId, input.kinds);
+
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'roster.updated',
+            payload: { orgId, staffRef: input.staffId, piiKeyId: row.pii_key_id },
+          });
+
+          return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
+      if (e instanceof StaffExitedError) return { ok: false, error: STAFF_EXITED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async trySetRosterStatus(
+    actor: ActorContext,
+    propertyId: string,
+    input: { staffId: string; status: 'active' | 'inactive' },
+    idem: IdempotencyKey,
+  ): Promise<
+    | RosterWriteOk
+    | { ok: false; error: typeof STAFF_NOT_FOUND | typeof STAFF_EXITED | typeof IDEM_KEY_REUSED }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    try {
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+        this.ctx.storage.sql,
+        idem,
+      );
+      if (replay) return replay;
+
+      const row = this.loadRosterRow(input.staffId);
+      if (!row) return { ok: false, error: STAFF_NOT_FOUND };
+      if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const again = this.loadRosterRow(input.staffId);
+          if (!again) throw new StaffNotFoundError();
+          if (again.exited_at != null) throw new StaffExitedError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE roster SET status = ?, updated_at = ? WHERE staff_id = ? AND exited_at IS NULL`,
+            input.status,
+            now,
+            input.staffId,
+          );
+
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'roster.updated',
+            payload: { orgId, staffRef: input.staffId, piiKeyId: row.pii_key_id },
+          });
+
+          return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
+      if (e instanceof StaffExitedError) return { ok: false, error: STAFF_EXITED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryExitRoster(
+    actor: ActorContext,
+    propertyId: string,
+    input: { staffId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | RosterWriteOk
+    | { ok: false; error: typeof STAFF_NOT_FOUND | typeof IDEM_KEY_REUSED }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    try {
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+        this.ctx.storage.sql,
+        idem,
+      );
+      if (replay) return replay;
+
+      const row = this.loadRosterRow(input.staffId);
+      if (!row) return { ok: false, error: STAFF_NOT_FOUND };
+      if (row.exited_at != null) {
+        return { ok: true, staffId: input.staffId, piiKeyId: row.pii_key_id };
+      }
+
+      const vault = await this.vault();
+      const profile = await vault.decryptProfile<StaffProfile>(
+        row.pii_key_id,
+        row.profile_cipher,
+        row.profile_iv,
+      );
+      const { displayName: _n, email: _e, phone: _p, ...employment } = profile;
+      const sealed = await vault.prepareProfileSeal(row.pii_key_id, employment);
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const again = this.loadRosterRow(input.staffId);
+          if (!again) throw new StaffNotFoundError();
+          if (again.exited_at != null) {
+            return { ok: true as const, staffId: input.staffId, piiKeyId: again.pii_key_id };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE roster SET profile_cipher = ?, profile_iv = ?, exited_at = ?, status = 'inactive', updated_at = ?
+             WHERE staff_id = ? AND exited_at IS NULL`,
+            sealed.profileCipher,
+            sealed.profileIv,
+            now,
+            now,
+            input.staffId,
+          );
+
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'roster.exited',
+            payload: { orgId, staffRef: input.staffId, piiKeyId: row.pii_key_id },
+          });
+
+          return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async assertStaffAssignable(
+    staffId: string,
+  ): Promise<
+    | { ok: true; staffId: string }
+    | { ok: false; error: typeof STAFF_NOT_FOUND | typeof STAFF_EXITED | typeof STAFF_NOT_ASSIGNABLE }
+  > {
+    this.assertRpcAvailable();
+    const row = this.loadRosterRow(staffId);
+    if (!row) return { ok: false, error: STAFF_NOT_FOUND };
+    if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
+    const housekeeper = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM roster_kind WHERE staff_id = ? AND kind = 'housekeeper' LIMIT 1`, staffId)
+      .toArray() as Array<{ one: number }>;
+    if (row.status !== 'active' || housekeeper.length === 0) {
+      return { ok: false, error: STAFF_NOT_ASSIGNABLE };
+    }
+    return { ok: true, staffId };
+  }
+
+  async readRoster(
+    actor: ActorContext,
+    propertyId: string,
+    staffId: string,
+  ): Promise<
+    | {
+        ok: true;
+        staffId: string;
+        profile: StaffProfile;
+        kinds: string[];
+        status: 'active' | 'inactive';
+        exitedAt: number | null;
+      }
+    | { ok: false; error: typeof STAFF_NOT_FOUND }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const row = this.loadRosterRow(staffId);
+    if (!row) return { ok: false, error: STAFF_NOT_FOUND };
+    const vault = await this.vault();
+    const profile = await vault.decryptProfile<StaffProfile>(
+      row.pii_key_id,
+      row.profile_cipher,
+      row.profile_iv,
+    );
+    return {
+      ok: true,
+      staffId: row.staff_id,
+      profile,
+      kinds: this.loadRosterKinds(staffId),
+      status: row.status,
+      exitedAt: row.exited_at,
+    };
+  }
+
+  async listRoster(
+    actor: ActorContext,
+    propertyId: string,
+  ): Promise<
+    | {
+        ok: true;
+        staff: Array<{
+          staffId: string;
+          profile: StaffProfile;
+          kinds: string[];
+          status: 'active' | 'inactive';
+          exitedAt: number | null;
+        }>;
+      }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'roster:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT staff_id, pii_key_id, profile_cipher, profile_iv, status, exited_at FROM roster ORDER BY staff_id`,
+      )
+      .toArray() as unknown as RosterRow[];
+    const vault = await this.vault();
+    const staff = [];
+    for (const row of rows) {
+      const profile = await vault.decryptProfile<StaffProfile>(
+        row.pii_key_id,
+        row.profile_cipher,
+        row.profile_iv,
+      );
+      staff.push({
+        staffId: row.staff_id,
+        profile,
+        kinds: this.loadRosterKinds(row.staff_id),
+        status: row.status,
+        exitedAt: row.exited_at,
+      });
+    }
+    return { ok: true, staff };
   }
 
   async readGuest(
@@ -1561,6 +2072,25 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (!guest) return null;
     const vault = await this.vault();
     return vault.decryptGuestProfile(guest.pii_key_id, guest.profile_cipher, guest.profile_iv);
+  }
+
+  async readRosterProfile(staffId: string): Promise<StaffProfile | null> {
+    const row = this.loadRosterRow(staffId);
+    if (!row) return null;
+    const vault = await this.vault();
+    return vault.decryptProfile<StaffProfile>(row.pii_key_id, row.profile_cipher, row.profile_iv);
+  }
+
+  async execSqlForTest(sql: string, ...binds: unknown[]): Promise<void> {
+    this.assertUnsafeLocal('execSqlForTest');
+    this.ctx.storage.sql.exec(sql, ...(binds as Array<string | number | Uint8Array | null>));
+  }
+
+  async countDataKeysForSubject(scope: string, subjectId: string): Promise<number> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM data_key WHERE scope = ? AND subject_id = ?`, scope, subjectId)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
   }
 
   async getGuestPiiKeyId(guestId: string): Promise<string | null> {

@@ -9,7 +9,7 @@ export type UserActor = {
 
 export type SystemActor = {
   kind: 'system';
-  reason: 'night_audit' | 'migration_sweep' | 'queue_replay' | 'provision';
+  reason: 'night_audit' | 'migration_sweep' | 'queue_replay' | 'provision' | 'purge';
 };
 
 export type ActorContext = UserActor | SystemActor;
@@ -19,6 +19,8 @@ export type ActorContext = UserActor | SystemActor;
 export const ORG_SCOPED_PERMISSIONS = [
   'org:read',
   'org:manage',
+  'org:cancel',
+  'org:purge',
   'property:provision',
 ] as const;
 

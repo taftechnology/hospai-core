@@ -1,4 +1,4 @@
-import type { ModuleManifest } from '@hospai/contracts';
+import housekeeping from '@hospai/pms-housekeeping';
+import { defineModule } from './define-module.js';
 
-/** Hand-maintained. Task 3 appends housekeeping via defineModule(...). */
-export const MODULE_REGISTRY: readonly ModuleManifest[] = [];
+export const MODULE_REGISTRY = [defineModule(housekeeping)] as const;

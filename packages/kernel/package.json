@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@hospai/contracts": "workspace:*",
+    "@hospai/pms-housekeeping": "workspace:*",
     "zod": "^3.24.2"
   },
   "devDependencies": {

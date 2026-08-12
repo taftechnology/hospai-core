@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Gate module manifests: registry membership, ui/server moduleId pairing,
- * writes ⊇ infrastructure SQL writes, read-path files write-free.
+ * writes ⊇ infrastructure SQL writes, writes ⊇ schema.tables, read-path
+ * files write-free, and apps/pms-core/src must not write module-owned tables.
  *
  *   node scripts/module-manifests-check.mjs
  *   node scripts/module-manifests-check.mjs --self-test
@@ -39,6 +40,12 @@ function extractModuleId(uiSrc) {
 
 function extractWrites(manifestSrc) {
   const m = manifestSrc.match(/\bwrites\s*:\s*\[([^\]]*)\]/s);
+  if (!m) return null;
+  return [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
+}
+
+function extractSchemaTables(manifestSrc) {
+  const m = manifestSrc.match(/\bschema\s*:\s*\{[^}]*\btables\s*:\s*\[([^\]]*)\]/s);
   if (!m) return null;
   return [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
 }
@@ -106,6 +113,7 @@ export function checkModuleManifests(opts = {}) {
     opts.registrySrc ?? readText(join(root, 'packages/kernel/src/registry.ts'));
   const moduleDirs = opts.moduleDirs ?? listModuleDirs();
   const errors = [];
+  const ownedBy = new Map(); // table -> moduleId
 
   for (const dir of moduleDirs) {
     const manifestPath = join(dir, 'src/module.manifest.ts');
@@ -138,8 +146,37 @@ export function checkModuleManifests(opts = {}) {
 
     const writes = extractWrites(manifestSrc);
     if (!writes) {
-      errors.push(`${id}: missing writes array`);
-    } else {
+      errors.push(`${id}: could not parse writes from module.manifest.ts`);
+    }
+
+    const schemaTables = extractSchemaTables(manifestSrc);
+    if (!schemaTables) {
+      errors.push(`${id}: could not parse schema.tables from module.manifest.ts`);
+    }
+
+    if (writes && schemaTables) {
+      for (const t of schemaTables) {
+        if (!writes.includes(t)) {
+          errors.push(
+            `${id}: schema.tables includes ${t} but writes does not (writes must ⊇ schema.tables)`,
+          );
+        }
+      }
+    }
+
+    if (schemaTables) {
+      for (const t of schemaTables) {
+        if (ownedBy.has(t) && ownedBy.get(t) !== id) {
+          errors.push(
+            `schema.tables conflict: table \`${t}\` claimed by both \`${ownedBy.get(t)}\` and \`${id}\``,
+          );
+        } else {
+          ownedBy.set(t, id);
+        }
+      }
+    }
+
+    if (writes) {
       const infraDir = join(dir, 'src/infrastructure');
       const appDir = join(dir, 'src/application');
       const scanFiles = [
@@ -179,6 +216,25 @@ export function checkModuleManifests(opts = {}) {
       if (hasWriteSql(src)) {
         errors.push(`${id}: read-path ${name} must not INSERT/UPDATE/DELETE`);
       }
+    }
+  }
+
+  const pmsCoreFiles = opts.pmsCoreSrcByFile
+    ? Object.entries(opts.pmsCoreSrcByFile).map(([rel, src]) => ({ rel, src }))
+    : walkTsFiles(join(root, 'apps/pms-core/src')).map((abs) => ({
+        rel: relative(root, abs),
+        src: readText(abs),
+      }));
+
+  for (const { rel, src } of pmsCoreFiles) {
+    for (const t of tablesWrittenIn(src)) {
+      const owner = ownedBy.get(t);
+      if (!owner) continue;
+      errors.push(
+        `${rel}: writes table \`${t}\` owned by \`${owner}\` — ` +
+          `extract this write into ${owner}; if \`${t}\` genuinely is not owned by that ` +
+          `module, its schema.tables declaration is wrong and should be corrected there.`,
+      );
     }
   }
 
@@ -225,6 +281,33 @@ function selfTest() {
     'INSERT OR REPLACE INTO rate_plan (x) VALUES (1)',
     ['rate_plan'],
   );
+  assertTables(
+    'S1 OR ABORT',
+    'INSERT OR ABORT INTO folio_window (x) VALUES (1)',
+    ['folio_window'],
+  );
+  assertTables(
+    'S1 OR FAIL',
+    'INSERT OR FAIL INTO charge_code (x) VALUES (1)',
+    ['charge_code'],
+  );
+  assertTables(
+    'S1 OR ROLLBACK',
+    'INSERT OR ROLLBACK INTO provisional_exception (x) VALUES (1)',
+    ['provisional_exception'],
+  );
+
+  // Newlines inside INSERT INTO <table> / UPDATE <table> … SET (template-literal drift)
+  assertTables(
+    'S1 newline insert',
+    'INSERT INTO\n folio_line (x) VALUES (1)',
+    ['folio_line'],
+  );
+  assertTables(
+    'S1 newline update',
+    'UPDATE\n room\n SET status = ?',
+    ['room'],
+  );
 
   // S2 / S3 negatives
   assertTables('S2 select', 'SELECT * FROM room WHERE id = ?', []);
@@ -259,6 +342,7 @@ export default manifest;
     readSrcByDir: {
       '/virtual/hk': { 'read-assignments.ts': 'SELECT * FROM housekeeping_assignment;' },
     },
+    pmsCoreSrcByFile: {},
   });
   if (e0.length !== 0) {
     console.error('self-test valid fixture should pass:\n' + e0.join('\n'));
@@ -270,6 +354,7 @@ export default manifest;
     moduleDirs: ['/virtual/hk'],
     manifestSrcByDir: { '/virtual/hk': okManifest },
     uiSrcByDir: { '/virtual/hk': okUi },
+    pmsCoreSrcByFile: {},
   });
   if (!e1.some((e) => /not registered/.test(e))) {
     console.error('self-test missing registry entry should fail');
@@ -281,6 +366,7 @@ export default manifest;
     moduleDirs: ['/virtual/hk'],
     manifestSrcByDir: { '/virtual/hk': okManifest },
     uiSrcByDir: { '/virtual/hk': `export const housekeepingUi = { moduleId: 'pms.other', nav: [] };` },
+    pmsCoreSrcByFile: {},
   });
   if (!e2.some((e) => /moduleId/.test(e))) {
     console.error('self-test moduleId mismatch should fail');
@@ -292,13 +378,18 @@ export default manifest;
     moduleDirs: ['/virtual/hk'],
     manifestSrcByDir: {
       '/virtual/hk': `
-const manifest = { id: 'pms.housekeeping', writes: ['housekeeping_assignment'] } as const;
+const manifest = {
+  id: 'pms.housekeeping',
+  writes: ['housekeeping_assignment'],
+  schema: { tables: ['housekeeping_assignment'] },
+} as const;
 export default manifest;
 `,
     },
     infraSrcByDir: {
       '/virtual/hk': { 'x.ts': 'UPDATE room SET status = ?;' },
     },
+    pmsCoreSrcByFile: {},
   });
   if (!e3.some((e) => /under-declares room/.test(e))) {
     console.error('self-test write-set under-declaration should fail');
@@ -312,9 +403,90 @@ export default manifest;
     readSrcByDir: {
       '/virtual/hk': { 'read-assignments.ts': 'UPDATE room SET status = ?;' },
     },
+    pmsCoreSrcByFile: {},
   });
   if (!e4.some((e) => /read-path/.test(e))) {
     console.error('self-test read-path with UPDATE should fail');
+    failed = true;
+  }
+
+  // O1 — load-bearing (real tree is vacuous)
+  const o1 = checkModuleManifests({
+    registrySrc: okRegistry,
+    moduleDirs: ['/virtual/hk'],
+    manifestSrcByDir: { '/virtual/hk': okManifest },
+    uiSrcByDir: { '/virtual/hk': okUi },
+    pmsCoreSrcByFile: {
+      'apps/pms-core/src/property-do.ts':
+        'INSERT OR IGNORE INTO housekeeping_assignment (x) VALUES (1);',
+    },
+  });
+  if (
+    !o1.some(
+      (e) =>
+        /housekeeping_assignment/.test(e) &&
+        /pms\.housekeeping/.test(e) &&
+        /extract this write/.test(e),
+    )
+  ) {
+    console.error('self-test O1 ownership violation should fail:\n' + o1.join('\n'));
+    failed = true;
+  }
+
+  // O2 — proves key is schema.tables, not writes
+  const o2 = checkModuleManifests({
+    registrySrc: okRegistry,
+    moduleDirs: ['/virtual/hk'],
+    manifestSrcByDir: { '/virtual/hk': okManifest },
+    uiSrcByDir: { '/virtual/hk': okUi },
+    pmsCoreSrcByFile: {
+      'apps/pms-core/src/property-do.ts': 'UPDATE room SET code = ?;',
+    },
+  });
+  if (o2.some((e) => /owned by/.test(e))) {
+    console.error(
+      'self-test O2 UPDATE room must pass (in writes, not schema.tables):\n' + o2.join('\n'),
+    );
+    failed = true;
+  }
+
+  // O3 — duplicate owners via existing moduleDirs injection
+  const o3 = checkModuleManifests({
+    registrySrc:
+      okRegistry + `\nimport inventory from '@hospai/pms-inventory'; // pms.inventory\n`,
+    moduleDirs: ['/virtual/hk', '/virtual/inv'],
+    manifestSrcByDir: {
+      '/virtual/hk': `
+const manifest = { id: 'pms.housekeeping', writes: ['room'], schema: { tables: ['room'] } } as const;
+export default manifest;
+`,
+      '/virtual/inv': `
+const manifest = { id: 'pms.inventory', writes: ['room'], schema: { tables: ['room'] } } as const;
+export default manifest;
+`,
+    },
+    pmsCoreSrcByFile: {},
+  });
+  if (!o3.some((e) => /conflict/.test(e) && /room/.test(e))) {
+    console.error('self-test O3 duplicate owners should fail:\n' + o3.join('\n'));
+    failed = true;
+  }
+
+  // O4 — unparseable schema.tables
+  const o4 = checkModuleManifests({
+    registrySrc: okRegistry,
+    moduleDirs: ['/virtual/hk'],
+    manifestSrcByDir: {
+      '/virtual/hk': `
+const HK_TABLES = ['housekeeping_assignment'];
+const manifest = { id: 'pms.housekeeping', writes: ['housekeeping_assignment'], schema: { tables: HK_TABLES } } as const;
+export default manifest;
+`,
+    },
+    pmsCoreSrcByFile: {},
+  });
+  if (!o4.some((e) => /could not parse schema\.tables/.test(e))) {
+    console.error('self-test O4 unparseable schema.tables should fail:\n' + o4.join('\n'));
     failed = true;
   }
 

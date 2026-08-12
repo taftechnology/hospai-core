@@ -32,6 +32,7 @@ jobs:
       - run: node scripts/forbidden-body-check.mjs --self-test
       - run: node scripts/do-transport-guards-check.mjs --self-test
       - run: node scripts/web-pms-colors-check.mjs --self-test
+      - run: node scripts/property-ddl.mjs --self-test
       - run: pnpm typecheck
       # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).
       - run: pnpm exec turbo run test --filter=!@hospai/pms-core

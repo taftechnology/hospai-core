@@ -4,6 +4,7 @@
  *
  *   node scripts/property-ddl.mjs --write
  *   node scripts/property-ddl.mjs --check
+ *   node scripts/property-ddl.mjs --self-test
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,75 +13,102 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const modPath = join(root, 'packages/do-runtime/dist/index.js');
 
-const args = new Set(process.argv.slice(2));
-const mode = args.has('--write') ? 'write' : args.has('--check') ? 'check' : null;
-if (!mode) {
-  console.error('Usage: node scripts/property-ddl.mjs --write | --check');
-  process.exit(2);
+export function compareDdl(generated, committed) {
+  if (committed == null) return { ok: false, reason: 'missing' };
+  if (committed !== generated) return { ok: false, reason: 'drift' };
+  return { ok: true };
 }
 
-let FREEZE_GATE_SQL;
-let ROOM_TYPE_SQL;
-let ALARM_SCHEDULE_SQL;
-let RESERVATION_SQL;
-let RESERVATION_V5_SQL;
-let RATE_DAY_SQL;
-let RESERVATION_V7_SQL;
-let RESERVATION_V8_SQL;
-let PROVISIONAL_EXCEPTION_V9_SQL;
-let FOLIO_WINDOW_RESERVATION_INDEX_SQL;
-let ROOM_AND_HOUSEKEEPING_V11_SQL;
-let RATE_PLAN_V12_SQL;
-let PAYMENT_V13_SQL;
-let CHARGE_CODE_V14_SQL;
-let TAX_POSTING_V15_SQL;
-let CASHIERING_V16_SQL;
-let AUDIT_LOG_V17_SQL;
-let FRONT_DESK_READS_V18_SQL;
-let ORG_SPINE_SQL;
-let ORG_GUEST_PII_SQL;
-let ORG_ALARM_SCHEDULE_SQL;
-let ORG_PROPERTY_MEMBER_SQL;
-let ORG_MEMBER_AUDIT_COLUMNS_SQL;
-let PLATFORM_REGISTRY_SQL;
-let PLATFORM_ENTITLEMENT_SQL;
-let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
-try {
-  ({
-    FREEZE_GATE_SQL,
-    ROOM_TYPE_SQL,
-    ALARM_SCHEDULE_SQL,
-    RESERVATION_SQL,
-    RESERVATION_V5_SQL,
-    RATE_DAY_SQL,
-    RESERVATION_V7_SQL,
-    RESERVATION_V8_SQL,
-    PROVISIONAL_EXCEPTION_V9_SQL,
-    FOLIO_WINDOW_RESERVATION_INDEX_SQL,
-    ROOM_AND_HOUSEKEEPING_V11_SQL,
-    RATE_PLAN_V12_SQL,
-    PAYMENT_V13_SQL,
-    CHARGE_CODE_V14_SQL,
-    TAX_POSTING_V15_SQL,
-    CASHIERING_V16_SQL,
-    AUDIT_LOG_V17_SQL,
-    FRONT_DESK_READS_V18_SQL,
-    ORG_SPINE_SQL,
-    ORG_GUEST_PII_SQL,
-    ORG_ALARM_SCHEDULE_SQL,
-    ORG_PROPERTY_MEMBER_SQL,
-    ORG_MEMBER_AUDIT_COLUMNS_SQL,
-    PLATFORM_REGISTRY_SQL,
-    PLATFORM_ENTITLEMENT_SQL,
-    PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
-  } = await import(modPath));
-} catch (e) {
-  console.error(
-    'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
-  );
-  console.error(e);
-  process.exit(1);
+function selfTest() {
+  let failed = false;
+  const gen = '-- header\nCREATE TABLE t (id INTEGER);\n';
+  if (!compareDdl(gen, gen).ok) {
+    console.error('self-test D1 matching pair should pass');
+    failed = true;
+  }
+  const d2 = compareDdl(gen, gen + '-- drifted\n');
+  if (d2.ok || d2.reason !== 'drift') {
+    console.error('self-test D2 drift should fail', d2);
+    failed = true;
+  }
+  const d3 = compareDdl(gen, null);
+  if (d3.ok || d3.reason !== 'missing') {
+    console.error('self-test D3 missing should fail', d3);
+    failed = true;
+  }
+  if (failed) process.exit(1);
+  console.log('check:ddl --self-test OK');
 }
+
+if (process.argv.includes('--self-test')) {
+  selfTest();
+} else if (process.argv.includes('--write') || process.argv.includes('--check')) {
+  const args = new Set(process.argv.slice(2));
+  const mode = args.has('--write') ? 'write' : 'check';
+
+  let FREEZE_GATE_SQL;
+  let ROOM_TYPE_SQL;
+  let ALARM_SCHEDULE_SQL;
+  let RESERVATION_SQL;
+  let RESERVATION_V5_SQL;
+  let RATE_DAY_SQL;
+  let RESERVATION_V7_SQL;
+  let RESERVATION_V8_SQL;
+  let PROVISIONAL_EXCEPTION_V9_SQL;
+  let FOLIO_WINDOW_RESERVATION_INDEX_SQL;
+  let ROOM_AND_HOUSEKEEPING_V11_SQL;
+  let RATE_PLAN_V12_SQL;
+  let PAYMENT_V13_SQL;
+  let CHARGE_CODE_V14_SQL;
+  let TAX_POSTING_V15_SQL;
+  let CASHIERING_V16_SQL;
+  let AUDIT_LOG_V17_SQL;
+  let FRONT_DESK_READS_V18_SQL;
+  let ORG_SPINE_SQL;
+  let ORG_GUEST_PII_SQL;
+  let ORG_ALARM_SCHEDULE_SQL;
+  let ORG_PROPERTY_MEMBER_SQL;
+  let ORG_MEMBER_AUDIT_COLUMNS_SQL;
+  let PLATFORM_REGISTRY_SQL;
+  let PLATFORM_ENTITLEMENT_SQL;
+  let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
+  try {
+    ({
+      FREEZE_GATE_SQL,
+      ROOM_TYPE_SQL,
+      ALARM_SCHEDULE_SQL,
+      RESERVATION_SQL,
+      RESERVATION_V5_SQL,
+      RATE_DAY_SQL,
+      RESERVATION_V7_SQL,
+      RESERVATION_V8_SQL,
+      PROVISIONAL_EXCEPTION_V9_SQL,
+      FOLIO_WINDOW_RESERVATION_INDEX_SQL,
+      ROOM_AND_HOUSEKEEPING_V11_SQL,
+      RATE_PLAN_V12_SQL,
+      PAYMENT_V13_SQL,
+      CHARGE_CODE_V14_SQL,
+      TAX_POSTING_V15_SQL,
+      CASHIERING_V16_SQL,
+      AUDIT_LOG_V17_SQL,
+      FRONT_DESK_READS_V18_SQL,
+      ORG_SPINE_SQL,
+      ORG_GUEST_PII_SQL,
+      ORG_ALARM_SCHEDULE_SQL,
+      ORG_PROPERTY_MEMBER_SQL,
+      ORG_MEMBER_AUDIT_COLUMNS_SQL,
+      PLATFORM_REGISTRY_SQL,
+      PLATFORM_ENTITLEMENT_SQL,
+      PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
+    } = await import(modPath));
+  } catch (e) {
+    console.error(
+      'Failed to load @hospai/do-runtime dist. Run `pnpm --filter @hospai/do-runtime build` first.',
+    );
+    console.error(e);
+    process.exit(1);
+  }
+
 
 const doPropertyTargets = [
   {
@@ -340,16 +368,16 @@ for (const t of targets) {
     writeFileSync(t.path, expected);
     console.log(`Wrote ${t.path}`);
   } else {
-    let onDisk;
+    let onDisk = null;
     try {
       onDisk = readFileSync(t.path, 'utf8');
     } catch {
-      console.error(`Missing ${t.path}`);
-      failed = true;
-      continue;
+      onDisk = null;
     }
-    if (onDisk !== expected) {
-      console.error(`DDL drift: ${t.path}`);
+    const result = compareDdl(expected, onDisk);
+    if (!result.ok) {
+      if (result.reason === 'missing') console.error(`Missing ${t.path}`);
+      else console.error(`DDL drift: ${t.path}`);
       failed = true;
     } else {
       console.log(`OK ${t.path}`);
@@ -360,4 +388,8 @@ for (const t of targets) {
 if (mode === 'check' && failed) {
   console.error('Run: pnpm generate:ddl');
   process.exit(1);
+}
+} else if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  console.error('Usage: node scripts/property-ddl.mjs --write | --check | --self-test');
+  process.exit(2);
 }

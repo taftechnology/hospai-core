@@ -345,6 +345,86 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.lanes = new LaneGuard(opts);
   }
 
+  async getLaneGuardLastInteractiveAtForTest(): Promise<number> {
+    this.assertUnsafeLocal('getLaneGuardLastInteractiveAtForTest');
+    return this.lanes.getLastInteractiveAt();
+  }
+
+  async verifyGuestKeyShredded(
+    guestId: string,
+  ): Promise<{ ok: true; shredded: boolean } | { ok: false; error: string }> {
+    this.assertRpcAvailable();
+    const guests = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id FROM guest WHERE guest_id = ?`, guestId)
+      .toArray() as Array<{ pii_key_id: string }>;
+    const guest = guests[0];
+    if (!guest) return { ok: false, error: 'guest_not_found' };
+    const keys = this.ctx.storage.sql
+      .exec(
+        `SELECT shredded_at, length(wrapped_key) AS key_len FROM data_key WHERE pii_key_id = ?`,
+        guest.pii_key_id,
+      )
+      .toArray() as Array<{ shredded_at: number | null; key_len: number }>;
+    const key = keys[0];
+    if (!key) return { ok: true, shredded: false };
+    const shredded = key.shredded_at != null && Number(key.key_len) === 0;
+    return { ok: true, shredded };
+  }
+
+  async clearGuestProfileBlobs(
+    guestId: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) {
+      return { ok: false, error: 'bulk_not_admitted' };
+    }
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE guest SET profile_cipher = x'', profile_iv = x'', updated_at = ? WHERE guest_id = ?`,
+      now,
+      guestId,
+    );
+    return { ok: true };
+  }
+
+  async purgeStorageForTenant(): Promise<
+    { ok: true; deletedApprox: number } | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) {
+      return { ok: false, error: 'bulk_not_admitted' };
+    }
+    const deletedApprox = await this.countNonBookkeepingRows();
+    await this.ctx.storage.deleteAll();
+    try {
+      await this.ctx.storage.deleteAlarm();
+    } catch {
+      // ignore
+    }
+    return { ok: true, deletedApprox };
+  }
+
+  async countNonBookkeepingRows(): Promise<number> {
+    this.assertRpcAvailable();
+    migrateSql(this.ctx.storage.sql, [...ORG_MIGRATIONS]);
+    const tables = this.ctx.storage.sql
+      .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+      .toArray() as Array<{ name: string }>;
+    const allow = new Set(['schema_version', '__cf_kv']);
+    let total = 0;
+    for (const { name } of tables) {
+      if (allow.has(name)) continue;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        throw new Error(`unexpected_table_name:${name}`);
+      }
+      const rows = this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${name}`).toArray() as Array<{
+        n: number;
+      }>;
+      total += Number(rows[0]?.n ?? 0);
+    }
+    return total;
+  }
+
   /** Test helper (unsafe-local only): invoke `alarm()` directly. */
   async triggerAlarmForTest(): Promise<void> {
     this.assertUnsafeLocal('triggerAlarmForTest');

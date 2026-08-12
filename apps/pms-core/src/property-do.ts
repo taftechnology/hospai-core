@@ -578,6 +578,64 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
   return zonedWallTimeToEpochMs(timeZone, tomorrow, hh!, mm!);
 }
 
+/** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
+const PROPERTY_PURGE_INVENTORY_TABLES = [
+  'alarm_schedule',
+  'audit_log',
+  'availability_day',
+  'charge_code',
+  'folio_line',
+  'folio_window',
+  'housekeeping_assignment',
+  'idempotency',
+  'night_audit_run',
+  'outbox',
+  'payment',
+  'property_config',
+  'property_config_audit',
+  'provisional_exception',
+  'rate_day',
+  'rate_plan',
+  'reservation',
+  'restriction_day',
+  'room',
+  'room_type',
+  'shift',
+  'tax_rule',
+] as const;
+
+/** Literal SQL only — each FROM target is a string constant for the DO authorizer. */
+function countPropertyInventoryRows(sql: SqlStorageLike): number {
+  const row = sql
+    .exec(
+      `SELECT
+      (SELECT COUNT(*) FROM alarm_schedule) +
+      (SELECT COUNT(*) FROM audit_log) +
+      (SELECT COUNT(*) FROM availability_day) +
+      (SELECT COUNT(*) FROM charge_code) +
+      (SELECT COUNT(*) FROM folio_line) +
+      (SELECT COUNT(*) FROM folio_window) +
+      (SELECT COUNT(*) FROM housekeeping_assignment) +
+      (SELECT COUNT(*) FROM idempotency) +
+      (SELECT COUNT(*) FROM night_audit_run) +
+      (SELECT COUNT(*) FROM outbox) +
+      (SELECT COUNT(*) FROM payment) +
+      (SELECT COUNT(*) FROM property_config) +
+      (SELECT COUNT(*) FROM property_config_audit) +
+      (SELECT COUNT(*) FROM provisional_exception) +
+      (SELECT COUNT(*) FROM rate_day) +
+      (SELECT COUNT(*) FROM rate_plan) +
+      (SELECT COUNT(*) FROM reservation) +
+      (SELECT COUNT(*) FROM restriction_day) +
+      (SELECT COUNT(*) FROM room) +
+      (SELECT COUNT(*) FROM room_type) +
+      (SELECT COUNT(*) FROM shift) +
+      (SELECT COUNT(*) FROM tax_rule) AS n`,
+    )
+    .toArray() as Array<{ n: number }>;
+  return Number(row[0]?.n ?? 0);
+}
+
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
@@ -1271,6 +1329,67 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes = new LaneGuard(opts);
   }
 
+  async touchInteractiveForTest(): Promise<void> {
+    this.assertUnsafeLocal('touchInteractiveForTest');
+    this.lanes.touchInteractive();
+  }
+
+  async getLaneGuardLastInteractiveAtForTest(): Promise<number> {
+    this.assertUnsafeLocal('getLaneGuardLastInteractiveAtForTest');
+    return this.lanes.getLastInteractiveAt();
+  }
+
+  /**
+   * Tenant purge — BULK lane, must not touchInteractive (§4.8).
+   * Atomic deleteAll(); constructor remigrates on next wake.
+   */
+  async purgeStorageForTenant(): Promise<
+    { ok: true; deletedApprox: number } | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) {
+      return { ok: false, error: 'bulk_not_admitted' };
+    }
+    const deletedApprox = await this.countNonBookkeepingRows();
+    await this.ctx.storage.deleteAll();
+    try {
+      await this.ctx.storage.deleteAlarm();
+    } catch {
+      // alarm may already be gone after deleteAll on newer compat dates
+    }
+    return { ok: true, deletedApprox };
+  }
+
+  /**
+   * VERIFY helper. Post-deleteAll (no schema_version) → 0 without remigrating.
+   * After remigrate, counts tenant inventory via literal SQL (DO authorizer).
+   * Unexpected sqlite_master user tables → throw.
+   */
+  async countNonBookkeepingRows(): Promise<number> {
+    this.assertRpcAvailable();
+    const schemaPresent =
+      (
+        this.ctx.storage.sql
+          .exec(`SELECT 1 AS one FROM sqlite_master WHERE type='table' AND name = 'schema_version'`)
+          .toArray() as Array<{ one: number }>
+      ).length > 0;
+    if (!schemaPresent) return 0;
+
+    const bookkeeping = new Set(['schema_version', '__cf_kv', 'sqlite_sequence', '_cf_METADATA']);
+    const present = (
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM sqlite_master WHERE type='table'`)
+        .toArray() as Array<{ name: string }>
+    ).map((r) => r.name);
+    for (const name of present) {
+      if (bookkeeping.has(name) || name.startsWith('sqlite_') || name.startsWith('_cf')) continue;
+      if (!(PROPERTY_PURGE_INVENTORY_TABLES as readonly string[]).includes(name)) {
+        throw new Error(`unexpected_table:${name}`);
+      }
+    }
+    return countPropertyInventoryRows(this.ctx.storage.sql);
+  }
+
   /** Test helper (unsafe-local only): clear PermissionDoCache (degraded-mode test 6b). */
   async clearPermissionCacheForTest(): Promise<void> {
     this.assertUnsafeLocal('clearPermissionCacheForTest');
@@ -1754,6 +1873,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async getSchemaVersion(): Promise<number> {
     this.assertRpcAvailable();
+    migrateSql(this.ctx.storage.sql, [...PROPERTY_MIGRATIONS]);
     const rows = this.ctx.storage.sql
       .exec(`SELECT COALESCE(MAX(version), 0) AS v FROM schema_version`)
       .toArray() as Array<{ v: number }>;

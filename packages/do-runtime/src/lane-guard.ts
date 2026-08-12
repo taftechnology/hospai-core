@@ -24,6 +24,11 @@ export class LaneGuard {
     this.lastInteractiveAt = at ?? this.now();
   }
 
+  /** Last interactive touch epoch ms (0 if never). Test/observability. */
+  getLastInteractiveAt(): number {
+    return this.lastInteractiveAt;
+  }
+
   /** True when BACKGROUND work may start. */
   admitBackground(at?: number): boolean {
     return this.msUntilBackgroundAdmitted(at) === 0;

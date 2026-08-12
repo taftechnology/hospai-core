@@ -30,6 +30,34 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
     return Number(rows[0]?.v ?? 0);
   }
 
+  async purgeStorageForTenant(): Promise<
+    { ok: true; deletedApprox: number } | { ok: false; error: string }
+  > {
+    const deletedApprox = await this.countNonBookkeepingRows();
+    await this.ctx.storage.deleteAll();
+    return { ok: true, deletedApprox };
+  }
+
+  async countNonBookkeepingRows(): Promise<number> {
+    migrateSql(this.ctx.storage.sql, [...ORG_ENTITLEMENT_MIGRATIONS]);
+    const tables = this.ctx.storage.sql
+      .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
+      .toArray() as Array<{ name: string }>;
+    const allow = new Set(['schema_version', '__cf_kv']);
+    let total = 0;
+    for (const { name } of tables) {
+      if (allow.has(name)) continue;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        throw new Error(`unexpected_table_name:${name}`);
+      }
+      const rows = this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${name}`).toArray() as Array<{
+        n: number;
+      }>;
+      total += Number(rows[0]?.n ?? 0);
+    }
+    return total;
+  }
+
   /** Test helper (unsafe-local only): force `getSchemaVersion` to throw. */
   async setSchemaVersionRpcFailureForTest(fail: boolean): Promise<void> {
     if (this.env.HOSPAI_UNSAFE_LOCAL !== '1') {

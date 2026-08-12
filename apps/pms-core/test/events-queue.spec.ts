@@ -2,7 +2,12 @@ import { env, createMessageBatch, createExecutionContext, getQueueResult } from 
 import { describe, expect, it } from 'vitest';
 import type { DomainEventMessage, EventSource } from '@hospai/contracts';
 import { COMMAND_CATALOG, fingerprintPayload } from '@hospai/contracts';
-import { OUTBOX_BACKLOG_DELAY_MS, toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
+import {
+  ORG_SCHEMA_HEAD,
+  OUTBOX_BACKLOG_DELAY_MS,
+  toQueueMessage,
+  type OutboxRow,
+} from '@hospai/do-runtime';
 import worker from '../src/index.js';
 import { handleDomainEvent } from '../src/event-consumer.js';
 import { replayEventLog } from '../src/event-log.js';
@@ -208,9 +213,9 @@ describe('Queues consumer (Phase 0)', () => {
     expect(await stub.outboxUnackedCount()).toBeGreaterThan(0);
   });
 
-  it('OrgDO migrates through member audit columns (schema head 5)', async () => {
+  it('OrgDO migrates through member audit columns to schema head', async () => {
     const org = await provisionedOrg(`org-migrate-${crypto.randomUUID()}`);
-    expect(await org.getSchemaVersion()).toBe(5);
+    expect(await org.getSchemaVersion()).toBe(ORG_SCHEMA_HEAD);
     expect(await org.getAlarmSchedule('outbox')).not.toBeNull();
   });
 });

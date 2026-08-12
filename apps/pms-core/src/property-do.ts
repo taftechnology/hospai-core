@@ -791,10 +791,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return null;
   }
 
-  private async gateOrgRef<T extends { ok: boolean }>(
+  private async gateOrgRef<T>(
     orgId: string,
-    invoke: (org: DurableObjectStub<OrgDO>) => Promise<T>,
-  ): Promise<T | { ok: false; error: 'org_unreachable' }> {
+    invoke: (org: DurableObjectStub<OrgDO>) => T,
+  ): Promise<Awaited<T> | { ok: false; error: 'org_unreachable' }> {
     try {
       const org = resolveOrgStub(this.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
       return await invoke(org);

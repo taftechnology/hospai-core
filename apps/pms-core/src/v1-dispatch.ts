@@ -1265,7 +1265,8 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
   if (compensationWriteDenied(grants, body)) {
-    return json({ error: 'forbidden', permission: 'roster:compensation' }, 403);
+    const permission: Permission = 'roster:compensation';
+    return json({ error: 'forbidden', permission }, 403);
   }
 
   const profile = parseRosterProfile(body);
@@ -1317,7 +1318,8 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
   if (compensationWriteDenied(grants, body)) {
-    return json({ error: 'forbidden', permission: 'roster:compensation' }, 403);
+    const permission: Permission = 'roster:compensation';
+    return json({ error: 'forbidden', permission }, 403);
   }
 
   const profile = parseRosterProfile(body);

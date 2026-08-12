@@ -150,7 +150,7 @@ async function dispatchPendingBatch(messages: PendingCommandMessage[]) {
     queueEnv: PmsEnv,
     executionCtx: ExecutionContext,
   ) => Promise<void>;
-  await runQueue(batch, env, ctx);
+  await runQueue(batch as MessageBatch<PendingCommandMessage>, env, ctx);
   return getQueueResult(batch, ctx);
 }
 

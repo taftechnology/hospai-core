@@ -370,7 +370,7 @@ describe('PropertyDO rooms + housekeeping', () => {
     const first = {
       roomId: 'room_101',
       businessDate: '2026-09-01',
-      assigneeRef: 'hk_alice',
+      assigneeRef: 'staff_alice',
     };
     const r1 = await stub.tryAssignHousekeeping(
       TEST_OWNER_ACTOR,
@@ -378,7 +378,7 @@ describe('PropertyDO rooms + housekeeping', () => {
       await idemFor('hk-1', first),
     );
     expect(r1).toMatchObject({ ok: true });
-    const second = { ...first, assigneeRef: 'hk_bob' };
+    const second = { ...first, assigneeRef: 'staff_bob' };
     const r2 = await stub.tryAssignHousekeeping(
       TEST_OWNER_ACTOR,
       second,
@@ -395,7 +395,7 @@ describe('PropertyDO rooms + housekeeping', () => {
 
     const listed = await stub.readHousekeepingAssignments('2026-09-01');
     expect(listed.ok && listed.assignments).toEqual([
-      expect.objectContaining({ roomId: 'room_101', assigneeRef: 'hk_bob' }),
+      expect.objectContaining({ roomId: 'room_101', assigneeRef: 'staff_bob' }),
     ]);
     const empty = await stub.readHousekeepingAssignments('2026-09-02');
     expect(empty.ok && empty.assignments).toEqual([]);

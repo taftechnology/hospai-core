@@ -435,7 +435,7 @@ describe('rooms & housekeeping HTTP routes', () => {
     const res = await postHousekeepingAssign(propertyId, actor, {
       roomId: 'room_101',
       businessDate: far,
-      assigneeRef: 'hk_alice',
+      assigneeRef: 'staff_alice',
       idempotencyKey: 'idem-hk-far',
     });
     expect(res.status).toBe(200);

@@ -705,6 +705,88 @@ describe('degraded mode §4.6 fault injection', () => {
       'dirty',
     );
     expect(await stub.listOutboxEventTypes()).toEqual(['room.status_changed']);
+    const payloads = await stub.listOutboxPayloads();
+    const statusEvt = payloads.find((p) => p.eventType === 'room.status_changed');
+    expect(statusEvt).toBeTruthy();
+    const payload = JSON.parse(statusEvt!.payload) as {
+      provisional?: boolean;
+      issuedAt?: string;
+      replayedAt?: string;
+    };
+    expect(payload.provisional).toBe(true);
+    expect(payload.issuedAt).toBe(sent[0]!.provisional.issuedAt);
+    expect(typeof payload.replayedAt).toBe('string');
+  });
+
+  it('22b: bulk room status queues while blocked and replays with provisional extras', async () => {
+    const actor = 'user_deg_room22b';
+    const { propertyId, stub } = await provisionHotel(actor);
+    for (const [roomId, code] of [
+      ['room_deg_22b_a', '62A'],
+      ['room_deg_22b_b', '62B'],
+    ] as const) {
+      expect(
+        (
+          await worker.fetch(
+            new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+              body: JSON.stringify({
+                roomId,
+                roomTypeId: 'rt_king',
+                code,
+                idempotencyKey: `idem-create-${roomId}`,
+              }),
+            }),
+            env,
+          )
+        ).status,
+      ).toBe(201);
+    }
+    await stub.flushOutbox();
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms/bulk-status`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            updates: [
+              { roomId: 'room_deg_22b_a', status: 'dirty' },
+              { roomId: 'room_deg_22b_b', status: 'dirty' },
+            ],
+            idempotencyKey: 'idem-bulk-22b',
+          }),
+        },
+      ),
+      env,
+    );
+    expect(blocked.status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.provisional.command.type).toBe('rooms.bulk_update_status');
+    await dispatchPendingBatch(sent);
+    const rooms = (await stub.listRooms()).rooms;
+    expect(rooms.find((r) => r.roomId === 'room_deg_22b_a')?.status).toBe('dirty');
+    expect(rooms.find((r) => r.roomId === 'room_deg_22b_b')?.status).toBe('dirty');
+    const payloads = await stub.listOutboxPayloads();
+    const statusEvts = payloads.filter((p) => p.eventType === 'room.status_changed');
+    expect(statusEvts).toHaveLength(2);
+    for (const evt of statusEvts) {
+      const payload = JSON.parse(evt.payload) as {
+        provisional?: boolean;
+        issuedAt?: string;
+        replayedAt?: string;
+      };
+      expect(payload.provisional).toBe(true);
+      expect(payload.issuedAt).toBe(sent[0]!.provisional.issuedAt);
+      expect(typeof payload.replayedAt).toBe('string');
+    }
   });
 
   it('23: housekeeping.assign queues while blocked and replays once', async () => {
@@ -740,7 +822,7 @@ describe('degraded mode §4.6 fault injection', () => {
           body: JSON.stringify({
             roomId: 'room_deg_23',
             businessDate: arrival,
-            assigneeRef: 'hk_deg',
+            assigneeRef: 'staff_deg',
             idempotencyKey: 'idem-hk-23',
           }),
         },
@@ -753,6 +835,17 @@ describe('degraded mode §4.6 fault injection', () => {
     await dispatchPendingBatch(sent);
     const listed = await stub.readHousekeepingAssignments(arrival);
     expect(listed.ok && listed.assignments).toHaveLength(1);
+    const payloads = await stub.listOutboxPayloads();
+    const assigned = payloads.find((p) => p.eventType === 'housekeeping.assigned');
+    expect(assigned).toBeTruthy();
+    const payload = JSON.parse(assigned!.payload) as {
+      provisional?: boolean;
+      issuedAt?: string;
+      replayedAt?: string;
+    };
+    expect(payload.provisional).toBe(true);
+    expect(payload.issuedAt).toBe(sent[0]!.provisional.issuedAt);
+    expect(typeof payload.replayedAt).toBe('string');
   });
 
   it('24: assign-room while blocked returns FAIL_CLOSED 503', async () => {

@@ -180,7 +180,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('returns NOT_FOUND when reservation is missing', async () => {
     const name = `folio-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     const missingReservation = {
       folioLineId: 'fl_2',
       reservationId: 'res_missing',
@@ -197,7 +197,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('night-audit lines require business_date (CHECK) and unique index', async () => {
     const name = `audit-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.insertReservationForTest({
       reservationId: 'RES1',
       roomTypeId: 'rt_king',
@@ -254,7 +254,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('folio line money validation returns wire codes before storage', async () => {
     const name = `money-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.insertReservationForTest({
       reservationId: 'res_m',
       roomTypeId: 'rt_king',
@@ -333,7 +333,7 @@ describe('PropertyDO freeze gate', () => {
 
   it('folio line post is idempotent and emits folio.line_posted', async () => {
     const name = `folio-idem-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'America/New_York', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'America/New_York', 'USD');
     await stub.insertReservationForTest({
       reservationId: 'res_i',
       roomTypeId: 'rt_king',

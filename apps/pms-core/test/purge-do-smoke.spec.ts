@@ -12,7 +12,7 @@ describe('purge DO smoke', () => {
 
   it('deleteAll remigrates empty; purge does not touchInteractive', async () => {
     const propertyId = `purge_smoke_${crypto.randomUUID().slice(0, 8)}`;
-    const stub = await provisionedPropertyStub(propertyId, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD');
 
     await stub.resetLaneGuardForTest({ quietMs: 60_000 });
     await stub.touchInteractiveForTest();

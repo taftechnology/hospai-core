@@ -60,7 +60,7 @@ async function flushOrgWithConsumer(
 describe('Queues consumer (Phase 0)', () => {
   it('config put → flush → consumer receives config.changed', async () => {
     const name = `evt-cfg-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'queue-proof' };
     const key = 'pms.availability.allow_overbooking';
     const put = await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, 
@@ -161,7 +161,7 @@ describe('Queues consumer (Phase 0)', () => {
 
   it('flush deliver failure leaves rows unacked; retry delivers once', async () => {
     const name = `evt-fail-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'fail-send' };
     const key = 'pms.availability.allow_overbooking';
     await stub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, await configIdem(key, true, meta));
@@ -184,7 +184,7 @@ describe('Queues consumer (Phase 0)', () => {
 
   it('backlog-aware reschedule sets next outbox run within catch-up delay', async () => {
     const name = `evt-backlog-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'backlog' };
     const key = 'pms.availability.allow_overbooking';
     for (let i = 0; i < 3; i++) {

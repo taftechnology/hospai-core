@@ -12,6 +12,7 @@ import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { idemFor } from './fixtures';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers';
+import { createHousekeeper } from './roster-helpers';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -791,7 +792,12 @@ describe('degraded mode §4.6 fault injection', () => {
 
   it('23: housekeeping.assign queues while blocked and replays once', async () => {
     const actor = 'user_deg_room23';
-    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
+    const org = testOrgStub(orgId);
+    const hk = await createHousekeeper(org, propertyId, 'Deg', undefined, {
+      kind: 'user',
+      userId: actor,
+    });
     expect(
       (
         await worker.fetch(
@@ -822,7 +828,7 @@ describe('degraded mode §4.6 fault injection', () => {
           body: JSON.stringify({
             roomId: 'room_deg_23',
             businessDate: arrival,
-            assigneeRef: 'staff_deg',
+            assigneeRef: hk.staffId,
             idempotencyKey: 'idem-hk-23',
           }),
         },

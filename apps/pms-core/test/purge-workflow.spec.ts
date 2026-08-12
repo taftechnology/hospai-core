@@ -385,7 +385,7 @@ describe('PurgeWorkflow org plan', () => {
 
     const org = orgStub(orgId);
     await org.resetLaneGuardForTest({ quietMs: 60_000 });
-    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
     await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
 
     expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
@@ -462,7 +462,7 @@ describe('PurgeWorkflow org plan', () => {
 
     const org = orgStub(orgId);
     await org.resetLaneGuardForTest({ quietMs: 60_000 });
-    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId, {
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId, {
       flushOutbox: false,
     });
     const meta = { reason: 'r2-purge' };
@@ -684,7 +684,7 @@ describe('PurgeWorkflow org plan', () => {
 
     const org = orgStub(orgId);
     await org.resetLaneGuardForTest();
-    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
     await propStub.resetLaneGuardForTest();
 
     expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
@@ -750,7 +750,7 @@ describe('PurgeWorkflow org plan', () => {
 
     const org = orgStub(orgId);
     await org.resetLaneGuardForTest();
-    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
     await propStub.resetLaneGuardForTest();
 
     expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);

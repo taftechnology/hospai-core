@@ -37,6 +37,9 @@ import {
   TAX_RULE_KEY_OVERLAP,
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
+  STAFF_EXITED,
+  STAFF_NOT_ASSIGNABLE,
+  STAFF_NOT_FOUND,
   SHIFT_NOT_FOUND,
   SHIFT_ALREADY_OPEN,
   SHIFT_NOT_OPEN,
@@ -1182,6 +1185,13 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
 
   if (!result.ok) {
     const err = result.error;
+    if (err === 'org_unreachable') {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'reservations.create' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
     if (err === NO_AVAILABILITY) {
       const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
       logAriRejectOnCommit(ctx.observability, body.quoteAriVersion, fail, body.roomTypeId);
@@ -2507,6 +2517,16 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
   const result = invoked.result;
   if (!result.ok) {
     const err = result.error;
+    if (err === 'org_unreachable') {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'housekeeping.assign' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    if (err === STAFF_NOT_FOUND || err === STAFF_EXITED || err === STAFF_NOT_ASSIGNABLE) {
+      return json({ ok: false, error: err }, 422);
+    }
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
     if (err === 'invalid_assignee_ref' || err === 'invalid_business_date') {

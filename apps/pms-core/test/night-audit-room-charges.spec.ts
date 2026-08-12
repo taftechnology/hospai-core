@@ -10,7 +10,7 @@ function addDays(isoDate: string, days: number): string {
 }
 
 async function seedRoomType(
-  stub: Awaited<ReturnType<typeof provisionedPropertyStub>>,
+  stub: Awaited<ReturnType<typeof provisionedPropertyStub>>['stub'],
   roomTypeId: string,
   code: string,
   roomCount = 5,
@@ -28,7 +28,7 @@ async function seedRoomType(
 }
 
 async function seedRate(
-  stub: Awaited<ReturnType<typeof provisionedPropertyStub>>,
+  stub: Awaited<ReturnType<typeof provisionedPropertyStub>>['stub'],
   roomTypeId: string,
   stayDate: string,
   amountMinor: number,
@@ -53,7 +53,7 @@ async function seedRate(
 
 describe('night audit POST_ROOM_CHARGES', () => {
   it('16: posts single-night rate_day amount per in-house reservation', async () => {
-    const stub = await provisionedPropertyStub(`na-room-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`na-room-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     const departure = addDays(businessDate, 3);
 
@@ -112,7 +112,7 @@ describe('night audit POST_ROOM_CHARGES', () => {
   });
 
   it('17: missing BAR rate fails whole step with rate_missing and zero lines', async () => {
-    const stub = await provisionedPropertyStub(`na-missing-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`na-missing-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');
     await stub.insertReservationForTest({
@@ -136,7 +136,7 @@ describe('night audit POST_ROOM_CHARGES', () => {
   });
 
   it('18: re-run COMPLETED POST_ROOM_CHARGES short-circuits without duplicate lines', async () => {
-    const stub = await provisionedPropertyStub(`na-rerun-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`na-rerun-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');
     await seedRate(stub, 'rt_a', businessDate, 10000);
@@ -160,7 +160,7 @@ describe('night audit POST_ROOM_CHARGES', () => {
   });
 
   it('19: retry after FAILED does not duplicate night-audit room lines', async () => {
-    const stub = await provisionedPropertyStub(`na-retry-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`na-retry-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');
     await seedRoomType(stub, 'rt_b', 'RTB');
@@ -199,7 +199,7 @@ describe('night audit POST_ROOM_CHARGES', () => {
   });
 
   it('20: pre-slice reservation without folio_window gets window and room charge on audit', async () => {
-    const stub = await provisionedPropertyStub(`na-preslice-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`na-preslice-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');
     await seedRate(stub, 'rt_a', businessDate, 10000);

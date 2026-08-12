@@ -62,7 +62,7 @@ describe('PropertyDO sold ledger property tests', () => {
     async ({ seed }) => {
     const name = `ledger-prop-${crypto.randomUUID()}`;
     const orgId = `org_${name}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
     const org = orgStub(orgId);
     await org.ensureMetaOrgId(orgId);
     const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');

@@ -16,7 +16,7 @@ describe('PropertyDO restrictions + rates', () => {
   it('1. min_los on arrival blocks create in the book txn', async () => {
     const name = `restrict-${crypto.randomUUID()}`;
     const orgId = `org_${name}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
     const org = orgStub(orgId);
     await org.ensureMetaOrgId(orgId);
     const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
@@ -67,7 +67,7 @@ describe('PropertyDO restrictions + rates', () => {
 
   it('2. materialized rate_day enables quote across a stay', async () => {
     const name = `rates-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
     const addInput = {
       roomTypeId: 'rt_king',
       code: 'KING',

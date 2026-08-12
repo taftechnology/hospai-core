@@ -115,7 +115,7 @@ describe('entitlements + kill-switch', () => {
   it('PropertyDO __meta.org_id is write-once', async () => {
     const orgId = `org-meta-${crypto.randomUUID()}`;
     const propName = `prop-meta-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(propName, 'UTC', 'USD', orgId);
+    const { stub } = await provisionedPropertyStub(propName, 'UTC', 'USD', orgId);
     expect(await stub.getOrgId()).toBe(orgId);
     await stub.ensureMetaOrgId('org_other');
     expect(await stub.getOrgId()).toBe(orgId);

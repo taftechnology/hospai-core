@@ -6,7 +6,8 @@ import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub, TEST_OWN
 
 
 async function provisionedProperty(name: string, orgId: string): Promise<DurableObjectStub<PropertyDO>> {
-  return provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+  const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', orgId);
+  return stub;
 }
 
 describe('OrgDO guests + crypto-shredding', () => {

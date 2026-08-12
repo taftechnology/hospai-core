@@ -41,8 +41,7 @@ export async function provisionedPropertyWithGuest(
   timeZone = 'UTC',
   currency = 'USD',
 ): Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string; guestRef: string }> {
-  const orgId = `org_prop_${name}`;
-  const stub = await provisionedPropertyStub(name, timeZone, currency, orgId);
+  const { stub, orgId } = await provisionedPropertyStub(name, timeZone, currency);
   const org = orgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');

@@ -255,7 +255,7 @@ describe('observability (Phase 0)', () => {
 
   it('getOutboxBacklog RPC exposes oldest unacked created_at', async () => {
     const name = `prop_backlog_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'backlog-rpc' };
     const key = 'pms.availability.allow_overbooking';
     expect(
@@ -269,7 +269,7 @@ describe('observability (Phase 0)', () => {
 
   it('outbox.flush log includes backlog age when rows were flushed', async () => {
     const name = `prop_flush_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'flush-log' };
     const key = 'pms.availability.allow_overbooking';
     expect(
@@ -302,7 +302,7 @@ describe('observability (Phase 0)', () => {
 
   it('outbox.flush log carries oldest_created_at when backlog remains', async () => {
     const name = `prop_partial_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'partial-flush' };
     const key = 'pms.availability.allow_overbooking';
     for (const value of [true, false]) {
@@ -329,7 +329,7 @@ describe('observability (Phase 0)', () => {
 
   it('idle outbox sweep with empty backlog emits no outbox.flush log', async () => {
     const name = `prop_quiet_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
     expect(await stub.getOutboxBacklog()).toEqual({ unackedCount: 0, oldestCreatedAt: null });
 
     const capture = installLogCapture();
@@ -342,7 +342,7 @@ describe('observability (Phase 0)', () => {
 
   it('outbox.flush_failed logs backlog snapshot when sendBatch throws', async () => {
     const name = `prop_fail_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'flush-fail-log' };
     const key = 'pms.availability.allow_overbooking';
     expect(

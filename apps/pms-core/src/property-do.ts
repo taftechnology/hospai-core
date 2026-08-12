@@ -57,6 +57,9 @@ import {
   FORBIDDEN,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
+  STAFF_EXITED,
+  STAFF_NOT_ASSIGNABLE,
+  STAFF_NOT_FOUND,
   ROLE_GRANTS,
   fingerprintPayload,
   isStaffRef,
@@ -140,6 +143,10 @@ import {
   type PspSimulateOutcome,
 } from './psp-simulate.js';
 import type { OrgDO } from './org-do.js';
+import {
+  isOrgDoTransportFailure,
+  ORG_DO_TRANSPORT_BLOCKED_MESSAGE,
+} from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 
@@ -784,20 +791,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return null;
   }
 
+  private async gateOrgRef<T extends { ok: boolean }>(
+    orgId: string,
+    invoke: (org: DurableObjectStub<OrgDO>) => Promise<T>,
+  ): Promise<T | { ok: false; error: 'org_unreachable' }> {
+    try {
+      const org = resolveOrgStub(this.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+      return await invoke(org);
+    } catch (e) {
+      if (isOrgDoTransportFailure(e)) return { ok: false, error: 'org_unreachable' };
+      throw e;
+    }
+  }
+
   /**
    * Look up `guestRef` in the org's guest registry — create-only referential integrity check.
    * Never caches; returns the current `piiKeyId` so callers store the looked-up value rather
    * than trusting a client-supplied one.
    */
-  private async gateGuestRef(
-    orgId: string,
-    guestRef: string,
-  ): Promise<
-    | { ok: true; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
-  > {
-    const org = resolveOrgStub(this.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
-    return org.assertGuestRef(guestRef);
+  private async gateGuestRef(orgId: string, guestRef: string) {
+    return this.gateOrgRef(orgId, (org) => org.assertGuestRef(guestRef));
+  }
+
+  private async gateStaffRef(orgId: string, staffId: string) {
+    return this.gateOrgRef(orgId, (org) => org.assertStaffAssignable(staffId));
   }
 
   private assertRpcAvailable(): void {
@@ -3034,6 +3051,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
     | { ok: false; error: 'org_id_unset' | 'invalid_business_date' | 'invalid_assignee_ref' }
+    | {
+        ok: false;
+        error:
+          | 'org_unreachable'
+          | typeof STAFF_NOT_FOUND
+          | typeof STAFF_EXITED
+          | typeof STAFF_NOT_ASSIGNABLE;
+      }
     | { ok: false; error: string }
   > {
     this.assertRpcAvailable();
@@ -3053,6 +3078,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!isStaffRef(input.assigneeRef)) {
       return { ok: false, error: 'invalid_assignee_ref' };
     }
+
+    const staffGate = await this.gateStaffRef(orgId, input.assigneeRef);
+    if (!staffGate.ok) return staffGate;
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -3170,6 +3198,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
+    | { ok: false; error: 'org_unreachable' }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
   > {

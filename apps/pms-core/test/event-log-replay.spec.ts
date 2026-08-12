@@ -30,7 +30,7 @@ async function dispatchQueueConsumer(rows: OutboxRow[], source: EventSource): Pr
 describe('event-log fidelity', () => {
   it('replayed set equals emitted set; deduped; seq non-decreasing; envelope intact', async () => {
     const name = `prop_fid_${crypto.randomUUID().slice(0, 8)}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     const meta = { reason: 'fidelity' };
     const key = 'pms.availability.allow_overbooking';
     for (let i = 0; i < 3; i++) {

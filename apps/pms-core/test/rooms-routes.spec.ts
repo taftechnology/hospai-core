@@ -18,6 +18,7 @@ import {
 } from '../src/registry.js';
 import { addCalendarDays, daysFromPropertyToday } from './date-helpers.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { createHousekeeper } from './roster-helpers.js';
 
 // Module-level: +1 is slack for a mid-run UTC rollover, not a property of the seed window —
 // the seed starts at business_date. FIXTURE_TZ must match provision TZ in this file (UTC).
@@ -420,7 +421,12 @@ describe('rooms & housekeeping HTTP routes', () => {
 
   it('13a: housekeeping far-future businessDate ok', async () => {
     const actor = 'user_rooms_13a';
-    const { propertyId, stub } = await provisionHotel(actor);
+    const { orgId, propertyId, stub } = await provisionHotel(actor);
+    const org = testOrgStub(orgId);
+    const hk = await createHousekeeper(org, propertyId, 'Alice', undefined, {
+      kind: 'user',
+      userId: actor,
+    });
     expect(
       (
         await postRoom(propertyId, actor, {
@@ -435,7 +441,7 @@ describe('rooms & housekeeping HTTP routes', () => {
     const res = await postHousekeepingAssign(propertyId, actor, {
       roomId: 'room_101',
       businessDate: far,
-      assigneeRef: 'staff_alice',
+      assigneeRef: hk.staffId,
       idempotencyKey: 'idem-hk-far',
     });
     expect(res.status).toBe(200);

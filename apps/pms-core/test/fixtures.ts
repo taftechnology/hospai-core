@@ -42,7 +42,7 @@ export async function provisionedPropertyStub(
   currency: string,
   orgId?: string,
   opts?: { flushOutbox?: boolean },
-): Promise<DurableObjectStub<PropertyDO>> {
+): Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string }> {
   const targetOrgId = orgId ?? `org_prop_${name}`;
   await seedSubscription(env, targetOrgId, 'starter');
   const org = orgStub(targetOrgId);
@@ -68,7 +68,7 @@ export async function provisionedPropertyStub(
   if (opts?.flushOutbox !== false) {
     await stub.flushOutbox();
   }
-  return stub;
+  return { stub, orgId: targetOrgId };
 }
 
 export async function ensureEntitledMeta(

@@ -33,7 +33,7 @@ describe('LaneGuard (Phase 0)', () => {
 
   it('cold start admits outbox flush without prior interactive work', async () => {
     const name = `lg_cold_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     await stub.resetLaneGuardForTest();
     const backlogBefore = await stub.getOutboxBacklog();
 
@@ -52,7 +52,7 @@ describe('LaneGuard (Phase 0)', () => {
 
   it('interactive command defers immediate outbox alarm with defer floor', async () => {
     const name = `lg_defer_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     await stub.resetLaneGuardForTest({ quietMs: 250 });
 
     const meta = { reason: 'laneguard-defer' };
@@ -90,7 +90,7 @@ describe('LaneGuard (Phase 0)', () => {
 
   it('flushes after quiet window elapses with no further interactive touches', async () => {
     const name = `lg_quiet_${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
     await stub.resetLaneGuardForTest({ quietMs: 50 });
 
     const meta = { reason: 'laneguard-quiet' };

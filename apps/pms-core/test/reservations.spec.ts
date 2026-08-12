@@ -24,8 +24,7 @@ async function provisionedPropertyWithGuest(
   timeZone: string,
   currency: string,
 ): Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string; guestRef: string }> {
-  const orgId = `org_prop_${name}`;
-  const stub = await provisionedPropertyStub(name, timeZone, currency, orgId);
+  const { stub, orgId } = await provisionedPropertyStub(name, timeZone, currency);
   const org = orgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
@@ -378,7 +377,7 @@ describe('PropertyDO reservations.create + availability.book', () => {
 
   it('create reservation rejects unknown guestRef', async () => {
     const name = `res-ghost-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
+    const { stub } = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     const departure = addDays(arrival, 1);
@@ -742,7 +741,7 @@ describe('PropertyDO reservations.modify', () => {
 
   it('M2: modify of legacy guest_ref reservation does not require OrgDO guest', async () => {
     const name = `legacy-mod-${crypto.randomUUID()}`;
-    const stub = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 3);
     await stub.insertReservationForTest({
       reservationId: 'res_legacy',

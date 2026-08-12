@@ -9,8 +9,9 @@ import {
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays, daysFromPropertyToday } from './date-helpers';
-import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 import { provisionedPropertyWithGuest } from './guest-helpers';
+import { createHousekeeper } from './roster-helpers';
 
 /** Half-open [arrival, departure) adversarial fixtures from the plan. */
 // Module-level: +1 is slack for a mid-run UTC rollover, not a property of the seed window —
@@ -55,7 +56,7 @@ async function createRoom(
 
 describe('PropertyDO rooms + housekeeping', () => {
   it('creates a room and emits room.created without availability.changed', async () => {
-    const stub = await provisionedPropertyStub(`rm-create-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-create-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     const ariBefore = await stub.readAriVersion();
 
@@ -76,7 +77,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('rejects duplicate room code', async () => {
-    const stub = await provisionedPropertyStub(`rm-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_b', 'rt_king', '101')).toEqual({
@@ -86,7 +87,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('rejects create when COUNT(room) == room_count', async () => {
-    const stub = await provisionedPropertyStub(`rm-full-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-full-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 1);
     expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toEqual({
@@ -96,7 +97,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('rejects create on archived room type as not_found', async () => {
-    const stub = await provisionedPropertyStub(`rm-arch-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-arch-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     const del = await stub.tryDeleteRoomType(
       TEST_OWNER_ACTOR,
@@ -111,7 +112,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('updates room code and floor; count unchanged', async () => {
-    const stub = await provisionedPropertyStub(`rm-upd-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-upd-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_typo', 'rt_king', '10I')).toMatchObject({ ok: true });
     const input = { roomId: 'room_typo', code: '101' };
@@ -124,7 +125,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('update to taken code → room_code_exists', async () => {
-    const stub = await provisionedPropertyStub(`rm-upd-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-upd-dup-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_b', 'rt_king', '102')).toMatchObject({ ok: true });
@@ -136,7 +137,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('lowering room_count below COUNT(room) → room_units_exceed_count', async () => {
-    const stub = await provisionedPropertyStub(`rm-units-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-units-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 3);
     expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toMatchObject({ ok: true });
@@ -150,7 +151,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('count invariant after filling to room_count', async () => {
-    const stub = await provisionedPropertyStub(`rm-inv-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-inv-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 2);
     expect(await createRoom(stub, 'room_1', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_2', 'rt_king', '102')).toMatchObject({ ok: true });
@@ -159,7 +160,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('status update emits room.status_changed only; ARI unchanged', async () => {
-    const stub = await provisionedPropertyStub(`rm-st-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-st-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     await stub.flushOutbox();
@@ -173,7 +174,7 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('bulk status is all-or-nothing', async () => {
-    const stub = await provisionedPropertyStub(`rm-bulk-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub } = await provisionedPropertyStub(`rm-bulk-${crypto.randomUUID()}`, 'UTC', 'USD');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
     expect(await createRoom(stub, 'room_b', 'rt_king', '102')).toMatchObject({ ok: true });
@@ -362,7 +363,12 @@ describe('PropertyDO rooms + housekeeping', () => {
   });
 
   it('housekeeping assign upserts; far-future businessDate allowed', async () => {
-    const stub = await provisionedPropertyStub(`rm-hk-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const name = `rm-hk-${crypto.randomUUID()}`;
+    const { stub, orgId } = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const org = orgStub(orgId);
+    await org.ensureMetaOrgId(orgId);
+    const alice = await createHousekeeper(org, name, 'Alice');
+    const bob = await createHousekeeper(org, name, 'Bob');
     await addRoomType(stub, 'rt_king', 5);
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     await stub.flushOutbox();
@@ -370,7 +376,7 @@ describe('PropertyDO rooms + housekeeping', () => {
     const first = {
       roomId: 'room_101',
       businessDate: '2026-09-01',
-      assigneeRef: 'staff_alice',
+      assigneeRef: alice.staffId,
     };
     const r1 = await stub.tryAssignHousekeeping(
       TEST_OWNER_ACTOR,
@@ -378,7 +384,7 @@ describe('PropertyDO rooms + housekeeping', () => {
       await idemFor('hk-1', first),
     );
     expect(r1).toMatchObject({ ok: true });
-    const second = { ...first, assigneeRef: 'staff_bob' };
+    const second = { ...first, assigneeRef: bob.staffId };
     const r2 = await stub.tryAssignHousekeeping(
       TEST_OWNER_ACTOR,
       second,
@@ -395,7 +401,7 @@ describe('PropertyDO rooms + housekeeping', () => {
 
     const listed = await stub.readHousekeepingAssignments('2026-09-01');
     expect(listed.ok && listed.assignments).toEqual([
-      expect.objectContaining({ roomId: 'room_101', assigneeRef: 'staff_bob' }),
+      expect.objectContaining({ roomId: 'room_101', assigneeRef: bob.staffId }),
     ]);
     const empty = await stub.readHousekeepingAssignments('2026-09-02');
     expect(empty.ok && empty.assignments).toEqual([]);

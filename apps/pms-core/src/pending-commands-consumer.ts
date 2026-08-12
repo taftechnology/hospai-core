@@ -177,6 +177,11 @@ export async function handlePendingCommandsBatch(
         continue;
       }
 
+      if (result.error === 'org_unreachable') {
+        msg.retry();
+        continue;
+      }
+
       const reason =
         result.error === BUSINESS_DATE_CLOSED ? 'business_date_closed' : (result.error ?? 'domain_error');
 

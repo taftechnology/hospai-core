@@ -1,9 +1,17 @@
 /** §4.8 PurgeWorkflow — guest + org step plans with HALT-always-certifies wrapper. */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
-import { resolveOrgStub } from '@hospai/tenant-router';
+import {
+  locationHintFromTimeZone,
+  resolveOrgEntitlementStub,
+  resolveOrgStub,
+  resolvePropertyStub,
+} from '@hospai/tenant-router';
 import type { PmsEnv, PurgeWorkflowParams } from './env.js';
+import { isJurisdictionSimulate } from './env.js';
 import type { OrgDO } from './org-do.js';
+import type { OrgEntitlementDO } from './org-entitlement-do.js';
+import type { PropertyDO } from './property-do.js';
 import {
   appendPurgeCertificate,
   evaluateOrgRetention,
@@ -12,8 +20,17 @@ import {
   type PurgeStoreName,
   type PurgeStoreRecord,
 } from './purge-certificate.js';
+import {
+  assertTenantActive,
+  getProperty,
+  listPropertiesForOrg,
+  trySetOrgStatus,
+  trySetPropertyStatus,
+} from './registry.js';
 
 export type { PurgeWorkflowParams };
+
+const ORG_PURGE_PAGE_LIMIT = 50;
 
 export class HaltError extends Error {
   readonly reason: string;
@@ -41,15 +58,11 @@ function subjectsFor(params: PurgeWorkflowParams): unknown {
   return [{ orgId: params.orgId }];
 }
 
-/**
- * Org plan spine — retention gate only until Task 8 fills CLOSE_TRAFFIC…CERTIFY.
- * Passing retention then HALTs with `org_plan_incomplete` so the wrapper always certifies.
- */
 async function runOrgPlan(
   env: PmsEnv,
   params: Extract<PurgeWorkflowParams, { kind: 'org' }>,
   step: WorkflowStep,
-  _stores: PurgeStoreRecord[],
+  stores: PurgeStoreRecord[],
 ): Promise<void> {
   await step.do('retention-gate', async () => {
     const row = await getOrgRetentionRow(env, params.orgId);
@@ -58,7 +71,189 @@ async function runOrgPlan(
     const result = evaluateOrgRetention(row, now);
     if (!result.ok) throw new HaltError(result.reason);
   });
-  throw new HaltError('org_plan_incomplete');
+
+  const snapshot = await step.do('close-traffic', async () => {
+    const propertyIds: string[] = [];
+    let after: string | null = null;
+    do {
+      const page = await listPropertiesForOrg(env, params.orgId, {
+        after,
+        limit: ORG_PURGE_PAGE_LIMIT,
+      });
+      for (const row of page.rows) {
+        const gate = await assertTenantActive(env, {
+          propertyId: row.propertyId,
+          orgId: params.orgId,
+          allowedOrgStatuses: ['closing'],
+        });
+        if (!gate.ok) {
+          throw new HaltError(gate.error === 'not_found' ? 'subject_missing' : 'tenant_not_active');
+        }
+        propertyIds.push(row.propertyId);
+      }
+      after = page.nextAfter;
+    } while (after);
+
+    const orgFlip = await trySetOrgStatus(env, params.orgId, 'purging');
+    if (!orgFlip.ok) throw new HaltError(orgFlip.error);
+
+    for (const propertyId of propertyIds) {
+      const propFlip = await trySetPropertyStatus(env, propertyId, 'purging');
+      if (!propFlip.ok) throw new HaltError(propFlip.error);
+    }
+
+    return { propertyIds };
+  });
+
+  await step.do('shred-keys', async () => {
+    const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
+    const result = await org.shredRemainingGuestKeys();
+    if (!result.ok) throw new HaltError(result.error);
+    patchStore(stores, 'key_store', {
+      status: 'reached',
+      deleted: result.shredded,
+      note: 'colocated_in_org_do',
+    });
+  });
+
+  let propertyDeletedTotal = 0;
+  let propertyPage = 0;
+  for (let offset = 0; offset < snapshot.propertyIds.length; offset += ORG_PURGE_PAGE_LIMIT) {
+    const batch = snapshot.propertyIds.slice(offset, offset + ORG_PURGE_PAGE_LIMIT);
+    const pageIndex = propertyPage;
+    const pageDeleted = await step.do(`purge-property-do-page-${pageIndex}`, async () => {
+      const simulateJurisdiction = isJurisdictionSimulate(env);
+      let batchDeleted = 0;
+      for (const propertyId of batch) {
+        const property = await getProperty(env, propertyId);
+        if (!property) throw new HaltError('subject_missing');
+        const locationHint = locationHintFromTimeZone(property.timeZone);
+        const stub = resolvePropertyStub(
+          env.PROPERTY_DO,
+          {
+            orgId: property.orgId,
+            propertyId: property.propertyId,
+            jurisdiction: property.jurisdiction,
+            locationHint,
+          },
+          { simulateJurisdiction },
+        ) as DurableObjectStub<PropertyDO>;
+        const result = await stub.purgeStorageForTenant();
+        if (!result.ok) throw new HaltError(result.error);
+        batchDeleted += result.deletedApprox;
+      }
+      return batchDeleted;
+    });
+    propertyDeletedTotal += pageDeleted;
+    propertyPage += 1;
+  }
+  patchStore(stores, 'property_do', { status: 'reached', deleted: propertyDeletedTotal });
+
+  await step.do('purge-org-do', async () => {
+    const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
+    const orgResult = await org.purgeStorageForTenant();
+    if (!orgResult.ok) throw new HaltError(orgResult.error);
+
+    const entStub = resolveOrgEntitlementStub(
+      env.ORG_ENTITLEMENT_DO,
+      params.orgId,
+    ) as DurableObjectStub<OrgEntitlementDO>;
+    const entResult = await entStub.purgeStorageForTenant();
+    if (!entResult.ok) throw new HaltError(entResult.error);
+
+    patchStore(stores, 'org_do', {
+      status: 'reached',
+      deleted: orgResult.deletedApprox + entResult.deletedApprox,
+      note: 'includes_entitlement_do',
+    });
+  });
+
+  await step.do('skip-r2', async () => {
+    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+  });
+
+  await step.do('skip-iceberg', async () => {
+    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+  });
+
+  await step.do('verify', async () => {
+    const currentIds: string[] = [];
+    let after: string | null = null;
+    do {
+      const page = await listPropertiesForOrg(env, params.orgId, {
+        after,
+        limit: ORG_PURGE_PAGE_LIMIT,
+      });
+      for (const row of page.rows) {
+        currentIds.push(row.propertyId);
+      }
+      after = page.nextAfter;
+    } while (after);
+
+    const snapshotSet = new Set(snapshot.propertyIds);
+    const currentSet = new Set(currentIds);
+    if (snapshotSet.size !== currentSet.size) throw new HaltError('unexpected_subject');
+    for (const id of snapshotSet) {
+      if (!currentSet.has(id)) throw new HaltError('subject_missing');
+    }
+    for (const id of currentSet) {
+      if (!snapshotSet.has(id)) throw new HaltError('unexpected_subject');
+    }
+
+    const simulateJurisdiction = isJurisdictionSimulate(env);
+    for (const propertyId of snapshot.propertyIds) {
+      const property = await getProperty(env, propertyId);
+      if (!property) throw new HaltError('subject_missing');
+      const locationHint = locationHintFromTimeZone(property.timeZone);
+      const stub = resolvePropertyStub(
+        env.PROPERTY_DO,
+        {
+          orgId: property.orgId,
+          propertyId: property.propertyId,
+          jurisdiction: property.jurisdiction,
+          locationHint,
+        },
+        { simulateJurisdiction },
+      ) as DurableObjectStub<PropertyDO>;
+      const count = await stub.countNonBookkeepingRows();
+      if (count !== 0) throw new HaltError('verify_residue');
+    }
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
+    if ((await org.countNonBookkeepingRows()) !== 0) throw new HaltError('verify_residue');
+
+    const entStub = resolveOrgEntitlementStub(
+      env.ORG_ENTITLEMENT_DO,
+      params.orgId,
+    ) as DurableObjectStub<OrgEntitlementDO>;
+    if ((await entStub.countNonBookkeepingRows()) !== 0) throw new HaltError('verify_residue');
+  });
+
+  await step.do('certify', async () => {
+    const orgFlip = await trySetOrgStatus(env, params.orgId, 'purged');
+    if (!orgFlip.ok) throw new HaltError(orgFlip.error);
+
+    for (const propertyId of snapshot.propertyIds) {
+      const propFlip = await trySetPropertyStatus(env, propertyId, 'purged');
+      if (!propFlip.ok) throw new HaltError(propFlip.error);
+    }
+
+    const subjects = [
+      { orgId: params.orgId },
+      ...snapshot.propertyIds.map((propertyId) => ({ propertyId })),
+    ];
+
+    await appendPurgeCertificate(env, {
+      workflowId: params.workflowId,
+      kind: 'org',
+      orgId: params.orgId,
+      subjects,
+      stores,
+      operatorUserId: params.operatorUserId,
+      outcome: 'certified',
+      started: params.started,
+    });
+  });
 }
 
 /**

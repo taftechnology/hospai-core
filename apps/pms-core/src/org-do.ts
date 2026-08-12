@@ -371,6 +371,24 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return { ok: true, shredded };
   }
 
+  async shredRemainingGuestKeys(): Promise<
+    { ok: true; shredded: number } | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) {
+      return { ok: false, error: 'bulk_not_admitted' };
+    }
+    const keyStore = new SqlKeyStore(this.ctx.storage.sql);
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id FROM data_key WHERE shredded_at IS NULL`)
+      .toArray() as Array<{ pii_key_id: string }>;
+    let shredded = 0;
+    for (const { pii_key_id } of rows) {
+      if (keyStore.shred(pii_key_id)) shredded += 1;
+    }
+    return { ok: true, shredded };
+  }
+
   async clearGuestProfileBlobs(
     guestId: string,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -406,7 +424,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
   async countNonBookkeepingRows(): Promise<number> {
     this.assertRpcAvailable();
-    migrateSql(this.ctx.storage.sql, [...ORG_MIGRATIONS]);
+    const schemaPresent =
+      (
+        this.ctx.storage.sql
+          .exec(`SELECT 1 AS one FROM sqlite_master WHERE type='table' AND name = 'schema_version'`)
+          .toArray() as Array<{ one: number }>
+      ).length > 0;
+    if (!schemaPresent) return 0;
+
     const tables = this.ctx.storage.sql
       .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
       .toArray() as Array<{ name: string }>;

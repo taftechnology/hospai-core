@@ -39,7 +39,14 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
   }
 
   async countNonBookkeepingRows(): Promise<number> {
-    migrateSql(this.ctx.storage.sql, [...ORG_ENTITLEMENT_MIGRATIONS]);
+    const schemaPresent =
+      (
+        this.ctx.storage.sql
+          .exec(`SELECT 1 AS one FROM sqlite_master WHERE type='table' AND name = 'schema_version'`)
+          .toArray() as Array<{ one: number }>
+      ).length > 0;
+    if (!schemaPresent) return 0;
+
     const tables = this.ctx.storage.sql
       .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
       .toArray() as Array<{ name: string }>;

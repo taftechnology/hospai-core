@@ -55,8 +55,9 @@ export type TenantActiveDenial = 'not_found' | 'tenant_not_active';
  */
 export async function assertTenantActive(
   env: PmsEnv,
-  opts: { orgId?: string; propertyId?: string },
+  opts: { orgId?: string; propertyId?: string; allowedOrgStatuses?: readonly string[] },
 ): Promise<{ ok: true } | { ok: false; error: TenantActiveDenial; status?: string }> {
+  const allowedOrgStatuses = opts.allowedOrgStatuses ?? ['active'];
   await ensurePlatformSchema(env.PLATFORM_DB);
   if (opts.propertyId) {
     const property = await getProperty(env, opts.propertyId);
@@ -69,7 +70,7 @@ export async function assertTenantActive(
     }
     const org = await getOrg(env, property.orgId);
     if (!org) return { ok: false, error: 'not_found' };
-    if (org.status !== 'active') {
+    if (!allowedOrgStatuses.includes(org.status)) {
       return { ok: false, error: 'tenant_not_active', status: org.status };
     }
     return { ok: true };
@@ -77,7 +78,7 @@ export async function assertTenantActive(
   if (opts.orgId) {
     const org = await getOrg(env, opts.orgId);
     if (!org) return { ok: false, error: 'not_found' };
-    if (org.status !== 'active') {
+    if (!allowedOrgStatuses.includes(org.status)) {
       return { ok: false, error: 'tenant_not_active', status: org.status };
     }
     return { ok: true };
@@ -182,6 +183,40 @@ export async function listPropertyIds(
         `SELECT property_id, org_id, jurisdiction, time_zone FROM property ORDER BY property_id ASC LIMIT ?`,
       )
         .bind(limit)
+        .all<{ property_id: string; org_id: string; jurisdiction: string | null; time_zone: string }>();
+
+  const rows = (results ?? []).map((r) => ({
+    propertyId: r.property_id,
+    orgId: r.org_id,
+    jurisdiction: (r.jurisdiction as Jurisdiction | null) ?? null,
+    timeZone: r.time_zone,
+  }));
+  const nextAfter = rows.length === limit ? rows[rows.length - 1]!.propertyId : null;
+  return { rows, nextAfter };
+}
+
+/** Keyset pagination on `property_id` scoped to one org — for org purge snapshot / verify. */
+export async function listPropertiesForOrg(
+  env: PmsEnv,
+  orgId: string,
+  opts?: PageOpts,
+): Promise<{ rows: PropertySweepRow[]; nextAfter: string | null }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const limit = opts?.limit ?? DEFAULT_PAGE_LIMIT;
+  const after = opts?.after ?? null;
+
+  const { results } = after
+    ? await env.PLATFORM_DB.prepare(
+        `SELECT property_id, org_id, jurisdiction, time_zone FROM property
+         WHERE org_id = ? AND property_id > ? ORDER BY property_id ASC LIMIT ?`,
+      )
+        .bind(orgId, after, limit)
+        .all<{ property_id: string; org_id: string; jurisdiction: string | null; time_zone: string }>()
+    : await env.PLATFORM_DB.prepare(
+        `SELECT property_id, org_id, jurisdiction, time_zone FROM property
+         WHERE org_id = ? ORDER BY property_id ASC LIMIT ?`,
+      )
+        .bind(orgId, limit)
         .all<{ property_id: string; org_id: string; jurisdiction: string | null; time_zone: string }>();
 
   const rows = (results ?? []).map((r) => ({

@@ -413,4 +413,6 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   { id: 'create_property_member', scope: 'property', permission: 'staff:write' },
   { id: 'update_property_member', scope: 'property', permission: 'staff:write' },
   { id: 'delete_property_member', scope: 'property', permission: 'staff:write' },
+  { id: 'post_org_cancel', scope: 'org', permission: 'org:cancel' },
+  { id: 'post_org_purge', scope: 'org', permission: 'org:purge' },
 ];

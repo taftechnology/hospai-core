@@ -86,7 +86,8 @@ import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import { guestPurgeWorkflowId } from './purge-certificate.js';
+import { guestPurgeWorkflowId, closeOrgForPurge, nextOrgPurgeWorkflowId, reopenOrg } from './purge-certificate.js';
+import { ensurePurgeWorkflowInstance } from './purge-workflow-create.js';
 import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
 
@@ -449,6 +450,44 @@ async function handlePostMigrationSweep(ctx: V1DispatchContext): Promise<Respons
     params: { triggeredBy: ctx.actor.userId },
   });
   return json({ workflowId: instance.id }, 202);
+}
+
+async function handlePostOrgCancel(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const body = (await ctx.request.json()) as { action?: string };
+  if (body.action !== 'close' && body.action !== 'reopen') {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  if (body.action === 'close') {
+    const result = await closeOrgForPurge(ctx.env, orgId);
+    if (!result.ok) return json({ error: result.error }, 409);
+    return json({ ok: true, orgId, status: 'closing' }, 200);
+  }
+  const result = await reopenOrg(ctx.env, orgId);
+  if (!result.ok) return json({ error: result.error }, 409);
+  return json({ ok: true, orgId, status: 'active' }, 200);
+}
+
+async function handlePostOrgPurge(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const body = (await ctx.request.json()) as { orgId?: string; confirm?: boolean };
+  if (body.confirm !== true || body.orgId !== orgId) {
+    return json({ error: 'invalid_body' }, 422);
+  }
+  const workflowId = await nextOrgPurgeWorkflowId(ctx.env, orgId);
+  await ensurePurgeWorkflowInstance(ctx.env.PURGE_WORKFLOW, {
+    id: workflowId,
+    params: {
+      kind: 'org',
+      workflowId,
+      orgId,
+      operatorUserId: ctx.actor.userId,
+      started: Date.now(),
+    },
+  });
+  return json({ workflowId, orgId }, 202);
 }
 
 async function handlePostOrgProperties(ctx: V1DispatchContext): Promise<Response> {
@@ -4216,6 +4255,20 @@ export const V1_ROUTES: V1RouteDef[] = [
     pattern: /^\/v1\/properties\/([^/]+)\/members\/([^/]+)$/,
     permission: 'staff:write',
     handler: handleDeletePropertyMember,
+  },
+  {
+    scope: 'org',
+    method: 'POST',
+    pattern: /^\/v1\/orgs\/([^/]+)\/cancel$/,
+    permission: 'org:cancel',
+    handler: handlePostOrgCancel,
+  },
+  {
+    scope: 'org',
+    method: 'POST',
+    pattern: /^\/v1\/orgs\/([^/]+)\/purge$/,
+    permission: 'org:purge',
+    handler: handlePostOrgPurge,
   },
 ];
 

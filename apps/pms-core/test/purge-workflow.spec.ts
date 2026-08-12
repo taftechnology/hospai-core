@@ -1,19 +1,30 @@
 import { env } from 'cloudflare:test';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
+import worker from '../src/index.js';
+import { provisionProperty } from '../src/provision.js';
 import {
   createOrg,
   ensurePlatformSchema,
+  getOrg,
+  getProperty,
   resetPlatformSchemaGate,
+  trySetOrgStatus,
+  trySetPropertyStatus,
 } from '../src/registry.js';
 import type { PmsEnv } from '../src/env.js';
 import {
+  closeOrgForPurge,
   guestPurgeWorkflowId,
   nextOrgPurgeWorkflowId,
   PITR_LIMITATION,
 } from '../src/purge-certificate.js';
+import { ensurePurgeWorkflowInstance } from '../src/purge-workflow-create.js';
 import { HaltError, PurgeWorkflow, type PurgeWorkflowParams } from '../src/purge-workflow.js';
-import { createGuest, idemFor, provisionedOrg, TEST_OWNER_ACTOR } from './guest-helpers.js';
+import { createGuest, idemFor, orgStub, provisionedOrg, TEST_OWNER_ACTOR } from './guest-helpers.js';
+import { provisionedPropertyStub } from './fixtures.js';
+
+const actor = 'user_owner';
 
 function fakeWorkflowStep(stepNames: string[] = []): WorkflowStep {
   return {
@@ -258,5 +269,222 @@ describe('PurgeWorkflow spine', () => {
       reason: 'no_r2_binding',
     });
     expect(JSON.parse(row!.limitations_json)).toContain(PITR_LIMITATION);
+  });
+});
+
+describe('PurgeWorkflow org plan', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+  });
+
+  it('happy path certifies org + properties after retention', async () => {
+    const orgId = `org_ok_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_ok_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Purge OK')).toBe(true);
+
+    const provisioned = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Purge Property',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'USD',
+      actorUserId: actor,
+    });
+    expect(provisioned.ok).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest({ quietMs: 60_000 });
+    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const stepNames: string[] = [];
+    await runPurgeWorkflow(
+      {
+        kind: 'org',
+        workflowId,
+        orgId,
+        operatorUserId: actor,
+        started: 0,
+        nowMs: 2_000,
+      },
+      stepNames,
+    );
+
+    expect(stepNames).toEqual([
+      'retention-gate',
+      'close-traffic',
+      'shred-keys',
+      'purge-property-do-page-0',
+      'purge-org-do',
+      'skip-r2',
+      'skip-iceberg',
+      'verify',
+      'certify',
+    ]);
+
+    expect((await getOrg(env, orgId))?.status).toBe('purged');
+    expect((await getProperty(env, propertyId))?.status).toBe('purged');
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, certified, subject_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; certified: number | null; subject_json: string }>();
+
+    expect(row?.outcome).toBe('certified');
+    expect(row?.certified).not.toBeNull();
+    const subjects = JSON.parse(row!.subject_json) as Array<{ orgId?: string; propertyId?: string }>;
+    expect(subjects).toContainEqual({ orgId });
+    expect(subjects).toContainEqual({ propertyId });
+  });
+
+  it('step-0 HALTs when org is still active', async () => {
+    const orgId = `org_active_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Active')).toBe(true);
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+
+    await expect(
+      runPurgeWorkflow({
+        kind: 'org',
+        workflowId,
+        orgId,
+        operatorUserId: actor,
+        started: Date.now(),
+        nowMs: 9_999_999,
+      }),
+    ).rejects.toThrow(HaltError);
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, halt_reason FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; halt_reason: string }>();
+
+    expect(row?.outcome).toBe('halted');
+    expect(row?.halt_reason).toBe('not_closing');
+    expect((await getOrg(env, orgId))?.status).toBe('active');
+  });
+
+  it('provision refused with 409 tenant_not_active when org is purging', async () => {
+    const orgId = `org_cascade_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_cascade_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Cascade')).toBe(true);
+    await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Existing',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'USD',
+      actorUserId: actor,
+    });
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 0 })).ok).toBe(true);
+    expect((await trySetOrgStatus(env, orgId, 'purging')).ok).toBe(true);
+    expect((await trySetPropertyStatus(env, propertyId, 'purging')).ok).toBe(true);
+
+    const newPropertyId = `prop_new_${crypto.randomUUID().slice(0, 8)}`;
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/orgs/${encodeURIComponent(orgId)}/properties`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          propertyId: newPropertyId,
+          name: 'Nope',
+          timeZone: 'UTC',
+          currency: 'USD',
+        }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'tenant_not_active' });
+  });
+
+  it('ensurePurgeWorkflowInstance returns already_exists on duplicate create', async () => {
+    const orgId = `org_dup_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Dup')).toBe(true);
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const params = {
+      kind: 'org' as const,
+      workflowId,
+      orgId,
+      operatorUserId: actor,
+      started: Date.now(),
+    };
+
+    const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    const originalGet = env.PURGE_WORKFLOW.get.bind(env.PURGE_WORKFLOW);
+    let createCalls = 0;
+    env.PURGE_WORKFLOW.get = (async (id: string) => {
+      if (id === workflowId && createCalls > 0) return { id: workflowId };
+      throw new Error('instance not found');
+    }) as typeof env.PURGE_WORKFLOW.get;
+    env.PURGE_WORKFLOW.create = (async () => {
+      createCalls += 1;
+      return { id: workflowId };
+    }) as typeof env.PURGE_WORKFLOW.create;
+
+    try {
+      expect(await ensurePurgeWorkflowInstance(env.PURGE_WORKFLOW, { id: workflowId, params })).toBe(
+        'created',
+      );
+      expect(await ensurePurgeWorkflowInstance(env.PURGE_WORKFLOW, { id: workflowId, params })).toBe(
+        'already_exists',
+      );
+      expect(createCalls).toBe(1);
+    } finally {
+      env.PURGE_WORKFLOW.create = originalCreate;
+      env.PURGE_WORKFLOW.get = originalGet;
+    }
+  });
+
+  it('POST org purge returns 202 with same workflowId when instance already exists', async () => {
+    const orgId = `org_http_${crypto.randomUUID().slice(0, 8)}`;
+    const createRes = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ orgId, name: 'HTTP' }),
+      }),
+      env,
+    );
+    expect(createRes.status).toBe(201);
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+
+    const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    const originalGet = env.PURGE_WORKFLOW.get.bind(env.PURGE_WORKFLOW);
+    let createCalls = 0;
+    env.PURGE_WORKFLOW.get = (async (id: string) => {
+      if (id === workflowId && createCalls > 0) return { id: workflowId };
+      throw new Error('instance not found');
+    }) as typeof env.PURGE_WORKFLOW.get;
+    env.PURGE_WORKFLOW.create = (async () => {
+      createCalls += 1;
+      return { id: workflowId };
+    }) as typeof env.PURGE_WORKFLOW.create;
+
+    try {
+      const body = JSON.stringify({ orgId, confirm: true });
+      const url = `http://localhost/v1/orgs/${encodeURIComponent(orgId)}/purge`;
+      const headers = { 'content-type': 'application/json', 'x-dev-actor': actor };
+
+      const first = await worker.fetch(new Request(url, { method: 'POST', headers, body }), env);
+      expect(first.status).toBe(202);
+      expect(await first.json()).toEqual({ workflowId, orgId });
+
+      const second = await worker.fetch(new Request(url, { method: 'POST', headers, body }), env);
+      expect(second.status).toBe(202);
+      expect(await second.json()).toEqual({ workflowId, orgId });
+      expect(createCalls).toBe(1);
+    } finally {
+      env.PURGE_WORKFLOW.create = originalCreate;
+      env.PURGE_WORKFLOW.get = originalGet;
+    }
   });
 });

@@ -185,18 +185,45 @@ describe('command catalog', () => {
     expect(COMMAND_CATALOG.flatMap((c) => c.events)).not.toContain('audit.recorded');
   });
 
-  it('housekeeping.staff_* family records §4.8 roster notes', () => {
-    for (const id of [
-      'housekeeping.staff_add',
-      'housekeeping.staff_status',
-      'housekeeping.staff_delete',
-      'housekeeping.staff_update',
-    ] as const) {
-      const c = COMMAND_CATALOG.find((x) => x.id === id);
+  it('catalog has no housekeeping.staff_* and no staff.housekeeper_changed', () => {
+    expect(COMMAND_CATALOG.map((c) => c.id)).not.toEqual(
+      expect.arrayContaining([
+        'housekeeping.staff_add',
+        'housekeeping.staff_status',
+        'housekeeping.staff_delete',
+        'housekeeping.staff_update',
+      ]),
+    );
+    expect(COMMAND_CATALOG.flatMap((c) => c.events)).not.toContain('staff.housekeeper_changed');
+  });
+
+  it('roster.* family records §4.8 notes; add/update/status share ROSTER_FAIL_CLOSED_NOTES', () => {
+    const add = COMMAND_CATALOG.find((c) => c.id === 'roster.add');
+    const update = COMMAND_CATALOG.find((c) => c.id === 'roster.update');
+    const status = COMMAND_CATALOG.find((c) => c.id === 'roster.status');
+    const exit = COMMAND_CATALOG.find((c) => c.id === 'roster.exit');
+    for (const c of [add, update, status, exit]) {
+      expect(c?.permission).toBe('roster:write');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
       expect(c?.notes).toMatch(/Staff-class PII/i);
-      expect(c?.notes).toMatch(/staff exit is not deletion/i);
       expect(c?.notes).toMatch(/membership staff\.\*/i);
     }
+    expect(add?.events).toEqual(['roster.created']);
+    expect(update?.events).toEqual(['roster.updated']);
+    expect(status?.events).toEqual(['roster.updated']);
+    expect(exit?.events).toEqual(['roster.exited']);
+    expect(add?.notes).toBe(update?.notes);
+    expect(add?.notes).toBe(status?.notes);
+    expect(add?.notes).toMatch(/KV permission projection/i);
+    expect(add?.notes).toMatch(/minted staff_/i);
+    expect(exit?.notes).toMatch(/pseudonymize/i);
+    expect(exit?.notes).not.toBe(add?.notes);
+  });
+
+  it('HOUSEKEEPING_STAFF_FAMILY_NOTES is gone', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'commands/catalog.ts'), 'utf8');
+    expect(src).not.toMatch(/HOUSEKEEPING_STAFF_FAMILY_NOTES/);
   });
 
   it('every entitled command has an audit writer or a reasoned exemption', () => {

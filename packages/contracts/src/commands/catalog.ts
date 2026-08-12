@@ -42,11 +42,23 @@ export const PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES =
 export const INVENTORY_FAIL_CLOSED_NOTES =
   'Inventory-affecting — must not invent stock during outage.';
 
-export const HOUSEKEEPING_STAFF_FAMILY_NOTES =
+export const ROSTER_FAMILY_NOTES =
   'Roster family (Staff-class PII / per-staff key), distinct from membership staff.* ' +
   '(access revocation). §4.8: staff exit is not deletion — identity is pseudonymized and ' +
-  'employment follows statutory retention. Command semantics owned by the roster spec. ' +
-  'Id rename (e.g. housekeeping.roster_*) deferred while unrouted.';
+  'employment follows statutory retention. Command ids are roster.*.';
+
+export const ROSTER_FAIL_CLOSED_NOTES =
+  'FAIL_CLOSED because OrgDO is on the pre-handler permission gate path ' +
+  '(requirePermission → assertPermission), not because roster writes are ' +
+  'unimportant. Revisit when the §4.3 KV permission projection lets ' +
+  'property-scoped requests survive an OrgDO blip — then an org ' +
+  'provisional plane becomes meaningful. Also read-your-write: client ' +
+  'needs a minted staff_… before the assign picker can offer it.';
+
+export const ROSTER_EXIT_NOTES =
+  ROSTER_FAMILY_NOTES +
+  ' Exit is FAIL_CLOSED (OrgDO home) and pseudonymize-not-shred: re-seal drops ' +
+  'displayName/email/phone, keeps the staff key and employment fields.';
 
 /**
  * Each entry has ONE degraded class. Compound prototype actions that mixed
@@ -471,44 +483,48 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes: PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES,
   },
   {
-    id: 'housekeeping.staff_add',
+    id: 'roster.add',
     prototypeAction: 'ADD_HOUSEKEEPER',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['staff.housekeeper_changed'],
-    permission: 'staff:write',
-    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
+    events: ['roster.created'],
+    entitlement: 'pms.core',
+    permission: 'roster:write',
+    notes: ROSTER_FAIL_CLOSED_NOTES + ' ' + ROSTER_FAMILY_NOTES,
   },
   {
-    id: 'housekeeping.staff_status',
+    id: 'roster.status',
     prototypeAction: 'UPDATE_HOUSEKEEPER_STATUS',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['staff.housekeeper_changed'],
-    permission: 'staff:write',
-    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
+    events: ['roster.updated'],
+    entitlement: 'pms.core',
+    permission: 'roster:write',
+    notes: ROSTER_FAIL_CLOSED_NOTES + ' ' + ROSTER_FAMILY_NOTES,
   },
   {
-    id: 'housekeeping.staff_delete',
+    id: 'roster.exit',
     prototypeAction: 'DELETE_HOUSEKEEPER',
     lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['staff.housekeeper_changed'],
-    permission: 'staff:write',
-    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
+    events: ['roster.exited'],
+    entitlement: 'pms.core',
+    permission: 'roster:write',
+    notes: ROSTER_EXIT_NOTES,
   },
   {
-    id: 'housekeeping.staff_update',
+    id: 'roster.update',
     prototypeAction: 'UPDATE_HOUSEKEEPER',
     lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
+    degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['staff.housekeeper_changed'],
-    permission: 'staff:write',
-    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
+    events: ['roster.updated'],
+    entitlement: 'pms.core',
+    permission: 'roster:write',
+    notes: ROSTER_FAIL_CLOSED_NOTES + ' ' + ROSTER_FAMILY_NOTES,
   },
   {
     id: 'inventory.add_room_type',

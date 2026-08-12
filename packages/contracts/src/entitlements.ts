@@ -32,7 +32,6 @@ export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
   },
   { id: 'channels.sync', reason: 'Phase 1 — not yet gated at a DO boundary' },
   { id: 'channels.add', reason: 'Phase 1 — not yet gated at a DO boundary' },
-  { id: 'housekeeping.staff_delete', reason: 'Phase 1 — not yet gated at a DO boundary' },
   {
     id: 'staff.add',
     reason:

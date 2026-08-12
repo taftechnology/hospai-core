@@ -47,6 +47,9 @@ export const PROPERTY_SCOPED_PERMISSIONS = [
   'staff:write',
   'housekeeping:read',
   'housekeeping:write',
+  'roster:read',
+  'roster:write',
+  'roster:compensation',
   'night_audit:run',
   'config:write',
 ] as const;
@@ -98,6 +101,9 @@ export const ROLE_GRANTS: Record<OrgRole, readonly Permission[]> = {
     'staff:write',
     'housekeeping:read',
     'housekeeping:write',
+    'roster:read',
+    'roster:write',
+    'roster:compensation',
     'night_audit:run',
     'config:write',
   ],
@@ -114,6 +120,7 @@ export const ROLE_GRANTS: Record<OrgRole, readonly Permission[]> = {
     'folio:post',
     'housekeeping:read',
     'housekeeping:write',
+    'roster:read',
   ],
 };
 

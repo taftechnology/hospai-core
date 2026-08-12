@@ -41,4 +41,8 @@ export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string
     id: 'config.put_domain',
     reason: 'Covered by property_config_audit (separate surface); dual-write out of scope',
   },
+  { id: 'roster.add', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
+  { id: 'roster.update', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
+  { id: 'roster.status', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
+  { id: 'roster.exit', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
 ];

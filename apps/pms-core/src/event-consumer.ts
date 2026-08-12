@@ -140,7 +140,9 @@ export async function handleDomainEvent(
     case 'channel.mapping.created':
     case 'property.updated':
     case 'staff.changed':
-    case 'staff.housekeeper_changed':
+    case 'roster.created':
+    case 'roster.updated':
+    case 'roster.exited':
       // Shape pinned in producer tests; presence + deliverability is sufficient for Phase 0.
       // Every COMMAND_CATALOG `events[]` entry must appear here — see events-queue catalog allowlist test.
       break;

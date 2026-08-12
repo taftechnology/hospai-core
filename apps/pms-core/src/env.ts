@@ -49,6 +49,8 @@ export type PmsEnv = {
   PLATFORM_DB: D1Database;
   /** ARI projection — availability_day rows projected by the event consumer. */
   ARI_KV: KVNamespace;
+  /** Durable event log — tenant-prefixed segments. Optional so skip can be derived. */
+  EVENT_LOG_R2?: R2Bucket;
   /**
    * Must be `1` for any local-only unsafe flags (simulate jurisdiction, dev actor).
    * Set only via `.dev.vars` / vitest bindings — never top-level wrangler `vars`.

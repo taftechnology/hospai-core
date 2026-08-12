@@ -59,14 +59,25 @@ import {
   GUEST_ALREADY_ERASED,
   ROLE_GRANTS,
   fingerprintPayload,
+  isStaffRef,
   type ActorContext,
   type EventSource,
   type IdempotencyKey,
+  type ModuleTxnCtx,
   type Permission,
   type ProvisionalCommand,
   type ProvisionalContext,
   type ProvisionalExceptionRow,
 } from '@hospai/contracts';
+import {
+  assignHousekeeping,
+  bulkUpdateRoomStatus,
+  HousekeepingRoomNotFoundError,
+  InvalidAssigneeRefError,
+  isRoomStatus,
+  readAssignments,
+  updateRoomStatus,
+} from '@hospai/pms-housekeeping';
 import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
 import {
 
@@ -413,7 +424,6 @@ class RoomNotFoundError extends Error {
   }
 }
 
-const ROOM_STATUSES = new Set(['clean', 'dirty', 'inspected', 'out_of_order']);
 const STAY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function mapReservationPreconditionError(e: unknown):
@@ -758,6 +768,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  /** Single binder for module write paths — provisional extras must not be copied per method. */
+  private moduleTxnCtx(
+    orgId: string,
+    propertyId: string,
+    provisional?: ProvisionalContext,
+  ): ModuleTxnCtx {
+    return {
+      sql: this.ctx.storage.sql,
+      appendOutbox: (evt) =>
+        this.appendPropertyOutbox({
+          eventId: evt.eventId,
+          eventType: evt.eventType,
+          payload: { ...evt.payload, ...this.statusChangeOutboxExtras(provisional) },
+        }),
+      orgId,
+      propertyId,
+    };
+  }
 
   async getPropertyId(): Promise<string | null> {
     return this.getPropertyIdSync();
@@ -2657,7 +2685,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
-    if (!ROOM_STATUSES.has(input.status)) {
+    if (!isRoomStatus(input.status)) {
       return { ok: false, error: 'invalid_status' };
     }
 
@@ -2665,37 +2693,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          const rows = this.ctx.storage.sql
-            .exec(`SELECT status FROM room WHERE room_id = ?`, input.roomId)
-            .toArray() as Array<{ status: string }>;
-          if (!rows[0]) throw new RoomNotFoundError();
-
-          const now = Date.now();
-          this.ctx.storage.sql.exec(
-            `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
-            input.status,
-            now,
-            input.roomId,
-          );
-
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'room.status_changed',
-            payload: {
-              propertyId,
-              roomId: input.roomId,
-              fromStatus: rows[0].status,
-              toStatus: input.status,
-              ...this.statusChangeOutboxExtras(provisional),
-            },
-          });
-
-          return { ok: true as const, roomId: input.roomId, status: input.status };
+          return updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+        return { ok: false, error: NOT_FOUND };
+      }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -2734,7 +2739,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
     for (const u of input.updates) {
-      if (!ROOM_STATUSES.has(u.status)) {
+      if (!isRoomStatus(u.status)) {
         return { ok: false, error: 'invalid_status' };
       }
     }
@@ -2743,39 +2748,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          const now = Date.now();
-          const roomIds: string[] = [];
-          for (const u of input.updates) {
-            const rows = this.ctx.storage.sql
-              .exec(`SELECT status FROM room WHERE room_id = ?`, u.roomId)
-              .toArray() as Array<{ status: string }>;
-            if (!rows[0]) throw new RoomNotFoundError();
-
-            this.ctx.storage.sql.exec(
-              `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
-              u.status,
-              now,
-              u.roomId,
-            );
-            this.appendPropertyOutbox({
-              eventId: crypto.randomUUID(),
-              eventType: 'room.status_changed',
-              payload: {
-                propertyId,
-                roomId: u.roomId,
-                fromStatus: rows[0].status,
-                toStatus: u.status,
-                ...this.statusChangeOutboxExtras(provisional),
-              },
-            });
-            roomIds.push(u.roomId);
-          }
-          return { ok: true as const, roomIds };
+          return bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+        return { ok: false, error: NOT_FOUND };
+      }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -2933,7 +2913,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' | 'invalid_business_date' }
+    | { ok: false; error: 'org_id_unset' | 'invalid_business_date' | 'invalid_assignee_ref' }
     | { ok: false; error: string }
   > {
     this.assertRpcAvailable();
@@ -2950,62 +2930,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!STAY_DATE_RE.test(input.businessDate)) {
       return { ok: false, error: 'invalid_business_date' };
     }
+    if (!isStaffRef(input.assigneeRef)) {
+      return { ok: false, error: 'invalid_assignee_ref' };
+    }
 
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          const roomRows = this.ctx.storage.sql
-            .exec(`SELECT room_id FROM room WHERE room_id = ?`, input.roomId)
-            .toArray();
-          if (!roomRows[0]) throw new RoomNotFoundError();
-
-          const existing = this.ctx.storage.sql
-            .exec(
-              `SELECT assignment_id FROM housekeeping_assignment
-               WHERE room_id = ? AND business_date = ?`,
-              input.roomId,
-              input.businessDate,
-            )
-            .toArray() as Array<{ assignment_id: string }>;
-
-          const now = Date.now();
-          const assignmentId = existing[0]?.assignment_id ?? crypto.randomUUID();
-
-          this.ctx.storage.sql.exec(
-            `INSERT INTO housekeeping_assignment (
-               assignment_id, room_id, business_date, assignee_ref, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(room_id, business_date) DO UPDATE SET
-               assignee_ref = excluded.assignee_ref,
-               updated_at = excluded.updated_at`,
-            assignmentId,
-            input.roomId,
-            input.businessDate,
-            input.assigneeRef,
-            now,
-            now,
-          );
-
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'housekeeping.assigned',
-            payload: {
-              propertyId,
-              assignmentId,
-              roomId: input.roomId,
-              businessDate: input.businessDate,
-              assigneeRef: input.assigneeRef,
-              ...this.statusChangeOutboxExtras(provisional),
-            },
-          });
-
-          return { ok: true as const, assignmentId };
+          return assignHousekeeping(this.moduleTxnCtx(orgId, propertyId, provisional), input);
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof InvalidAssigneeRefError) return { ok: false, error: 'invalid_assignee_ref' };
+      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+        return { ok: false, error: NOT_FOUND };
+      }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -3084,33 +3025,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!STAY_DATE_RE.test(businessDate)) {
       return { ok: false, error: 'invalid_business_date' };
     }
-    const rows = this.ctx.storage.sql
-      .exec(
-        `SELECT assignment_id, room_id, business_date, assignee_ref, created_at, updated_at
-         FROM housekeeping_assignment WHERE business_date = ?
-         ORDER BY room_id`,
-        businessDate,
-      )
-      .toArray() as Array<{
-      assignment_id: string;
-      room_id: string;
-      business_date: string;
-      assignee_ref: string;
-      created_at: number;
-      updated_at: number;
-    }>;
-
-    return {
-      ok: true,
-      assignments: rows.map((r) => ({
-        assignmentId: r.assignment_id,
-        roomId: r.room_id,
-        businessDate: r.business_date,
-        assigneeRef: r.assignee_ref,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-      })),
-    };
+    return readAssignments(this.ctx.storage.sql, { businessDate });
   }
 
   /**

@@ -2445,6 +2445,9 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    if (err === 'invalid_assignee_ref' || err === 'invalid_business_date') {
+      return json({ ok: false, error: err }, 400);
+    }
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
   }
   return json(result, 200);

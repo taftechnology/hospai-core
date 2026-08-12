@@ -13,7 +13,7 @@ pnpm test          # primary loop
 
 `pnpm test` uses `vitest-pool-workers` with **shared** DO/D1 storage across the run (`isolatedStorage: false`), so tests must scope assertions to fixtures they create rather than to global state.
 
-There is no polished local HTTP workflow yet. Integration is proven in the test suite (`apps/pms-core/test/`). To hit the Worker over HTTP locally, copy [`.dev.vars.example`](apps/pms-core/.dev.vars.example) → `apps/pms-core/.dev.vars`, then `pnpm --filter @hospai/pms-core dev` and use the curls below.
+Integration behaviour is proven in `apps/pms-core/test/`. For a local HTTP + browser loop, see **[Run locally](#run-locally)** below.
 
 **CI runs these in order** (run them before pushing):
 
@@ -45,36 +45,69 @@ These fail in CI with little context unless you know they exist:
 
 Workspace layout: [`pnpm-workspace.yaml`](pnpm-workspace.yaml) (`apps/*`, `packages/*`, `modules/pms/*`, `tooling/*`).
 
-## Local-only unsafe flags
+## Run locally
 
-Copy [`apps/pms-core/.dev.vars.example`](apps/pms-core/.dev.vars.example) to `apps/pms-core/.dev.vars` (gitignored).
+Two processes: the **Worker** (`pms-core` on `:8787`) and the **SPA** (`web-pms` Vite on `:5173`, which proxies `/v1` → `8787`).
 
-| Var | Purpose |
-|-----|---------|
+### 1 — Env files (once)
+
+```bash
+cp apps/pms-core/.dev.vars.example apps/pms-core/.dev.vars
+cp apps/web-pms/.env.example apps/web-pms/.env
+```
+
+| File | Purpose |
+|------|---------|
+| [`apps/pms-core/.dev.vars`](apps/pms-core/.dev.vars.example) | Local-only Worker flags + `HOSPAI_ORG_MASTER_KEY` (required for guest create / booking) |
+| [`apps/web-pms/.env`](apps/web-pms/.env.example) | `VITE_ORG_ID` / `VITE_PROPERTY_ID` and `VITE_USE_DEV_ACTOR=1` with `VITE_DEV_ACTOR=user_owner` |
+
+| Worker var | Purpose |
+|------------|---------|
 | `HOSPAI_UNSAFE_LOCAL=1` | Required marker before any dangerous flag is honored |
 | `HOSPAI_JURISDICTION_MODE=simulate` | workerd lacks DO jurisdiction; prefixes `eu::prop_…` |
 | `HOSPAI_ALLOW_DEV_ACTOR=1` | Allow `X-Dev-Actor` for `/v1/*` in local dev |
+| `HOSPAI_ORG_MASTER_KEY` | 64-char hex (32 bytes); wraps guest PII data keys in OrgDO |
 
 **Never put these in top-level `wrangler.jsonc` `vars`.** Without `HOSPAI_UNSAFE_LOCAL=1`, simulate or `ALLOW_DEV_ACTOR` yields HTTP 500 on every request.
 
-Production auth uses **Clerk** (`Authorization: Bearer …`). With the flags above, local dev accepts **`X-Dev-Actor: user_…`** instead. Org membership is always enforced in OrgDO — not Clerk Organizations.
+Production auth uses **Clerk** (`Authorization: Bearer …`). With the flags above, local dev accepts **`X-Dev-Actor: user_…`** instead. Org membership is always enforced in OrgDO — not Clerk Organizations. Match the SPA actor (`user_owner` in `.env.example`) on curls below.
 
-### HTTP bootstrap (local dev)
+### 2 — Start servers
 
-Order matters: create the org first, then provision. `currency` is required on provision.
+```bash
+# terminal A — API + Durable Objects (keep on 8787; Vite proxies there)
+pnpm --filter @hospai/pms-core dev
+
+# terminal B — front desk UI
+pnpm --filter @hospai/web-pms dev
+```
+
+Open **http://127.0.0.1:5173/**. Optionally build the SPA and hit **http://127.0.0.1:8787/** alone (`pnpm --filter @hospai/web-pms build`; Worker serves `apps/web-pms/dist`).
+
+### 3 — Bootstrap tenant (once per local DO/D1 store)
+
+Order matters: org → property → room types. `currency` is required on provision. Room types seed a year of availability; without them, **Book** shows no room types.
 
 ```bash
 # 1 — org (insert-only; 409 if orgId already exists)
-curl -sS -X POST http://localhost:8787/v1/orgs \
+curl -sS -X POST http://127.0.0.1:8787/v1/orgs \
   -H 'content-type: application/json' \
-  -H 'x-dev-actor: user_dev' \
+  -H 'x-dev-actor: user_owner' \
   -d '{"orgId":"org_demo","name":"Demo Org"}'
 
 # 2 — property (404 if org missing; 400 without currency)
-curl -sS -X POST http://localhost:8787/v1/orgs/org_demo/properties \
+curl -sS -X POST http://127.0.0.1:8787/v1/orgs/org_demo/properties \
   -H 'content-type: application/json' \
-  -H 'x-dev-actor: user_dev' \
-  -d '{"propertyId":"prop_demo","name":"Demo Hotel","timeZone":"America/New_York","currency":"USD"}'
+  -H 'x-dev-actor: user_owner' \
+  -d '{"propertyId":"prop_demo","name":"Demo Hotel","timeZone":"UTC","currency":"USD"}'
+
+# 3 — inventory (required before booking)
+curl -sS -X POST http://127.0.0.1:8787/v1/properties/prop_demo/room-types \
+  -H 'content-type: application/json' \
+  -H 'x-dev-actor: user_owner' \
+  -d '{"roomTypeId":"rt_king","code":"KNG","name":"King","roomCount":10,"maxOccupancy":2,"maxAdults":2,"idempotencyKey":"idem-rt-king-demo"}'
 ```
 
-Both should return **201** when `.dev.vars` is configured and `wrangler dev` is running.
+Org/property create should return **201** (or **409** / property already present on re-runs). Room-type create should return **201** with `fromDate`/`toDate`. Then use **Book** in the UI to create a reservation.
+
+If booking fails with `HOSPAI_ORG_MASTER_KEY unset`, your `.dev.vars` is missing that key — copy from `.dev.vars.example` and restart `pms-core` `dev`.

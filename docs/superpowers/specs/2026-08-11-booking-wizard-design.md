@@ -193,7 +193,7 @@ Stay nights: `enumerateStayDates` half-open `[arrival, departure)`. Availability
 | Type step | Inline or `AvailableRoomTypesModal` |
 | App route | `App.tsx` — `path="book"` |
 | Arrivals banner | `BoardScreen` (arrivals) — one-shot `location.state.createdReservationId` |
-| Context links | Board / Folio / Check-in — “Book for guest” → `/book?guestRef=` |
+| Context links | Board / Folio — “Book for guest” → `/book?guestRef=` (Check-in deferred — leftover §7.10; screen has no reservation/`guestRef` read today) |
 
 ### 3.5 Wizard state (session)
 
@@ -293,6 +293,7 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 | 7 | **`update_status` / `update_extras`** | Defer; asymmetry named (§2.8). |
 | 8 | **Proactive entitlement chrome** | Unchanged `/me` leftover; wizard inherits 402-reactive store only. |
 | 9 | **Multi-line gate residual** | In `pms-core-test-dates-check.mjs`. Task 0 touches `degraded-check.mjs` only → **explicitly out**; leave until that script is next touched. |
+| 10 | **Check-in “Book for guest”** | Spec once listed Check-in beside Board/Folio; plan scoped the link to rows that already expose `guestRef`. `CheckInScreen` only reads `reservationId` from the URL and never loads the reservation, so adding the link means adding a read. Deferred — optional when that screen grows a reservation fetch. |
 
 ---
 

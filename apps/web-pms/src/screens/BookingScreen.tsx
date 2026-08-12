@@ -3,6 +3,7 @@ import {
   availabilityRangeForStay,
   bookingReservationOpId,
   ClassifiedError,
+  permissionForForbidden,
   selectableRoomTypeIds,
   stayNightsExceedAvailabilityCap,
 } from '@hospai/client-core';
@@ -13,7 +14,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 
-function reservationCommitError(body: unknown): string | null {
+function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
     const err = (body as { error: unknown }).error;
     if (typeof err === 'string') return err;
@@ -126,6 +127,11 @@ export function BookingScreen() {
   const confirmEnabled =
     quoteAriVersion != null && roomTypeId != null && guestResolved && !dateCapBlocked;
 
+  const availErrorClassified = availQ.isError ? asClassified(availQ.error) : null;
+  const availDateRangeExceeded =
+    availErrorClassified != null &&
+    bodyErrorCode(availErrorClassified.body) === 'date_range_exceeds_max';
+
   const bookMutation = useMutation({
     mutationFn: async () => {
       if (quoteAriVersion == null || roomTypeId == null) {
@@ -172,7 +178,7 @@ export function BookingScreen() {
     onError: (err) => {
       const c = asClassified(err);
       const body = err instanceof ClassifiedError ? err.classified.body : c.body;
-      const code = reservationCommitError(body);
+      const code = bodyErrorCode(body);
 
       if (code === 'no_availability') {
         const date = bodyField(body, 'date');
@@ -229,6 +235,16 @@ export function BookingScreen() {
         setMessage('Guest not found or erased — create a new guest.');
         return;
       }
+      if (c.class === 'forbidden') {
+        void queryClient.invalidateQueries({ queryKey: ['me', propertyId] });
+        const perm = permissionForForbidden(c.body);
+        setMessage(
+          perm
+            ? `Requires permission ${perm}. Ask a manager.`
+            : 'Forbidden — insufficient permission.',
+        );
+        return;
+      }
       setMessage(`Booking failed (${code ?? c.class})`);
     },
   });
@@ -277,10 +293,11 @@ export function BookingScreen() {
 
       <section className="stack">
         <h2>Room type</h2>
-        {availQ.isError ? (
+        {availErrorClassified ? (
           <p className="error" role="alert">
-            Availability unavailable ({asClassified(availQ.error).class}). Confirm blocked until a
-            fresh quote.
+            {availDateRangeExceeded
+              ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
+              : `Availability unavailable (${availErrorClassified.class}). Confirm blocked until a fresh quote.`}
           </p>
         ) : null}
         {availQ.isSuccess && selectable.length === 0 ? (

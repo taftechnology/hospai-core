@@ -46,11 +46,20 @@ function LocationProbe() {
   );
 }
 
-function renderBook(initial = '/book') {
+function renderBook(
+  initial = '/book',
+  opts?: { allowQueryRetry?: boolean },
+) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      // Most tests disable retries. read_stale cases omit the default so the
+      // screen's board-shaped `retry` / `retryDelay` options apply.
+      queries: opts?.allowQueryRetry ? {} : { retry: false },
+      mutations: { retry: false },
+    },
   });
-  return render(
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+  render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
@@ -68,6 +77,7 @@ function renderBook(initial = '/book') {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { client, invalidateSpy };
 }
 
 function availOk(
@@ -349,5 +359,175 @@ describe('BookingScreen', () => {
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(/erased|not found/i),
     );
+  });
+
+  it('403 forbidden surfaces permission and invalidates me', async () => {
+    createGuest.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden', permission: 'guests:write' },
+        retryAfterMs: null,
+      }),
+    );
+    const { invalidateSpy } = renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('book-message').textContent).toMatch(
+        /Requires permission guests:write/,
+      ),
+    );
+    expect(createReservation).not.toHaveBeenCalled();
+    expect(
+      invalidateSpy.mock.calls.some(
+        (c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['me', 'prop_demo'] }),
+      ),
+    ).toBe(true);
+  });
+
+  it('Confirm disabled when quote and type present but guest unresolved', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    expect(screen.getByTestId('quote-version')).toBeTruthy();
+    expect(inputValue('guest-name')).toBe('');
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('restriction_violated surfaces rule/date and keeps type selected', async () => {
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: {
+          ok: false,
+          error: 'restriction_violated',
+          rule: 'min_stay',
+          date: '2026-08-11',
+          required: 2,
+        },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    const callsBefore = getAvailability.mock.calls.length;
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => {
+      const msg = screen.getByTestId('book-message').textContent ?? '';
+      expect(msg).toMatch(/min_stay/);
+      expect(msg).toMatch(/2026-08-11/);
+      expect(msg).toMatch(/required 2/);
+    });
+    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(getAvailability.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('unbookable surfaces date and keeps type selected', async () => {
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'unbookable', date: '2026-08-11' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('book-message').textContent).toMatch(/Unbookable on 2026-08-11/),
+    );
+    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+
+  it('not_found clears selection and re-reads (unlike idempotency_key_reused)', async () => {
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 404,
+        body: { ok: false, error: 'not_found' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    const callsBefore = getAvailability.mock.calls.length;
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('book-message').textContent).toMatch(/Room type no longer available/i),
+    );
+    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+    await waitFor(() => expect(getAvailability.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it('wire date_range_exceeds_max surfaces cap copy and blocks Confirm', async () => {
+    getAvailability.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 400,
+        body: { error: 'date_range_exceeds_max' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() =>
+      expect(screen.getByText(/90-night availability query limit/i)).toBeTruthy(),
+    );
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('availability read_stale retries twice then succeeds (board-shaped)', async () => {
+    let calls = 0;
+    getAvailability.mockImplementation(
+      async (_p: string, range: { fromDate: string; toDate: string }) => {
+        calls += 1;
+        if (calls <= 2) {
+          throw new ClassifiedError({
+            class: 'read_stale',
+            status: 503,
+            body: { degraded: 'READ_STALE' },
+            retryAfterMs: 0,
+          });
+        }
+        return availOk(7, range.fromDate, range.toDate, [{ roomTypeId: 'rt_king', free: 1 }]);
+      },
+    );
+    renderBook('/book', { allowQueryRetry: true });
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    expect(calls).toBe(3);
+    expect(screen.getByTestId('quote-version').textContent).toMatch(/7/);
+  });
+
+  it('availability read_stale exhaust keeps Confirm blocked', async () => {
+    getAvailability.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: { degraded: 'READ_STALE' },
+        retryAfterMs: 0,
+      }),
+    );
+    renderBook('/book', { allowQueryRetry: true });
+    await waitFor(() =>
+      expect(screen.getByText(/Availability unavailable \(read_stale\)/i)).toBeTruthy(),
+    );
+    expect(getAvailability.mock.calls.length).toBe(3);
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
   });
 });

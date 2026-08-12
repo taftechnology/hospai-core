@@ -52,6 +52,12 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > **Still owed:** FX rate sourcing and its refresh policy; the exception-queue operator UX;
 > per-country fiscalization design for the launch market. The config register and command
 > catalog are now Phase 0 work items rather than open questions (§14).
+>
+> **Revision 2026-08-12.** Prototype coverage audit (§16.5). Module-level surfaces in §16.1
+> are complete. Remaining holes are unnamed operational fields (DND, additional guests,
+> recurring charges, registration cards, extra HK tabs, global search) plus one
+> architecture-vs-code drift: §7.4 specifies `INQUIRY` / `PENDING` and the shipped
+> reservation machine does not.
 
 ---
 
@@ -2125,3 +2131,99 @@ the prototype is expected rather than debt. The slice owns three decisions: whet
 the prototype palette or re-skin existing token values; whether Tailwind enters the platform at
 all; and whether `ui-kit` becomes a package or stays inside `apps/web-pms` until a second
 consumer exists.
+
+### 16.5 Prototype coverage audit (2026-08-12)
+
+A full pass of `hospai-pms-prototype` against this document, the command catalog, and the
+classified config register. **Verdict:** nothing at module level is missing. §16.1 names every
+prototype product area. Phase 1 rebuilds the core PMS screens; channel manager, booking engine,
+and group blocks are Phase 2; yield, Whistle, marketplace, and POS are Phase 3. That is
+sequencing, not a miss.
+
+Disagreement between the prototype and this document is a product decision to record here
+(§16.3 rule 4). The tables below are that record.
+
+#### Already specified — do not re-derive
+
+These were easy to treat as gaps because they are not yet shipped. They are in this document
+and must not be redesigned from the prototype.
+
+| Surface | Where | Note |
+|---|---|---|
+| Inquiry / pending / confirmed lifecycle | §7.4 | Architecture is *stricter* than the prototype (adds `PENDING`). |
+| Damage deposits, promo codes, manual discounts with reason, no-post | §16.1 folio | Promo also sits on the §7.2 derivation graph. |
+| OOO with date ranges | §7.1 | Per-room range → `blocked` ledger delta; fail-closed if assigned; opens a `maintenance` work order. |
+| Virtual room types | §7.1 | No independent `physical` count; sale decrements constituents. |
+| Folio windows, routing, split, night-audit auto-transfer | §7.3 | Prototype mutates in place; platform is reverse + two postings. |
+| Group blocks and allotments | §7.4, Phase 2 | Own aggregate, not a reservation flag. |
+| City ledger / direct bill | §7.3 | Distinct from guest folios. |
+| Products, maintenance, reporting, guests CRM (tags, VIP, LTV) | §11, §16.1 | LTV trends are warehouse (§7.8). |
+| Invoice numbering and templates | §16.1 finance | Invoices live in R2 (§4.7); the generation engine is still owed. |
+| Tape chart / front-desk board | §7.7 | Operational reads over hibernating WebSockets, not a short-TTL projection. |
+| 89 configuration settings | §5.1 | Classified register; secrets never in config. |
+| Whistle (inbox, automations, contacts, tasks, upsell, analytics) | §11 guest-engagement, Phase 3 | A module *group*, not a single add-on. |
+| Channel manager, booking engine + live preview | §14 Phase 2, entitlements in §6 | Gated add-ons. |
+| Yield / competitor / forecast tabs on Rates | §7.8 / §14 Phase 3 | Today's occupancy forecast is OLTP; the yield engine is revenue-management. |
+
+**Architecture-vs-code drift (must not be silently resolved).** §7.4 specifies
+
+```
+INQUIRY → PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT
+                 ↘ CANCELLED   ↘ NO_SHOW
+```
+
+The shipped reservation status machine is `confirmed | cancelled | checked_in | checked_out |
+no_show` only. Restore `INQUIRY` and `PENDING`, or record here that they are deferred. Leaving
+the machine and this section in disagreement is how the next vertical re-derives the lifecycle.
+
+Catalogued implementation gaps that this document already designed: `rooms.set_ooo_range`
+(§7.1), `folio.transfer_charge` and `folio.split_charge_v2` (§7.3). They are build debt, not
+spec debt.
+
+#### Still unnamed — product must decide keep, defer, or drop
+
+Prototype behaviour with **no section, table row, or rule** in this document. Closest related
+text is listed so these are not over-counted.
+
+| Prototype behaviour | Closest text | Decision owed |
+|---|---|---|
+| **DND** as a room status | Room status / housekeeping board (§4.6, §7.7, §16.1). Status *values* are never listed. | Add `dnd` to the room-status machine, or state that DND is a stay flag / comment, not a room state. |
+| **Additional guests / adults / children** on a stay | Guest profiles in OrgDO (§4.8). Occupancy is room-type inventory (§7.1). | Party composition is a reservation field, not a second guest profile. Needed for occupancy display, breakfast posting, and registration documents. |
+| **Fixed / recurring charges** (nightly parking, breakfast, spa) | `breakfast_rule` as DOMAIN auto-posting (§5.1). Night audit `POST_ROOM_CHARGES` (§8). | A per-stay recurring incidental schedule is not the same as the breakfast rule or the room-charge step. |
+| **Registration card print** | Never print a folio or invoice in `DEGRADED` (§4.6). Guest *registration reporting* is fiscal (§7.9). | Those are different documents. The reg card is a front-desk artifact; name it or drop it. |
+| **HK budgeting, metrics dashboards, mobile attendant** | §16.1 HK: roster, assignment, inventory, manager priorities. | Extra tabs. Core HK is covered; these are out of Phase 1 unless named. |
+| **Global reservation search** (name, res id, confirmation) | Available-rooms search (§16.1). Guest lookup is `READ_STALE` (§4.6). | Shell capability. Lookup exists as a degraded class; the top-bar search UX is not specified. |
+| **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | Shift handoff lives on the stay. Guest CRM notes are the wrong place. |
+| **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | Storage exists; type-level media, keyless, and occupancy split are unnamed. |
+| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | Policy and inclusions are booking-engine and folio inputs, not modeled as plan fields. |
+
+#### Deliberate differences (not gaps)
+
+Already implied by earlier sections; recorded here so a later pass does not "fix" them.
+
+| Prototype | This document | Section |
+|---|---|---|
+| Assign room before check-in; `waitingForRoom` flag | Room-type inventory; **assignment happens at check-in** | §7.1 |
+| `inquiry` → `confirmed` (no pending) | `INQUIRY` → `PENDING` → `CONFIRMED` | §7.4 |
+| Staff room blocks as zero-rate reservations | `held` column reserved; hold *behaviour* is Phase 3 | §7.1, §7.6 |
+| Yield / competitor scraper / forecast-and-overbook on the Rates screen | Today's occupancy forecast is OLTP; revenue-management is Phase 3 | §7.8, §14 |
+| Opera "Sync Query", role impersonation, hardcoded Spaces cards, competitor-refresh timeouts | Demo theater. Copy the workflow, not the fake connectors. | §16.2 spirit |
+| Guest substring search in the booking wizard | No discovery path until a blind index exists; create-default + `guestRef` context | recorded in the booking-wizard spec, not this file |
+
+`waitingForRoom` is the one that looks like an unnamed gap and is not. §7.1 already chose
+assign-at-check-in. Pre-assigning a physical room, then parking arrivals as "waiting," is a
+different product. If Phase 1 needs assign-before-arrival, that is a change to §7.1, not a
+forgotten prototype field.
+
+#### What "rebuild the prototype's screens" still means
+
+§14 Phase 1 says rebuild the prototype screens against live APIs. Combined with this audit:
+
+- **Phase 1** must include every §16.1 core-PMS surface (dashboard, reservations, booking
+  wizard, front-desk board, tape chart, available-rooms, inventory, rates matrix, folio,
+  housekeeping core, guests, night audit, settings) **plus** a recorded decision on every row
+  in "Still unnamed" above — keep, defer, or drop — before that vertical ships.
+- **§16.1 folio extras** (no-post, damage deposits, promo, manual discounts) are named and
+  undesigned as domain rules. They need a vertical spec, not another inventory row.
+- **Do not silently drop `INQUIRY` / `PENDING`.** Align the shipped machine with §7.4 or amend
+  §7.4 in the same change.

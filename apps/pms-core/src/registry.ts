@@ -47,6 +47,44 @@ export function resetPlatformSchemaGate(): void {
   schemaReady = null;
 }
 
+export type TenantActiveDenial = 'not_found' | 'tenant_not_active';
+
+/**
+ * Single control-plane gate for HTTP dispatch, replay, and provisioning.
+ * Only `status === 'active'` passes.
+ */
+export async function assertTenantActive(
+  env: PmsEnv,
+  opts: { orgId?: string; propertyId?: string },
+): Promise<{ ok: true } | { ok: false; error: TenantActiveDenial; status?: string }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  if (opts.propertyId) {
+    const property = await getProperty(env, opts.propertyId);
+    if (!property) return { ok: false, error: 'not_found' };
+    if (property.status !== 'active') {
+      return { ok: false, error: 'tenant_not_active', status: property.status };
+    }
+    if (opts.orgId && property.orgId !== opts.orgId) {
+      return { ok: false, error: 'not_found' };
+    }
+    const org = await getOrg(env, property.orgId);
+    if (!org) return { ok: false, error: 'not_found' };
+    if (org.status !== 'active') {
+      return { ok: false, error: 'tenant_not_active', status: org.status };
+    }
+    return { ok: true };
+  }
+  if (opts.orgId) {
+    const org = await getOrg(env, opts.orgId);
+    if (!org) return { ok: false, error: 'not_found' };
+    if (org.status !== 'active') {
+      return { ok: false, error: 'tenant_not_active', status: org.status };
+    }
+    return { ok: true };
+  }
+  return { ok: false, error: 'not_found' };
+}
+
 function rowToProperty(row: Record<string, unknown>): PropertyRecord {
   return {
     propertyId: String(row.property_id),

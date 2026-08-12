@@ -86,7 +86,7 @@ import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import { createOrg, getOrg, getProperty, updatePropertyName } from './registry.js';
+import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
 
 type MembershipDoError =
@@ -322,6 +322,18 @@ async function resolvePropertyContext(
   const property = await getProperty(ctx.env, propertyId);
   if (!property) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = property.orgId;
+  const gate = await assertTenantActive(ctx.env, { propertyId, orgId: property.orgId });
+  if (!gate.ok) {
+    if (gate.error === 'tenant_not_active') {
+      logWarn(ctx.observability, {
+        msg: 'tenant_not_active',
+        propertyId,
+        orgId: property.orgId,
+        status: gate.status,
+      });
+    }
+    return json({ error: 'not_found' }, 404);
+  }
   const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
   if (!resolved) return json({ error: 'not_found' }, 404);
   return { property, resolved };
@@ -469,6 +481,9 @@ async function handlePostOrgProperties(ctx: V1DispatchContext): Promise<Response
   if (!result.ok) {
     if (result.error === 'jurisdiction_conflict') {
       return json({ error: result.error, existing: result.existing }, 409);
+    }
+    if (result.error === 'tenant_not_active') {
+      return json({ error: 'tenant_not_active' }, 409);
     }
     if (
       result.error === 'invalid_timezone' ||

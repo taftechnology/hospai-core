@@ -10,7 +10,7 @@ import {
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
-import { getProperty, insertProperty, upsertOrg } from './registry.js';
+import { getOrg, getProperty, insertProperty, upsertOrg, assertTenantActive } from './registry.js';
 
 export async function provisionProperty(
   env: PmsEnv,
@@ -24,6 +24,15 @@ export async function provisionProperty(
       return { ok: false, error: 'invalid_tenant_id' };
     }
     throw e;
+  }
+
+  // upsertOrg creates a missing org as active; only gate when the org already exists.
+  const existingOrg = await getOrg(env, input.orgId);
+  if (existingOrg) {
+    const orgGate = await assertTenantActive(env, { orgId: input.orgId });
+    if (!orgGate.ok) {
+      return { ok: false, error: 'tenant_not_active' };
+    }
   }
 
   let locationHint: string;

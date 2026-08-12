@@ -10,6 +10,7 @@ import type { PmsEnv } from './env.js';
 import type { PropertyDO } from './property-do.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { resolvePropertyFromRegistry } from './provision.js';
+import { assertTenantActive } from './registry.js';
 
 const replayLanes = new LaneGuard();
 
@@ -112,6 +113,19 @@ export async function handlePendingCommandsBatch(
           reason: 'property_not_found',
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
+        });
+        msg.ack();
+        continue;
+      }
+
+      const gate = await assertTenantActive(env, { propertyId: provisional.propertyId });
+      if (!gate.ok) {
+        logWarn(ctx, {
+          msg: 'degraded.exception',
+          reason: 'tenant_not_active',
+          propertyId: provisional.propertyId,
+          commandId: provisional.command.type,
+          status: gate.status,
         });
         msg.ack();
         continue;

@@ -331,6 +331,10 @@ describe('handleDomainEvent contract assertions', () => {
     const guestRef = `guest_enq_${crypto.randomUUID().slice(0, 8)}`;
     const calls: unknown[] = [];
     const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    const originalGet = env.PURGE_WORKFLOW.get.bind(env.PURGE_WORKFLOW);
+    env.PURGE_WORKFLOW.get = (async () => {
+      throw new Error('instance not found');
+    }) as typeof env.PURGE_WORKFLOW.get;
     env.PURGE_WORKFLOW.create = (async (opts: unknown) => {
       calls.push(opts);
       return { id: `purge-guest-${guestRef}` };
@@ -369,6 +373,80 @@ describe('handleDomainEvent contract assertions', () => {
       ]);
     } finally {
       env.PURGE_WORKFLOW.create = originalCreate;
+      env.PURGE_WORKFLOW.get = originalGet;
+    }
+  });
+
+  it('guest.erased create failure rethrows when instance is still missing', async () => {
+    const guestRef = `guest_fail_${crypto.randomUUID().slice(0, 8)}`;
+    const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    const originalGet = env.PURGE_WORKFLOW.get.bind(env.PURGE_WORKFLOW);
+    env.PURGE_WORKFLOW.get = (async () => {
+      throw new Error('instance not found');
+    }) as typeof env.PURGE_WORKFLOW.get;
+    env.PURGE_WORKFLOW.create = (async () => {
+      throw new Error('binding_misconfigured');
+    }) as typeof env.PURGE_WORKFLOW.create;
+
+    try {
+      await expect(
+        handleDomainEvent(
+          {
+            eventId: crypto.randomUUID(),
+            eventType: 'guest.erased',
+            payload: {
+              orgId: 'org_fail',
+              guestRef,
+              piiKeyId: 'pii_fail',
+            },
+            seq: 1,
+            source: { do: 'org', id: 'org_fail' },
+            createdAt: Date.now(),
+          },
+          env,
+        ),
+      ).rejects.toThrow('binding_misconfigured');
+    } finally {
+      env.PURGE_WORKFLOW.create = originalCreate;
+      env.PURGE_WORKFLOW.get = originalGet;
+    }
+  });
+
+  it('guest.erased skips create when instance already exists', async () => {
+    const guestRef = `guest_exists_${crypto.randomUUID().slice(0, 8)}`;
+    let createCalls = 0;
+    const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    const originalGet = env.PURGE_WORKFLOW.get.bind(env.PURGE_WORKFLOW);
+    env.PURGE_WORKFLOW.get = (async (id: string) => {
+      return { id };
+    }) as typeof env.PURGE_WORKFLOW.get;
+    env.PURGE_WORKFLOW.create = (async () => {
+      createCalls += 1;
+      throw new Error('should not create');
+    }) as typeof env.PURGE_WORKFLOW.create;
+
+    try {
+      await expect(
+        handleDomainEvent(
+          {
+            eventId: crypto.randomUUID(),
+            eventType: 'guest.erased',
+            payload: {
+              orgId: 'org_exists',
+              guestRef,
+              piiKeyId: 'pii_exists',
+            },
+            seq: 1,
+            source: { do: 'org', id: 'org_exists' },
+            createdAt: Date.now(),
+          },
+          env,
+        ),
+      ).resolves.toBeUndefined();
+      expect(createCalls).toBe(0);
+    } finally {
+      env.PURGE_WORKFLOW.create = originalCreate;
+      env.PURGE_WORKFLOW.get = originalGet;
     }
   });
 });

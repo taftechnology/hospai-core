@@ -2,6 +2,7 @@ import type { DomainEventMessage } from '@hospai/contracts';
 import { logInfo, type ObservabilityContext } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
 import { guestPurgeWorkflowId } from './purge-certificate.js';
+import { ensurePurgeWorkflowInstance } from './purge-workflow-create.js';
 import { resolvePropertyFromRegistry } from './provision.js';
 
 /**
@@ -46,22 +47,19 @@ async function enqueueGuestPurge(env: PmsEnv, payload: Record<string, unknown>):
   const guestRef = assertStringField(payload, 'guestRef', 'guest.erased');
   const piiKeyId = assertStringField(payload, 'piiKeyId', 'guest.erased');
   const workflowId = guestPurgeWorkflowId(guestRef);
-  try {
-    await env.PURGE_WORKFLOW.create({
-      id: workflowId,
-      params: {
-        kind: 'guest',
-        workflowId,
-        orgId,
-        guestRef,
-        piiKeyId,
-        operatorUserId: null,
-        started: Date.now(),
-      },
-    });
-  } catch {
-    // Same workflow id on redelivery — instance already exists; treat as success.
-  }
+  // get-before-create: only "already exists" is a no-op; real create failures rethrow → queue retry.
+  await ensurePurgeWorkflowInstance(env.PURGE_WORKFLOW, {
+    id: workflowId,
+    params: {
+      kind: 'guest',
+      workflowId,
+      orgId,
+      guestRef,
+      piiKeyId,
+      operatorUserId: null,
+      started: Date.now(),
+    },
+  });
 }
 
 /** Phase 0 proof consumer — contract assertions; `guest.erased` enqueues PurgeWorkflow. */

@@ -7,8 +7,13 @@ import {
   resetPlatformSchemaGate,
 } from '../src/registry.js';
 import type { PmsEnv } from '../src/env.js';
-import { nextOrgPurgeWorkflowId } from '../src/purge-certificate.js';
+import {
+  guestPurgeWorkflowId,
+  nextOrgPurgeWorkflowId,
+  PITR_LIMITATION,
+} from '../src/purge-certificate.js';
 import { HaltError, PurgeWorkflow, type PurgeWorkflowParams } from '../src/purge-workflow.js';
+import { createGuest, idemFor, provisionedOrg, TEST_OWNER_ACTOR } from './guest-helpers.js';
 
 function fakeWorkflowStep(stepNames: string[] = []): WorkflowStep {
   return {
@@ -173,5 +178,85 @@ describe('PurgeWorkflow spine', () => {
     expect(row?.outcome).toBe('halted');
     expect(row?.halt_reason).toBe('do_unreachable');
     expect(row?.certified).toBeNull();
+  });
+
+  it('guest plan clears profile blobs and certifies with skips + PITR limitation', async () => {
+    const orgId = `org_gplan_${crypto.randomUUID().slice(0, 8)}`;
+    const org = await provisionedOrg(orgId);
+    const propertyId = `prop_gplan_${crypto.randomUUID().slice(0, 8)}`;
+    const guestId = `guest_gplan_${crypto.randomUUID().slice(0, 8)}`;
+    const refs = await createGuest(org, propertyId, guestId, 'Plan Guest');
+
+    const erase = await org.tryEraseGuest(
+      TEST_OWNER_ACTOR,
+      propertyId,
+      { guestId },
+      await idemFor(`erase-${guestId}`, { guestId }),
+    );
+    expect(erase.ok).toBe(true);
+
+    // Before purge plan, ciphertext blobs are still present (key shredded only).
+    const before = await org.testGuestProfileBlobLengths(guestId);
+    expect(before).not.toBeNull();
+    expect((before!.cipherLen ?? 0) > 0 || (before!.ivLen ?? 0) > 0).toBe(true);
+
+    // Erase touched interactive lane; production enqueue is async so quiet window elapses.
+    await org.resetLaneGuardForTest();
+
+    const workflowId = guestPurgeWorkflowId(guestId);
+    const stepNames: string[] = [];
+    await runPurgeWorkflow(
+      {
+        kind: 'guest',
+        workflowId,
+        orgId,
+        guestRef: guestId,
+        piiKeyId: refs.piiKeyId,
+        operatorUserId: null,
+        started: Date.now(),
+      },
+      stepNames,
+    );
+
+    expect(stepNames).toEqual([
+      'verify-shred',
+      'property-do-guest-pii',
+      'clear-guest-blobs',
+      'skip-r2',
+      'skip-iceberg',
+      'verify-key-state',
+      'certify',
+    ]);
+    expect(await org.testGuestProfileBlobLengths(guestId)).toEqual({ cipherLen: 0, ivLen: 0 });
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, stores_json, limitations_json, certified FROM purge_certificate
+       WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{
+        outcome: string;
+        stores_json: string;
+        limitations_json: string;
+        certified: number | null;
+      }>();
+
+    expect(row?.outcome).toBe('certified');
+    expect(row?.certified).not.toBeNull();
+    const stores = JSON.parse(row!.stores_json) as Array<{
+      store: string;
+      status: string;
+      deleted?: number;
+      reason?: string;
+    }>;
+    expect(stores.find((s) => s.store === 'property_do')).toMatchObject({
+      status: 'reached',
+      deleted: 0,
+    });
+    expect(stores.find((s) => s.store === 'r2')).toMatchObject({
+      status: 'skipped',
+      reason: 'no_r2_binding',
+    });
+    expect(JSON.parse(row!.limitations_json)).toContain(PITR_LIMITATION);
   });
 });

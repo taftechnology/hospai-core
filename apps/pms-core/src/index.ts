@@ -159,7 +159,7 @@ export default {
         }
       }
       try {
-        handleDomainEvent(body);
+        await handleDomainEvent(body, env);
       } catch {
         msg.retry();
         continue;

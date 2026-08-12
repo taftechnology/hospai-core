@@ -1594,6 +1594,21 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return (rows[0]?.key_len ?? 0) > 0;
   }
 
+  /** Test hook — profile BLOB lengths after guest purge (`x''` → 0). */
+  async testGuestProfileBlobLengths(
+    guestId: string,
+  ): Promise<{ cipherLen: number; ivLen: number } | null> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT length(profile_cipher) AS cipher_len, length(profile_iv) AS iv_len FROM guest WHERE guest_id = ?`,
+        guestId,
+      )
+      .toArray() as Array<{ cipher_len: number | null; iv_len: number | null }>;
+    const row = rows[0];
+    if (!row) return null;
+    return { cipherLen: Number(row.cipher_len ?? 0), ivLen: Number(row.iv_len ?? 0) };
+  }
+
   /** Test hook — read via SqlKeyStore.get() (ArrayBuffer → Uint8Array normalization path). */
   async testGetDataKeyRecord(
     piiKeyId: string,

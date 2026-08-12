@@ -86,6 +86,7 @@ import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
+import { guestPurgeWorkflowId } from './purge-certificate.js';
 import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
 
@@ -1014,7 +1015,16 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
       }
       return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
     }
-    return json(result, 200);
+    return json(
+      {
+        ok: true,
+        guestId: result.guestId,
+        piiKeyId: result.piiKeyId,
+        erased: true,
+        purgeWorkflowId: guestPurgeWorkflowId(result.guestId),
+      },
+      200,
+    );
   } catch (e) {
     if (isOrgDoTransportFailure(e)) {
       return json(

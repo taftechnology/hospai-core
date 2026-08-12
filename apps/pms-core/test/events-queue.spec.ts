@@ -105,11 +105,11 @@ describe('Queues consumer (Phase 0)', () => {
       source: { do: 'property' as const, id: 'prop-dedupe' },
       createdAt: Date.now(),
     };
-    handleDomainEvent(message);
+    await handleDomainEvent(message, env);
     await env.EVENT_DEDUPE_KV.put(`seen:${message.eventId}`, '1');
 
     expect(await env.EVENT_DEDUPE_KV.get(`seen:${message.eventId}`)).toBe('1');
-    expect(() => handleDomainEvent(message)).not.toThrow();
+    await expect(handleDomainEvent(message, env)).resolves.toBeUndefined();
   });
 
   it('poison message retries in isolation; batch-mates ack', async () => {
@@ -215,44 +215,50 @@ describe('Queues consumer (Phase 0)', () => {
 });
 
 describe('handleDomainEvent contract assertions', () => {
-  it('rejects reservation.created missing guestRef', () => {
-    expect(() =>
-      handleDomainEvent({
-        eventId: 'e1',
-        eventType: 'reservation.created',
-        payload: { propertyId: 'p', reservationId: 'r', piiKeyId: 'k' },
-        seq: 1,
-        source: { do: 'property', id: 'p' },
-        createdAt: Date.now(),
-      }),
-    ).toThrow(/guestRef/);
-  });
-
-  it('accepts folio.line_posted with money fields', () => {
-    expect(() =>
-      handleDomainEvent({
-        eventId: 'e2',
-        eventType: 'folio.line_posted',
-        payload: {
-          propertyId: 'p',
-          folioLineId: 'fl',
-          folioWindowId: 'fw',
-          reservationId: 'r',
-          chargeCode: 'ROOM',
-          amountMinor: 100,
-          txnCurrency: 'USD',
-          ledgerAmountMinor: 100,
-          fxRate: '1',
-          fxRateAt: Date.now(),
+  it('rejects reservation.created missing guestRef', async () => {
+    await expect(
+      handleDomainEvent(
+        {
+          eventId: 'e1',
+          eventType: 'reservation.created',
+          payload: { propertyId: 'p', reservationId: 'r', piiKeyId: 'k' },
+          seq: 1,
+          source: { do: 'property', id: 'p' },
+          createdAt: Date.now(),
         },
-        seq: 1,
-        source: { do: 'property', id: 'p' },
-        createdAt: Date.now(),
-      }),
-    ).not.toThrow();
+        env,
+      ),
+    ).rejects.toThrow(/guestRef/);
   });
 
-  it('accepts rooms/housekeeping event types that PropertyDO emits today', () => {
+  it('accepts folio.line_posted with money fields', async () => {
+    await expect(
+      handleDomainEvent(
+        {
+          eventId: 'e2',
+          eventType: 'folio.line_posted',
+          payload: {
+            propertyId: 'p',
+            folioLineId: 'fl',
+            folioWindowId: 'fw',
+            reservationId: 'r',
+            chargeCode: 'ROOM',
+            amountMinor: 100,
+            txnCurrency: 'USD',
+            ledgerAmountMinor: 100,
+            fxRate: '1',
+            fxRateAt: Date.now(),
+          },
+          seq: 1,
+          source: { do: 'property', id: 'p' },
+          createdAt: Date.now(),
+        },
+        env,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('accepts rooms/housekeeping event types that PropertyDO emits today', async () => {
     for (const eventType of [
       'room.created',
       'room.updated',
@@ -260,16 +266,19 @@ describe('handleDomainEvent contract assertions', () => {
       'reservation.room_assigned',
       'housekeeping.assigned',
     ] as const) {
-      expect(() =>
-        handleDomainEvent({
-          eventId: `rooms-${eventType}`,
-          eventType,
-          payload: { propertyId: 'p' },
-          seq: 1,
-          source: { do: 'property', id: 'p' },
-          createdAt: Date.now(),
-        }),
-      ).not.toThrow();
+      await expect(
+        handleDomainEvent(
+          {
+            eventId: `rooms-${eventType}`,
+            eventType,
+            payload: { propertyId: 'p' },
+            seq: 1,
+            source: { do: 'property', id: 'p' },
+            createdAt: Date.now(),
+          },
+          env,
+        ),
+      ).resolves.toBeUndefined();
     }
   });
 
@@ -278,20 +287,23 @@ describe('handleDomainEvent contract assertions', () => {
    * handleDomainEvent. Shape validation may still reject an empty payload — the
    * forbid is only the unknown-event default that DLQs flushed outbox rows.
    */
-  it('accepts every COMMAND_CATALOG event type (no unknown-event throw)', () => {
+  it('accepts every COMMAND_CATALOG event type (no unknown-event throw)', async () => {
     const types = [...new Set(COMMAND_CATALOG.flatMap((c) => c.events))];
     expect(types.length).toBeGreaterThan(0);
 
     for (const eventType of types) {
       try {
-        handleDomainEvent({
-          eventId: 'catalog-allowlist',
-          eventType,
-          payload: {},
-          seq: 1,
-          source: { do: 'property', id: 'p' },
-          createdAt: Date.now(),
-        });
+        await handleDomainEvent(
+          {
+            eventId: 'catalog-allowlist',
+            eventType,
+            payload: {},
+            seq: 1,
+            source: { do: 'property', id: 'p' },
+            createdAt: Date.now(),
+          },
+          env,
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         expect(msg, `catalog event ${eventType}`).not.toMatch(/^unknown event type:/);
@@ -299,16 +311,64 @@ describe('handleDomainEvent contract assertions', () => {
     }
   });
 
-  it('still rejects truly unknown event types', () => {
-    expect(() =>
-      handleDomainEvent({
-        eventId: 'e-unknown',
-        eventType: 'not.in.catalog',
-        payload: {},
-        seq: 1,
-        source: { do: 'property', id: 'p' },
-        createdAt: Date.now(),
-      }),
-    ).toThrow(/^unknown event type:/);
+  it('still rejects truly unknown event types', async () => {
+    await expect(
+      handleDomainEvent(
+        {
+          eventId: 'e-unknown',
+          eventType: 'not.in.catalog',
+          payload: {},
+          seq: 1,
+          source: { do: 'property', id: 'p' },
+          createdAt: Date.now(),
+        },
+        env,
+      ),
+    ).rejects.toThrow(/^unknown event type:/);
+  });
+
+  it('guest.erased enqueues PurgeWorkflow with caller-computed workflowId', async () => {
+    const guestRef = `guest_enq_${crypto.randomUUID().slice(0, 8)}`;
+    const calls: unknown[] = [];
+    const originalCreate = env.PURGE_WORKFLOW.create.bind(env.PURGE_WORKFLOW);
+    env.PURGE_WORKFLOW.create = (async (opts: unknown) => {
+      calls.push(opts);
+      return { id: `purge-guest-${guestRef}` };
+    }) as typeof env.PURGE_WORKFLOW.create;
+
+    try {
+      await handleDomainEvent(
+        {
+          eventId: crypto.randomUUID(),
+          eventType: 'guest.erased',
+          payload: {
+            orgId: 'org_enq',
+            guestRef,
+            piiKeyId: 'pii_enq',
+          },
+          seq: 1,
+          source: { do: 'org', id: 'org_enq' },
+          createdAt: Date.now(),
+        },
+        env,
+      );
+
+      expect(calls).toEqual([
+        {
+          id: `purge-guest-${guestRef}`,
+          params: {
+            kind: 'guest',
+            workflowId: `purge-guest-${guestRef}`,
+            orgId: 'org_enq',
+            guestRef,
+            piiKeyId: 'pii_enq',
+            operatorUserId: null,
+            started: expect.any(Number),
+          },
+        },
+      ]);
+    } finally {
+      env.PURGE_WORKFLOW.create = originalCreate;
+    }
   });
 });

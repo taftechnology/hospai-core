@@ -1,6 +1,7 @@
 import type { DomainEventMessage } from '@hospai/contracts';
 import { logInfo, type ObservabilityContext } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
+import { guestPurgeWorkflowId } from './purge-certificate.js';
 import { resolvePropertyFromRegistry } from './provision.js';
 
 /**
@@ -40,8 +41,34 @@ function assertNoPlaintextGuestName(obj: Record<string, unknown>, eventType: str
   }
 }
 
-/** Phase 0 proof consumer — contract assertions only; no DO writes. */
-export function handleDomainEvent(message: DomainEventMessage): void {
+async function enqueueGuestPurge(env: PmsEnv, payload: Record<string, unknown>): Promise<void> {
+  const orgId = assertStringField(payload, 'orgId', 'guest.erased');
+  const guestRef = assertStringField(payload, 'guestRef', 'guest.erased');
+  const piiKeyId = assertStringField(payload, 'piiKeyId', 'guest.erased');
+  const workflowId = guestPurgeWorkflowId(guestRef);
+  try {
+    await env.PURGE_WORKFLOW.create({
+      id: workflowId,
+      params: {
+        kind: 'guest',
+        workflowId,
+        orgId,
+        guestRef,
+        piiKeyId,
+        operatorUserId: null,
+        started: Date.now(),
+      },
+    });
+  } catch {
+    // Same workflow id on redelivery — instance already exists; treat as success.
+  }
+}
+
+/** Phase 0 proof consumer — contract assertions; `guest.erased` enqueues PurgeWorkflow. */
+export async function handleDomainEvent(
+  message: DomainEventMessage,
+  env: PmsEnv,
+): Promise<void> {
   const payload = assertRecord(message.payload, message.eventType);
 
   switch (message.eventType) {
@@ -53,12 +80,19 @@ export function handleDomainEvent(message: DomainEventMessage): void {
       break;
     }
     case 'guest.created':
-    case 'guest.updated':
+    case 'guest.updated': {
+      assertStringField(payload, 'orgId', message.eventType);
+      assertStringField(payload, 'guestRef', message.eventType);
+      assertStringField(payload, 'piiKeyId', message.eventType);
+      assertNoPlaintextGuestName(payload, message.eventType);
+      break;
+    }
     case 'guest.erased': {
       assertStringField(payload, 'orgId', message.eventType);
       assertStringField(payload, 'guestRef', message.eventType);
       assertStringField(payload, 'piiKeyId', message.eventType);
       assertNoPlaintextGuestName(payload, message.eventType);
+      await enqueueGuestPurge(env, payload);
       break;
     }
     case 'reservation.created': {

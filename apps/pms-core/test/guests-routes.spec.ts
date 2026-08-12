@@ -254,6 +254,20 @@ describe('guest HTTP routes', () => {
     };
     const res = await eraseGuest(propertyId, actor, 'guest_erase');
     expect(res.status).toBe(200);
+    const eraseBody = (await res.json()) as {
+      ok: boolean;
+      guestId: string;
+      piiKeyId: string;
+      erased: boolean;
+      purgeWorkflowId: string;
+    };
+    expect(eraseBody).toEqual({
+      ok: true,
+      guestId: 'guest_erase',
+      piiKeyId: created.piiKeyId,
+      erased: true,
+      purgeWorkflowId: 'purge-guest-guest_erase',
+    });
 
     const getRes = await getGuest(propertyId, actor, 'guest_erase');
     expect(getRes.status).toBe(200);

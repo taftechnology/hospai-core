@@ -214,7 +214,7 @@ describe('observability (Phase 0)', () => {
       source: { do: 'org' as const, id: 'org_qlog_test' },
       createdAt: Date.now(),
     };
-    handleDomainEvent(body);
+    await handleDomainEvent(body, env);
     logEventConsumed(body);
 
     const log = capture.lines.find((l) => l.msg === 'event.consumed');

@@ -12,9 +12,9 @@
 
 - Spec: `docs/superpowers/specs/2026-08-12-purge-workflow-design.md` (normative)
 - Certificate: no PII; five §4.8 stores always listed; skipped stores carry `reason`; `reached` + `deleted: 0` ≠ skipped
-- Every terminal state leaves a certificate (`run()` wrapper — not optional)
+- Every terminal state leaves a certificate (`run()` wrapper appends, then **rethrows** so the Workflow instance is failed — not green-on-HALT)
 - Org attempt id: `purge-org-${orgId}-${attempt}` where `attempt = 1 + COUNT(*) WHERE org_id = ? AND kind = 'org'`
-- Guest Workflow id: `purge-guest-${guestRef}` (no attempt suffix)
+- Guest Workflow id: `purge-guest-${guestRef}` (no attempt suffix); both ids passed in `PurgeWorkflowParams.workflowId`
 - `guests.erase` stays **200**; org purge returns **202**; never start guest Workflow from HTTP handler
 - Admin purge route writes **no** D1 status — Workflow owns `'purging'`
 - Org graph ≠ property graph (`property` has no `closing`)
@@ -165,7 +165,17 @@ export const PLATFORM_PURGE_STATEMENTS: string[] = [
 
 Wire into `PLATFORM_ALL_STATEMENTS`. Add `PLATFORM_PURGE_SQL` export.
 
-Note: SQLite `ALTER TABLE ADD COLUMN` fails if re-run. `ensurePlatformSchema` today loops all statements — either catch “duplicate column” as success in apply, or gate purge ALTERs behind a `schema_meta` flag. Prefer: apply purge statements with try/catch ignoring duplicate-column errors (document in registry apply helper), same as idempotent IF NOT EXISTS for the rest.
+Note: SQLite `ALTER TABLE ADD COLUMN` fails if re-run. In `ensurePlatformSchema` (or a purge-apply helper), **do not** catch by error-message text. Before each ALTER, introspect:
+
+```ts
+async function orgHasColumn(db: D1Database, name: string): Promise<boolean> {
+  const rows = await db.prepare(`PRAGMA table_info(org)`).all<{ name: string }>();
+  return (rows.results ?? []).some((r) => r.name === name);
+}
+// if (!(await orgHasColumn(db, 'closing_at'))) await db.prepare(`ALTER TABLE org ADD COLUMN closing_at INTEGER`).run();
+```
+
+Triggers / `CREATE TABLE IF NOT EXISTS` / indexes remain idempotent as written.
 
 - [ ] **Step 4: Wire `property-ddl.mjs` 0004 target + generate**
 
@@ -258,20 +268,17 @@ git commit -m "feat(registry): purge certificate append and org retention helper
 
 ---
 
-### Task 3: Permissions + SystemActor + route audit stubs
+### Task 3: Permissions + SystemActor
 
 **Files:**
 - Modify: `packages/contracts/src/permissions.ts`
-- Modify: `packages/contracts/src/v1-http-routes.ts`
 - Modify: `packages/contracts/src/register.test.ts` (if permission closed-set tests need updates)
-- Verify: `pnpm check:permissions`
+- Verify: `pnpm check:permissions` (must stay green — **no** new route-audit rows in this task)
 
 **Interfaces:**
 - Produces: `'org:cancel' | 'org:purge'` in `ORG_SCOPED_PERMISSIONS`; **not** on `admin` ROLE_GRANTS list; owner gets via `GRANTABLE_PERMISSIONS`
 - Produces: `SystemActor.reason` includes `'purge'`
-- Produces: audit rows (append at end; keep index sync with `V1_ROUTES`):
-  - `post_org_cancel` — scope `org`, permission `org:cancel`
-  - `post_org_purge` — scope `org`, permission `org:purge`
+- Does **not** produce route-audit rows — those land in **Task 8** with the handlers so `check:permissions` stays green between commits
 
 - [ ] **Step 1: Add permissions + SystemActor reason**
 
@@ -286,17 +293,9 @@ reason: 'night_audit' | 'migration_sweep' | 'queue_replay' | 'provision' | 'purg
 
 Do **not** add to `admin` array.
 
-- [ ] **Step 2: Append route audit entries** (exact next free indices — read current `V1_HTTP_ROUTE_AUDIT.length` first)
+- [ ] **Step 2: `pnpm check:permissions` — expect PASS**
 
-```ts
-{ id: 'post_org_cancel', scope: 'org', permission: 'org:cancel' },
-{ id: 'post_org_purge', scope: 'org', permission: 'org:purge' },
-```
-
-- [ ] **Step 3: `pnpm check:permissions` — will FAIL until Task 7 wires matching `V1_ROUTES` handlers.**  
-  **Commit contracts-only with a note, OR defer route audit rows to Task 7 in the same commit as handlers.** Prefer **defer audit rows to Task 7** so `check:permissions` stays green after this task.
-
-- [ ] **Step 4: Commit permissions + SystemActor only**
+- [ ] **Step 3: Commit permissions + SystemActor only**
 
 ```bash
 git commit -m "feat(contracts): org:cancel/org:purge and SystemActor purge reason"
@@ -323,19 +322,28 @@ export async function assertTenantActive(
 ```
 - Only `status === 'active'` passes. Missing row → `not_found`.
 
+**Per-site HTTP mapping (normative):**
+
+| Site | Response | Why |
+|---|---|---|
+| `resolvePropertyContext` | **404 `{ error: 'not_found' }`** (plain); log `tenant_not_active` server-side | Runs before DO-side permission gating — returning `tenant_not_active` would disclose that a tenant exists and is mid-purge to an unauthorized caller |
+| `provisionProperty` under an org | **409 `{ error: 'tenant_not_active' }`** | Caller already holds `property:provision` on that org — plain `not_found` for an org they can see is confusing |
+| replay consumer | ack + `logWarn` (`tenant_not_active`) | Not HTTP |
+
 - [ ] **Step 1: Failing tests**
 
 ```ts
-it('resolvePropertyContext returns 404 tenant_not_active when property status is purging', async () => {
-  // provision property, trySetPropertyStatus → purging, GET /v1/properties/:id/rooms → 404 { error: 'tenant_not_active' }
+it('resolvePropertyContext returns 404 not_found when property status is purging', async () => {
+  // provision property, trySetPropertyStatus → purging, GET /v1/properties/:id/rooms → 404 { error: 'not_found' }
+  // assert server log / observability carries tenant_not_active if practical; body must NOT say tenant_not_active
 });
 
 it('pending replay acks without invoking when property not active', async () => {
   // set property purging; dispatch pending batch; stub must not be called (spy or side-effect flag)
 });
 
-it('provisionProperty refused when org is closing', async () => {
-  // closeOrgForPurge; POST org properties → 409/404 tenant_not_active
+it('provisionProperty refused with 409 tenant_not_active when org is closing', async () => {
+  // closeOrgForPurge; POST org properties → 409 { error: 'tenant_not_active' }
 });
 ```
 
@@ -345,13 +353,18 @@ it('provisionProperty refused when org is closing', async () => {
 // resolvePropertyContext — after getProperty:
 const gate = await assertTenantActive(ctx.env, { propertyId, orgId: property.orgId });
 if (!gate.ok) {
-  return json({ error: gate.error }, gate.error === 'not_found' ? 404 : 404);
+  if (gate.error === 'tenant_not_active') {
+    logWarn(ctx.observability, { msg: 'tenant_not_active', propertyId, orgId: property.orgId, status: gate.status });
+  }
+  return json({ error: 'not_found' }, 404);
 }
-```
 
-Use **404** with `tenant_not_active` (not 403) so existence of purged tenants isn’t confirmed to unauthorized callers beyond not_found class — match existing not_found style unless a prior route uses 409 for lifecycle; stay consistent with `not_found` mapping used for membership.
+// provisionProperty (caller already authorized for the org):
+const gate = await assertTenantActive(ctx.env, { orgId });
+if (!gate.ok) {
+  return json({ error: gate.error === 'not_found' ? 'not_found' : 'tenant_not_active' }, gate.error === 'not_found' ? 404 : 409);
+}
 
-```ts
 // pending-commands-consumer — after resolvePropertyFromRegistry:
 const gate = await assertTenantActive(env, { propertyId: provisional.propertyId });
 if (!gate.ok) {
@@ -360,8 +373,6 @@ if (!gate.ok) {
   continue;
 }
 ```
-
-Wire provision path similarly before `insertProperty`.
 
 - [ ] **Step 3: PASS; commit**
 
@@ -460,6 +471,7 @@ git commit -m "feat(do): tenant purgeStorage and guest profile blob clear RPCs"
 export type PurgeWorkflowParams =
   | {
       kind: 'guest';
+      workflowId: string; // caller-computed: guestPurgeWorkflowId(guestRef)
       orgId: string;
       guestRef: string;
       piiKeyId: string;
@@ -468,6 +480,7 @@ export type PurgeWorkflowParams =
     }
   | {
       kind: 'org';
+      workflowId: string; // caller-computed: nextOrgPurgeWorkflowId(env, orgId)
       orgId: string;
       operatorUserId: string;
       started: number;
@@ -497,9 +510,7 @@ async function appendTerminalCertificate(env, params, partial): Promise<void>
 ```ts
 async run(event, step) {
   const params = event.payload;
-  const workflowId = params.kind === 'guest'
-    ? guestPurgeWorkflowId(params.guestRef)
-    : /* from event.id or reconstruct */;
+  const workflowId = params.workflowId; // never derive from event.id
   let stores = initialStoresSkippedR2Iceberg(); // five names; r2/iceberg skipped
   try {
     if (params.kind === 'guest') await this.runGuestPlan(params, step, stores);
@@ -507,12 +518,16 @@ async run(event, step) {
   } catch (e) {
     const reason = e instanceof HaltError ? e.reason : (e instanceof Error ? e.message : String(e));
     await appendPurgeCertificate(this.env, {
+      workflow_id: workflowId,
       outcome: 'halted',
       halt_reason: reason,
       stores_json: JSON.stringify(stores),
       // ...
     });
-    return; // do not rethrow after certifying — or rethrow after append if platform requires; prefer append then return so attempt bumps
+    // Certificate is already in D1 (attempt counter reads certificates, not instance state).
+    // Rethrow so the Workflow instance is marked failed — operators must not see a green
+    // run for a residue HALT (operational silent success).
+    throw e instanceof Error ? e : new Error(reason);
   }
 }
 ```
@@ -537,14 +552,14 @@ PURGE_WORKFLOW: Workflow<PurgeWorkflowParams>;
 
 Export class from `index.ts`.
 
-- [ ] **Step 2: Test wrapper — forced throw leaves halted certificate**
+- [ ] **Step 2: Test wrapper — forced throw leaves halted certificate and rejects**
 
 ```ts
 function fakeWorkflowStep(): WorkflowStep { /* same as migration-sweep */ }
 
-it('terminal wrapper writes halted certificate on throw', async () => {
+it('terminal wrapper writes halted certificate on throw then rethrows', async () => {
   // params kind org with status active → step 0 HaltError OR inject throw
-  await runPurgeWorkflow(params);
+  await expect(runPurgeWorkflow(params)).rejects.toThrow();
   const row = await env.PLATFORM_DB.prepare(
     `SELECT outcome, halt_reason FROM purge_certificate WHERE org_id = ? AND kind = 'org' ORDER BY recorded_at DESC LIMIT 1`,
   ).bind(params.orgId).first();
@@ -573,7 +588,15 @@ git commit -m "feat(workflow): PurgeWorkflow binding with HALT-always-certifies 
 ```ts
 await env.PURGE_WORKFLOW.create({
   id: guestPurgeWorkflowId(guestRef),
-  params: { kind: 'guest', orgId, guestRef, piiKeyId, operatorUserId: null, started: Date.now() },
+  params: {
+    kind: 'guest',
+    workflowId: guestPurgeWorkflowId(guestRef),
+    orgId,
+    guestRef,
+    piiKeyId,
+    operatorUserId: null,
+    started: Date.now(),
+  },
 });
 ```
 Idempotent if instance exists (catch and ignore / treat as success).
@@ -617,13 +640,31 @@ git commit -m "feat(guests): enqueue PurgeWorkflow from guest.erased; return pur
 ```ts
 const workflowId = await nextOrgPurgeWorkflowId(ctx.env, orgId);
 try {
-  await ctx.env.PURGE_WORKFLOW.create({ id: workflowId, params: { kind: 'org', orgId, operatorUserId: ctx.actor.userId, started: Date.now() } });
+  await ctx.env.PURGE_WORKFLOW.create({
+    id: workflowId,
+    params: {
+      kind: 'org',
+      workflowId,
+      orgId,
+      operatorUserId: ctx.actor.userId,
+      started: Date.now(),
+    },
+  });
 } catch (e) {
   // instance exists → still 202 with workflowId
 }
 return json({ workflowId }, 202);
 ```
 
+**Route audit (same commit as handlers — keeps `check:permissions` green):**
+
+```ts
+// packages/contracts/src/v1-http-routes.ts — append (read length first for indices)
+{ id: 'post_org_cancel', scope: 'org', permission: 'org:cancel' },
+{ id: 'post_org_purge', scope: 'org', permission: 'org:purge' },
+```
+
+Mirror identical order in `V1_ROUTES` in `v1-dispatch.ts`.
 **Org plan steps** (named `step.do`):
 0. retention via `evaluateOrgRetention` (inject `params.nowMs ?? Date.now()`)
 1. close traffic: org `closing→purging`; list properties; each `active→purging`
@@ -691,24 +732,86 @@ git commit -m "test(checks): onPurge entitlement gate and purge certificate colu
 ### Task 10: Declared PropertyDO guest-PII column set gate
 
 **Files:**
-- Create: `packages/contracts/src/guest-pii-property-columns.ts` (empty allowlist + reasons)
-- Modify: purge guest plan / check script to assert declaration
+- Create: `packages/contracts/src/guest-pii-property-columns.ts`
+- Modify: `scripts/module-manifests-check.mjs` or `scripts/purge-check.mjs` (same check package as Task 9)
+- Modify: guest purge plan to read the allowlist (`deleted: 0` when empty)
 
 ```ts
 /** PropertyDO columns that may hold guest PII. Empty in Phase 0 — audit-writers boundary. */
-export const PROPERTY_GUEST_PII_COLUMNS: readonly { column: string; reason: string }[] = [
-  // reserved examples not enabled:
-  // { column: 'billed_party', reason: 'folio billed party — enable when written' },
-];
+export const PROPERTY_GUEST_PII_COLUMNS: readonly { column: string; reason: string }[] = [];
+
+/** Columns that must not be written under apps/pms-core unless listed above. */
+export const PROPERTY_GUEST_PII_DENYLIST = ['billed_party'] as const;
 ```
 
-Guest `PURGE_PROPERTY_DO` step: if allowlist empty → `deleted: 0` reached. Check script: fail if SQL under `apps/pms-core` writes a column named in a denylist (`billed_party`) unless listed in allowlist — keep YAGNI: **assert allowlist empty and `billed_party` unset in property DDL freeze** via existing freeze gate note, or a tiny self-test that `PROPERTY_GUEST_PII_COLUMNS.length === 0`.
+**Normative check (declare → enforce → auto-ratchet — same shape as ownership gate):**
 
-- [ ] **Step 1: Self-test + commit**
+Scan `apps/pms-core/src/**` with the hardened write scanner. For each denylist column, if SQL writes that column (INSERT column list / UPDATE SET target) **and** it is not present in `PROPERTY_GUEST_PII_COLUMNS`, fail. When someone populates `billed_party`, the gate forces adding it to the allowlist (and implementing guest purge for it) rather than silently overstating the certificate.
+
+Do **not** use “assert allowlist length === 0” as the sole guard — that assertion is deleted the day the allowlist is populated, which is exactly when enforcement is needed.
+
+Guest `PURGE_PROPERTY_DO` step: if allowlist empty → `reached`, `deleted: 0`. If non-empty → purge those columns (future; out of Phase 0 body but the gate is live).
+
+- [ ] **Step 1: `--self-test`**
+  - Real tree green (nothing writes `billed_party`)
+  - Synthetic fixture writing `billed_party` with empty allowlist → FAIL
+  - Same write with `{ column: 'billed_party', reason: '…' }` in allowlist → OK
+
+- [ ] **Step 2: Commit**
 
 ```bash
-git commit -m "feat(contracts): declare empty PropertyDO guest-PII column set for purge"
+git commit -m "feat(checks): PropertyDO guest-PII column declare-and-enforce gate"
 ```
+
+---
+
+### Task 11: Full CI verification
+
+**Files:** none (verification only)
+
+Run the full CI sequence in CI order from `.github/workflows/ci.yml`. Do not skip lint or pms-core shards.
+
+- [ ] **Step 1: checks job equivalents**
+
+```bash
+pnpm install
+pnpm build
+pnpm check:ddl
+pnpm check:entitlements
+pnpm check:permissions
+pnpm check:degraded
+pnpm check:class-denylist
+pnpm check:forbidden-bodies
+pnpm check:do-transport-guards
+pnpm check:web-pms-colors
+pnpm check:web-pms-me-gating
+pnpm check:pms-core-test-dates
+pnpm check:module-manifests
+node scripts/module-manifests-check.mjs --self-test
+node scripts/forbidden-body-check.mjs --self-test
+node scripts/do-transport-guards-check.mjs --self-test
+node scripts/web-pms-colors-check.mjs --self-test
+node scripts/property-ddl.mjs --self-test
+# plus any new purge-check --self-test from Task 9/10
+pnpm typecheck
+pnpm exec turbo run test --filter=!@hospai/pms-core
+pnpm lint
+```
+
+Expected: all PASS.
+
+- [ ] **Step 2: pms-core shards (same as CI matrix)**
+
+```bash
+pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
+pnpm --filter @hospai/pms-core exec vitest run --shard=2/4
+pnpm --filter @hospai/pms-core exec vitest run --shard=3/4
+pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
+```
+
+Expected: all PASS. Do **not** put `--` before `--shard`.
+
+- [ ] **Step 3: If anything fails, fix and re-run the failing command before declaring the chunk done.** No commit required if tree is already clean; otherwise commit the fix.
 
 ---
 
@@ -729,11 +832,15 @@ git commit -m "feat(contracts): declare empty PropertyDO guest-PII column set fo
 | Module onPurge check | 9 |
 | Certificate column check / no PII | 2, 9 |
 | Append-only + terminal guards tests | 1 |
-| Property guest-PII declaration | 10 |
+| Property guest-PII declare→enforce gate | 10 |
 | SystemActor `'purge'` | 3, 6–8 |
+| Full CI (checks + lint + shards) | 11 |
 
 ## Self-review notes
 
-- No TBD forks: 202 on concurrent create; HALT appends cert; property graph separate.
-- Types: `PurgeWorkflowParams`, `appendPurgeCertificate`, `assertTenantActive`, `nextOrgPurgeWorkflowId` named consistently across tasks.
-- Task 3 defers route-audit rows to Task 7/8 so permissions CI stays green.
+- HALT: append certificate, then **rethrow** (dashboard failure + attempt bump).
+- `workflowId` is always in `PurgeWorkflowParams` (caller-computed).
+- Task 3 = permissions only; route-audit rows only in Task 8 with handlers.
+- Task 4 HTTP mapping is per-site (404 plain vs 409 `tenant_not_active`).
+- Task 10 is write-detection auto-ratchet, not an emptiness assertion.
+- ALTER idempotency via `PRAGMA table_info`, not error-message catch.

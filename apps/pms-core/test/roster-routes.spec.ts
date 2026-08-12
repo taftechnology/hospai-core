@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { STAFF_EXITED, STAFF_REF_RE } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
+import { __setRosterGrantsForTest } from '../src/roster-http.js';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
@@ -147,6 +148,7 @@ describe('roster HTTP routes', () => {
   });
 
   afterEach(async () => {
+    __setRosterGrantsForTest(null);
     await setKillSwitch(env, 'pms.core', false);
   });
 
@@ -194,6 +196,42 @@ describe('roster HTTP routes', () => {
     const statusRes = await postRosterStatus(propertyId, actor, created.staffId, 'active');
     expect(statusRes.status).toBe(409);
     expect(await statusRes.json()).toMatchObject({ ok: false, error: STAFF_EXITED });
+  });
+
+  it('17 HTTP: PATCH/POST pay without roster:compensation → 403 (fabricated grants, not E2E)', async () => {
+    const actor = 'user_roster_17http';
+    const { propertyId } = await provisionHotel(actor);
+    const created = (await (
+      await postRoster(propertyId, actor, { displayName: 'Ada', kinds: ['housekeeper'] })
+    ).json()) as { staffId: string };
+
+    __setRosterGrantsForTest(['roster:read', 'roster:write']);
+    const patchRes = await patchRoster(propertyId, actor, created.staffId, { rating: 5 });
+    expect(patchRes.status).toBe(403);
+    expect(await patchRes.json()).toMatchObject({
+      error: 'forbidden',
+      permission: 'roster:compensation',
+    });
+
+    const postRes = await postRoster(propertyId, actor, {
+      displayName: 'Paid',
+      kinds: ['housekeeper'],
+      rating: 5,
+    });
+    expect(postRes.status).toBe(403);
+    expect(await postRes.json()).toMatchObject({
+      error: 'forbidden',
+      permission: 'roster:compensation',
+    });
+    __setRosterGrantsForTest(null);
+
+    const one = (await (await getRosterOne(propertyId, actor, created.staffId)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(one).not.toHaveProperty('rating');
+    const list = (await (await getRosterList(propertyId, actor)).json()) as { staff: unknown[] };
+    expect(list.staff).toHaveLength(1);
   });
 
   it('14: staff role POST/exit → 403 roster:write', async () => {

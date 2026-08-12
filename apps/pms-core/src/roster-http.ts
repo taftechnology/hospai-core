@@ -18,6 +18,17 @@ export type RosterHttpRow = RosterOperational & {
   skills?: string[];
 };
 
+/** Vitest-only override — avoids vi.mock in the Workers pool. */
+let rosterGrantsOverrideForTest: readonly Permission[] | null = null;
+
+export function __setRosterGrantsForTest(grants: readonly Permission[] | null): void {
+  rosterGrantsOverrideForTest = grants;
+}
+
+export function effectiveRosterGrants(roleGrants: readonly Permission[]): readonly Permission[] {
+  return rosterGrantsOverrideForTest ?? roleGrants;
+}
+
 export function compensationWriteDenied(
   grants: readonly Permission[],
   patch: { hourlyRate?: unknown; rating?: unknown; skills?: unknown },

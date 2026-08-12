@@ -96,6 +96,7 @@ import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName 
 import { isOrgDoTransportFailure } from './org-do-transport.js';
 import {
   compensationWriteDenied,
+  effectiveRosterGrants,
   profileFromHttpBody,
   stripRosterRow,
 } from './roster-http.js';
@@ -1172,7 +1173,7 @@ async function rosterGrants(
   propertyId: string,
 ): Promise<readonly Permission[]> {
   const role = await org.getEffectiveRole(userId, propertyId);
-  return role ? ROLE_GRANTS[role] : [];
+  return effectiveRosterGrants(role ? ROLE_GRANTS[role] : []);
 }
 
 function parseRosterProfile(body: RosterHttpBody): ReturnType<typeof profileFromHttpBody> | Response {

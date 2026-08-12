@@ -5,6 +5,7 @@
  * 2) Every `--status-*-fg` clears WCAG AA 4.5:1 vs paired `-surface` and `--color-surface-base`
  *
  *   node scripts/web-pms-colors-check.mjs
+ *   node scripts/web-pms-colors-check.mjs --self-test
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -190,7 +191,7 @@ function relativeLuminance(hex) {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-function contrastRatio(a, b) {
+export function contrastRatio(a, b) {
   const [l1, l2] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
   return (l1 + 0.05) / (l2 + 0.05);
 }
@@ -233,91 +234,150 @@ function resolveToHex(value, props, depth = 0) {
   return null;
 }
 
-const files = walkCss(cssRoot);
-if (files.length === 0) {
-  console.error('No CSS files under apps/web-pms');
-  process.exit(1);
-}
+/** @param {{ cssByFile: Record<string, string> }} opts */
+export function checkColors({ cssByFile }) {
+  const errors = [];
+  let literalOk = 0;
+  const allCss = [];
 
-let failed = false;
-let literalOk = 0;
-const allCss = [];
+  for (const [rel, raw] of Object.entries(cssByFile)) {
+    const css = stripComments(raw);
+    allCss.push(css);
 
-for (const file of files) {
-  const raw = readFileSync(file, 'utf8');
-  const css = stripComments(raw);
-  allCss.push(css);
-  const rel = file.slice(root.length + 1);
+    for (const m of css.matchAll(DECL_RE)) {
+      const prop = m[1].trim();
+      const value = m[2].trim();
+      const literals = findLiteralsInValue(value);
+      if (literals.length === 0) continue;
+      if (prop.startsWith('--color-')) {
+        literalOk += literals.length;
+        continue;
+      }
+      for (const lit of literals) {
+        errors.push(
+          `${rel}: colour literal ${lit} on property "${prop}" (only --color-* may hold literals)`,
+        );
+      }
+    }
+  }
 
-  for (const m of css.matchAll(DECL_RE)) {
-    const prop = m[1].trim();
-    const value = m[2].trim();
-    const literals = findLiteralsInValue(value);
-    if (literals.length === 0) continue;
-    if (prop.startsWith('--color-')) {
-      literalOk += literals.length;
+  const props = collectCustomProps(allCss.join('\n'));
+  const panel = resolveToHex(props.get('--color-surface-base') ?? '', props);
+  if (!panel) {
+    errors.push('Missing resolvable --color-surface-base hex primitive');
+  }
+
+  const statusFgs = [...props.keys()].filter((k) => /^--status-.+-fg$/.test(k));
+  if (statusFgs.length === 0) {
+    errors.push('No --status-*-fg custom properties found');
+  }
+
+  let contrastOk = 0;
+  for (const fgProp of statusFgs) {
+    const rung = fgProp.replace(/^--status-/, '').replace(/-fg$/, '');
+    const surfaceProp = `--status-${rung}-surface`;
+    const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
+    const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
+    if (!fgHex) {
+      errors.push(`${fgProp}: could not resolve to hex for contrast check`);
       continue;
     }
-    for (const lit of literals) {
-      console.error(`${rel}: colour literal ${lit} on property "${prop}" (only --color-* may hold literals)`);
-      failed = true;
+    if (!surfaceHex) {
+      errors.push(`${surfaceProp}: could not resolve to hex for contrast check`);
+      continue;
     }
-  }
-}
-
-const props = collectCustomProps(allCss.join('\n'));
-const panel = resolveToHex(props.get('--color-surface-base') ?? '', props);
-if (!panel) {
-  console.error('Missing resolvable --color-surface-base hex primitive');
-  failed = true;
-}
-
-const statusFgs = [...props.keys()].filter((k) => /^--status-.+-fg$/.test(k));
-if (statusFgs.length === 0) {
-  console.error('No --status-*-fg custom properties found');
-  failed = true;
-}
-
-let contrastOk = 0;
-for (const fgProp of statusFgs) {
-  const rung = fgProp.replace(/^--status-/, '').replace(/-fg$/, '');
-  const surfaceProp = `--status-${rung}-surface`;
-  const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
-  const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
-  if (!fgHex) {
-    console.error(`${fgProp}: could not resolve to hex for contrast check`);
-    failed = true;
-    continue;
-  }
-  if (!surfaceHex) {
-    console.error(`${surfaceProp}: could not resolve to hex for contrast check`);
-    failed = true;
-    continue;
-  }
-  const vsSurface = contrastRatio(fgHex, surfaceHex);
-  if (vsSurface < MIN_CONTRAST) {
-    console.error(
-      `${fgProp} vs ${surfaceProp}: contrast ${vsSurface.toFixed(2)} < ${MIN_CONTRAST}`,
-    );
-    failed = true;
-  } else {
-    contrastOk += 1;
-  }
-  if (panel) {
-    const vsPanel = contrastRatio(fgHex, panel);
-    if (vsPanel < MIN_CONTRAST) {
-      console.error(
-        `${fgProp} vs --color-surface-base: contrast ${vsPanel.toFixed(2)} < ${MIN_CONTRAST}`,
+    const vsSurface = contrastRatio(fgHex, surfaceHex);
+    if (vsSurface < MIN_CONTRAST) {
+      errors.push(
+        `${fgProp} vs ${surfaceProp}: contrast ${vsSurface.toFixed(2)} < ${MIN_CONTRAST}`,
       );
-      failed = true;
     } else {
       contrastOk += 1;
     }
+    if (panel) {
+      const vsPanel = contrastRatio(fgHex, panel);
+      if (vsPanel < MIN_CONTRAST) {
+        errors.push(
+          `${fgProp} vs --color-surface-base: contrast ${vsPanel.toFixed(2)} < ${MIN_CONTRAST}`,
+        );
+      } else {
+        contrastOk += 1;
+      }
+    }
   }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    stats: {
+      fileCount: Object.keys(cssByFile).length,
+      literalOk,
+      statusFgCount: statusFgs.length,
+      contrastOk,
+    },
+  };
 }
 
-if (failed) process.exit(1);
+function selfTest() {
+  let failed = false;
 
-console.log(
-  `OK web-pms-colors: ${files.length} css files, ${literalOk} primitive literals, ${statusFgs.length} status fgs, ${contrastOk} contrast assertions`,
-);
+  // C1 — strict === is intentional (exactly 21 in JS float here)
+  if (contrastRatio('#000000', '#ffffff') !== 21) {
+    console.error('self-test C1 FAILED: #000/#fff must be exactly 21');
+    failed = true;
+  }
+
+  // C2 — boundary pair
+  const pass = contrastRatio('#767676', '#ffffff');
+  const failPair = contrastRatio('#777777', '#ffffff');
+  if (!(pass >= 4.5)) {
+    console.error(`self-test C2 pass pair FAILED: ${pass}`);
+    failed = true;
+  }
+  if (!(failPair < 4.5)) {
+    console.error(`self-test C2 fail pair FAILED: ${failPair}`);
+    failed = true;
+  }
+
+  // C3 — rejection path via same entry point (two-tier tokens like production).
+  const bad = checkColors({
+    cssByFile: {
+      'fixture.css': `
+        --color-surface-base: #ffffff;
+        --color-demo-fg: #777777;
+        --status-demo-fg: var(--color-demo-fg);
+        --status-demo-surface: var(--color-surface-base);
+      `,
+    },
+  });
+  if (bad.ok || !bad.errors.some((e) => /contrast/.test(e))) {
+    console.error('self-test C3 FAILED: expected contrast failure via checkColors', bad);
+    failed = true;
+  }
+  if (bad.errors.some((e) => /colour literal/.test(e))) {
+    console.error('self-test C3 FAILED: fixture must not trip literal rule', bad.errors);
+    failed = true;
+  }
+
+  if (failed) process.exit(1);
+  console.log('check:web-pms-colors --self-test OK');
+}
+
+if (process.argv.includes('--self-test')) {
+  selfTest();
+} else {
+  const files = walkCss(cssRoot);
+  if (files.length === 0) {
+    console.error('No CSS files under apps/web-pms');
+    process.exit(1);
+  }
+  const cssByFile = Object.fromEntries(
+    files.map((f) => [f.slice(root.length + 1), readFileSync(f, 'utf8')]),
+  );
+  const result = checkColors({ cssByFile });
+  for (const e of result.errors) console.error(e);
+  if (!result.ok) process.exit(1);
+  console.log(
+    `OK web-pms-colors: ${result.stats.fileCount} css files, ${result.stats.literalOk} primitive literals, ${result.stats.statusFgCount} status fgs, ${result.stats.contrastOk} contrast assertions`,
+  );
+}

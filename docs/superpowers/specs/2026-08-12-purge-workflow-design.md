@@ -4,7 +4,7 @@
 **Status:** Accepted — implementation-ready  
 **Sources:** ARCHITECTURE.md §4.5 (residency / Platform D1), §4.8 (crypto-shredding + purge Workflow), §5 (module `lifecycle.onPurge`), Rule 13 (PII by reference); [guests crypto-shredding](./2026-07-28-guests-crypto-shredding-design.md); [guests + PII vertical](./2026-08-06-guests-pii-vertical-design.md); [housekeeping module mechanism](./2026-08-11-housekeeping-module-mechanism-design.md) (§2.8 deferred `onPurge` check); [LaneGuard](./2026-07-28-laneguard-design.md); [migration orchestrator](./2026-07-28-migration-orchestrator-design.md) (Workflow paging precedent); [gate trust](./2026-08-12-gate-trust-design.md) (`--self-test` idiom)
 
-**Amended by:** [event-log R2 design](./2026-08-12-event-log-r2-design.md) (2026-08-12) — §1.1 gains status `retained`; R2 skip derived from binding presence; org `PURGE_R2` / guest R2 retained; VERIFY scans only `reached`. See that spec for event-log key layout and bulk-delete smoke. Edits below are the purge-side half of a bidirectional pointer — do not “fix” only one document.
+**Amended by:** [event-log R2 design](./2026-08-12-event-log-r2-design.md) (2026-08-12, twice) — §1.1 gains `retained` and `pending`; R2 skip derived from binding presence; org `PURGE_R2` / guest R2 retained; VERIFY scans only `reached`; halted certificates must not claim `reached` for unattempted stores. See that spec for event-log key layout and bulk-delete smoke. Edits below are the purge-side half of a bidirectional pointer — do not “fix” only one document.
 
 ---
 
@@ -29,7 +29,7 @@ A purge certificate is **not** a boolean success. It records:
 | Field | Meaning |
 |---|---|
 | `subjects[]` | Refs only: `orgId` / `propertyId[]` / `guestRef` + `piiKeyId` as applicable — **never PII** |
-| `stores[]` | All five §4.8 names (see below), each `{ store, status: 'reached' \| 'skipped' \| 'retained', deleted?: number, reason?: string, note?: string }` — see hard rules for which fields each status may carry |
+| `stores[]` | All five §4.8 names (see below), each `{ store, status: 'pending' \| 'reached' \| 'skipped' \| 'retained', deleted?: number, reason?: string, note?: string }` — see hard rules for which fields each status may carry |
 | `limitations[]` | Always includes the §4.8 PITR caveat (DO restore can recover key material; Phase 0 does not cover backups/PITR) |
 | `operator` | Human who requested (user id); distinct from `SystemActor` performing steps |
 | `workflowId` | Deterministic instance id for this attempt |
@@ -43,20 +43,21 @@ A purge certificate is **not** a boolean success. It records:
 
 | `store` | Phase 0 reality |
 |---|---|
-| `key_store` | Reached; colocated in OrgDO (`note: colocated_in_org_do`; `deleted: 0` — shredded in place, rows not removed; VERIFY still scans) |
-| `property_do` | Reached (org: wipe; guest: nothing applicable → `deleted: 0`) |
-| `org_do` | Reached; may include OrgEntitlementDO wipe folded in (`note: includes_entitlement_do`, `deleted` summed) — not a sixth §4.8 name |
-| `r2` | **Derived:** binding absent → `skipped: no_r2_binding`; org with binding → `reached` + prefix delete ([event-log](./2026-08-12-event-log-r2-design.md)); guest with binding → `retained, reason: pii_by_reference_event_log` (no `deleted`) |
-| `iceberg` | Skipped — `reason: no_iceberg_binding` |
+| `key_store` | Starts `pending`. After the shred/verify step: `reached`; colocated in OrgDO (`note: colocated_in_org_do`; `deleted: 0` — shredded in place, rows not removed; VERIFY still scans) |
+| `property_do` | Starts `pending`. After the property step: `reached` (org: wipe; guest: nothing applicable → `deleted: 0`) |
+| `org_do` | Starts `pending`. After the org step: `reached`; may include OrgEntitlementDO wipe folded in (`note: includes_entitlement_do`, `deleted` summed) — not a sixth §4.8 name |
+| `r2` | **Derived at init:** binding absent → `skipped: no_r2_binding`; binding present → `pending` until the R2 step. Org step → `reached` + prefix delete ([event-log](./2026-08-12-event-log-r2-design.md)); guest step → `retained, reason: pii_by_reference_event_log` (no `deleted`) |
+| `iceberg` | Skipped from init — `reason: no_iceberg_binding` (out of scope this deployment) |
 
 **Hard rules:**
 
-1. **Skipped ≠ purged ≠ retained.** A skipped or retained store must never be readable as purged. **`VERIFY` scans only stores marked `reached`.** `retained` is deliberate keep (no scan); `skipped` is out of scope for this deployment/run.
-2. **Reached-with-zero ≠ skipped ≠ retained.** `reached` + `deleted: 0` means the Workflow visited and found nothing applicable to delete (guest PropertyDO). Natural reading of bare `reached` as “purged something” is the overstatement this section exists to prevent. **`retained` carries `reason` and must not carry `deleted`** — there *is* data kept on purpose (guest event log); that is not “nothing applicable.”
-3. **`deleted: 0` is not one claim across stores.** Guest `property_do` = nothing applicable, VERIFY scans. `key_store` + `colocated_in_org_do` = shredded in place, VERIFY scans. `retained` = kept on purpose, no `deleted` field, VERIFY does not scan. Do not collapse these three into one reading of zero.
+1. **`pending` ≠ `reached` ≠ `skipped` ≠ `retained`.** Four evidentiary claims. **`VERIFY` scans only stores marked `reached`.** `pending` = in scope, not yet attempted (typical on HALT). `retained` = visited, kept on purpose (no scan). `skipped` = out of scope for this deployment/run (no scan).
+2. **Reached-with-zero ≠ skipped ≠ retained ≠ pending.** `reached` + `deleted: 0` means the Workflow visited and found nothing applicable to delete (guest PropertyDO). Natural reading of bare `reached` as “purged something” is the overstatement this section exists to prevent. **`retained` carries `reason` and must not carry `deleted`.** **`pending` carries neither `deleted` nor a skip/retain `reason`.**
+3. **`deleted: 0` is not one claim across stores.** Guest `property_do` = nothing applicable, VERIFY scans. `key_store` + `colocated_in_org_do` = shredded in place, VERIFY scans. `retained` = kept on purpose, no `deleted` field, VERIFY does not scan. `pending` = not visited — **must not** carry `deleted: 0` (that was the shipped bug: seeding `reached, deleted: 0` before any step).
 4. **Purged-but-unrecorded is also forbidden.** Every store the Workflow touches appears in `stores[]` (OrgEntitlementDO folds into `org_do`).
 5. **Rule 13 binds certificates.** Platform D1 is global and never purged. Subjects by reference only — never a guest name, never anything the shredded key protected. Certificate column set is **checkable** (`check:` assertion on declared columns) so a future `guest_name` cannot land in the never-purged global store.
 6. **Every terminal state leaves a certificate row** — certified, halted, or failed. No run ends without evidence. (See §3.)
+7. **Certified certificates contain no `pending`.** A successful run replaced every in-scope store. Halted certificates **may** (and typically do) contain `pending` for steps that never ran — that is the honest record.
 
 **Authoritative certificate for a subject** = latest row by `recorded_at`. Earlier halted (and prior certified) rows are retained — the history *is* the evidence. “The certificate for org X” is a **set**, not a row.
 
@@ -205,7 +206,7 @@ Admin route creates the Workflow **before** any status flip — if `create()` fa
                    event log is the only guest-touching R2 this chunk creates; ID-document
                    prefixes (§4.7) will need a mixed/sub-entry status — see event-log §5.3.
                    When absent → skipped no_r2_binding. Iceberg: skipped no_iceberg_binding.
-6. VERIFY          key-state only (see §2.6); R2 not scanned when retained or skipped
+6. VERIFY          key-state only (see §2.6); R2 not scanned when retained, skipped, or pending
 7. CERTIFY
 ```
 
@@ -222,7 +223,7 @@ Admin route creates the Workflow **before** any status flip — if `create()` fa
 | Both | Subject in registry absent from certificate `subjects[]` (re-derive; do not trust snapshot) | — |
 | Guest | `data_key` with `shredded_at IS NULL` **or** `length(wrapped_key) > 0`; or row missing (can't prove shredding) | Remaining ciphertext; `erased_at` tombstone; zeroed `data_key` row; R2 event-log objects (`retained`) |
 | Tenant | Any non-zero row count in any table from `SELECT name FROM sqlite_master WHERE type='table'`, minus small allowlist (`schema_version`, and CF internals if visible) | Schema bookkeeping the constructor recreates |
-| R2 | **Only if `stores[].r2.status === 'reached'`:** any object under subject event-log prefixes (strong LIST — see event-log design) | `skipped` or `retained` — not scanned |
+| R2 | **Only if `stores[].r2.status === 'reached'`:** any object under subject event-log prefixes (strong LIST — see event-log design) | `skipped`, `retained`, or `pending` — not scanned |
 | Iceberg | not scanned | certificate records skipped + reason |
 
 **Ciphertext is not residue** (§4.8): erasure = key destruction; ciphertext may remain permanently undecodable in every store. Do not “tighten” VERIFY with a ciphertext-absence check.
@@ -301,7 +302,7 @@ Additive DDL via `platform-migrations.ts` + `check:ddl` (no table rebuild):
 1. **`deleteAll` smoke** — after wipe + re-open: schema remigrated; zero user rows; purge RPC did not advance `lastInteractiveAt`.
 2. **Guest happy path** — erase → 200 + deterministic id → consumer starts Workflow → blobs `x''` → VERIFY key-state → certificate with PropertyDO `reached, deleted: 0`, R2 `retained, reason: pii_by_reference_event_log` (or `skipped: no_r2_binding` if binding absent), Iceberg skipped + reason, PITR limitation, no PII columns.
 3. **Org happy path** — cancel → injectable clock past `purge_not_before` → purge confirm → 202 → `'purging'` inside Workflow → wipe → `PURGE_R2` (or skip if no binding) → VERIFY (incl. empty R2 prefixes when reached) → `'purged'` → certificate; dispatch / replay / provision refuse non-active.
-4. **Step-0 HALT** — purge while `active`, or `purge_not_before` null, or `now` early → halted certificate → attempt bumps → retry after fix succeeds (second cert).
+4. **Step-0 HALT** — purge while `active`, or `purge_not_before` null, or `now` early → halted certificate → attempt bumps → retry after fix succeeds (second cert). **`stores_json` is load-bearing:** in-scope stores are `pending` (no `deleted`); iceberg (and R2 if unbound) stay `skipped` + reason. No store may be `reached`. This assertion is what would have caught seeding `reached, deleted: 0` before any work.
 5. **VERIFY residue HALT** — inject leftover row → halted cert; status not `'purged'`.
 6. **Cascade race** — create property under `closing`/`purging` refused; VERIFY re-derive catches stray subject if gate bypassed in test.
 7. **Idempotency** — double erase event; double purge POST while in flight → 202 same id.
@@ -318,7 +319,7 @@ Additive DDL via `platform-migrations.ts` + `check:ddl` (no table rebuild):
 1. **Every terminal state — certified, halted, or failed — leaves a certificate row.** No run can end without evidence.
 2. Guest shred guarantee unchanged; housekeeping + certificate added without changing erase to 202.
 3. Tenant churn works end-to-end with status graph + retention gate; admin route never writes `'purging'` itself.
-4. No certificate can read a skipped or retained store as purged; `reached` + `deleted: 0`, `skipped` + reason, and `retained` + reason (no `deleted`) are three distinct claims — VERIFY scans only `reached`.
+4. No certificate can read a skipped, retained, or pending store as purged. Four distinct claims: `pending` (unattempted), `reached` + optional `deleted`, `skipped` + reason, `retained` + reason (no `deleted`). VERIFY scans only `reached`. Halted `stores_json` must not claim `reached` for steps that never ran. Certified `stores_json` contains no `pending`.
 5. `assertTenantActive` covers dispatch, replay, and provisioning.
 6. Vacuous `onPurge` entitlement gate ships with `--self-test`.
 7. Certificate carries no PII; column check enforces it.

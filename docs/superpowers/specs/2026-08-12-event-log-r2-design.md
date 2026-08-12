@@ -4,7 +4,7 @@
 **Status:** Accepted — implementation-ready  
 **Sources:** ARCHITECTURE.md §4.7–§4.8 (R2 durable event log; purge step 4 “event-log segments” by prefix; step 5 Iceberg), §8 (events / “Pipelines → R2/Iceberg”), §11 (replay test), Rule 13 (PII by reference); [purge workflow](./2026-08-12-purge-workflow-design.md) (**amends §1.1** certificate statuses); [queues consumer](./2026-07-28-queues-consumer-design.md); [ARI KV projection](./2026-07-29-ari-kv-projection-design.md); [R2 consistency model](https://developers.cloudflare.com/r2/reference/consistency/)
 
-**Amends:** [purge-workflow-design](./2026-08-12-purge-workflow-design.md) §1.1 (and linked step plans / VERIFY / tests / acceptance) — third certificate status `retained`, derived R2 skip, org `PURGE_R2` body, guest R2 retained. Discoverable from either end.
+**Amends:** [purge-workflow-design](./2026-08-12-purge-workflow-design.md) §1.1 (and linked step plans / VERIFY / tests / acceptance) — certificate statuses `pending` + `retained`; derived R2 skip; org `PURGE_R2` body; guest R2 retained; halted certificates must not claim `reached` for unattempted stores. Discoverable from either end.
 
 ---
 
@@ -22,7 +22,7 @@ The moment a binding exists without `PURGE_R2`, that skip reason becomes false a
 2. Key layout: tenant-prefixed event-log segments; replay reader.
 3. Log-fidelity tests + ARI SoR-convergence test; recorded §11 divergence for ARI.
 4. Org `PURGE_R2` (prefix delete); guest R2 `retained`; VERIFY scans R2 only when `reached`.
-5. Certificate status union widened to include `retained`; R2 skip **derived** from binding presence.
+5. Certificate status union widened to `pending | reached | skipped | retained`; R2 skip **derived** from binding presence; in-scope stores start `pending` (fixes shipped HALT certificates that claimed `reached, deleted: 0` before any step).
 6. Amend purge design §1.1 (bidirectional pointers).
 
 ### 1.2 Scope out
@@ -184,22 +184,26 @@ Non-claim: ARI is not recoverable from the log alone after PropertyDO purge; aft
 ### 5.1 Certificate statuses (amends purge §1.1)
 
 ```ts
-status: 'reached' | 'skipped' | 'retained'
+status: 'pending' | 'reached' | 'skipped' | 'retained'
 ```
 
 | Status | Meaning | VERIFY scans? | `deleted` |
 |---|---|---|---|
+| `pending` | In scope; **not yet attempted** (run halted before this step) | No | **Must be absent** |
 | `reached` | Visited; applicable deletes done | Yes | Present when counting deletes; `deleted: 0` = nothing applicable |
 | `skipped` | Out of scope for this deployment/run | No | Absent; `reason` required |
 | `retained` | Visited; data **kept on purpose** | No | **Must be absent**; `reason` required |
 
-`retained ≠ reached ≠ skipped`.
+`pending ≠ reached ≠ skipped ≠ retained`.
+
+**Shipped bug this status fixes:** `initialStoresSkippedR2Iceberg()` seeded `key_store` / `property_do` / `org_do` as `reached, deleted: 0` *before any work*. A step-0 HALT therefore certified that those DOs were visited and empty while they still held the tenant’s live data — and implied a VERIFY scan that never ran. `pending` is the honest initial state for every in-scope store. Each step **replaces** (does not merge) its store on success. Iceberg (and R2 when unbound) start `skipped` because they are out of scope, not unattempted.
 
 **`deleted: 0` is not one claim across stores:**
 
 - Guest `property_do`: visited, declared guest-PII columns empty → nothing to delete; VERIFY still scans.
 - `key_store` with `note: colocated_in_org_do`: visited and shredded in place; `deleted: 0` because rows aren’t removed; VERIFY still scans.
 - `retained`: data kept; **no** `deleted` field — do not write `deleted: 0` on retained (reintroduces the ambiguity the status removes).
+- `pending`: not visited; **no** `deleted` field.
 
 ### 5.2 Org path
 
@@ -216,16 +220,20 @@ Replace `skip-r2` with `purge-r2` when the binding is present:
 
 Do **not** delete event-log segments. Events carry `guestRef` / `piiKeyId`, never values; retaining them matches §4.8 (“what survives erasure, deliberately”). There is no guest-scoped event-log prefix; deleting a property prefix would wipe unrelated history.
 
+The guest R2 **step** replaces `pending` with:
+
 ```ts
 r2: { status: 'retained', reason: 'pii_by_reference_event_log' }
 // no deleted field
 ```
 
+Do not pre-mark `retained` at init — a HALT before the R2 step must still show `pending`.
+
 `retained` reflects **current** R2 contents — the event log is the only guest-touching R2 object this chunk creates. §4.7 also lists R2 as holding **ID documents** (guest PII by value). Those prefixes are out of scope (no layout yet). When they ship, guest erasure must **delete** document objects while **retaining** event-log segments; a single `r2` certificate entry cannot express both. Do not cement “guest R2 = retained” as a rule. Guest-scoped document prefixes will need sub-entries per R2 purpose or a mixed status.
 
 ### 5.4 Derived skip
 
-If `EVENT_LOG_R2` is absent at runtime → `skipped: no_r2_binding` (honest for partial/local deploys). If present → org `reached` / guest `retained`. Do not hardcode the skip off in source.
+If `EVENT_LOG_R2` is absent at runtime → `skipped: no_r2_binding` **from init** (honest for partial/local deploys). If present → start `pending`; org R2 step replaces with `reached` + `deleted`; guest R2 step replaces with `retained`. Do not hardcode the skip off in source. Do not pre-mark `retained` or `reached` before the step runs — a HALT before that step must still show `pending`.
 
 ### 5.5 VERIFY (R2)
 
@@ -233,7 +241,7 @@ If `EVENT_LOG_R2` is absent at runtime → `skipped: no_r2_binding` (honest for 
 |---|---|
 | Org (`reached`) | Any object still listed under subject prefixes |
 | Guest (`retained`) | Not scanned |
-| Either (`skipped`) | Not scanned |
+| Either (`skipped` or `pending`) | Not scanned |
 
 **LIST consistency:** R2 documents **strong** consistency for deletion and object listing ([consistency model](https://developers.cloudflare.com/r2/reference/consistency/)). Worker bindings are not subject to the custom-domain cache caveat. After prefix delete, one authoritative empty list per subject prefix is enough — no lag-mitigation retry loop, no HEAD sampling. Any listed key → HALT `verify_r2_residue`. Prefer false HALT over false certify; do **not** add a preemptive limitation for list lag we have not demonstrated.
 
@@ -257,7 +265,7 @@ If `EVENT_LOG_R2` is absent at runtime → `skipped: no_r2_binding` (honest for 
 | Binding | `EVENT_LOG_R2` |
 | Helper | `hasEventLogR2(env)` (or equivalent) drives skip vs reach/retain |
 
-Widen `PurgeStoreRecord` in `apps/pms-core/src/purge-certificate.ts` (and any contracts mirror). Initial store helper: R2 skip derived from binding; Iceberg pre-skipped.
+Widen `PurgeStoreRecord` in `apps/pms-core/src/purge-certificate.ts` (and any contracts mirror). Initial store helper: in-scope stores `pending`; R2 skip derived from binding; Iceberg pre-skipped. Certified certificates contain no `pending`.
 
 R2 binding is configured in `wrangler.jsonc` (simulated locally). No `.dev.vars` entry required for the bucket itself.
 
@@ -273,7 +281,7 @@ R2 binding is configured in `wrangler.jsonc` (simulated locally). No `.dev.vars`
 6. **Guest R2** — `retained` + `pii_by_reference_event_log`, no `deleted`; VERIFY does not scan R2; objects remain.
 7. **No binding** — `skipped: no_r2_binding` when binding absent.
 8. **PII** — Rule 13 inherited; existing queue/guest tests remain the gate.
-9. **Purge spec + types** amended; three statuses mutually discoverable from both specs.
+9. **Purge spec + types** amended; four statuses mutually discoverable from both specs. Halted `stores_json` has in-scope stores `pending` (not `reached`); certified `stores_json` has no `pending`.
 
 ---
 
@@ -311,6 +319,6 @@ R2 binding is configured in `wrangler.jsonc` (simulated locally). No `.dev.vars`
 | 4 | Accept unbounded prefix growth + paginated purge |
 | 5 | Dedupe at replay (last-write-wins); log append-only |
 | 6 | Log fidelity + ARI SoR-convergence; §11 divergence recorded |
-| 7 | Org `reached` + delete; guest `retained` (no `deleted`); skip derived from binding |
+| 7 | In-scope stores start `pending`; org R2 step → `reached` + delete; guest R2 step → `retained` (no `deleted`); unbound R2 → `skipped` from init |
 | 8 | VERIFY: strong LIST; bulk-delete smoke; no preemptive lag limitation |
 | 9 | No TTL; DLQ’d events still in log |

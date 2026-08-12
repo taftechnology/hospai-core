@@ -3,6 +3,7 @@
 import { PURGE_CERTIFICATE_COLUMNS } from '@hospai/contracts';
 import { ORG_PURGE_RETENTION_MS } from '@hospai/do-runtime';
 import type { PmsEnv } from './env.js';
+import { hasEventLogR2 } from './event-log.js';
 import { ensurePlatformSchema } from './registry.js';
 
 export { ORG_PURGE_RETENTION_MS, PURGE_CERTIFICATE_COLUMNS };
@@ -15,7 +16,7 @@ export type PurgeStoreName = 'key_store' | 'property_do' | 'org_do' | 'r2' | 'ic
 
 export type PurgeStoreRecord = {
   store: PurgeStoreName;
-  status: 'reached' | 'skipped';
+  status: 'pending' | 'reached' | 'skipped' | 'retained';
   deleted?: number;
   reason?: string;
   note?: string;
@@ -47,15 +48,24 @@ export type OrgRetentionRow = {
 
 export type OrgRetentionDenial = 'not_closing' | 'purge_not_before_null' | 'retention_not_elapsed';
 
-/** Five §4.8 stores with R2/Iceberg pre-marked skipped. */
-export function initialStoresSkippedR2Iceberg(): PurgeStoreRecord[] {
+/** Five §4.8 stores: in-scope pending; R2 derived from binding; Iceberg out of scope. */
+export function initialStores(env: PmsEnv): PurgeStoreRecord[] {
+  const r2: PurgeStoreRecord = hasEventLogR2(env)
+    ? { store: 'r2', status: 'pending' }
+    : { store: 'r2', status: 'skipped', reason: 'no_r2_binding' };
   return [
-    { store: 'key_store', status: 'reached', deleted: 0, note: 'colocated_in_org_do' },
-    { store: 'property_do', status: 'reached', deleted: 0 },
-    { store: 'org_do', status: 'reached', deleted: 0 },
-    { store: 'r2', status: 'skipped', reason: 'no_r2_binding' },
+    { store: 'key_store', status: 'pending' },
+    { store: 'property_do', status: 'pending' },
+    { store: 'org_do', status: 'pending' },
+    r2,
     { store: 'iceberg', status: 'skipped', reason: 'no_iceberg_binding' },
   ];
+}
+
+export function replaceStore(stores: PurgeStoreRecord[], record: PurgeStoreRecord): void {
+  const i = stores.findIndex((s) => s.store === record.store);
+  if (i < 0) throw new Error(`missing store entry: ${record.store}`);
+  stores[i] = record;
 }
 
 export function guestPurgeWorkflowId(guestRef: string): string {

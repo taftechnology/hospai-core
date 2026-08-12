@@ -17,8 +17,8 @@ import {
   appendPurgeCertificate,
   evaluateOrgRetention,
   getOrgRetentionRow,
-  initialStoresSkippedR2Iceberg,
-  type PurgeStoreName,
+  initialStores,
+  replaceStore,
   type PurgeStoreRecord,
 } from './purge-certificate.js';
 import {
@@ -40,16 +40,6 @@ export class HaltError extends Error {
     this.name = 'HaltError';
     this.reason = reason;
   }
-}
-
-function patchStore(
-  stores: PurgeStoreRecord[],
-  name: PurgeStoreName,
-  patch: Partial<Omit<PurgeStoreRecord, 'store'>>,
-): void {
-  const i = stores.findIndex((s) => s.store === name);
-  if (i < 0) throw new Error(`missing store entry: ${name}`);
-  stores[i] = { ...stores[i]!, ...patch, store: name };
 }
 
 function subjectsFor(params: PurgeWorkflowParams): unknown {
@@ -110,7 +100,8 @@ async function runOrgPlan(
     const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
     const result = await org.shredRemainingGuestKeys();
     if (!result.ok) throw new HaltError(result.error);
-    patchStore(stores, 'key_store', {
+    replaceStore(stores, {
+      store: 'key_store',
       status: 'reached',
       deleted: result.shredded,
       note: 'colocated_in_org_do',
@@ -148,7 +139,7 @@ async function runOrgPlan(
     propertyDeletedTotal += pageDeleted;
     propertyPage += 1;
   }
-  patchStore(stores, 'property_do', { status: 'reached', deleted: propertyDeletedTotal });
+  replaceStore(stores, { store: 'property_do', status: 'reached', deleted: propertyDeletedTotal });
 
   await step.do('purge-org-do', async () => {
     const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
@@ -162,7 +153,8 @@ async function runOrgPlan(
     const entResult = await entStub.purgeStorageForTenant();
     if (!entResult.ok) throw new HaltError(entResult.error);
 
-    patchStore(stores, 'org_do', {
+    replaceStore(stores, {
+      store: 'org_do',
       status: 'reached',
       deleted: orgResult.deletedApprox + entResult.deletedApprox,
       note: 'includes_entitlement_do',
@@ -170,11 +162,11 @@ async function runOrgPlan(
   });
 
   await step.do('skip-r2', async () => {
-    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+    // Binding present: R2 stays pending until purge-r2 / retain-r2 (later steps).
   });
 
   await step.do('skip-iceberg', async () => {
-    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+    // Iceberg is out of scope — already skipped in initialStores.
   });
 
   await step.do('verify', async () => {
@@ -274,7 +266,8 @@ async function runGuestPlan(
     const result = await org().verifyGuestKeyShredded(params.guestRef);
     if (!result.ok) throw new HaltError(result.error);
     if (!result.shredded) throw new HaltError('key_not_shredded');
-    patchStore(stores, 'key_store', {
+    replaceStore(stores, {
+      store: 'key_store',
       status: 'reached',
       deleted: 0,
       note: 'shred_verified',
@@ -283,7 +276,8 @@ async function runGuestPlan(
 
   await step.do('property-do-guest-pii', async () => {
     if (PROPERTY_GUEST_PII_COLUMNS.length === 0) {
-      patchStore(stores, 'property_do', {
+      replaceStore(stores, {
+        store: 'property_do',
         status: 'reached',
         deleted: 0,
         note: 'guest_pii_columns_empty',
@@ -297,7 +291,8 @@ async function runGuestPlan(
   await step.do('clear-guest-blobs', async () => {
     const result = await org().clearGuestProfileBlobs(params.guestRef);
     if (!result.ok) throw new HaltError(result.error);
-    patchStore(stores, 'org_do', {
+    replaceStore(stores, {
+      store: 'org_do',
       status: 'reached',
       deleted: 0,
       note: 'profile_blobs_cleared',
@@ -305,11 +300,11 @@ async function runGuestPlan(
   });
 
   await step.do('skip-r2', async () => {
-    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+    // Binding present: R2 stays pending until purge-r2 / retain-r2 (later steps).
   });
 
   await step.do('skip-iceberg', async () => {
-    // Already skipped in initialStoresSkippedR2Iceberg — named step for Workflow history.
+    // Iceberg is out of scope — already skipped in initialStores.
   });
 
   await step.do('verify-key-state', async () => {
@@ -336,7 +331,7 @@ export class PurgeWorkflow extends WorkflowEntrypoint<PmsEnv, PurgeWorkflowParam
   async run(event: WorkflowEvent<PurgeWorkflowParams>, step: WorkflowStep): Promise<void> {
     const params = event.payload;
     const workflowId = params.workflowId;
-    const stores = initialStoresSkippedR2Iceberg();
+    const stores = initialStores(this.env);
     try {
       if (params.kind === 'guest') {
         await runGuestPlan(this.env, params, step, stores);

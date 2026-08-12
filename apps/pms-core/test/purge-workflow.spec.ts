@@ -110,8 +110,7 @@ describe('PurgeWorkflow spine', () => {
     expect(row?.certified).toBeNull();
   });
 
-  it('guest skips leave r2 and iceberg as skipped in stores_json on certify path HALT before shred', async () => {
-    // Active org with no guest row → verify-shred HALTs; stores still carry R2/Iceberg skips.
+  it('guest HALT-before-shred leaves in-scope stores pending', async () => {
     const orgId = `org_skip_${crypto.randomUUID().slice(0, 8)}`;
     expect(await createOrg(env, orgId, 'Skip')).toBe(true);
     const guestRef = `guest_skip_${crypto.randomUUID().slice(0, 8)}`;
@@ -144,15 +143,22 @@ describe('PurgeWorkflow spine', () => {
 
     expect(row?.outcome).toBe('halted');
     expect(row?.halt_reason).toBe('guest_not_found');
-    const stores = JSON.parse(row!.stores_json) as Array<{ store: string; status: string; reason?: string }>;
-    expect(stores.find((s) => s.store === 'r2')).toMatchObject({
-      status: 'skipped',
-      reason: 'no_r2_binding',
-    });
+    const stores = JSON.parse(row!.stores_json) as Array<{
+      store: string;
+      status: string;
+      deleted?: number;
+      reason?: string;
+    }>;
+    for (const name of ['key_store', 'property_do', 'org_do', 'r2']) {
+      const s = stores.find((x) => x.store === name)!;
+      expect(s.status).toBe('pending');
+      expect('deleted' in s).toBe(false);
+    }
     expect(stores.find((s) => s.store === 'iceberg')).toMatchObject({
       status: 'skipped',
       reason: 'no_iceberg_binding',
     });
+    expect(stores.some((s) => s.status === 'reached')).toBe(false);
   });
 
   it('terminal wrapper certifies and rethrows on non-HaltError throw', async () => {
@@ -275,8 +281,7 @@ describe('PurgeWorkflow spine', () => {
       deleted: 0,
     });
     expect(stores.find((s) => s.store === 'r2')).toMatchObject({
-      status: 'skipped',
-      reason: 'no_r2_binding',
+      status: 'pending',
     });
     expect(JSON.parse(row!.limitations_json)).toContain(PITR_LIMITATION);
   });
@@ -370,13 +375,29 @@ describe('PurgeWorkflow org plan', () => {
     ).rejects.toThrow(HaltError);
 
     const row = await env.PLATFORM_DB.prepare(
-      `SELECT outcome, halt_reason FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+      `SELECT outcome, halt_reason, stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
     )
       .bind(workflowId)
-      .first<{ outcome: string; halt_reason: string }>();
+      .first<{ outcome: string; halt_reason: string; stores_json: string }>();
 
     expect(row?.outcome).toBe('halted');
     expect(row?.halt_reason).toBe('not_closing');
+    const stores = JSON.parse(row!.stores_json) as Array<{
+      store: string;
+      status: string;
+      deleted?: number;
+      reason?: string;
+    }>;
+    for (const name of ['key_store', 'property_do', 'org_do', 'r2']) {
+      const s = stores.find((x) => x.store === name)!;
+      expect(s.status).toBe('pending');
+      expect('deleted' in s).toBe(false);
+    }
+    expect(stores.find((s) => s.store === 'iceberg')).toMatchObject({
+      status: 'skipped',
+      reason: 'no_iceberg_binding',
+    });
+    expect(stores.some((s) => s.status === 'reached')).toBe(false);
     expect((await getOrg(env, orgId))?.status).toBe('active');
   });
 

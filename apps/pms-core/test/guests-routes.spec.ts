@@ -423,4 +423,28 @@ describe('guest HTTP routes', () => {
     const body = (await res.json()) as { erased?: boolean };
     expect(body.erased).not.toBe(true);
   });
+
+  it('19: OrgDO transport blocked on create → org_unreachable FAIL_CLOSED 503', async () => {
+    const actor = 'user_guests_19';
+    const { orgId, propertyId } = await provisionHotel(actor);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setTransportBlockedForTest(true);
+
+    const res = await postGuest(propertyId, actor, {
+      guestId: 'guest_blocked',
+      displayName: 'Blocked',
+      idempotencyKey: 'idem-guest-blocked',
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'org_unreachable',
+      degraded: 'FAIL_CLOSED',
+      commandId: 'guests.create',
+    });
+    expect(res.headers.get('Retry-After')).toBe('30');
+
+    await org.setTransportBlockedForTest(false);
+    const read = await getGuest(propertyId, actor, 'guest_blocked');
+    expect(read.status).toBe(404);
+  });
 });

@@ -1149,6 +1149,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -1231,6 +1232,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
@@ -1295,6 +1297,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
     | { ok: false; error: string }
   > {
+    this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };

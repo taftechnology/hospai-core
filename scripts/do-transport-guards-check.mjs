@@ -62,7 +62,14 @@ export function extractHandlerBody(src, handlerName) {
     if (ch === '{') depth++;
     else if (ch === '}') {
       depth--;
-      if (depth === 0) return src.slice(bodyStart, j + 1);
+      if (depth === 0) {
+        const body = src.slice(bodyStart, j + 1);
+        // Object types in return annotations (`): Promise<{ ok: boolean }> {`)
+        // capture as a "body" with no statements. Fail loud on both GET and
+        // mutation paths instead of silently skipping (GET) or missing rails.
+        if (!/;|\breturn\b/.test(body)) return null;
+        return body;
+      }
     }
   }
   return null;
@@ -183,6 +190,29 @@ export const V1_ROUTES: V1RouteDef[] = [
   if (checkDoTransportGuards(guarded, new Set()).length !== 0) {
     console.error('self-test GET FAILED: guarded GET should pass');
     failed = true;
+  }
+
+  const getReturnTypeBrace = `
+async function handleGetRet(ctx: V1DispatchContext): Promise<{ ok: boolean }> {
+  try {
+    return json(await resolved.stub.listProvisionalExceptions(), 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+export const V1_ROUTES: V1RouteDef[] = [
+  { scope: 'property', method: 'GET', pattern: /^\\/ret$/, permission: 'property:read', handler: handleGetRet },
+];
+`;
+  {
+    const errs = checkDoTransportGuards(getReturnTypeBrace, new Set());
+    if (!errs.some((e) => e.includes('could not extract'))) {
+      console.error(
+        'self-test GET FAILED: return-type object brace must be extraction failure, not silent skip',
+      );
+      failed = true;
+    }
   }
 
   const mockCatalog = [

@@ -20,7 +20,7 @@ Phase 2's premise (§14: build the channel manager as a strictly gated module wi
 
 ### 1.1 Scope in
 
-1. **`packages/kernel`** — real module contract: typed manifests, static Worker registry, schema validation; live `defineModule`; wire-or-delete dead `defineConfig`.
+1. **`packages/contracts` + `packages/kernel`** — module-facing types (`ModuleManifest`, `ModuleTxnCtx`, `SyncUseCase`, …) live in **contracts** so modules never import kernel. Kernel keeps zod `defineModule` + static `MODULE_REGISTRY` (validates on registration). Wire-or-delete dead `defineConfig`.
 2. **`modules/pms/housekeeping`** — §5 anatomy **minus `jobs/`** (none this chunk): `domain/`, `application/`, `infrastructure/`, `api/`, `events/`, `ui/` + server and UI manifests under `src/` (see §3.1).
 3. **Thin PropertyDO for these commands only** (RPC signatures preserved for `REPLAY_DISPATCH`):
    - `rooms.update_status` → `tryUpdateRoomStatus`
@@ -88,10 +88,11 @@ Phase 2's premise (§14: build the channel manager as a strictly gated module wi
 `ModuleTxnCtx` is constructed **only inside** `transactionSync(() => runIdempotent(...))`, so it cannot exist outside the transaction:
 
 ```ts
+// packages/contracts — module-facing; ModuleSql is structural (matches do-runtime SqlStorageLike)
 type ModuleTxnCtx = {
-  sql: SqlStorageLike;
+  sql: ModuleSql;
   /** Pre-bound: this sql handle, property outbox source, and provisional extras merged into payload. */
-  appendOutbox: (evt: OutboxEventInput) => void;
+  appendOutbox: (evt: ModuleOutboxEventInput) => void;
   orgId: string;
   propertyId: string;
 };
@@ -148,12 +149,12 @@ return this.ctx.storage.transactionSync(() =>
 `runIdempotent`'s `execute: () => T` currently accepts `async` callbacks: `T` becomes `Promise<X>`, typechecks clean, then `JSON.stringify(result)` on a Promise stores `"{}"` in the idempotency row — replay returns `{}` and the mutation escapes the transaction.
 
 ```ts
-// packages/contracts — single home (kernel and do-runtime both depend on contracts;
-// kernel does not depend on do-runtime)
+// packages/contracts — single home (kernel, do-runtime, and modules all depend on contracts;
+// modules must not depend on kernel — that would cycle with MODULE_REGISTRY)
 type Sync<T> = T extends PromiseLike<unknown> ? never : T;
 ```
 
-Apply `Sync<T>` to `runIdempotent`'s execute argument and to kernel's use-case type. Prefer the constraint on the **argument** so the error surfaces at the call site.
+Apply `Sync<T>` to `runIdempotent`'s execute argument and to contracts' `SyncUseCase` / `SyncRead` types. Prefer the constraint on the **argument** so the error surfaces at the call site.
 
 **One contract, two failure modes:**
 
@@ -214,18 +215,25 @@ Same `moduleId`; check asserts pairing. This is one logical manifest split along
 
 **Location:** both manifests live under **`src/`** (e.g. `src/module.manifest.ts`, `src/ui.manifest.ts`). §5's diagram shows them at package root, but existing module tsconfigs use `"rootDir": "src"` / `"include": ["src"]` — root-level files are not compiled and `dist/` would have nothing to import. Prefer moving under `src/` (local divergence from the diagram) over widening `rootDir` for every consumer. Pin export paths against the resulting `dist/` layout.
 
-### 3.2 Worker registry
+### 3.2 Worker registry (acyclic dependency graph)
 
 Hand-maintained static list in `packages/kernel` — no codegen this chunk (revisit with `tools/module-scaffolder` once ~5 modules exist and the shape has stopped moving).
 
+**Dependency direction (required):** `contracts → modules/pms/* → kernel → apps/pms-core`. Modules export a **plain** manifest object typed as `ModuleManifest` from contracts — they do **not** call `defineModule` and must **not** depend on `@hospai/kernel`. Kernel's registry imports those plain objects and runs each through `defineModule` at registration. That keeps `defineModule` live without a `kernel ⇄ module` cycle (which would break turbo `dependsOn: ["^build"]`).
+
 ```ts
-// Path pinned after step-1 spike against dist layout; expected:
-// @hospai/pms-housekeeping → dist/module.manifest.js (package "exports" ".")
+// modules/pms/housekeeping/src/module.manifest.ts
+import type { ModuleManifest } from '@hospai/contracts';
+const manifest = { id: 'pms.housekeeping', /* … */ } as const satisfies ModuleManifest;
+export default manifest;
+
+// packages/kernel/src/registry.ts
 import housekeeping from '@hospai/pms-housekeeping';
-export const MODULE_REGISTRY = [housekeeping] as const;
+import { defineModule } from './define-module.js';
+export const MODULE_REGISTRY = [defineModule(housekeeping)] as const;
 ```
 
-`defineModule` validates (zod) and returns the typed manifest. Adding a second module = new package + one import line — no kernel internals edit. Package main/exports for `.` must resolve the **server** manifest only; UI is a separate `@hospai/pms-housekeeping/ui` subpath.
+Adding a second module = new package + one import/wrap line in the registry — no kernel internals edit. Package main/exports for `.` must resolve the **server** manifest only; UI is a separate `@hospai/pms-housekeeping/ui` subpath.
 
 ### 3.3 SPA registry — no `kernel` dependency
 
@@ -293,7 +301,7 @@ No `staff_…` identity source exists until the roster chunk. Board this chunk: 
 
 ### 4.4 Sync compile-time test
 
-Add a `compile-time.ts` harness (money pattern) proving `runIdempotent` rejects `async` execute and that kernel use-case types reject `Promise` returns.
+Add a `compile-time.ts` harness (money pattern) proving `runIdempotent` rejects `async` execute and that contracts' `SyncUseCase` rejects `Promise` returns.
 
 ### 4.5 Catalog notes (this chunk)
 
@@ -332,7 +340,8 @@ Valid fixture passes; missing registry entry fails; ui/server `moduleId` mismatc
 |---|---|
 | DO ↔ module | Hybrid C: sync use case + txn-scoped ctx; command plane in DO |
 | Reads | Bare `SqlStorageLike` + filters; no identity |
-| Registry | Static hand-registered; no codegen |
+| Registry | Static hand-registered in kernel; modules export plain manifests; kernel wraps with `defineModule` |
+| Dep graph | `contracts → modules → kernel → pms-core` (no module→kernel) |
 | Manifest files | Split server / UI; both under `src/` |
 | Lifecycle | Optional; housekeeping omits; purge check later derives from entitlement |
 | Schema | Adopt unprefixed tables; prefix for new modules only |

@@ -4,7 +4,7 @@
 
 **Goal:** Prove the §5 module mechanism using `pms.housekeeping` — kernel contract + static registries, extract room-status / assign / assignment-read into the module, ship a read-only SPA board via `ui.manifest`, and gate the shape.
 
-**Architecture:** Sync use-case functions receive a txn-scoped `ModuleTxnCtx` built only inside `transactionSync`+`runIdempotent` via one private `moduleTxnCtx` helper (provisional extras pre-bound). Server/UI manifests split under `src/`. Reads take bare `SqlStorageLike`. `Sync<T>` lives in contracts and makes async use cases a compile error.
+**Architecture:** Sync use-case functions receive a txn-scoped `ModuleTxnCtx` (types in contracts) built only inside `transactionSync`+`runIdempotent` via one private `moduleTxnCtx` helper. Modules export plain manifests; kernel wraps with `defineModule` at registration (`contracts → modules → kernel → pms-core`). Server/UI manifests split under `src/`. `Sync<T>` in contracts makes async use cases a compile error.
 
 **Tech Stack:** pnpm workspaces, TypeScript, vitest, `@cloudflare/vitest-pool-workers`, React 19 + Vite (`web-pms`), existing PropertyDO / `REPLAY_DISPATCH` / react-query patterns.
 
@@ -19,7 +19,8 @@
 - SPA board: read-only + room-status mutations; **no assign UI**.
 - Characterization tests for provisional outbox extras on the three moved mutations **before** extraction.
 - `assignee_ref`: `^staff_[A-Za-z0-9_-]+$`; migrate `hk_*` fixtures; pre-launch only.
-- Manifests under `src/`; React is peer+devDep on the module; `web-pms` must not depend on `@hospai/kernel`.
+- Manifests under `src/`; React is peer+devDep on the module; `web-pms` must not depend on `@hospai/kernel`; **modules must not depend on `@hospai/kernel`** (registry wraps plain manifests — avoids `kernel ⇄ module` cycle).
+- Housekeeping depends on `@hospai/contracts` only (plus React peers for UI) — **not** `do-runtime` or `kernel`.
 - Write-set check is `declared ⊇ actual` (overlap allowed); `schema.tables = ['housekeeping_assignment']`, `writes = ['room', 'housekeeping_assignment']`.
 - TDD where the plan shows RED steps; keep existing rooms / degraded suites green through extraction.
 
@@ -31,13 +32,14 @@
 |------|----------------|
 | `packages/contracts/src/sync.ts` | `Sync<T>` |
 | `packages/contracts/src/sync.compile-time.ts` | `@ts-expect-error` harness (money pattern) |
-| `packages/contracts/src/module-ui.ts` | Shared nav/route contribution types + `order` |
+| `packages/contracts/src/module-manifest.ts` | `ModuleManifest` type + defaults shape |
+| `packages/contracts/src/module-txn.ts` | `ModuleTxnCtx`, `ModuleSql`, `SyncUseCase`, `SyncRead` |
+| `packages/contracts/src/module-ui.ts` | Shared nav contribution types + `order` |
 | `packages/contracts/src/staff-ref.ts` | `STAFF_REF_RE` + `isStaffRef` |
 | `packages/do-runtime/src/idempotency.ts` | `runIdempotent` execute: `() => Sync<T>` |
 | `packages/do-runtime/src/idempotency.compile-time.ts` | Reject async execute |
-| `packages/kernel/src/define-module.ts` | Zod manifest schema + `defineModule` |
-| `packages/kernel/src/module-txn.ts` | `ModuleTxnCtx` + sync use-case types |
-| `packages/kernel/src/registry.ts` | Hand-maintained `MODULE_REGISTRY` |
+| `packages/kernel/src/define-module.ts` | Zod validator + `defineModule` |
+| `packages/kernel/src/registry.ts` | Hand-maintained `MODULE_REGISTRY` (wraps plain manifests) |
 | `packages/kernel/src/index.ts` | Re-exports |
 | `modules/pms/housekeeping/**` | Full module (minus `jobs/`) |
 | `scripts/module-manifests-check.mjs` | Registry + write-set + pairing + `--self-test` |
@@ -135,22 +137,24 @@ git commit -m "feat(contracts): Sync<T> blocks async runIdempotent execute"
 
 ---
 
-### Task 2: Kernel module contract + empty registry spike hook
+### Task 2: Contracts module types + kernel `defineModule` + empty registry
 
 **Files:**
-- Create: `packages/kernel/src/define-module.ts`
-- Create: `packages/kernel/src/module-txn.ts`
-- Create: `packages/kernel/src/registry.ts`
-- Modify: `packages/kernel/src/index.ts`
+- Create: `packages/contracts/src/module-manifest.ts`
+- Create: `packages/contracts/src/module-txn.ts`
 - Create: `packages/contracts/src/module-ui.ts`
 - Create: `packages/contracts/src/staff-ref.ts`
 - Modify: `packages/contracts/src/index.ts`
-- Modify: `packages/kernel/package.json` (add zod if not already; already has zod)
+- Create: `packages/kernel/src/define-module.ts`
+- Create: `packages/kernel/src/registry.ts`
+- Modify: `packages/kernel/src/index.ts`
 
 **Interfaces:**
-- Produces: `ModuleManifest`, `defineModule`, `MODULE_REGISTRY`, `ModuleTxnCtx`, `SyncUseCase`, `STAFF_REF_RE`, `ModuleUiManifest` types
+- Produces (contracts): `ModuleManifest`, `ModuleTxnCtx`, `ModuleSql`, `SyncUseCase`, `SyncRead`, `STAFF_REF_RE`, `ModuleUiManifest`
+- Produces (kernel): `defineModule`, `MODULE_REGISTRY` (initially empty)
+- Graph: modules import **only** contracts; kernel imports modules later and validates
 
-- [ ] **Step 1: Staff ref + UI types in contracts**
+- [ ] **Step 1: Staff ref + UI + manifest + txn types in contracts**
 
 ```ts
 // packages/contracts/src/staff-ref.ts
@@ -175,17 +179,35 @@ export type ModuleUiNavEntry = {
 export type ModuleUiManifest = {
   moduleId: string;
   nav: ModuleUiNavEntry[];
-  // routes stay in the module package (lazy components); SPA imports them from /ui
 };
 ```
 
-- [ ] **Step 2: `defineModule` + txn types in kernel**
+```ts
+// packages/contracts/src/module-manifest.ts
+export type ModuleManifest = {
+  id: string;
+  version: string;
+  entitlement: string;
+  requires?: string[];
+  schema: { prefix?: string | null; tables: string[] };
+  writes: string[];
+  publishes?: string[];
+  subscribes?: Array<{ event: string; handler: string }>;
+  permissions?: string[];
+  meters?: string[];
+  lifecycle?: {
+    onActivate?: string;
+    onDeactivate?: string;
+    onPurge?: string;
+  };
+};
+```
 
 ```ts
-// packages/kernel/src/module-txn.ts
-import type { Sync } from '@hospai/contracts';
+// packages/contracts/src/module-txn.ts
+import type { Sync } from './sync.js';
 
-/** Structural — matches do-runtime SqlStorageLike without a kernel→do-runtime dep. */
+/** Structural — matches do-runtime SqlStorageLike without a contracts→do-runtime dep. */
 export type ModuleSql = {
   exec(query: string, ...bindings: unknown[]): { toArray(): unknown[] };
 };
@@ -207,9 +229,14 @@ export type SyncUseCase<In, Out> = (ctx: ModuleTxnCtx, input: In) => Sync<Out>;
 export type SyncRead<Filters, Out> = (sql: ModuleSql, filters: Filters) => Sync<Out>;
 ```
 
+Export all from `index.ts`.
+
+- [ ] **Step 2: `defineModule` in kernel (zod) + empty registry**
+
 ```ts
 // packages/kernel/src/define-module.ts
 import { z } from 'zod';
+import type { ModuleManifest } from '@hospai/contracts';
 
 export const ModuleManifestSchema = z.object({
   id: z.string().min(1),
@@ -234,8 +261,6 @@ export const ModuleManifestSchema = z.object({
     .optional(),
 });
 
-export type ModuleManifest = z.infer<typeof ModuleManifestSchema>;
-
 export function defineModule(mod: ModuleManifest): ModuleManifest {
   return ModuleManifestSchema.parse(mod);
 }
@@ -243,15 +268,15 @@ export function defineModule(mod: ModuleManifest): ModuleManifest {
 
 ```ts
 // packages/kernel/src/registry.ts
-import type { ModuleManifest } from './define-module.js';
+import type { ModuleManifest } from '@hospai/contracts';
 
-/** Hand-maintained. Task 3 appends housekeeping. */
+/** Hand-maintained. Task 3 appends housekeeping via defineModule(...). */
 export const MODULE_REGISTRY: readonly ModuleManifest[] = [];
 ```
 
-Update `index.ts`: remove stub `defineModule`; export real API; keep or delete `defineConfig` per Task 9.
+Update `index.ts`: remove stub `defineModule`; export real API; keep or delete `defineConfig` per Task 9. Re-export txn types from contracts for convenience **optional** — prefer consumers importing from `@hospai/contracts`.
 
-- [ ] **Step 3: Kernel unit test — defineModule rejects empty id**
+- [ ] **Step 3: Kernel unit test — defineModule rejects missing writes**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -276,29 +301,31 @@ describe('defineModule', () => {
 Run: `pnpm --filter @hospai/kernel test && pnpm --filter @hospai/contracts typecheck`
 
 ```bash
-git commit -m "feat(kernel): defineModule schema, ModuleTxnCtx, empty registry"
+git commit -m "feat(contracts,kernel): module types in contracts; defineModule validates"
 ```
 
 ---
 
-### Task 3: Scaffold `@hospai/pms-housekeeping` + JSX/export spike
+### Task 3: Scaffold `@hospai/pms-housekeeping` + permanent UI export test
 
 **Files:**
 - Create: `modules/pms/housekeeping/package.json`, `tsconfig.json`, `vitest.config.ts`
 - Create: `modules/pms/housekeeping/src/module.manifest.ts`
 - Create: `modules/pms/housekeeping/src/ui.manifest.ts`
 - Create: `modules/pms/housekeeping/src/ui/HousekeepingApp.tsx` (placeholder)
-- Create: `modules/pms/housekeeping/src/index.ts` (server export = manifest + later application)
+- Create: `modules/pms/housekeeping/src/index.ts` (server export = plain manifest)
 - Create: `modules/pms/housekeeping/src/ui.ts` (UI export entry)
-- Modify: `packages/kernel/src/registry.ts`
+- Modify: `packages/kernel/src/registry.ts` + `packages/kernel/package.json` (dep on module)
 - Modify: `apps/web-pms/package.json` (dep on module)
 - Modify: `apps/pms-core/package.json` (dep on module + kernel if missing)
+- Create: `apps/web-pms/src/shell/housekeeping-ui-export.test.ts` (permanent spike)
 
 **Interfaces:**
-- Produces: `@hospai/pms-housekeeping` → server manifest; `@hospai/pms-housekeeping/ui` → ui manifest + app
-- Produces: `MODULE_REGISTRY` length 1
+- Produces: `@hospai/pms-housekeeping` → plain `ModuleManifest`; `@hospai/pms-housekeeping/ui` → ui manifest + app
+- Produces: `MODULE_REGISTRY = [defineModule(housekeeping)]`
+- Graph stays acyclic: housekeeping → contracts only; kernel → housekeeping
 
-- [ ] **Step 1: Package.json with dual exports**
+- [ ] **Step 1: Package.json with dual exports (no kernel, no do-runtime)**
 
 ```json
 {
@@ -324,9 +351,7 @@ git commit -m "feat(kernel): defineModule schema, ModuleTxnCtx, empty registry"
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@hospai/contracts": "workspace:*",
-    "@hospai/kernel": "workspace:*",
-    "@hospai/do-runtime": "workspace:*"
+    "@hospai/contracts": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -345,13 +370,13 @@ git commit -m "feat(kernel): defineModule schema, ModuleTxnCtx, empty registry"
 
 `tsconfig.json`: extend base; `rootDir: "src"`; `jsx: "react-jsx"`; `include: ["src"]`.
 
-- [ ] **Step 2: Manifests under `src/`**
+- [ ] **Step 2: Plain manifest under `src/` (type-only contracts import)**
 
 ```ts
 // src/module.manifest.ts
-import { defineModule } from '@hospai/kernel';
+import type { ModuleManifest } from '@hospai/contracts';
 
-export default defineModule({
+const manifest = {
   id: 'pms.housekeeping',
   version: '0.0.1',
   entitlement: 'pms.core',
@@ -362,7 +387,9 @@ export default defineModule({
   subscribes: [],
   permissions: ['housekeeping:read', 'housekeeping:write'],
   meters: [],
-});
+} as const satisfies ModuleManifest;
+
+export default manifest;
 ```
 
 ```ts
@@ -384,7 +411,7 @@ export const housekeepingUi = {
 ```
 
 ```tsx
-// src/ui/HousekeepingApp.tsx — spike placeholder
+// src/ui/HousekeepingApp.tsx — placeholder until Task 7
 export function HousekeepingApp() {
   return <p>housekeeping</p>;
 }
@@ -392,7 +419,6 @@ export function HousekeepingApp() {
 
 ```ts
 // src/index.ts
-export { default as housekeepingManifest } from './module.manifest.js';
 export { default } from './module.manifest.js';
 
 // src/ui.ts
@@ -400,27 +426,53 @@ export { housekeepingUi } from './ui.manifest.js';
 export { HousekeepingApp } from './ui/HousekeepingApp.js';
 ```
 
-- [ ] **Step 3: Register in kernel**
+- [ ] **Step 3: Register in kernel via `defineModule` (one-way dep)**
 
 ```ts
 import housekeeping from '@hospai/pms-housekeeping';
-export const MODULE_REGISTRY = [housekeeping] as const;
+import { defineModule } from './define-module.js';
+
+export const MODULE_REGISTRY = [defineModule(housekeeping)] as const;
 ```
 
-Add `@hospai/pms-housekeeping` dependency to `packages/kernel/package.json`.
+Add `@hospai/pms-housekeeping` to `packages/kernel/package.json` dependencies. Do **not** add kernel to housekeeping.
 
-- [ ] **Step 4: Spike verify (Worker vs Vite)**
+- [ ] **Step 4: Permanent web-pms export test (spike that stays)**
 
-Run: `pnpm --filter @hospai/pms-housekeeping build && pnpm --filter @hospai/kernel build && pnpm --filter @hospai/pms-core build && pnpm --filter @hospai/web-pms build`
+```ts
+// apps/web-pms/src/shell/housekeeping-ui-export.test.ts
+import { describe, expect, it } from 'vitest';
+import { housekeepingUi } from '@hospai/pms-housekeeping/ui';
+
+describe('@hospai/pms-housekeeping/ui export', () => {
+  it('exposes housekeeping nav contribution', () => {
+    expect(housekeepingUi.moduleId).toBe('pms.housekeeping');
+    expect(housekeepingUi.nav).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'housekeeping',
+          path: '/housekeeping',
+          order: 25,
+          permission: 'housekeeping:read',
+        }),
+      ]),
+    );
+  });
+});
+```
+
+- [ ] **Step 5: Spike verify (Worker vs Vite)**
+
+Run: `pnpm --filter @hospai/pms-housekeeping build && pnpm --filter @hospai/kernel build && pnpm --filter @hospai/pms-core build && pnpm --filter @hospai/web-pms build && pnpm --filter @hospai/web-pms test -- src/shell/housekeeping-ui-export.test.ts`
 
 Assert:
-- `pms-core` build does not fail on JSX.
-- In `web-pms`, temporary import of `@hospai/pms-housekeeping/ui` resolves (wire into registry in Task 7; for spike, a one-line import in `main.tsx` or a tiny test file is enough, then remove if not yet wired).
+- `pms-core` / kernel build does not fail on JSX.
+- Export test passes (Vite resolves `/ui` without needing the server manifest in the browser graph).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git commit -m "feat(housekeeping): scaffold module manifests and UI export spike"
+git commit -m "feat(housekeeping): scaffold manifests; kernel registry wraps defineModule"
 ```
 
 ---
@@ -533,7 +585,7 @@ git commit -m "test(pms-core): characterize provisional outbox extras for room/h
 - Export use cases from `modules/pms/housekeeping/src/index.ts`
 
 **Interfaces:**
-- Consumes: `ModuleTxnCtx`, `SyncUseCase`, `SyncRead`, `isStaffRef`
+- Consumes: `ModuleTxnCtx`, `SyncUseCase`, `SyncRead`, `isStaffRef` from `@hospai/contracts` (not kernel)
 - Produces: sync functions; DO RPCs unchanged in signature
 
 - [ ] **Step 1: Module unit tests (RED)**
@@ -712,17 +764,32 @@ If unused, remove export and dead code.
 
 - [ ] **Step 2: Recount tests; update README**
 
-- [ ] **Step 3: Final verification**
+- [ ] **Step 3: Final verification — full CI sequence (CI order)**
 
 ```bash
+pnpm install
 pnpm build
+pnpm check:ddl
+pnpm check:entitlements
+pnpm check:permissions
+pnpm check:degraded
+pnpm check:class-denylist
+pnpm check:forbidden-bodies
+node scripts/forbidden-body-check.mjs --self-test
+pnpm check:do-transport-guards
+node scripts/do-transport-guards-check.mjs --self-test
+pnpm check:web-pms-colors
+pnpm check:web-pms-me-gating
+pnpm check:pms-core-test-dates
 pnpm check:module-manifests
-pnpm check:forbidden-bodies -- # plus self-test in CI
+node scripts/module-manifests-check.mjs --self-test
 pnpm typecheck
-pnpm --filter @hospai/pms-core exec vitest run test/degraded-mode.spec.ts test/rooms.spec.ts
-pnpm --filter @hospai/web-pms test
-pnpm --filter @hospai/pms-housekeeping test
+pnpm exec turbo run test --filter=!@hospai/pms-core
+pnpm --filter @hospai/pms-core exec vitest run
+pnpm lint
 ```
+
+(Catalog edits in Task 8 are covered by `check:entitlements` / `check:degraded` / `check:permissions`.)
 
 - [ ] **Step 4: Commit**
 
@@ -746,15 +813,17 @@ git commit -m "chore: wire module-manifest CI and refresh README test count"
 | Spec requirement | Task |
 |---|---|
 | Sync compile-time | 1 |
-| Kernel defineModule + registry | 2–3 |
-| Manifests under src/ + JSX spike | 3 |
+| Module types in contracts; defineModule + registry in kernel | 2–3 |
+| Acyclic graph (no module→kernel) | 2–3 |
+| Manifests under src/ + permanent /ui export test | 3 |
 | check:module-manifests + self-test | 4 |
 | Characterization before extract | 5 |
 | moduleTxnCtx helper + extract | 6 |
 | assignee_ref pin | 6 (+ fixtures in 5) |
 | SPA ui.manifest board read-only | 7 |
 | Catalog notes | 8 |
-| CI self-tests / README / defineConfig | 9 |
+| Full CI sequence / README / defineConfig | 9 |
 | listRooms stays | 6 (explicit non-move) |
 | No businessDate on ctx | 6 |
 | schema.tables ≠ writes | 3 manifest |
+| No do-runtime dep on housekeeping | 3 |

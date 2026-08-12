@@ -34,7 +34,7 @@
 |---|---|
 | `packages/contracts/src/commands/catalog.ts` | Rename four ids; `ROSTER_FAMILY_NOTES` / `ROSTER_FAIL_CLOSED_NOTES` |
 | `packages/contracts/src/permissions.ts` | `roster:read\|write\|compensation`; ROLE_GRANTS |
-| `packages/contracts/src/entitlements.ts` | Drop `housekeeping.staff_delete` opt-out |
+| `packages/contracts/src/entitlements.ts` | Drop `housekeeping.staff_delete` opt-out — justification expires (now OrgDO-gated) |
 | `packages/contracts/src/commands/audit-writers.ts` | Four OrgDO exemptions |
 | `packages/contracts/src/idempotency.ts` | `STAFF_*` / `staff_exited` wire codes |
 | `packages/contracts/src/v1-http-routes.ts` | Six audit rows (Task 6 only) |
@@ -52,9 +52,10 @@
 | `apps/pms-core/src/roster-http.ts` | Strip + compensation-write gate (unit-testable) |
 | `apps/pms-core/test/roster.spec.ts` | OrgDO RPC tests 1–13 |
 | `apps/pms-core/test/roster-routes.spec.ts` | HTTP tests 1a, 10, 14–19 |
-| `apps/pms-core/test/roster-assign.spec.ts` | Assign + dual degraded 20–27, 29 |
+| `apps/pms-core/test/roster-assign.spec.ts` | Assign + dual degraded 21–27, 29 (test 20 is RTL in Task 7) |
 | `packages/client-core/src/api.ts` | `listRoster` / roster mutations / `assignHousekeeping` |
 | `modules/pms/housekeeping/src/ui/HousekeepingApp.tsx` | Picker |
+| `modules/pms/housekeeping/src/ui/HousekeepingApp.test.tsx` | RTL tests 20, 28, 31 |
 | `apps/web-pms/src/screens/RosterRoute.tsx` | Nav-gated SPA |
 | `apps/web-pms/src/shell/nav.ts` | `/roster` order 55 |
 
@@ -220,7 +221,7 @@ In `packages/contracts/src/permissions.ts`, append to `PROPERTY_SCOPED_PERMISSIO
 
 - [ ] **Step 5: Entitlements + audit exemptions**
 
-In `packages/contracts/src/entitlements.ts`, **delete** the `{ id: 'housekeeping.staff_delete', … }` opt-out row.
+In `packages/contracts/src/entitlements.ts`, **delete** the `{ id: 'housekeeping.staff_delete', … }` opt-out row. The current reason is `'Phase 1 — not yet gated at a DO boundary'`. `roster.exit` is gated at OrgDO with `entitlement: 'pms.core'`, so that justification expires with this chunk — this is not a quiet cleanup of an unrelated opt-out.
 
 In `packages/contracts/src/commands/audit-writers.ts`, append four exemptions (writer set size stays 30):
 
@@ -686,6 +687,9 @@ EOF
 - Modify: `apps/pms-core/src/property-do.ts`
 - Modify: `apps/pms-core/src/v1-dispatch.ts` (`handlePostHousekeepingAssign`, `handlePostReservations` only — still **no** roster routes)
 - Modify: `apps/pms-core/src/pending-commands-consumer.ts`
+- Modify: `apps/pms-core/test/fixtures.ts` (`provisionedPropertyStub` return shape)
+- Modify: every `provisionedPropertyStub` call site (destructure `{ stub }`; take `orgId` where needed)
+- Modify: `apps/pms-core/test/guest-helpers.ts` (`provisionedPropertyWithGuest` takes `orgId` from the helper — do not re-derive `org_prop_${name}`)
 - Modify: `apps/pms-core/test/rooms.spec.ts`
 - Modify: `apps/pms-core/test/rooms-routes.spec.ts`
 - Modify: `apps/pms-core/test/degraded-mode.spec.ts` (test 23 must seed a real housekeeper)
@@ -694,9 +698,11 @@ EOF
 
 **Interfaces:**
 - Consumes: `assertStaffAssignable`, `assertGuestRef` (now `assertRpcAvailable`)
-- Produces: `gateOrgRef` helper; `tryAssignHousekeeping` distinguished errors; HTTP 503 `org_unreachable` for assign **and** `reservations.create`; replay retries `org_unreachable`
+- Produces: `gateOrgRef` helper; `tryAssignHousekeeping` distinguished errors; HTTP 503 `org_unreachable` for assign **and** `reservations.create`; replay retries `org_unreachable`; `provisionedPropertyStub` → `{ stub, orgId }`
 
-Existing assign tests use ghost ids (`staff_alice`, `staff_bob`, `staff_deg`). After `gateStaffRef` they fail `staff_not_found` unless they mint via OrgDO **RPC** (HTTP roster does not exist yet). Use `createHousekeeper` from `roster-helpers.ts`. `provisionedPropertyStub` already creates an org you can `orgStub(targetOrgId)` — `rooms.spec.ts` must take the org id (derive `org_prop_${name}` the same way the helper does, or change the helper to return `{ stub, orgId }`). Prefer a small local wrap rather than a wide fixture refactor: in the assign test, `const orgId = \`org_prop_${name}\`` after using that `name` with `provisionedPropertyStub`.
+Existing assign tests use ghost ids (`staff_alice`, `staff_bob`, `staff_deg`). After `gateStaffRef` they fail `staff_not_found` unless they mint via OrgDO **RPC** (HTTP roster does not exist yet). Use `createHousekeeper` from `roster-helpers.ts`.
+
+Change `provisionedPropertyStub` to return `{ stub, orgId: string }` (the `orgId` it already computes as `orgId ?? \`org_prop_${name}\``). Do not re-derive that convention in test files. Mechanical update at every call site: `const { stub } = await provisionedPropertyStub(...)`. Ghost-id tests also take `orgId` and pass it to `orgStub` / `createHousekeeper`. `provisionedPropertyWithGuest` already returns `orgId` — source it from the helper instead of repeating `` `org_prop_${name}` ``. `rooms-routes.spec.ts` / `degraded-mode.spec.ts` `provisionHotel` already returns `orgId`; use that, do not invent a second derivation.
 
 - [ ] **Step 1: Write failing tests** (`roster-assign.spec.ts`)
 
@@ -813,9 +819,11 @@ if (result.error === 'org_unreachable') {
 
 **Before** `recordProvisionalException`. Domain errors (`staff_exited` etc.) still exception+ack.
 
-- [ ] **Step 6: Fix existing assign tests**
+- [ ] **Step 6: Fixture return shape + existing assign tests**
 
-`rooms.spec.ts`, `rooms-routes.spec.ts` (13a), `degraded-mode.spec.ts` (23): mint a housekeeper via `tryCreateRoster` and use the returned `staffId` as `assigneeRef`. Test 23's 202-while-PropertyDO-blocked behaviour must stay.
+Change `provisionedPropertyStub` in `apps/pms-core/test/fixtures.ts` to `Promise<{ stub: DurableObjectStub<PropertyDO>; orgId: string }>` and `return { stub, orgId: targetOrgId }`. Update every call site to `const { stub } = await provisionedPropertyStub(...)`. In `provisionedPropertyWithGuest`, take `orgId` from that return — delete the local `` `org_prop_${name}` ``.
+
+Then mint a housekeeper via `tryCreateRoster` / `createHousekeeper` and use the returned `staffId` as `assigneeRef` in `rooms.spec.ts` (use `orgId` from the helper), `rooms-routes.spec.ts` (13a; use `provisionHotel`'s `orgId`), and `degraded-mode.spec.ts` (23; same). Test 23's 202-while-PropertyDO-blocked behaviour must stay.
 
 - [ ] **Step 7: Tests pass**
 

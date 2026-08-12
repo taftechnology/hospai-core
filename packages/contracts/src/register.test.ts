@@ -185,6 +185,20 @@ describe('command catalog', () => {
     expect(COMMAND_CATALOG.flatMap((c) => c.events)).not.toContain('audit.recorded');
   });
 
+  it('housekeeping.staff_* family records §4.8 roster notes', () => {
+    for (const id of [
+      'housekeeping.staff_add',
+      'housekeeping.staff_status',
+      'housekeeping.staff_delete',
+      'housekeeping.staff_update',
+    ] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.notes).toMatch(/Staff-class PII/i);
+      expect(c?.notes).toMatch(/staff exit is not deletion/i);
+      expect(c?.notes).toMatch(/membership staff\.\*/i);
+    }
+  });
+
   it('every entitled command has an audit writer or a reasoned exemption', () => {
     const entitled = COMMAND_CATALOG.filter((c) => c.entitlement).map((c) => c.id);
     const exemptIds = new Set(AUDIT_WRITER_EXEMPTIONS.map((e) => e.id));

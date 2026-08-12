@@ -42,6 +42,12 @@ export const PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES =
 export const INVENTORY_FAIL_CLOSED_NOTES =
   'Inventory-affecting — must not invent stock during outage.';
 
+export const HOUSEKEEPING_STAFF_FAMILY_NOTES =
+  'Roster family (Staff-class PII / per-staff key), distinct from membership staff.* ' +
+  '(access revocation). §4.8: staff exit is not deletion — identity is pseudonymized and ' +
+  'employment follows statutory retention. Command semantics owned by the roster spec. ' +
+  'Id rename (e.g. housekeeping.roster_*) deferred while unrouted.';
+
 /**
  * Each entry has ONE degraded class. Compound prototype actions that mixed
  * FAIL_CLOSED with softer classes are split so an omission cannot silently
@@ -472,6 +478,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['staff.housekeeper_changed'],
     permission: 'staff:write',
+    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
   },
   {
     id: 'housekeeping.staff_status',
@@ -481,6 +488,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['staff.housekeeper_changed'],
     permission: 'staff:write',
+    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
   },
   {
     id: 'housekeeping.staff_delete',
@@ -490,6 +498,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['staff.housekeeper_changed'],
     permission: 'staff:write',
+    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
   },
   {
     id: 'housekeeping.staff_update',
@@ -499,6 +508,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['staff.housekeeper_changed'],
     permission: 'staff:write',
+    notes: HOUSEKEEPING_STAFF_FAMILY_NOTES,
   },
   {
     id: 'inventory.add_room_type',

@@ -92,6 +92,21 @@ describe('HousekeepingApp assign picker', () => {
     });
   });
 
+  it('listRoster failure shows the board error alert and no text input', async () => {
+    renderApp(
+      stubApi({
+        listRoster: async () => {
+          throw new Error('roster_unreachable');
+        },
+      }),
+    );
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/Unable to load housekeeping board/);
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText('No housekeepers on the roster')).toBeNull();
+  });
+
   it('28: historical assigneeRef absent from list renders the staff_… pseudonym', async () => {
     renderApp(
       stubApi({

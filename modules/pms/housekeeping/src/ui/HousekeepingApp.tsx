@@ -139,6 +139,7 @@ export function HousekeepingApp({
   const assignClass = assignmentsQuery.isError
     ? classifyError?.(assignmentsQuery.error)?.class
     : undefined;
+  const rosterClass = rosterQuery.isError ? classifyError?.(rosterQuery.error)?.class : undefined;
 
   const emptyRoster =
     canAssign && rosterQuery.isSuccess && assignable.length === 0;
@@ -156,10 +157,12 @@ export function HousekeepingApp({
         />
       </label>
 
-      {(roomsQuery.isError || assignmentsQuery.isError) && (
+      {(roomsQuery.isError || assignmentsQuery.isError || rosterQuery.isError) && (
         <div className="error" role="alert">
           Unable to load housekeeping board
-          {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
+          {roomsClass === 'fail_closed' ||
+          assignClass === 'fail_closed' ||
+          rosterClass === 'fail_closed'
             ? ' (property unreachable)'
             : ''}
           .

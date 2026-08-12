@@ -558,9 +558,8 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const property = await getProperty(ctx.env, propertyId);
-  if (!property) return json({ error: 'not_found' }, 404);
-  ctx.observability.orgId = property.orgId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await fingerprintPayload({
     roomTypeId: body.roomTypeId,
@@ -570,22 +569,37 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     maxOccupancy: body.maxOccupancy,
     maxAdults: body.maxAdults,
   });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    roomTypeId: body.roomTypeId,
+    code: body.code,
+    name: body.name,
+    roomCount: body.roomCount,
+    maxOccupancy: body.maxOccupancy,
+    maxAdults: body.maxAdults,
+  };
 
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
-  if (!resolved) return json({ error: 'not_found' }, 404);
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddRoomType']>>>({
+    env: ctx.env,
+    commandId: 'inventory.add_room_type',
+    routeId: 'post_room_types',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryAddRoomType(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
 
-  const result = await resolved.stub.tryAddRoomType(
-    { kind: 'user', userId: ctx.actor.userId },
-    {
-      roomTypeId: body.roomTypeId,
-      code: body.code,
-      name: body.name,
-      roomCount: body.roomCount,
-      maxOccupancy: body.maxOccupancy,
-      maxAdults: body.maxAdults,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     if (result.error === 'forbidden') {
@@ -614,9 +628,8 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const property = await getProperty(ctx.env, propertyId);
-  if (!property) return json({ error: 'not_found' }, 404);
-  ctx.observability.orgId = property.orgId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const payload: Record<string, unknown> = { roomTypeId };
   if (body.code !== undefined) payload.code = body.code;
@@ -626,22 +639,37 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   if (body.maxAdults !== undefined) payload.maxAdults = body.maxAdults;
 
   const fingerprint = await fingerprintPayload(payload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    roomTypeId,
+    code: body.code,
+    name: body.name,
+    roomCount: body.roomCount,
+    maxOccupancy: body.maxOccupancy,
+    maxAdults: body.maxAdults,
+  };
 
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
-  if (!resolved) return json({ error: 'not_found' }, 404);
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomType']>>>({
+    env: ctx.env,
+    commandId: 'inventory.update_room_type',
+    routeId: 'put_room_type',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryUpdateRoomType(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
 
-  const result = await resolved.stub.tryUpdateRoomType(
-    { kind: 'user', userId: ctx.actor.userId },
-    {
-      roomTypeId,
-      code: body.code,
-      name: body.name,
-      roomCount: body.roomCount,
-      maxOccupancy: body.maxOccupancy,
-      maxAdults: body.maxAdults,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
@@ -668,20 +696,34 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const property = await getProperty(ctx.env, propertyId);
-  if (!property) return json({ error: 'not_found' }, 404);
-  ctx.observability.orgId = property.orgId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await fingerprintPayload({ roomTypeId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { roomTypeId };
 
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
-  if (!resolved) return json({ error: 'not_found' }, 404);
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRoomType']>>>({
+    env: ctx.env,
+    commandId: 'inventory.delete_room_type',
+    routeId: 'delete_room_type',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryDeleteRoomType(actor, commandPayload, {
+        key: idempotencyKey,
+        fingerprint,
+      }),
+  });
 
-  const result = await resolved.stub.tryDeleteRoomType(
-    { kind: 'user', userId: ctx.actor.userId },
-    { roomTypeId },
-    { key: idempotencyKey, fingerprint },
-  );
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
@@ -758,51 +800,62 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
+  const { key, value, reason, idempotencyKey, effectiveFrom } = body;
+
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const fingerprint = await fingerprintPayload({
-    key: body.key,
-    value: body.value,
-    reason: body.reason,
+    key,
+    value,
+    reason,
   });
   const meta = {
-    reason: body.reason,
-    ...(body.effectiveFrom !== undefined ? { effectiveFrom: body.effectiveFrom } : {}),
+    reason,
+    ...(effectiveFrom !== undefined ? { effectiveFrom } : {}),
+  };
+  const commandPayload = {
+    key,
+    value,
+    reason,
+    ...(effectiveFrom !== undefined ? { effectiveFrom } : {}),
   };
 
-  try {
-    const result = await resolvedCtx.resolved.stub.tryPutDomainConfig(
-      actor,
-      body.key,
-      body.value,
-      meta,
-      { key: body.idempotencyKey, fingerprint },
-    );
-    if (!result.ok) {
-      let perm: Permission = 'settings:configure';
-      try {
-        perm = requiredPermissionForKey(body.key);
-      } catch {
-        /* undeclared — mapConfigErrorStatus handles */
-      }
-      if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
-        return json({ error: 'forbidden', permission: perm }, 403);
-      }
-      return json({ ok: false, error: result.error }, mapConfigErrorStatus(result.error));
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPutDomainConfig']>>>({
+    env: ctx.env,
+    commandId: 'config.put_domain',
+    routeId: 'put_domain_config',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryPutDomainConfig(actor, key, value, meta, {
+        key: idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    let perm: Permission = 'settings:configure';
+    try {
+      perm = requiredPermissionForKey(key);
+    } catch {
+      /* undeclared — mapConfigErrorStatus handles */
     }
-    return json({ ok: true, key: result.key, version: result.version, events: result.events }, 200);
-  } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
-      return json(
-        { error: 'property_unreachable', degraded: 'FAIL_CLOSED', commandId: 'config.put_domain' },
-        503,
-        { 'Retry-After': '30' },
-      );
+    if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
+      return json({ error: 'forbidden', permission: perm }, 403);
     }
-    throw e;
+    return json({ ok: false, error: result.error }, mapConfigErrorStatus(result.error));
   }
+  return json({ ok: true, key: result.key, version: result.version, events: result.events }, 200);
 }
 
 async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
@@ -848,7 +901,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.create' },
         503,
@@ -902,7 +955,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.update' },
         503,
@@ -948,7 +1001,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.erase' },
         503,
@@ -1150,17 +1203,35 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
   });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    reservationId,
+    roomTypeId: body.roomTypeId,
+    arrivalDate: body.arrivalDate,
+    departureDate: body.departureDate,
+  };
 
-  const result = await resolvedCtx.resolved.stub.tryModifyReservation(
-    { kind: 'user', userId: ctx.actor.userId },
-    {
-      reservationId,
-      roomTypeId: body.roomTypeId,
-      arrivalDate: body.arrivalDate,
-      departureDate: body.departureDate,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryModifyReservation']>>>({
+    env: ctx.env,
+    commandId: 'reservations.modify',
+    routeId: 'patch_reservation',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryModifyReservation(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;
@@ -1210,11 +1281,30 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await fingerprintPayload({ reservationId });
-  const result = await resolvedCtx.resolved.stub.tryCancelReservation(
-    { kind: 'user', userId: ctx.actor.userId },
-    { reservationId },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { reservationId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCancelReservation']>>>({
+    env: ctx.env,
+    commandId: 'reservations.cancel',
+    routeId: 'post_reservation_cancel',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryCancelReservation(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;
@@ -1850,15 +1940,29 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   const cell = normalizeRateDayCell(body);
   const fingerprint = await fingerprintPayload(cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { ...cell, auditCommandId: 'rates.upsert_day' as const };
 
-  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
-    actor,
-    { ...cell, auditCommandId: 'rates.upsert_day' },
-    {
-      key: body.idempotencyKey,
-      fingerprint,
-    },
-  );
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
+    env: ctx.env,
+    commandId: 'rates.upsert_day',
+    routeId: 'put_rate_days',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryUpsertRateDay(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;
@@ -1904,20 +2008,38 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
   });
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const result = await resolvedCtx.resolved.stub.tryUpsertRestrictionDay(
-    actor,
-    {
-      roomTypeId: body.roomTypeId,
-      ratePlanId,
-      stayDate: body.stayDate,
-      minLos: body.minLos ?? null,
-      maxLos: body.maxLos ?? null,
-      cta: body.cta ?? false,
-      ctd: body.ctd ?? false,
-      stopSell: body.stopSell ?? false,
-    },
-    { key: body.idempotencyKey, fingerprint },
-  );
+  const commandPayload = {
+    roomTypeId: body.roomTypeId,
+    ratePlanId,
+    stayDate: body.stayDate,
+    minLos: body.minLos ?? null,
+    maxLos: body.maxLos ?? null,
+    cta: body.cta ?? false,
+    ctd: body.ctd ?? false,
+    stopSell: body.stopSell ?? false,
+  };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRestrictionDay']>>>({
+    env: ctx.env,
+    commandId: 'restrictions.upsert_day',
+    routeId: 'put_restriction_days',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryUpsertRestrictionDay(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
@@ -3096,15 +3218,29 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
   });
   const fingerprint = await fingerprintPayload(cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { ...cell, auditCommandId: 'rates.update_room_type_rate' as const };
 
-  const result = await resolvedCtx.resolved.stub.tryUpsertRateDay(
-    actor,
-    { ...cell, auditCommandId: 'rates.update_room_type_rate' },
-    {
-      key: body.idempotencyKey,
-      fingerprint,
-    },
-  );
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
+    env: ctx.env,
+    commandId: 'rates.update_room_type_rate',
+    routeId: 'put_room_type_rate',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryUpsertRateDay(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
 
   if (!result.ok) {
     const err = result.error;

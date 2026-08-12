@@ -309,6 +309,77 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold ?? 0).toBe(0);
   });
 
+  it('4b: FAIL_CLOSED cancel reservation while blocked returns degraded 503', async () => {
+    const actor = 'user_deg_4b';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect(
+      (await postReservation(propertyId, actor, 'res_deg_4b', arrival, departure, guestRef)).status,
+    ).toBe(201);
+
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent('res_deg_4b')}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ idempotencyKey: 'idem-cancel-4b' }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'property_unreachable',
+      degraded: 'FAIL_CLOSED',
+      commandId: 'reservations.cancel',
+    });
+    expect(res.headers.get('Retry-After')).toBe('30');
+    await stub.setTransportBlockedForTest(false);
+    expect(await stub.getReservationStatus('res_deg_4b')).toBe('confirmed');
+  });
+
+  it('4c: FAIL_CLOSED modify reservation while blocked returns degraded 503', async () => {
+    const actor = 'user_deg_4c';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect(
+      (await postReservation(propertyId, actor, 'res_deg_4c', arrival, departure, guestRef)).status,
+    ).toBe(201);
+
+    await stub.setTransportBlockedForTest(true);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent('res_deg_4c')}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            roomTypeId: 'rt_king',
+            arrivalDate: arrival,
+            departureDate: addDays(arrival, 3),
+            idempotencyKey: 'idem-modify-4c',
+          }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      error: 'property_unreachable',
+      degraded: 'FAIL_CLOSED',
+      commandId: 'reservations.modify',
+    });
+    expect(res.headers.get('Retry-After')).toBe('30');
+    await stub.setTransportBlockedForTest(false);
+    const read = await stub.readReservation('res_deg_4c');
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.reservation.departureDate).toBe(departure);
+    }
+  });
+
   it('5a: replay before apply after business date rolled records business_date_closed exception', async () => {
     const actor = 'user_deg_5a';
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);

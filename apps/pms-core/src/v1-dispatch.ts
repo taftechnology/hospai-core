@@ -37,6 +37,7 @@ import {
   TAX_RULE_KEY_OVERLAP,
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
+  ROLE_GRANTS,
   STAFF_EXITED,
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
@@ -93,6 +94,11 @@ import { guestPurgeWorkflowId, closeOrgForPurge, nextOrgPurgeWorkflowId, reopenO
 import { ensurePurgeWorkflowInstance } from './purge-workflow-create.js';
 import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
+import {
+  compensationWriteDenied,
+  profileFromHttpBody,
+  stripRosterRow,
+} from './roster-http.js';
 
 type MembershipDoError =
   | 'not_member'
@@ -269,6 +275,16 @@ function mapGuestCommandErrorStatus(error: string): number {
   return 422;
 }
 
+function mapRosterCommandErrorStatus(error: string): number {
+  if (error === STAFF_NOT_FOUND) return 404;
+  if (error === STAFF_EXITED) return 409;
+  if (error === IDEM_KEY_REUSED) return 409;
+  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
+  if (error === 'not_member') return 404;
+  if (error === 'org_id_unset') return 500;
+  return 422;
+}
+
 function mapConfigErrorStatus(error: string): number {
   if (error.startsWith('undeclared:') || error.startsWith('Only DOMAIN config')) return 400;
   if (error === IDEM_KEY_REUSED) return 409;
@@ -376,7 +392,7 @@ type V1RouteBase = {
 };
 
 type CommandLink =
-  | { commandId: string; entitlement?: never }
+  | { commandId: string; entitlement?: FeatureKey }
   | { entitlement: FeatureKey; commandId?: never }
   | { commandId?: never; entitlement?: never };
 
@@ -1112,6 +1128,308 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
         error: e.message,
       });
       return json({ error: 'internal_error' }, 500);
+    }
+    throw e;
+  }
+}
+
+const ROSTER_GET_HEADERS = { 'Cache-Control': 'private, no-store' };
+
+type RosterHttpBody = {
+  displayName?: string;
+  email?: string;
+  phone?: string;
+  hourlyRate?: { amountMinor: number; currency: string };
+  rating?: number;
+  skills?: string[];
+  kinds?: string[];
+  idempotencyKey?: string;
+  status?: string;
+};
+
+function rosterGetJson(data: unknown, status = 200): Response {
+  return json(data, status, ROSTER_GET_HEADERS);
+}
+
+function rosterGetDegraded(): Response {
+  const degraded = degradedFailClosedOrgReadResponse();
+  const headers = new Headers(degraded.headers);
+  headers.set('Cache-Control', 'private, no-store');
+  return new Response(degraded.body, { status: degraded.status, headers });
+}
+
+function rosterWriteErrorResponse(err: string, permission: Permission): Response {
+  if (err === 'not_member') return json({ error: 'not_found' }, 404);
+  if (err === FORBIDDEN || err === 'scope_mismatch') {
+    return json({ error: 'forbidden', permission }, 403);
+  }
+  return json({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+}
+
+async function rosterGrants(
+  org: DurableObjectStub<OrgDO>,
+  userId: string,
+  propertyId: string,
+): Promise<readonly Permission[]> {
+  const role = await org.getEffectiveRole(userId, propertyId);
+  return role ? ROLE_GRANTS[role] : [];
+}
+
+function parseRosterProfile(body: RosterHttpBody): ReturnType<typeof profileFromHttpBody> | Response {
+  try {
+    return profileFromHttpBody(body);
+  } catch {
+    return json({ error: 'invalid_body' }, 400);
+  }
+}
+
+async function handleGetRoster(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.listRoster(actor, propertyId);
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return rosterGetJson({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return rosterGetJson({ error: 'forbidden', permission: 'roster:read' }, 403);
+      }
+      return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+    }
+    const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+    const kind = ctx.url.searchParams.get('kind');
+    const staff = result.staff
+      .filter((row) => !kind || row.kinds.includes(kind))
+      .map((row) => stripRosterRow(grants, row));
+    return rosterGetJson({ ok: true, staff }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return rosterGetDegraded();
+    throw e;
+  }
+}
+
+async function handleGetRosterOne(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const staffId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.readRoster(actor, propertyId, staffId);
+    if (!result.ok) {
+      const err = result.error;
+      if (err === 'not_member') return rosterGetJson({ error: 'not_found' }, 404);
+      if (err === FORBIDDEN || err === 'scope_mismatch') {
+        return rosterGetJson({ error: 'forbidden', permission: 'roster:read' }, 403);
+      }
+      return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+    }
+    const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+    return rosterGetJson({ ok: true, ...stripRosterRow(grants, result) }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return rosterGetDegraded();
+    throw e;
+  }
+}
+
+async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as RosterHttpBody & { staffId?: unknown };
+  if (!body || typeof body !== 'object' || Array.isArray(body) || 'staffId' in body) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!body.displayName || !Array.isArray(body.kinds) || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+  if (compensationWriteDenied(grants, body)) {
+    return json({ error: 'forbidden', permission: 'roster:compensation' }, 403);
+  }
+
+  const profile = parseRosterProfile(body);
+  if (profile instanceof Response) return profile;
+  const kinds = [...body.kinds].sort();
+  const fingerprint = await fingerprintPayload({ profile, kinds });
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.tryCreateRoster(
+      actor,
+      propertyId,
+      { profile: { ...profile, displayName: body.displayName }, kinds },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      return rosterWriteErrorResponse(result.error, 'roster:write');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.add' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const staffId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as RosterHttpBody;
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.kinds !== undefined && !Array.isArray(body.kinds)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+  if (compensationWriteDenied(grants, body)) {
+    return json({ error: 'forbidden', permission: 'roster:compensation' }, 403);
+  }
+
+  const profile = parseRosterProfile(body);
+  if (profile instanceof Response) return profile;
+  const kinds = body.kinds ? [...body.kinds].sort() : undefined;
+  const fingerprint = await fingerprintPayload({ staffId, profile, kinds });
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.tryUpdateRoster(
+      actor,
+      propertyId,
+      {
+        staffId,
+        ...(Object.keys(profile).length > 0 ? { profile } : {}),
+        ...(kinds ? { kinds } : {}),
+      },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      return rosterWriteErrorResponse(result.error, 'roster:write');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.update' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const staffId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as RosterHttpBody;
+  if (!body?.idempotencyKey || (body.status !== 'active' && body.status !== 'inactive')) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const fingerprint = await fingerprintPayload({ staffId, status: body.status });
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.trySetRosterStatus(
+      actor,
+      propertyId,
+      { staffId, status: body.status },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      return rosterWriteErrorResponse(result.error, 'roster:write');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.status' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const staffId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as RosterHttpBody;
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const fingerprint = await fingerprintPayload({ staffId });
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.tryExitRoster(
+      actor,
+      propertyId,
+      { staffId },
+      { key: body.idempotencyKey, fingerprint },
+    );
+    if (!result.ok) {
+      return rosterWriteErrorResponse(result.error, 'roster:write');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.exit' },
+        503,
+        { 'Retry-After': '30' },
+      );
     }
     throw e;
   }
@@ -4289,6 +4607,58 @@ export const V1_ROUTES: V1RouteDef[] = [
     pattern: /^\/v1\/orgs\/([^/]+)\/purge$/,
     permission: 'org:purge',
     handler: handlePostOrgPurge,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster$/,
+    permission: 'roster:read',
+    entitlement: 'pms.core',
+    handler: handleGetRoster,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)$/,
+    permission: 'roster:read',
+    entitlement: 'pms.core',
+    handler: handleGetRosterOne,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster$/,
+    permission: 'roster:write',
+    commandId: 'roster.add',
+    entitlement: 'pms.core',
+    handler: handlePostRoster,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)$/,
+    permission: 'roster:write',
+    commandId: 'roster.update',
+    entitlement: 'pms.core',
+    handler: handlePatchRoster,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)\/status$/,
+    permission: 'roster:write',
+    commandId: 'roster.status',
+    entitlement: 'pms.core',
+    handler: handlePostRosterStatus,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)\/exit$/,
+    permission: 'roster:write',
+    commandId: 'roster.exit',
+    entitlement: 'pms.core',
+    handler: handlePostRosterExit,
   },
 ];
 

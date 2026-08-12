@@ -308,6 +308,50 @@ describe('createClient degraded writes', () => {
       'DELETE /v1/properties/prop_1/members/u2',
     ]);
   });
+
+  it('roster methods hit roster and housekeeping assignment paths', async () => {
+    const calls: Array<{ path: string; method?: string }> = [];
+    const client = createClient({
+      transport: mockTransport((path, init) => {
+        calls.push({ path, method: init?.method });
+        return new Response(JSON.stringify({ ok: true, staff: [], staffId: 'staff_1' }), {
+          status: 200,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    await client.listRoster('prop_1', { kind: 'housekeeper' });
+    await client.getRoster('prop_1', 'staff_1');
+    await client.addRoster('prop_1', { displayName: 'Ada', kinds: ['housekeeper'] }, 'op-add');
+    await client.updateRoster('prop_1', 'staff_1', { displayName: 'Ada K' }, 'op-upd');
+    await client.setRosterStatus('prop_1', 'staff_1', 'inactive', 'op-st');
+    await client.exitRoster('prop_1', 'staff_1', 'op-ex');
+    await client.assignHousekeeping('prop_1', {
+      roomId: 'room_1',
+      businessDate: '2026-08-12',
+      assigneeRef: 'staff_1',
+      idempotencyKey: 'idem-hk',
+    });
+    expect(calls.map((c) => `${c.method ?? 'GET'} ${c.path}`)).toEqual([
+      'GET /v1/properties/prop_1/roster?kind=housekeeper',
+      'GET /v1/properties/prop_1/roster/staff_1',
+      'POST /v1/properties/prop_1/roster',
+      'PATCH /v1/properties/prop_1/roster/staff_1',
+      'POST /v1/properties/prop_1/roster/staff_1/status',
+      'POST /v1/properties/prop_1/roster/staff_1/exit',
+      'POST /v1/properties/prop_1/housekeeping/assignments',
+    ]);
+  });
 });
 
 describe('createClient booking', () => {

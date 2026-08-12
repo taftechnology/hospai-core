@@ -714,5 +714,114 @@ export function createClient(opts: {
         body: JSON.stringify({ status, idempotencyKey }),
       });
     },
+    async listRoster(propertyId: string, query?: { kind?: string }) {
+      const qs = new URLSearchParams();
+      if (query?.kind) qs.set('kind', query.kind);
+      const q = qs.toString();
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/roster${q ? `?${q}` : ''}`);
+      return body as {
+        ok: true;
+        staff: Array<{
+          staffId: string;
+          kinds: string[];
+          status: string;
+          exitedAt: number | null;
+          displayName?: string;
+          email?: string;
+          phone?: string;
+          hourlyRate?: { amountMinor: number; currency: string };
+          rating?: number;
+          skills?: string[];
+        }>;
+      };
+    },
+    async getRoster(propertyId: string, staffId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}`,
+      );
+      return body;
+    },
+    async addRoster(
+      propertyId: string,
+      input: {
+        displayName: string;
+        kinds: string[];
+        email?: string;
+        phone?: string;
+        hourlyRate?: { amountMinor: number; currency: string };
+        rating?: number;
+        skills?: string[];
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const payload: Record<string, unknown> = {
+        displayName: input.displayName,
+        kinds: input.kinds,
+        idempotencyKey,
+      };
+      if (input.email !== undefined) payload.email = input.email;
+      if (input.phone !== undefined) payload.phone = input.phone;
+      if (input.hourlyRate !== undefined) payload.hourlyRate = input.hourlyRate;
+      if (input.rating !== undefined) payload.rating = input.rating;
+      if (input.skills !== undefined) payload.skills = input.skills;
+      return getJson(`/v1/properties/${enc(propertyId)}/roster`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    },
+    async updateRoster(
+      propertyId: string,
+      staffId: string,
+      input: {
+        displayName?: string;
+        kinds?: string[];
+        email?: string;
+        phone?: string;
+        hourlyRate?: { amountMinor: number; currency: string };
+        rating?: number;
+        skills?: string[];
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async setRosterStatus(
+      propertyId: string,
+      staffId: string,
+      status: 'active' | 'inactive',
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status, idempotencyKey }),
+      });
+    },
+    async exitRoster(propertyId: string, staffId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}/exit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey }),
+      });
+    },
+    async assignHousekeeping(
+      propertyId: string,
+      input: { roomId: string; businessDate: string; assigneeRef: string; idempotencyKey: string },
+    ) {
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/assignments`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+    },
   };
 }

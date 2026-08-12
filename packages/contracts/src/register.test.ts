@@ -353,6 +353,28 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[77]).toMatchObject({ scope: 'property', permission: 'staff:write' });
   });
 
+  it('roster HTTP routes append at 80–85', () => {
+    expect(V1_HTTP_ROUTE_AUDIT[80]?.id).toBe('get_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[81]?.id).toBe('get_roster_one');
+    expect(V1_HTTP_ROUTE_AUDIT[82]?.id).toBe('post_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[83]?.id).toBe('patch_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[84]?.id).toBe('post_roster_status');
+    expect(V1_HTTP_ROUTE_AUDIT[85]?.id).toBe('post_roster_exit');
+    expect(V1_HTTP_ROUTE_AUDIT[80]).toMatchObject({
+      scope: 'property',
+      permission: 'roster:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[80] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[82]).toMatchObject({
+      scope: 'property',
+      permission: 'roster:write',
+      commandId: 'roster.add',
+      entitlement: 'pms.core',
+    });
+  });
+
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');

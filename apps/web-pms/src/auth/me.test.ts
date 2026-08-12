@@ -38,7 +38,7 @@ describe('me authority helpers', () => {
       permissions: ['reservations:read', 'folio:read'],
     };
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
-      NAV_ENTRIES.filter((e) => e.id !== 'staff' && e.id !== 'book'),
+      NAV_ENTRIES.filter((e) => e.id !== 'staff' && e.id !== 'book' && e.id !== 'roster'),
     );
   });
 
@@ -67,12 +67,26 @@ describe('me authority helpers', () => {
         'folio:post',
         'housekeeping:read',
         'housekeeping:write',
+        'roster:read',
       ],
       orgPermissions: ['org:read'],
     };
     const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
     expect(filtered.map((e) => e.id)).not.toContain('staff');
+    expect(filtered.map((e) => e.id)).not.toContain('roster');
     expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
+  });
+
+  it('#8 filterNavEntries: fabricated me with roster:write → show Roster', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      role: 'admin',
+      permissions: ['reservations:read', 'roster:read', 'roster:write'],
+      orgPermissions: ['org:read'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).toContain(
+      'roster',
+    );
   });
 
   it('#8 filterNavEntries: fabricated me with staff:read → show Staff', () => {

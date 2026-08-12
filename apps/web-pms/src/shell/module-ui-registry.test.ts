@@ -11,6 +11,7 @@ describe('module UI nav merge', () => {
       'departures',
       'book',
       'staff',
+      'roster',
     ]);
     expect(NAV_ENTRIES.every((e) => typeof e.order === 'number')).toBe(true);
   });

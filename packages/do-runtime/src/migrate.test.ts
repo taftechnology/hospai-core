@@ -11,6 +11,7 @@ import {
   ORG_MIGRATIONS,
   ORG_PROPERTY_MEMBER_SQL,
   ORG_MEMBER_AUDIT_COLUMNS_SQL,
+  ORG_ROSTER_SQL,
   ORG_SCHEMA_HEAD,
   ORG_SPINE_SQL,
   PLATFORM_REGISTRY_SQL,
@@ -59,7 +60,12 @@ class MemorySql implements SqlStorageLike {
       });
       return { toArray: () => [] };
     }
-    if (q.startsWith('CREATE TABLE') || q.startsWith('CREATE UNIQUE INDEX') || q.startsWith('CREATE INDEX')) {
+    if (
+      q.startsWith('CREATE TABLE') ||
+      q.startsWith('CREATE UNIQUE INDEX') ||
+      q.startsWith('CREATE INDEX') ||
+      q.startsWith('CREATE TRIGGER')
+    ) {
       this.tables.add(q.slice(0, 80));
       return { toArray: () => [] };
     }
@@ -436,6 +442,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_MEMBER_AUDIT_COLUMNS_SQL.trim());
   });
 
+  it('migrations/do-org/0006_roster.sql matches ORG_ROSTER_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0006_roster.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_ROSTER_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -472,7 +490,7 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(5);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(6);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -486,7 +504,7 @@ describe('freeAvailability', () => {
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(18);
-    expect(ORG_SCHEMA_HEAD).toBe(5);
+    expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 });

@@ -17,3 +17,5 @@ export * from './module-manifest.js';
 export * from './module-txn.js';
 export * from './module-ui.js';
 export * from './staff-ref.js';
+export * from './purge-certificate-columns.js';
+export * from './guest-pii-property-columns.js';

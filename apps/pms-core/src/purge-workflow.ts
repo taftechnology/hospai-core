@@ -1,6 +1,7 @@
 /** §4.8 PurgeWorkflow — guest + org step plans with HALT-always-certifies wrapper. */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { PROPERTY_GUEST_PII_COLUMNS } from '@hospai/contracts';
 import {
   locationHintFromTimeZone,
   resolveOrgEntitlementStub,
@@ -281,12 +282,16 @@ async function runGuestPlan(
   });
 
   await step.do('property-do-guest-pii', async () => {
-    // Declared guest-PII column set is empty (Task 10 enforces write-detection).
-    patchStore(stores, 'property_do', {
-      status: 'reached',
-      deleted: 0,
-      note: 'guest_pii_columns_empty',
-    });
+    if (PROPERTY_GUEST_PII_COLUMNS.length === 0) {
+      patchStore(stores, 'property_do', {
+        status: 'reached',
+        deleted: 0,
+        note: 'guest_pii_columns_empty',
+      });
+      return;
+    }
+    // Phase 0: allowlist empty. When populated, implement column purge before CERTIFY.
+    throw new HaltError('guest_pii_purge_unimplemented');
   });
 
   await step.do('clear-guest-blobs', async () => {

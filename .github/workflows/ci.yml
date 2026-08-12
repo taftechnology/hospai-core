@@ -28,7 +28,9 @@ jobs:
       - run: pnpm check:web-pms-me-gating
       - run: pnpm check:pms-core-test-dates
       - run: pnpm check:module-manifests
+      - run: pnpm check:purge
       - run: node scripts/module-manifests-check.mjs --self-test
+      - run: node scripts/purge-check.mjs --self-test
       - run: node scripts/forbidden-body-check.mjs --self-test
       - run: node scripts/do-transport-guards-check.mjs --self-test
       - run: node scripts/web-pms-colors-check.mjs --self-test

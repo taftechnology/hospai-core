@@ -1,31 +1,16 @@
 /** §4.8 purge certificate helpers — Platform D1 append-only evidence. */
 
+import { PURGE_CERTIFICATE_COLUMNS } from '@hospai/contracts';
 import { ORG_PURGE_RETENTION_MS } from '@hospai/do-runtime';
 import type { PmsEnv } from './env.js';
 import { ensurePlatformSchema } from './registry.js';
 
-export { ORG_PURGE_RETENTION_MS };
+export { ORG_PURGE_RETENTION_MS, PURGE_CERTIFICATE_COLUMNS };
 
 /** Always included in certificate limitations[] (§4.8 Phase 0 PITR caveat). */
 export const PITR_LIMITATION = 'do_pitr_not_covered_phase0' as const;
 
-/** Declared columns — check scripts assert no PII-shaped names. */
-export const PURGE_CERTIFICATE_COLUMNS = [
-  'certificate_id',
-  'workflow_id',
-  'kind',
-  'org_id',
-  'subject_json',
-  'stores_json',
-  'limitations_json',
-  'operator_user_id',
-  'outcome',
-  'halt_reason',
-  'started',
-  'recorded_at',
-  'certified',
-] as const;
-
+/** Declared columns — check scripts assert no PII-shaped names (canonical list in contracts). */
 export type PurgeStoreName = 'key_store' | 'property_do' | 'org_do' | 'r2' | 'iceberg';
 
 export type PurgeStoreRecord = {

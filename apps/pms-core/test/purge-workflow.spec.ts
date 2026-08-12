@@ -8,6 +8,7 @@ import {
   ensurePlatformSchema,
   getOrg,
   getProperty,
+  insertProperty,
   resetPlatformSchemaGate,
   trySetOrgStatus,
   trySetPropertyStatus,
@@ -26,10 +27,14 @@ import { provisionedPropertyStub } from './fixtures.js';
 
 const actor = 'user_owner';
 
-function fakeWorkflowStep(stepNames: string[] = []): WorkflowStep {
+function fakeWorkflowStep(
+  stepNames: string[] = [],
+  beforeStep?: (name: string) => void | Promise<void>,
+): WorkflowStep {
   return {
     do: async (name: string, ...rest: unknown[]) => {
       stepNames.push(name);
+      if (beforeStep) await beforeStep(name);
       const callback = rest[rest.length - 1] as () => Promise<unknown>;
       return callback();
     },
@@ -44,6 +49,7 @@ function fakeWorkflowStep(stepNames: string[] = []): WorkflowStep {
 function runPurgeWorkflow(
   params: PurgeWorkflowParams,
   stepNames: string[] = [],
+  beforeStep?: (name: string) => void | Promise<void>,
 ): Promise<void> {
   const receiver = { env: env as PmsEnv } as unknown as PurgeWorkflow;
   const event = {
@@ -51,7 +57,11 @@ function runPurgeWorkflow(
     timestamp: new Date(),
     instanceId: `test-purge-${Date.now()}`,
   } as WorkflowEvent<PurgeWorkflowParams>;
-  return PurgeWorkflow.prototype.run.call(receiver, event, fakeWorkflowStep(stepNames));
+  return PurgeWorkflow.prototype.run.call(
+    receiver,
+    event,
+    fakeWorkflowStep(stepNames, beforeStep),
+  );
 }
 
 describe('PurgeWorkflow spine', () => {
@@ -486,5 +496,142 @@ describe('PurgeWorkflow org plan', () => {
       env.PURGE_WORKFLOW.create = originalCreate;
       env.PURGE_WORKFLOW.get = originalGet;
     }
+  });
+
+  it('VERIFY residue HALT: remigrated leftover inventory → halted cert; status stays purging', async () => {
+    const orgId = `org_res_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_res_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Residue')).toBe(true);
+    expect(
+      (
+        await provisionProperty(env, {
+          orgId,
+          propertyId,
+          name: 'Residue Prop',
+          jurisdiction: null,
+          timeZone: 'UTC',
+          currency: 'USD',
+          actorUserId: actor,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest();
+    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest();
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const stepNames: string[] = [];
+
+    await expect(
+      runPurgeWorkflow(
+        {
+          kind: 'org',
+          workflowId,
+          orgId,
+          operatorUserId: actor,
+          started: 0,
+          nowMs: 2_000,
+        },
+        stepNames,
+        async (name) => {
+          // After deleteAll, remigrate seeds charge codes / schema → non-zero inventory.
+          if (name === 'verify') {
+            await propStub.getSchemaVersion();
+            expect(await propStub.countNonBookkeepingRows()).toBeGreaterThan(0);
+          }
+        },
+      ),
+    ).rejects.toThrow(HaltError);
+
+    expect(stepNames).toContain('verify');
+    expect(stepNames).not.toContain('certify');
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, halt_reason, certified FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; halt_reason: string; certified: number | null }>();
+
+    expect(row?.outcome).toBe('halted');
+    expect(row?.halt_reason).toBe('verify_residue');
+    expect(row?.certified).toBeNull();
+    expect((await getOrg(env, orgId))?.status).toBe('purging');
+    expect((await getProperty(env, propertyId))?.status).toBe('purging');
+  });
+
+  it('VERIFY re-derive HALTs on stray subject inserted after close-traffic snapshot', async () => {
+    const orgId = `org_stray_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_stray_${crypto.randomUUID().slice(0, 8)}`;
+    const strayId = `prop_extra_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Stray')).toBe(true);
+    expect(
+      (
+        await provisionProperty(env, {
+          orgId,
+          propertyId,
+          name: 'Known',
+          jurisdiction: null,
+          timeZone: 'UTC',
+          currency: 'USD',
+          actorUserId: actor,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest();
+    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest();
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const stepNames: string[] = [];
+
+    await expect(
+      runPurgeWorkflow(
+        {
+          kind: 'org',
+          workflowId,
+          orgId,
+          operatorUserId: actor,
+          started: 0,
+          nowMs: 2_000,
+        },
+        stepNames,
+        async (name) => {
+          // Bypass provision gate: raw registry insert after snapshot was taken.
+          if (name === 'verify') {
+            await insertProperty(env, {
+              propertyId: strayId,
+              orgId,
+              name: 'Stray',
+              jurisdiction: null,
+              timeZone: 'UTC',
+              status: 'active',
+            });
+          }
+        },
+      ),
+    ).rejects.toThrow(HaltError);
+
+    expect(stepNames).toContain('verify');
+    expect(stepNames).not.toContain('certify');
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, halt_reason, certified FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; halt_reason: string; certified: number | null }>();
+
+    expect(row?.outcome).toBe('halted');
+    expect(row?.halt_reason).toBe('unexpected_subject');
+    expect(row?.certified).toBeNull();
+    expect((await getOrg(env, orgId))?.status).toBe('purging');
+    expect((await getProperty(env, propertyId))?.status).toBe('purging');
   });
 });

@@ -5,6 +5,7 @@ import { COMMAND_CATALOG, fingerprintPayload } from '@hospai/contracts';
 import { OUTBOX_BACKLOG_DELAY_MS, toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
 import { handleDomainEvent } from '../src/event-consumer.js';
+import { replayEventLog } from '../src/event-log.js';
 import type { PmsEnv } from '../src/env.js';
 import type { OrgDO } from '../src/org-do.js';
 import type { PropertyDO } from '../src/property-do.js';
@@ -448,5 +449,156 @@ describe('handleDomainEvent contract assertions', () => {
       env.PURGE_WORKFLOW.create = originalCreate;
       env.PURGE_WORKFLOW.get = originalGet;
     }
+  });
+});
+
+describe('event-log consumer ordering', () => {
+  it('CHECK drops already-seen before archive (no re-archive on redelivery)', async () => {
+    const source = { do: 'property' as const, id: `prop_chk_${crypto.randomUUID().slice(0, 8)}` };
+    const seenId = crypto.randomUUID();
+    const freshId = crypto.randomUUID();
+    await env.EVENT_DEDUPE_KV.put(`seen:${seenId}`, '1');
+
+    const batch = createMessageBatch('hospai-events', [
+      {
+        id: 'msg-seen',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: seenId,
+          eventType: 'config.changed',
+          payload: { key: 'k', version: 1, consumers: {}, actor: 'a' },
+          seq: 1,
+          source,
+          createdAt: Date.now(),
+        },
+      },
+      {
+        id: 'msg-fresh',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: freshId,
+          eventType: 'config.changed',
+          payload: { key: 'k', version: 1, consumers: {}, actor: 'a' },
+          seq: 2,
+          source,
+          createdAt: Date.now(),
+        },
+      },
+    ]);
+    const ctx = createExecutionContext();
+    const runQueue = worker.queue as (
+      batch: MessageBatch<DomainEventMessage>,
+      queueEnv: PmsEnv,
+      ctx: ExecutionContext,
+    ) => Promise<void>;
+    await runQueue(batch as MessageBatch<DomainEventMessage>, env, ctx);
+    const result = await getQueueResult(batch, ctx);
+    expect(result.explicitAcks).toEqual(expect.arrayContaining(['msg-seen', 'msg-fresh']));
+
+    const replayed = await replayEventLog(env.EVENT_LOG_R2!, source);
+    expect(replayed.map((e) => e.eventId)).toEqual([freshId]);
+  });
+
+  it('unknown event type is archived then retried (not marked seen)', async () => {
+    const source = { do: 'property' as const, id: `prop_unk_${crypto.randomUUID().slice(0, 8)}` };
+    const eventId = crypto.randomUUID();
+    const batch = createMessageBatch('hospai-events', [
+      {
+        id: 'msg-unk',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId,
+          eventType: 'unknown.event',
+          payload: {},
+          seq: 1,
+          source,
+          createdAt: Date.now(),
+        },
+      },
+    ]);
+    const ctx = createExecutionContext();
+    const runQueue = worker.queue as (
+      batch: MessageBatch<DomainEventMessage>,
+      queueEnv: PmsEnv,
+      ctx: ExecutionContext,
+    ) => Promise<void>;
+    await runQueue(batch as MessageBatch<DomainEventMessage>, env, ctx);
+    const result = await getQueueResult(batch, ctx);
+    expect(result.retryMessages).toEqual([{ msgId: 'msg-unk' }]);
+    expect(await env.EVENT_DEDUPE_KV.get(`seen:${eventId}`)).toBeNull();
+    const replayed = await replayEventLog(env.EVENT_LOG_R2!, source);
+    expect(replayed.map((e) => e.eventId)).toEqual([eventId]);
+  });
+
+  it('put failure retries only the failed source group', async () => {
+    const p = { do: 'property' as const, id: `p_fail_${crypto.randomUUID().slice(0, 8)}` };
+    const o = { do: 'org' as const, id: `o_fail_${crypto.randomUUID().slice(0, 8)}` };
+    const goodId = crypto.randomUUID();
+    const badId = crypto.randomUUID();
+    const origPut = env.EVENT_LOG_R2!.put.bind(env.EVENT_LOG_R2!);
+    const spy = async (
+      key: string,
+      value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob | null,
+      options?: R2PutOptions,
+    ) => {
+      if (String(key).includes(`events/org/${o.id}/`)) throw new Error('forced org put fail');
+      return origPut(key, value, options);
+    };
+    const wrapped = new Proxy(env.EVENT_LOG_R2!, {
+      get(target, prop, receiver) {
+        if (prop === 'put') return spy;
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const queueEnv = new Proxy(env, {
+      get(target, prop, receiver) {
+        if (prop === 'EVENT_LOG_R2') return wrapped;
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as PmsEnv;
+
+    const batch = createMessageBatch('hospai-events', [
+      {
+        id: 'msg-prop',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: goodId,
+          eventType: 'config.changed',
+          payload: { key: 'k', version: 1, consumers: {}, actor: 'a' },
+          seq: 1,
+          source: p,
+          createdAt: Date.now(),
+        },
+      },
+      {
+        id: 'msg-org',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          eventId: badId,
+          eventType: 'config.changed',
+          payload: { key: 'k', version: 1, consumers: {}, actor: 'a' },
+          seq: 1,
+          source: o,
+          createdAt: Date.now(),
+        },
+      },
+    ]);
+    const ctx = createExecutionContext();
+    const runQueue = worker.queue as (
+      batch: MessageBatch<DomainEventMessage>,
+      queueEnv: PmsEnv,
+      ctx: ExecutionContext,
+    ) => Promise<void>;
+    await runQueue(batch as MessageBatch<DomainEventMessage>, queueEnv, ctx);
+    const result = await getQueueResult(batch, ctx);
+    expect(result.explicitAcks).toContain('msg-prop');
+    expect(result.retryMessages).toEqual([{ msgId: 'msg-org' }]);
+    expect(await env.EVENT_DEDUPE_KV.get(`seen:${goodId}`)).toBe('1');
+    expect(await env.EVENT_DEDUPE_KV.get(`seen:${badId}`)).toBeNull();
   });
 });

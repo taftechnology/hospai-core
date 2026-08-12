@@ -19,6 +19,7 @@ import {
   logEventDedupeSkip,
 } from './event-consumer.js';
 import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
+import { archiveBySource, hasEventLogR2 } from './event-log.js';
 import { handleV1 } from './v1-handler.js';
 
 export type { PmsEnv } from './env.js';
@@ -143,6 +144,7 @@ export default {
     }
 
     const eventBatch = batch as MessageBatch<DomainEventMessage>;
+    const survivors: (typeof eventBatch.messages)[number][] = [];
     for (const msg of eventBatch.messages) {
       const body = msg.body;
       if (await env.EVENT_DEDUPE_KV.get(`seen:${body.eventId}`)) {
@@ -150,15 +152,34 @@ export default {
         msg.ack();
         continue;
       }
-      if (body.eventType === 'availability.changed') {
-        try {
-          await handleAvailabilityChanged(env, body);
-        } catch {
-          msg.retry();
-          continue;
-        }
+      survivors.push(msg);
+    }
+
+    if (survivors.length === 0) return;
+
+    if (!hasEventLogR2(env) || !env.EVENT_LOG_R2) {
+      for (const msg of survivors) msg.retry();
+      return;
+    }
+
+    const { ok } = await archiveBySource(
+      env.EVENT_LOG_R2,
+      survivors.map((m) => m.body),
+    );
+    const okIds = new Set(ok.map((m) => m.eventId));
+    for (const msg of survivors) {
+      if (!okIds.has(msg.body.eventId)) {
+        msg.retry();
       }
+    }
+
+    for (const msg of survivors) {
+      if (!okIds.has(msg.body.eventId)) continue;
+      const body = msg.body;
       try {
+        if (body.eventType === 'availability.changed') {
+          await handleAvailabilityChanged(env, body);
+        }
         await handleDomainEvent(body, env);
       } catch {
         msg.retry();

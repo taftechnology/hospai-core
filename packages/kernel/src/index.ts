@@ -41,9 +41,6 @@ export function validateConfigWrite(key: string, value: unknown): unknown {
   return entry.schema.parse(value);
 }
 
-export function defineModule<T extends { id: string }>(mod: T): T {
-  if (!mod.id) throw new Error('module id required');
-  return mod;
-}
-
+export { defineModule, ModuleManifestSchema } from './define-module.js';
+export { MODULE_REGISTRY } from './registry.js';
 export { z };

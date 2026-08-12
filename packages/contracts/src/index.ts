@@ -13,3 +13,7 @@ export * from './v1-http-routes.js';
 export * from './reservation-status.js';
 export * from './money.js';
 export * from './sync.js';
+export * from './module-manifest.js';
+export * from './module-txn.js';
+export * from './module-ui.js';
+export * from './staff-ref.js';

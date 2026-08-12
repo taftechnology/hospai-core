@@ -1,6 +1,12 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  appendPurgeCertificate,
+  countOrgPurgeCertificates,
+  evaluateOrgRetention,
+  nextOrgPurgeWorkflowId,
+} from '../src/purge-certificate.js';
+import {
   createOrg,
   ensurePlatformSchema,
   insertProperty,
@@ -78,5 +84,52 @@ describe('purge registry invariants', () => {
     expect(await createOrg(env, orgId, 'R')).toBe(true);
     expect((await trySetOrgStatus(env, orgId, 'closing')).ok).toBe(true);
     expect((await trySetOrgStatus(env, orgId, 'purging')).ok).toBe(false);
+  });
+});
+
+describe('purge certificate helpers', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+  });
+
+  it('evaluateOrgRetention rejects null purge_not_before and active status', () => {
+    expect(evaluateOrgRetention({ status: 'active', purge_not_before: null }, Date.now()).ok).toBe(
+      false,
+    );
+    const nullWindow = evaluateOrgRetention({ status: 'closing', purge_not_before: null }, Date.now());
+    expect(nullWindow.ok).toBe(false);
+    if (!nullWindow.ok) expect(nullWindow.reason).toBe('purge_not_before_null');
+    // JS trap: Date.now() >= null is true — explicit null check must win
+    expect(evaluateOrgRetention({ status: 'closing', purge_not_before: null }, 1e15).ok).toBe(false);
+  });
+
+  it('org attempt count ignores guest certificates', async () => {
+    const orgId = `org_a_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'A')).toBe(true);
+    await appendPurgeCertificate(env, {
+      workflowId: `purge-guest-g1`,
+      kind: 'guest',
+      orgId,
+      subjects: { guestRef: 'g1' },
+      stores: [],
+      operatorUserId: null,
+      outcome: 'certified',
+      started: Date.now(),
+    });
+    expect(await countOrgPurgeCertificates(env, orgId)).toBe(0);
+    expect(await nextOrgPurgeWorkflowId(env, orgId)).toBe(`purge-org-${orgId}-1`);
+    await appendPurgeCertificate(env, {
+      workflowId: `purge-org-${orgId}-1`,
+      kind: 'org',
+      orgId,
+      subjects: { orgId },
+      stores: [],
+      operatorUserId: 'user_owner',
+      outcome: 'halted',
+      haltReason: 'test',
+      started: Date.now(),
+    });
+    expect(await nextOrgPurgeWorkflowId(env, orgId)).toBe(`purge-org-${orgId}-2`);
   });
 });

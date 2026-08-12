@@ -56,23 +56,39 @@ function walkTsFiles(dir, out = []) {
   return out;
 }
 
-/** Rough table names from INSERT INTO / UPDATE / DELETE FROM. */
-function tablesWrittenIn(src) {
+function unwrapIdent(raw) {
+  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
+  if (raw.startsWith('[') && raw.endsWith(']')) return raw.slice(1, -1);
+  return raw;
+}
+
+// Optional alias: (?:AS\s+)?ident — MUST be an identifier class so SET is not swallowed.
+// S1 guards bare UPDATE … SET against greedy-alias regressions.
+const UPDATE_RE =
+  /\bUPDATE\s+([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+"|\[[^\]]+\])(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?\s+SET\b/gi;
+const INSERT_RE =
+  /\bINSERT\s+(?:OR\s+(?:IGNORE|REPLACE|ABORT|FAIL|ROLLBACK)\s+)?INTO\s+([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+"|\[[^\]]+\])/gi;
+const REPLACE_RE = /\bREPLACE\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+"|\[[^\]]+\])/gi;
+const DELETE_RE = /\bDELETE\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*|"[^"]+"|\[[^\]]+\])/gi;
+
+/** Table names from INSERT / INSERT OR … / REPLACE INTO / UPDATE / DELETE FROM. */
+export function tablesWrittenIn(src) {
   const tables = new Set();
-  for (const m of src.matchAll(/\bINSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi)) {
-    tables.add(m[1]);
-  }
-  for (const m of src.matchAll(/\bUPDATE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+SET\b/gi)) {
-    tables.add(m[1]);
-  }
-  for (const m of src.matchAll(/\bDELETE\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi)) {
-    tables.add(m[1]);
+  for (const re of [INSERT_RE, REPLACE_RE, UPDATE_RE, DELETE_RE]) {
+    re.lastIndex = 0;
+    for (const m of src.matchAll(re)) tables.add(unwrapIdent(m[1]));
   }
   return tables;
 }
 
 function hasWriteSql(src) {
-  return /\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(src);
+  INSERT_RE.lastIndex = 0;
+  REPLACE_RE.lastIndex = 0;
+  UPDATE_RE.lastIndex = 0;
+  DELETE_RE.lastIndex = 0;
+  return (
+    INSERT_RE.test(src) || REPLACE_RE.test(src) || UPDATE_RE.test(src) || DELETE_RE.test(src)
+  );
 }
 
 function packageNameForModuleDir(dir) {
@@ -171,6 +187,53 @@ export function checkModuleManifests(opts = {}) {
 
 function selfTest() {
   let failed = false;
+
+  function assertTables(label, src, expected) {
+    const got = [...tablesWrittenIn(src)].sort();
+    const exp = [...expected].sort();
+    if (got.length !== exp.length || got.some((t, i) => t !== exp[i])) {
+      console.error(
+        `self-test ${label} FAILED: got ${JSON.stringify(got)} expected ${JSON.stringify(exp)}`,
+      );
+      failed = true;
+    }
+  }
+
+  // S1 — regression guard: bare forms must survive the alias rewrite
+  assertTables('S1 insert', 'INSERT INTO reservation (x) VALUES (1)', ['reservation']);
+  assertTables('S1 update spaced', 'UPDATE  room   SET status = ?', ['room']);
+
+  // S1b
+  assertTables('S1b replace', 'REPLACE INTO room (room_id) VALUES (?)', ['room']);
+
+  // S1c
+  assertTables('S1c alias AS', 'UPDATE room AS r SET status = ?', ['room']);
+  assertTables('S1c alias bare', 'UPDATE room r SET status = ?', ['room']);
+
+  // S1d
+  assertTables('S1d quoted', 'UPDATE "room" SET status = ?', ['room']);
+  assertTables('S1d bracketed', 'UPDATE [room] SET status = ?', ['room']);
+
+  // OR IGNORE (live blind spot)
+  assertTables(
+    'S1 OR IGNORE',
+    'INSERT OR IGNORE INTO housekeeping_assignment (x) VALUES (1)',
+    ['housekeeping_assignment'],
+  );
+  assertTables(
+    'S1 OR REPLACE',
+    'INSERT OR REPLACE INTO rate_plan (x) VALUES (1)',
+    ['rate_plan'],
+  );
+
+  // S2 / S3 negatives
+  assertTables('S2 select', 'SELECT * FROM room WHERE id = ?', []);
+  assertTables(
+    'S3 upsert',
+    `INSERT INTO housekeeping_assignment (a) VALUES (1)
+   ON CONFLICT(a) DO UPDATE SET b = excluded.b`,
+    ['housekeeping_assignment'],
+  );
 
   const okRegistry = `import housekeeping from '@hospai/pms-housekeeping'; // pms.housekeeping\nexport const MODULE_REGISTRY = [defineModule(housekeeping)];\n`;
   const okManifest = `

@@ -128,4 +128,50 @@ describe('PurgeWorkflow spine', () => {
       reason: 'no_iceberg_binding',
     });
   });
+
+  it('terminal wrapper certifies and rethrows on non-HaltError throw', async () => {
+    // Guards the unconditional catch — narrowing to HaltError-only would still pass the
+    // other tests while leaving DO/RPC failures without a certificate.
+    const orgId = `org_gen_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Generic')).toBe(true);
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const throwingStep = {
+      do: async () => {
+        throw new Error('do_unreachable');
+      },
+      sleep: async () => {},
+      sleepUntil: async () => {},
+      waitForEvent: async () => {
+        throw new Error('waitForEvent is not supported');
+      },
+    } as unknown as WorkflowStep;
+
+    const receiver = { env: env as PmsEnv } as unknown as PurgeWorkflow;
+    const event = {
+      payload: {
+        kind: 'org',
+        workflowId,
+        orgId,
+        operatorUserId: 'user_owner',
+        started: Date.now(),
+      } satisfies PurgeWorkflowParams,
+      timestamp: new Date(),
+      instanceId: `test-purge-generic-${Date.now()}`,
+    } as WorkflowEvent<PurgeWorkflowParams>;
+
+    await expect(PurgeWorkflow.prototype.run.call(receiver, event, throwingStep)).rejects.toThrow(
+      'do_unreachable',
+    );
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, halt_reason, certified FROM purge_certificate
+       WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; halt_reason: string; certified: number | null }>();
+
+    expect(row?.outcome).toBe('halted');
+    expect(row?.halt_reason).toBe('do_unreachable');
+    expect(row?.certified).toBeNull();
+  });
 });

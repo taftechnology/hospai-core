@@ -1,7 +1,13 @@
-import { env } from 'cloudflare:test';
+import { env, createMessageBatch } from 'cloudflare:test';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { DomainEventMessage, EventSource } from '@hospai/contracts';
+import { fingerprintPayload } from '@hospai/contracts';
+import { toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
+import { listEventLogKeys } from '../src/event-log.js';
+import type { OrgDO } from '../src/org-do.js';
+import type { PropertyDO } from '../src/property-do.js';
 import { provisionProperty } from '../src/provision.js';
 import {
   createOrg,
@@ -19,6 +25,7 @@ import {
   guestPurgeWorkflowId,
   nextOrgPurgeWorkflowId,
   PITR_LIMITATION,
+  type PurgeStoreRecord,
 } from '../src/purge-certificate.js';
 import { ensurePurgeWorkflowInstance } from '../src/purge-workflow-create.js';
 import { HaltError, PurgeWorkflow, type PurgeWorkflowParams } from '../src/purge-workflow.js';
@@ -26,6 +33,39 @@ import { createGuest, idemFor, orgStub, provisionedOrg, TEST_OWNER_ACTOR } from 
 import { provisionedPropertyStub } from './fixtures.js';
 
 const actor = 'user_owner';
+
+async function dispatchQueueConsumer(rows: OutboxRow[], source: EventSource): Promise<void> {
+  const batch = createMessageBatch(
+    'hospai-events',
+    rows.map((row) => ({
+      id: row.eventId,
+      timestamp: new Date(row.createdAt),
+      attempts: 1,
+      body: toQueueMessage(row, source),
+    })),
+  );
+  await worker.queue(batch as MessageBatch<DomainEventMessage>, env);
+}
+
+async function flushPropertyWithConsumer(
+  stub: DurableObjectStub<PropertyDO>,
+  source: EventSource,
+): Promise<void> {
+  await stub.flushOutbox(async (batch) => {
+    await env.EVENTS_QUEUE.sendBatch(batch.map((row) => ({ body: toQueueMessage(row, source) })));
+    await dispatchQueueConsumer(batch, source);
+  });
+}
+
+async function flushOrgWithConsumer(
+  stub: DurableObjectStub<OrgDO>,
+  source: EventSource,
+): Promise<void> {
+  await stub.flushOutbox(async (batch) => {
+    await env.EVENTS_QUEUE.sendBatch(batch.map((row) => ({ body: toQueueMessage(row, source) })));
+    await dispatchQueueConsumer(batch, source);
+  });
+}
 
 function fakeWorkflowStep(
   stepNames: string[] = [],
@@ -249,7 +289,7 @@ describe('PurgeWorkflow spine', () => {
       'verify-shred',
       'property-do-guest-pii',
       'clear-guest-blobs',
-      'skip-r2',
+      'retain-r2',
       'skip-iceberg',
       'verify-key-state',
       'certify',
@@ -270,20 +310,54 @@ describe('PurgeWorkflow spine', () => {
 
     expect(row?.outcome).toBe('certified');
     expect(row?.certified).not.toBeNull();
-    const stores = JSON.parse(row!.stores_json) as Array<{
-      store: string;
-      status: string;
-      deleted?: number;
-      reason?: string;
-    }>;
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
     expect(stores.find((s) => s.store === 'property_do')).toMatchObject({
       status: 'reached',
       deleted: 0,
     });
-    expect(stores.find((s) => s.store === 'r2')).toMatchObject({
-      status: 'pending',
+    const r2 = stores.find((s) => s.store === 'r2')!;
+    expect(r2).toEqual({
+      store: 'r2',
+      status: 'retained',
+      reason: 'pii_by_reference_event_log',
     });
+    expect('deleted' in r2).toBe(false);
+    expect(stores.every((s) => s.status !== 'pending')).toBe(true);
     expect(JSON.parse(row!.limitations_json)).toContain(PITR_LIMITATION);
+  });
+
+  it('guest purge retains event-log objects under the org prefix', async () => {
+    const orgId = `org_retain_${crypto.randomUUID().slice(0, 8)}`;
+    const org = await provisionedOrg(orgId);
+    const propertyId = `prop_retain_${crypto.randomUUID().slice(0, 8)}`;
+    const guestId = `guest_retain_${crypto.randomUUID().slice(0, 8)}`;
+    const refs = await createGuest(org, propertyId, guestId, 'Retain Guest');
+
+    const source: EventSource = { do: 'org', id: orgId };
+    await flushOrgWithConsumer(org, source);
+    const prefix = `events/org/${orgId}/`;
+    expect((await listEventLogKeys(env.EVENT_LOG_R2!, prefix)).length).toBeGreaterThan(0);
+
+    const erase = await org.tryEraseGuest(
+      TEST_OWNER_ACTOR,
+      propertyId,
+      { guestId },
+      await idemFor(`erase-${guestId}`, { guestId }),
+    );
+    expect(erase.ok).toBe(true);
+    await org.resetLaneGuardForTest();
+
+    await runPurgeWorkflow({
+      kind: 'guest',
+      workflowId: guestPurgeWorkflowId(guestId),
+      orgId,
+      guestRef: guestId,
+      piiKeyId: refs.piiKeyId,
+      operatorUserId: null,
+      started: Date.now(),
+    });
+
+    expect((await listEventLogKeys(env.EVENT_LOG_R2!, prefix)).length).toBeGreaterThan(0);
   });
 });
 
@@ -336,7 +410,7 @@ describe('PurgeWorkflow org plan', () => {
       'shred-keys',
       'purge-property-do-page-0',
       'purge-org-do',
-      'skip-r2',
+      'purge-r2',
       'skip-iceberg',
       'verify',
       'certify',
@@ -346,16 +420,87 @@ describe('PurgeWorkflow org plan', () => {
     expect((await getProperty(env, propertyId))?.status).toBe('purged');
 
     const row = await env.PLATFORM_DB.prepare(
-      `SELECT outcome, certified, subject_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+      `SELECT outcome, certified, subject_json, stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
     )
       .bind(workflowId)
-      .first<{ outcome: string; certified: number | null; subject_json: string }>();
+      .first<{
+        outcome: string;
+        certified: number | null;
+        subject_json: string;
+        stores_json: string;
+      }>();
 
     expect(row?.outcome).toBe('certified');
     expect(row?.certified).not.toBeNull();
     const subjects = JSON.parse(row!.subject_json) as Array<{ orgId?: string; propertyId?: string }>;
     expect(subjects).toContainEqual({ orgId });
     expect(subjects).toContainEqual({ propertyId });
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
+    expect(stores.find((s) => s.store === 'r2')).toEqual({
+      store: 'r2',
+      status: 'reached',
+      deleted: expect.any(Number),
+    });
+    expect(stores.every((s) => s.status !== 'pending')).toBe(true);
+  });
+
+  it('org purge prefix-deletes archived event-log segments', async () => {
+    const orgId = `org_r2_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_r2_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Purge R2')).toBe(true);
+
+    const provisioned = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Purge R2 Property',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'USD',
+      actorUserId: actor,
+    });
+    expect(provisioned.ok).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest({ quietMs: 60_000 });
+    const propStub = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId, {
+      flushOutbox: false,
+    });
+    const meta = { reason: 'r2-purge' };
+    const key = 'pms.availability.allow_overbooking';
+    const fingerprint = await fingerprintPayload({ key, value: true, reason: meta.reason });
+    await propStub.tryPutDomainConfig(TEST_OWNER_ACTOR, key, true, meta, {
+      key: `idem-r2-${fingerprint.slice(0, 12)}`,
+      fingerprint,
+    });
+    await flushPropertyWithConsumer(propStub, { do: 'property', id: propertyId });
+    await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
+
+    const propertyPrefix = `events/property/${propertyId}/`;
+    expect((await listEventLogKeys(env.EVENT_LOG_R2!, propertyPrefix)).length).toBeGreaterThan(0);
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    await runPurgeWorkflow({
+      kind: 'org',
+      workflowId,
+      orgId,
+      operatorUserId: actor,
+      started: 0,
+      nowMs: 2_000,
+    });
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ stores_json: string }>();
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
+    const r2 = stores.find((s) => s.store === 'r2')!;
+    expect(r2.status).toBe('reached');
+    expect(r2.deleted).toBeGreaterThanOrEqual(1);
+    expect(await listEventLogKeys(env.EVENT_LOG_R2!, propertyPrefix)).toEqual([]);
+    expect(await listEventLogKeys(env.EVENT_LOG_R2!, `events/org/${orgId}/`)).toEqual([]);
   });
 
   it('step-0 HALTs when org is still active', async () => {

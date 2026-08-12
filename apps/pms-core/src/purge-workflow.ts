@@ -10,6 +10,12 @@ import {
 } from '@hospai/tenant-router';
 import type { PmsEnv, PurgeWorkflowParams } from './env.js';
 import { isJurisdictionSimulate } from './env.js';
+import {
+  assertEventLogPrefixEmpty,
+  deleteEventLogPrefix,
+  eventLogPrefixesForOrg,
+  hasEventLogR2,
+} from './event-log.js';
 import type { OrgDO } from './org-do.js';
 import type { OrgEntitlementDO } from './org-entitlement-do.js';
 import type { PropertyDO } from './property-do.js';
@@ -161,8 +167,13 @@ async function runOrgPlan(
     });
   });
 
-  await step.do('skip-r2', async () => {
-    // Binding present: R2 stays pending until purge-r2 / retain-r2 (later steps).
+  await step.do(hasEventLogR2(env) ? 'purge-r2' : 'skip-r2', async () => {
+    if (!hasEventLogR2(env) || !env.EVENT_LOG_R2) return;
+    let deleted = 0;
+    for (const prefix of eventLogPrefixesForOrg(params.orgId, snapshot.propertyIds)) {
+      deleted += await deleteEventLogPrefix(env.EVENT_LOG_R2, prefix);
+    }
+    replaceStore(stores, { store: 'r2', status: 'reached', deleted });
   });
 
   await step.do('skip-iceberg', async () => {
@@ -220,6 +231,18 @@ async function runOrgPlan(
       params.orgId,
     ) as DurableObjectStub<OrgEntitlementDO>;
     if ((await entStub.countNonBookkeepingRows()) !== 0) throw new HaltError('verify_residue');
+
+    const r2 = stores.find((s) => s.store === 'r2');
+    if (r2?.status === 'reached') {
+      if (!env.EVENT_LOG_R2) throw new HaltError('verify_r2_residue');
+      for (const prefix of eventLogPrefixesForOrg(params.orgId, snapshot.propertyIds)) {
+        try {
+          await assertEventLogPrefixEmpty(env.EVENT_LOG_R2, prefix);
+        } catch {
+          throw new HaltError('verify_r2_residue');
+        }
+      }
+    }
   });
 
   await step.do('certify', async () => {
@@ -299,8 +322,13 @@ async function runGuestPlan(
     });
   });
 
-  await step.do('skip-r2', async () => {
-    // Binding present: R2 stays pending until purge-r2 / retain-r2 (later steps).
+  await step.do(hasEventLogR2(env) ? 'retain-r2' : 'skip-r2', async () => {
+    if (!hasEventLogR2(env)) return;
+    replaceStore(stores, {
+      store: 'r2',
+      status: 'retained',
+      reason: 'pii_by_reference_event_log',
+    });
   });
 
   await step.do('skip-iceberg', async () => {

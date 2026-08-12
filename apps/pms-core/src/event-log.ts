@@ -11,6 +11,13 @@ export function eventLogPrefix(source: EventSource): string {
   return `events/${source.do}/${source.id}/`;
 }
 
+export function eventLogPrefixesForOrg(orgId: string, propertyIds: string[]): string[] {
+  return [
+    eventLogPrefix({ do: 'org', id: orgId }),
+    ...propertyIds.map((id) => eventLogPrefix({ do: 'property', id })),
+  ];
+}
+
 export function eventLogObjectKey(
   source: EventSource,
   seqStart: number,

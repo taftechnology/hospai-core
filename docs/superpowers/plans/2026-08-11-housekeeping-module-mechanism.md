@@ -731,7 +731,7 @@ git commit -m "feat(web-pms): housekeeping board from ui.manifest registry"
 - Modify: `packages/contracts/src/commands/catalog.ts`
 - Modify: `packages/contracts/src/register.test.ts` (assert notes present)
 
-- [ ] **Step 1: Shared notes constant**
+- [x] **Step 1: Shared notes constant**
 
 ```ts
 export const HOUSEKEEPING_STAFF_FAMILY_NOTES =
@@ -743,7 +743,7 @@ export const HOUSEKEEPING_STAFF_FAMILY_NOTES =
 
 Attach `notes: HOUSEKEEPING_STAFF_FAMILY_NOTES` to `housekeeping.staff_add|status|delete|update`.
 
-- [ ] **Step 2: Register test + commit**
+- [x] **Step 2: Register test + commit**
 
 ```bash
 git commit -m "docs(contracts): record housekeeping.staff_* §4.8 family notes"
@@ -758,13 +758,13 @@ git commit -m "docs(contracts): record housekeeping.staff_* §4.8 family notes"
 - Modify: `packages/kernel/src/index.ts` — delete unused `defineConfig` **or** document as thin re-export over `CONFIG_REGISTER` (prefer delete if zero product call sites; keep `validateConfigWrite`)
 - Verify CI includes Task 4 self-tests
 
-- [ ] **Step 1: Grep `defineConfig` from `@hospai/kernel`**
+- [x] **Step 1: Grep `defineConfig` from `@hospai/kernel`**
 
 If unused, remove export and dead code.
 
-- [ ] **Step 2: Recount tests; update README**
+- [x] **Step 2: Recount tests; update README**
 
-- [ ] **Step 3: Final verification — full CI sequence (CI order)**
+- [x] **Step 3: Final verification — full CI sequence (CI order)**
 
 ```bash
 pnpm install
@@ -791,7 +791,7 @@ pnpm lint
 
 (Catalog edits in Task 8 are covered by `check:entitlements` / `check:degraded` / `check:permissions`.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "chore: wire module-manifest CI and refresh README test count"
@@ -801,12 +801,12 @@ git commit -m "chore: wire module-manifest CI and refresh README test count"
 
 ## Acceptance checklist (from spec §1.4)
 
-- [ ] Second module can register with only a registry import line (no kernel internals edit)
-- [ ] Board renders from SPA registry; nav gated on `housekeeping:read`
-- [ ] Three DO RPCs unchanged for `REPLAY_DISPATCH`; characterization extras green post-extract
-- [ ] `property-do.ts` net line delta negative for moved methods
-- [ ] `listRooms` still defined in PropertyDO
-- [ ] No assign UI; `assignee_ref` enforced server-side as `staff_…`
+- [x] Second module can register with only a registry import line (no kernel internals edit)
+- [x] Board renders from SPA registry; nav gated on `housekeeping:read`
+- [x] Three DO RPCs unchanged for `REPLAY_DISPATCH`; characterization extras green post-extract
+- [x] `property-do.ts` net line delta negative for moved methods
+- [x] `listRooms` still defined in PropertyDO
+- [x] No assign UI; `assignee_ref` enforced server-side as `staff_…`
 
 ## Plan self-review
 

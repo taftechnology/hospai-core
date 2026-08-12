@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  CONFIG_REGISTER,
-  type ConfigEntry,
-  getConfigEntry,
-} from '@hospai/contracts';
+import { getConfigEntry } from '@hospai/contracts';
 
 export class SecretConfigRejectedError extends Error {
   constructor(
@@ -22,16 +18,7 @@ export class UndeclaredConfigError extends Error {
   }
 }
 
-export function defineConfig(entry: ConfigEntry): ConfigEntry {
-  const dupes = CONFIG_REGISTER.filter((e) => e.key === entry.key);
-  if (dupes.length > 1) {
-    throw new Error(`Duplicate config key in register: ${entry.key}`);
-  }
-  // Re-export of the same register entry is fine; conflicting duplicates are caught above.
-  void getConfigEntry(entry.key);
-  return entry;
-}
-
+/** Config entries are declared in `@hospai/contracts` CONFIG_REGISTER — not via defineConfig. */
 export function validateConfigWrite(key: string, value: unknown): unknown {
   const entry = getConfigEntry(key);
   if (!entry) throw new UndeclaredConfigError(key);

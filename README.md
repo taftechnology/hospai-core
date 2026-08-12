@@ -23,8 +23,9 @@ There is no polished local HTTP workflow yet. Integration is proven in the test 
 | `pnpm check:ddl` | Generated PropertyDO migrations match `packages/do-runtime` (edit source, then `pnpm generate:ddl`) |
 | `pnpm check:entitlements` | Catalog + D1 seed feature keys stay inside the closed `FEATURE_KEYS` union |
 | `pnpm check:class-denylist` | Every `export class` in the repo is listed for boundary lint |
+| `pnpm check:module-manifests` | Module registry membership, ui/server `moduleId` pairing, write-set ⊇ actual |
 | `pnpm typecheck` | Project references / types |
-| `pnpm test` | Behaviour (275+ tests) |
+| `pnpm test` | Behaviour (~800+ tests across packages; pms-core sharded in CI) |
 | `pnpm lint` | ESLint including `eslint-plugin-hospai` |
 
 ## PR invariants (merge-blocking)

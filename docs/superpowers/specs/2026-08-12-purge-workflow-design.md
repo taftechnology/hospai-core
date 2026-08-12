@@ -69,7 +69,7 @@ A purge certificate is **not** a boolean success. It records:
 
 1. One `PurgeWorkflow` (`kind: 'guest' | 'org'`), per-kind **step plans**, shared CERTIFY / skip / HALT helpers + D1 append.
 2. `PURGE_WORKFLOW` binding (migration-sweep pattern).
-3. Platform D1 lifecycle: `active ↔ closing → purging → purged` on `org` / `property`; retention columns; transition + no-delete triggers.
+3. Platform D1 lifecycle: org `active ↔ closing → purging → purged`; property `active → purging → purged` (no property `closing`); retention columns on org; per-table transition + no-delete triggers.
 4. Status-gated HTTP dispatch, pending-commands replay, property provisioning — one `assertTenantActive` helper.
 5. Guest: sync shred unchanged (200); Workflow from `guest.erased` outbox; rows-gone / VERIFY / certificate.
 6. Org: `org:cancel` + `org:purge` (owner-only); admin purge route **only creates** the Workflow; status flips inside the Workflow.
@@ -298,7 +298,7 @@ Additive DDL via `platform-migrations.ts` + `check:ddl` (no table rebuild):
 9. **Module check `--self-test`** — `pms.core` omit OK; synthetic non-core without `onPurge` fails.
 10. **Certificate column check** — declared allowlist; no PII-shaped names.
 11. **Append-only aborts** — `tryUpdatePurgeCertificate` / `tryDeletePurgeCertificate` catch ABORT → `{ ok: false }` (copy `tryDeleteSubscription` pattern).
-12. **`purged → active` refused** — `trySetOrgStatus` asserts abort on terminal guard.
+12. **Terminal guards** — `trySetOrgStatus` / `trySetPropertyStatus` assert `purged → active` aborts; property `active → closing` aborts (not in property graph).
 
 ---
 

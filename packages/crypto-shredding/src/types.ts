@@ -7,6 +7,18 @@ export type GuestProfile = {
   phone?: string;
 };
 
+export type StaffProfile = {
+  displayName?: string;
+  email?: string;
+  phone?: string;
+  hourlyRateMinor?: number;
+  hourlyRateCurrency?: string;
+  rating?: number;
+  skills?: string[];
+};
+
+export type StaffProfileCreate = StaffProfile & { displayName: string };
+
 export type WrappedKeyRecord = {
   piiKeyId: string;
   scope: KeyScope;

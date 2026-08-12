@@ -70,6 +70,12 @@ export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;
 export const GUEST_EXISTS = 'guest_exists' as const;
 
+export const STAFF_NOT_FOUND = 'staff_not_found' as const;
+export const STAFF_EXITED = 'staff_exited' as const;
+export const STAFF_NOT_ASSIGNABLE = 'staff_not_assignable' as const;
+export const INVALID_KINDS = 'invalid_kinds' as const;
+export const EMPTY_KINDS = 'empty_kinds' as const;
+
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {

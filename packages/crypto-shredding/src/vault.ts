@@ -82,11 +82,11 @@ export class PiiVault {
     return this.store.shred(piiKeyId);
   }
 
-  /** Async material for a new guest row — caller persists inside `transactionSync`. */
-  async prepareGuestRecord(
+  /** Async material for a new PII row — caller persists inside `transactionSync`. */
+  async preparePiiRecord<T extends object>(
     scope: KeyScope,
     subjectId: string,
-    profile: GuestProfile,
+    profile: T,
   ): Promise<{
     piiKeyId: string;
     wrappedKey: Uint8Array;
@@ -112,10 +112,19 @@ export class PiiVault {
     };
   }
 
-  /** Async re-seal of an existing guest profile — caller updates row inside `transactionSync`. */
-  async prepareProfileSeal(
-    piiKeyId: string,
+  /** Async material for a new guest row — caller persists inside `transactionSync`. */
+  async prepareGuestRecord(
+    scope: KeyScope,
+    subjectId: string,
     profile: GuestProfile,
+  ) {
+    return this.preparePiiRecord(scope, subjectId, profile);
+  }
+
+  /** Async re-seal of an existing profile — caller updates row inside `transactionSync`. */
+  async prepareProfileSeal<T extends object>(
+    piiKeyId: string,
+    profile: T,
   ): Promise<{ profileCipher: Uint8Array; profileIv: Uint8Array }> {
     const dataKey = await this.unwrapDataKey(piiKeyId);
     const profileIv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
@@ -124,6 +133,11 @@ export class PiiVault {
       await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv }, dataKey, encoded),
     );
     return { profileCipher, profileIv };
+  }
+
+  async decryptProfile<T>(piiKeyId: string, ciphertext: Uint8Array, iv: Uint8Array): Promise<T> {
+    const plain = await this.decrypt(piiKeyId, ciphertext, iv);
+    return JSON.parse(new TextDecoder().decode(plain)) as T;
   }
 
   private async unwrapDataKey(piiKeyId: string): Promise<CryptoKey> {

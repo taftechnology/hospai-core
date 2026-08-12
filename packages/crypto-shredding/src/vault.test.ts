@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { describeKeyStoreConformance } from './keystore-conformance.js';
 import { KeyShreddedError } from './errors.js';
 import { importMasterKeyHex } from './master-key.js';
-import type { KeyStore, WrappedKeyRecord } from './types.js';
+import type { KeyStore, StaffProfile, StaffProfileCreate, WrappedKeyRecord } from './types.js';
 import { PiiVault } from './vault.js';
 
 const MASTER_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
@@ -46,5 +46,21 @@ describe('PiiVault', () => {
 
     const staffPlain = await vault.decrypt(staffKey, staffSealed.ciphertext, staffSealed.iv);
     expect(new TextDecoder().decode(staffPlain)).toBe('pay rate blob');
+  });
+
+  it('preparePiiRecord + prepareProfileSeal round-trip a StaffProfileCreate, then a thin StaffProfile', async () => {
+    const store = new MemoryKeyStore();
+    const vault = new PiiVault(await importMasterKeyHex(MASTER_HEX), store);
+    const created: StaffProfileCreate = { displayName: 'Ada', email: 'ada@example.com' };
+    const material = await vault.preparePiiRecord('staff', 'staff_ada', created);
+    store.insert({ piiKeyId: material.piiKeyId, scope: 'staff', subjectId: 'staff_ada', wrappedKey: material.wrappedKey });
+    const opened = await vault.decryptProfile<StaffProfile>(material.piiKeyId, material.profileCipher, material.profileIv);
+    expect(opened.displayName).toBe('Ada');
+
+    const { displayName: _n, email: _e, phone: _p, ...employment } = opened;
+    const resealed = await vault.prepareProfileSeal(material.piiKeyId, employment);
+    const afterExit = await vault.decryptProfile<StaffProfile>(material.piiKeyId, resealed.profileCipher, resealed.profileIv);
+    expect(afterExit).toEqual({});
+    expect('displayName' in afterExit).toBe(false);
   });
 });

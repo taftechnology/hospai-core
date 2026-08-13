@@ -631,9 +631,15 @@ export const RESERVATION_LIFECYCLE_V20_STATEMENTS: string[] = [
 export const RESERVATION_LIFECYCLE_V20_SQL =
   RESERVATION_LIFECYCLE_V20_STATEMENTS.join(';\n\n') + ';\n';
 
-/** v21 — folio window CHECK, payment void/refund, no_post, quote snapshot, DISCOUNT/DAMAGE. */
+/**
+ * v21 — folio window CHECK, payment void/refund, no_post, quote snapshot, DISCOUNT/DAMAGE.
+ *
+ * FK-safe rebuild: PRAGMA foreign_keys is not honored across DO `sql.exec` calls, so the
+ * rebuild never drops a referenced parent. New tables are created alongside the old ones
+ * (children reference the *_v21 parents), data is copied, old tables are dropped
+ * child-first, and the renames rewrite child FK references to the final names.
+ */
 export const FOLIO_MONEY_OPS_V21_STATEMENTS: string[] = [
-  `PRAGMA foreign_keys = OFF`,
   `CREATE TABLE folio_window_v21 (
   folio_window_id TEXT PRIMARY KEY,
   reservation_id  TEXT NOT NULL,
@@ -645,9 +651,6 @@ export const FOLIO_MONEY_OPS_V21_STATEMENTS: string[] = [
   `INSERT INTO folio_window_v21 (
      folio_window_id, reservation_id, kind, billed_party, status, closed_at)
    SELECT folio_window_id, reservation_id, kind, billed_party, status, closed_at FROM folio_window`,
-  `DROP TABLE folio_window`,
-  `ALTER TABLE folio_window_v21 RENAME TO folio_window`,
-  `CREATE INDEX folio_window_reservation_idx ON folio_window (reservation_id)`,
   `CREATE TABLE payment_v21 (
   payment_id             TEXT PRIMARY KEY,
   reservation_id         TEXT NOT NULL,
@@ -674,7 +677,7 @@ export const FOLIO_MONEY_OPS_V21_STATEMENTS: string[] = [
     CHECK (refunded_amount_minor IS NULL OR refunded_amount_minor >= 0),
   void_fingerprint       TEXT,
   refund_fingerprint     TEXT,
-  FOREIGN KEY (folio_window_id) REFERENCES folio_window(folio_window_id)
+  FOREIGN KEY (folio_window_id) REFERENCES folio_window_v21(folio_window_id)
 )`,
   `INSERT INTO payment_v21 (
      payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
@@ -686,10 +689,53 @@ export const FOLIO_MONEY_OPS_V21_STATEMENTS: string[] = [
      gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
      capture_fingerprint, created_at, updated_at, tender_type, shift_id,
      'STAY', NULL, NULL, NULL FROM payment`,
+  `CREATE TABLE folio_line_v21 (
+  folio_line_id         TEXT PRIMARY KEY,
+  folio_window_id       TEXT NOT NULL,
+  reservation_id        TEXT NOT NULL,
+  charge_code           TEXT NOT NULL,
+  amount_minor          INTEGER NOT NULL,
+  txn_currency          TEXT NOT NULL,
+  ledger_amount_minor   INTEGER NOT NULL,
+  fx_rate               TEXT NOT NULL,
+  fx_rate_at            INTEGER NOT NULL,
+  source                TEXT,
+  business_date         TEXT,
+  split_of              TEXT,
+  created_at            INTEGER NOT NULL,
+  payment_id            TEXT,
+  tax_of                TEXT REFERENCES folio_line_v21(folio_line_id),
+  tax_rule_id           TEXT,
+  CHECK (source <> 'NIGHT_AUDIT' OR business_date IS NOT NULL),
+  FOREIGN KEY (folio_window_id) REFERENCES folio_window_v21(folio_window_id),
+  FOREIGN KEY (payment_id) REFERENCES payment_v21(payment_id),
+  FOREIGN KEY (charge_code) REFERENCES charge_code(code)
+)`,
+  `INSERT INTO folio_line_v21 (
+     folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id)
+   SELECT folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id FROM folio_line`,
+  `DROP TABLE folio_line`,
   `DROP TABLE payment`,
+  `DROP TABLE folio_window`,
+  `ALTER TABLE folio_window_v21 RENAME TO folio_window`,
   `ALTER TABLE payment_v21 RENAME TO payment`,
+  `ALTER TABLE folio_line_v21 RENAME TO folio_line`,
+  `CREATE INDEX folio_window_reservation_idx ON folio_window (reservation_id)`,
   `CREATE UNIQUE INDEX payment_idempotency_uidx ON payment(idempotency_key)`,
   `CREATE INDEX payment_reservation_idx ON payment(reservation_id)`,
+  `CREATE UNIQUE INDEX folio_line_audit_uniq
+  ON folio_line (reservation_id, business_date, charge_code)
+  WHERE source = 'NIGHT_AUDIT'`,
+  `CREATE INDEX folio_line_window_idx ON folio_line (folio_window_id)`,
+  `CREATE UNIQUE INDEX folio_line_payment_uidx
+  ON folio_line(payment_id) WHERE payment_id IS NOT NULL`,
+  `CREATE UNIQUE INDEX folio_line_tax_uniq
+  ON folio_line (tax_of, tax_rule_id) WHERE source = 'TAX'`,
+  `CREATE INDEX folio_line_tax_of_idx ON folio_line (tax_of) WHERE tax_of IS NOT NULL`,
   `ALTER TABLE reservation ADD COLUMN no_post INTEGER NOT NULL DEFAULT 0
   CHECK (no_post IN (0, 1))`,
   `CREATE TABLE reservation_rate_night (
@@ -706,7 +752,6 @@ export const FOLIO_MONEY_OPS_V21_STATEMENTS: string[] = [
   ('DISCOUNT', 'Discount', 'active', 0, 0),
   ('DAMAGE', 'Damage', 'active', 0, 0)`,
   `UPDATE charge_code SET tax_group = 'GOODS' WHERE code = 'DAMAGE'`,
-  `PRAGMA foreign_keys = ON`,
 ];
 
 export const FOLIO_MONEY_OPS_V21_SQL = FOLIO_MONEY_OPS_V21_STATEMENTS.join(';\n\n') + ';\n';

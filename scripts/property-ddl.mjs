@@ -319,7 +319,8 @@ const doPropertyTargets = [
     header: `-- PropertyDO folio money ops — generated from @hospai/do-runtime
 -- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
 -- Regenerate: pnpm generate:ddl
--- ORDER: PRAGMA OFF → folio_window rebuild → payment rebuild → no_post → reservation_rate_night → seeds → PRAGMA ON.
+-- ORDER: create *_v21 (children reference new parents) → copy → drop old child-first → rename → indexes → no_post → reservation_rate_night → seeds.
+-- FK-safe: never drops a referenced parent; PRAGMA foreign_keys is not honored across DO sql.exec calls.
 
 `,
     sql: FOLIO_MONEY_OPS_V21_SQL,

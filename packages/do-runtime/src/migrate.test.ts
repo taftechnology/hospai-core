@@ -150,8 +150,10 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('DROP TABLE folio_window')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_window_v21 RENAME TO folio_window')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO payment_v21')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO folio_line_v21')) return { toArray: () => [] };
     if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO room_ooo')) return { toArray: () => [] };
     if (q.startsWith('UPDATE availability_day')) return { toArray: () => [] };
@@ -587,8 +589,15 @@ describe('schema head constants', () => {
     expect(v21?.name).toBe('folio_money_ops');
     expect(v21?.statements.some((s) => s.includes('folio_window_v21'))).toBe(true);
     expect(v21?.statements.some((s) => s.includes('reservation_rate_night'))).toBe(true);
-    expect(v21?.statements[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
-    expect(v21?.statements.at(-1)).toMatch(/PRAGMA foreign_keys = ON/i);
+    // FK-safe rebuild: no PRAGMA foreign_keys toggle (not honored across DO sql.exec calls),
+    // old tables drop child-first after the *_v21 copies are populated.
+    expect(v21?.statements.some((s) => /PRAGMA foreign_keys/i.test(s))).toBe(false);
+    const drops = v21!.statements.filter((s) => s.startsWith('DROP TABLE'));
+    expect(drops.map((d) => d.replace('DROP TABLE ', ''))).toEqual([
+      'folio_line',
+      'payment',
+      'folio_window',
+    ]);
   });
 
   it('property schema head is 22 after room_ooo', () => {

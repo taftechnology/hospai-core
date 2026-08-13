@@ -589,4 +589,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'rooms.set_ooo_range',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_reservation_search',
+    scope: 'property',
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

@@ -480,6 +480,11 @@ export function createClient(opts: {
       );
       return body as ReservationRead;
     },
+    async searchReservations(propertyId: string, q: string) {
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations-search?q=${encodeURIComponent(q)}`,
+      );
+    },
     async getFolioPayments(
       propertyId: string,
       reservationId: string,

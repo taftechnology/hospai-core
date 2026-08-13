@@ -444,6 +444,14 @@ describe('command catalog', () => {
       commandId: 'rooms.set_ooo_range',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[105]?.id).toBe('get_reservation_search');
+    expect(V1_HTTP_ROUTE_AUDIT[105]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[105] ?? {})).toBe(false);
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
   });
 

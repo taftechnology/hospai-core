@@ -1974,6 +1974,80 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
   return json(result, 200);
 }
 
+async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const qRaw = ctx.url.searchParams.get('q');
+  const q = (qRaw ?? '').trim();
+  if (!q || q.length < 1 || q.length > 128) {
+    return json({ error: 'invalid_query' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    const found = await resolvedCtx.resolved.stub.searchReservations(q);
+    if (found.items.length === 0) {
+      return json({ ok: true, items: [] }, 200);
+    }
+
+    const refs = [...new Set(found.items.map((row) => row.guestRef))];
+    const guests: Record<
+      string,
+      | { ok: true; guestId: string; erased: false; profile: { displayName?: string } }
+      | { ok: true; guestId: string; erased: true; profile: null }
+      | { ok: false; guestId: string; error: string }
+    > = {};
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    for (let i = 0; i < refs.length; i += 50) {
+      const chunk = refs.slice(i, i + 50);
+      const hydrated = await org.readGuests(actor, propertyId, chunk);
+      if (!hydrated.ok) {
+        return degradedFailClosedReadResponse();
+      }
+      Object.assign(guests, hydrated.guests);
+    }
+
+    if (found.mode === 'exact') {
+      const row = found.items[0]!;
+      const entry = guests[row.guestRef];
+      const displayName =
+        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
+      return json({ ok: true, items: [{ ...row, displayName }] }, 200);
+    }
+
+    const needle = q.toLowerCase();
+    const matched: Array<(typeof found.items)[number] & { displayName: string | null }> = [];
+    for (const row of found.items) {
+      const entry = guests[row.guestRef];
+      if (!entry || !entry.ok) {
+        if (entry && !entry.ok && entry.error === 'decrypt_unresolved') {
+          logError(ctx.observability, { msg: 'guests.read.decrypt_incident', guestId: row.guestRef });
+        }
+        continue;
+      }
+      if (entry.erased || !entry.profile?.displayName) continue;
+      if (!entry.profile.displayName.toLowerCase().includes(needle)) continue;
+      matched.push({ ...row, displayName: entry.profile.displayName });
+    }
+    matched.sort((a, b) => {
+      if (a.arrivalDate !== b.arrivalDate) return a.arrivalDate < b.arrivalDate ? 1 : -1;
+      return a.reservationId < b.reservationId ? -1 : a.reservationId > b.reservationId ? 1 : 0;
+    });
+    return json({ ok: true, items: matched.slice(0, 20) }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e) || isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 async function handlePostReservationStatusAction(
   ctx: V1DispatchContext,
   reservationId: string,
@@ -5896,6 +5970,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'rooms.set_ooo_range',
     entitlement: 'pms.core',
     handler: handlePostRoomOooRange,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations-search$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationSearch,
   },
 ];
 

@@ -1237,5 +1237,344 @@ export function createClient(opts: {
         body: JSON.stringify(input),
       });
     },
+
+    async listRoomTypes(
+      propertyId: string,
+      query?: { status?: 'active' | 'archived' | 'all' },
+    ) {
+      const qs = new URLSearchParams();
+      if (query?.status) qs.set('status', query.status);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/room-types${q ? `?${q}` : ''}`,
+      );
+      return body as { ok: true; roomTypes: unknown[] };
+    },
+    async createRoomType(
+      propertyId: string,
+      input: {
+        roomTypeId: string;
+        code: string;
+        name: string;
+        roomCount: number;
+        maxOccupancy: number;
+        maxAdults: number;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `room-type:create:${input.roomTypeId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/room-types`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateRoomType(
+      propertyId: string,
+      roomTypeId: string,
+      input: {
+        code?: string;
+        name?: string;
+        roomCount?: number;
+        maxOccupancy?: number;
+        maxAdults?: number;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `room-type:update:${roomTypeId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/room-types/${enc(roomTypeId)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async archiveRoomType(propertyId: string, roomTypeId: string) {
+      const idempotencyKey = stableKeyForOperation(
+        `room-type:archive:${roomTypeId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/room-types/${enc(roomTypeId)}`, {
+        method: 'DELETE',
+        headers: { 'x-idempotency-key': idempotencyKey },
+      });
+    },
+    async createRoom(
+      propertyId: string,
+      input: { roomId: string; roomTypeId: string; code: string; floor?: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(`room:create:${input.roomId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateRoom(
+      propertyId: string,
+      roomId: string,
+      input: { code?: string; floor?: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(`room:update:${roomId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async listRatePlans(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-plans`);
+      return body as { ok: true; plans: unknown[] };
+    },
+    async createRatePlan(
+      propertyId: string,
+      input: {
+        ratePlanId: string;
+        code: string;
+        name: string;
+        cancelPenaltyType?: string;
+        cancelGraceHours?: number;
+        cancelPenaltyNights?: number | null;
+        cancelPenaltyBps?: number | null;
+        cancelPolicyText?: string | null;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-plan:create:${input.ratePlanId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-plans`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateRatePlan(propertyId: string, ratePlanId: string, patch: Record<string, unknown>) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-plan:update:${ratePlanId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-plans/${enc(ratePlanId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...patch, idempotencyKey }),
+      });
+    },
+    async archiveRatePlan(propertyId: string, ratePlanId: string) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-plan:archive:${ratePlanId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-plans/${enc(ratePlanId)}`, {
+        method: 'DELETE',
+        headers: { 'x-idempotency-key': idempotencyKey },
+      });
+    },
+    async listRateDays(
+      propertyId: string,
+      query: { fromDate: string; toDate: string; roomTypeId?: string; ratePlanId?: string },
+    ) {
+      const qs = new URLSearchParams();
+      qs.set('fromDate', query.fromDate);
+      qs.set('toDate', query.toDate);
+      if (query.roomTypeId) qs.set('roomTypeId', query.roomTypeId);
+      if (query.ratePlanId) qs.set('ratePlanId', query.ratePlanId);
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/rate-days?${qs.toString()}`,
+      );
+      return body as { ok: true; days: unknown[] };
+    },
+    async putRateDay(
+      propertyId: string,
+      input: {
+        roomTypeId: string;
+        ratePlanId?: string;
+        stayDate: string;
+        amountMinor: number;
+        currency: string;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-day:${input.roomTypeId}:${input.ratePlanId ?? 'BAR'}:${input.stayDate}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-days`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async bulkUpdateRates(
+      propertyId: string,
+      updates: Array<{
+        roomTypeId: string;
+        ratePlanId?: string;
+        stayDate: string;
+        amountMinor: number;
+        currency: string;
+      }>,
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `rates:bulk:${propertyId}:${updates.map((u) => `${u.roomTypeId}:${u.stayDate}`).join(',')}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rates/bulk`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ updates, idempotencyKey }),
+      });
+    },
+    async listRestrictionDays(
+      propertyId: string,
+      query: { fromDate: string; toDate: string; roomTypeId?: string },
+    ) {
+      const qs = new URLSearchParams();
+      qs.set('fromDate', query.fromDate);
+      qs.set('toDate', query.toDate);
+      if (query.roomTypeId) qs.set('roomTypeId', query.roomTypeId);
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/restriction-days?${qs.toString()}`,
+      );
+      return body as { ok: true; days: unknown[] };
+    },
+    async putRestrictionDay(
+      propertyId: string,
+      input: {
+        roomTypeId: string;
+        stayDate: string;
+        minLos?: number | null;
+        maxLos?: number | null;
+        cta?: boolean;
+        ctd?: boolean;
+        stopSell?: boolean;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `restriction-day:${input.roomTypeId}:${input.stayDate}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/restriction-days`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async listDomainConfig(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/config/domain`);
+      return body as { ok: true; keys: unknown[] };
+    },
+    async putDomainConfig(
+      propertyId: string,
+      input: { key: string; value: unknown; reason: string; effectiveFrom?: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `domain-config:${input.key}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/config/domain`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updatePropertyDetails(propertyId: string, input: { name: string }) {
+      const idempotencyKey = stableKeyForOperation(
+        `property:details:${propertyId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async listChargeCodes(propertyId: string, query?: { status?: 'active' | 'archived' | 'all' }) {
+      const qs = new URLSearchParams();
+      if (query?.status) qs.set('status', query.status);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/charge-codes${q ? `?${q}` : ''}`,
+      );
+      return body as { ok: true; codes: unknown[] };
+    },
+    async createChargeCode(propertyId: string, input: { code: string; name: string }) {
+      const idempotencyKey = stableKeyForOperation(
+        `charge-code:create:${input.code}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/charge-codes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateChargeCode(
+      propertyId: string,
+      code: string,
+      input: { name?: string; taxGroup?: string | null },
+    ) {
+      const idempotencyKey = stableKeyForOperation(`charge-code:update:${code}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/charge-codes/${enc(code)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async setChargeCodeStatus(propertyId: string, code: string, status: 'active' | 'archived') {
+      const idempotencyKey = stableKeyForOperation(
+        `charge-code:status:${code}:${status}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/charge-codes/${enc(code)}/status`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status, idempotencyKey }),
+      });
+    },
+    async listTaxRules(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/tax-rules`);
+      return body as { ok: true; rules: unknown[] };
+    },
+    async createTaxRule(
+      propertyId: string,
+      input: {
+        taxRuleId: string;
+        ruleKey: string;
+        name: string;
+        ruleType: string;
+        rate: string;
+        taxGroup: string;
+        outputChargeCode: string;
+        validFrom: string;
+        validTo?: string | null;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `tax-rule:create:${input.taxRuleId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/tax-rules`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async supersedeTaxRule(propertyId: string, taxRuleId: string, input: Record<string, unknown>) {
+      const idempotencyKey = stableKeyForOperation(
+        `tax-rule:supersede:${taxRuleId}`,
+        opts.keyStore,
+      );
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/tax-rules/${enc(taxRuleId)}/supersede`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
   };
 }

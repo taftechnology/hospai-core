@@ -1,12 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-const STATUSES = ['clean', 'dirty', 'inspected', 'out_of_order'] as const;
+const STATUSES = ['clean', 'dirty', 'inspected'] as const;
+
+export type HousekeepingOooRange = {
+  oooId: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+};
 
 export type HousekeepingRoom = {
   roomId: string;
   code: string;
   status: string;
+  floor?: string | null;
+  oooRanges?: HousekeepingOooRange[];
 };
 
 export type HousekeepingAssignment = {
@@ -42,6 +51,17 @@ export type HousekeepingApi = {
     propertyId: string,
     input: { roomId: string; businessDate: string; assigneeRef: string; idempotencyKey: string },
   ) => Promise<unknown>;
+  setOooRange?: (
+    propertyId: string,
+    roomId: string,
+    input: {
+      startDate: string;
+      endDate: string;
+      oooId?: string;
+      reason?: string;
+      idempotencyKey: string;
+    },
+  ) => Promise<unknown>;
 };
 
 export type HousekeepingAppProps = {
@@ -50,6 +70,8 @@ export type HousekeepingAppProps = {
   defaultBusinessDate: string;
   api: HousekeepingApi;
   canAssign: boolean;
+  canReadRoster?: boolean;
+  canSetOoo?: boolean;
   classifyError?: (err: unknown) => { class?: string } | undefined;
 };
 
@@ -61,14 +83,30 @@ function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
   );
 }
 
+function addOneDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function HousekeepingApp({
   propertyId,
   defaultBusinessDate,
   api,
   canAssign,
+  canReadRoster,
+  canSetOoo = false,
   classifyError,
 }: HousekeepingAppProps) {
+  const readRoster = canReadRoster ?? canAssign;
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [floorFilter, setFloorFilter] = useState('');
+  const [assignedFilter, setAssignedFilter] = useState('');
+  const [oooRoomId, setOooRoomId] = useState('');
+  const [oooStart, setOooStart] = useState('');
+  const [oooReturn, setOooReturn] = useState('');
+  const [oooReason, setOooReason] = useState('');
   const queryClient = useQueryClient();
 
   const roomsQuery = useQuery({
@@ -107,6 +145,36 @@ export function HousekeepingApp({
     [rosterQuery.data],
   );
 
+  const rooms = roomsQuery.data?.rooms ?? [];
+  const filteredRooms = useMemo(() => {
+    return rooms.filter((room) => {
+      if (statusFilter && room.status !== statusFilter) return false;
+      if (floorFilter && (room.floor ?? '') !== floorFilter) return false;
+      const assigned = byRoom.has(room.roomId);
+      if (assignedFilter === 'assigned' && !assigned) return false;
+      if (assignedFilter === 'unassigned' && assigned) return false;
+      return true;
+    });
+  }, [rooms, statusFilter, floorFilter, assignedFilter, byRoom]);
+
+  const workload = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of assignmentsQuery.data?.assignments ?? []) {
+      counts.set(a.assigneeRef, (counts.get(a.assigneeRef) ?? 0) + 1);
+    }
+    const assignedRoomIds = new Set(
+      (assignmentsQuery.data?.assignments ?? []).map((a) => a.roomId),
+    );
+    return {
+      rows: [...counts.entries()].map(([staffId, count]) => ({
+        staffId,
+        label: displayNameByStaffId.get(staffId) ?? staffId,
+        count,
+      })),
+      unassigned: rooms.length - assignedRoomIds.size,
+    };
+  }, [assignmentsQuery.data, displayNameByStaffId, rooms.length]);
+
   const statusMutation = useMutation({
     mutationFn: (input: { roomId: string; status: string }) =>
       api.updateRoomStatus(
@@ -135,14 +203,36 @@ export function HousekeepingApp({
     },
   });
 
+  const oooMutation = useMutation({
+    mutationFn: (input: {
+      roomId: string;
+      startDate: string;
+      endDate: string;
+      oooId?: string;
+      reason?: string;
+    }) => {
+      if (!api.setOooRange) throw new Error('setOooRange unavailable');
+      return api.setOooRange(propertyId, input.roomId, {
+        startDate: input.startDate,
+        endDate: input.endDate,
+        ...(input.oooId ? { oooId: input.oooId } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+        idempotencyKey: crypto.randomUUID(),
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+    },
+  });
+
   const roomsClass = roomsQuery.isError ? classifyError?.(roomsQuery.error)?.class : undefined;
   const assignClass = assignmentsQuery.isError
     ? classifyError?.(assignmentsQuery.error)?.class
     : undefined;
-  const rosterClass = rosterQuery.isError ? classifyError?.(rosterQuery.error)?.class : undefined;
 
-  const emptyRoster =
-    canAssign && rosterQuery.isSuccess && assignable.length === 0;
+  const emptyRoster = canAssign && readRoster && rosterQuery.isSuccess && assignable.length === 0;
+  const showPicker = canAssign && readRoster && assignable.length > 0;
+  const formRoomId = oooRoomId || rooms[0]?.roomId || '';
 
   return (
     <div>
@@ -157,19 +247,134 @@ export function HousekeepingApp({
         />
       </label>
 
-      {(roomsQuery.isError || assignmentsQuery.isError || rosterQuery.isError) && (
+      <label>
+        Filter status{' '}
+        <select
+          aria-label="Filter status"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">All</option>
+          <option value="clean">clean</option>
+          <option value="dirty">dirty</option>
+          <option value="inspected">inspected</option>
+          <option value="out_of_order">out_of_order</option>
+        </select>
+      </label>
+      <label>
+        Floor{' '}
+        <select
+          aria-label="Filter floor"
+          value={floorFilter}
+          onChange={(e) => setFloorFilter(e.target.value)}
+        >
+          <option value="">All</option>
+          {[...new Set(rooms.map((r) => r.floor).filter((f): f is string => Boolean(f)))].map(
+            (floor) => (
+              <option key={floor} value={floor}>
+                {floor}
+              </option>
+            ),
+          )}
+        </select>
+      </label>
+      <label>
+        Assignment{' '}
+        <select
+          aria-label="Filter assignment"
+          value={assignedFilter}
+          onChange={(e) => setAssignedFilter(e.target.value)}
+        >
+          <option value="">All</option>
+          <option value="assigned">assigned</option>
+          <option value="unassigned">unassigned</option>
+        </select>
+      </label>
+
+      {(roomsQuery.isError || assignmentsQuery.isError) && (
         <div className="error" role="alert">
           Unable to load housekeeping board
-          {roomsClass === 'fail_closed' ||
-          assignClass === 'fail_closed' ||
-          rosterClass === 'fail_closed'
+          {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
             ? ' (property unreachable)'
             : ''}
           .
         </div>
       )}
 
+      {rosterQuery.isError && (
+        <div className="error" role="alert">
+          Unable to load housekeepers
+        </div>
+      )}
+
       {emptyRoster && <p>No housekeepers on the roster</p>}
+
+      <div data-testid="hk-workload">
+        {workload.rows.map((row) => (
+          <div key={row.staffId}>
+            {row.label}: {row.count}
+          </div>
+        ))}
+        <div>Unassigned: {workload.unassigned}</div>
+      </div>
+
+      {canSetOoo && (
+        <form
+          data-testid="hk-ooo-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!formRoomId || !oooStart || !oooReturn) return;
+            oooMutation.mutate({
+              roomId: formRoomId,
+              startDate: oooStart,
+              endDate: oooReturn,
+              reason: oooReason.trim() || undefined,
+            });
+          }}
+        >
+          <label>
+            Room{' '}
+            <select
+              aria-label="OOO room"
+              value={formRoomId}
+              onChange={(e) => setOooRoomId(e.target.value)}
+            >
+              {rooms.map((room) => (
+                <option key={room.roomId} value={room.roomId}>
+                  {room.code}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Start{' '}
+            <input
+              type="date"
+              aria-label="Start"
+              value={oooStart}
+              onChange={(e) => setOooStart(e.target.value)}
+            />
+          </label>
+          <label>
+            Return{' '}
+            <input
+              type="date"
+              aria-label="Return"
+              value={oooReturn}
+              onChange={(e) => setOooReturn(e.target.value)}
+            />
+          </label>
+          <label>
+            Reason{' '}
+            <input
+              aria-label="OOO reason"
+              value={oooReason}
+              onChange={(e) => setOooReason(e.target.value)}
+            />
+          </label>
+          <button type="submit">Set OOO</button>
+        </form>
+      )}
 
       <table data-testid="hk-board">
         <thead>
@@ -181,7 +386,7 @@ export function HousekeepingApp({
           </tr>
         </thead>
         <tbody>
-          {(roomsQuery.data?.rooms ?? []).map((room) => {
+          {filteredRooms.map((room) => {
             const assigneeRef = byRoom.get(room.roomId);
             const assigneeLabel = assigneeRef
               ? (displayNameByStaffId.get(assigneeRef) ?? assigneeRef)
@@ -190,26 +395,56 @@ export function HousekeepingApp({
               <tr key={room.roomId}>
                 <td>{room.code}</td>
                 <td>
-                  <select
-                    aria-label={`Status for ${room.code}`}
-                    defaultValue={room.status}
-                    onChange={(e) => {
-                      const status = e.target.value;
-                      if (status !== room.status) {
-                        statusMutation.mutate({ roomId: room.roomId, status });
-                      }
-                    }}
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  {room.status === 'out_of_order' ? (
+                    <span>out_of_order</span>
+                  ) : (
+                    <select
+                      aria-label={`Status for ${room.code}`}
+                      defaultValue={room.status}
+                      onChange={(e) => {
+                        const status = e.target.value;
+                        if (status !== room.status) {
+                          statusMutation.mutate({ roomId: room.roomId, status });
+                        }
+                      }}
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(room.oooRanges ?? []).map((range) => (
+                    <div key={range.oooId}>
+                      {range.startDate}–{range.endDate}
+                      {range.reason ? ` ${range.reason}` : ''}
+                      {canSetOoo ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm('Release this OOO range early?')) return;
+                            const defaultReturn =
+                              businessDate > range.startDate
+                                ? businessDate
+                                : addOneDay(range.startDate);
+                            oooMutation.mutate({
+                              roomId: room.roomId,
+                              oooId: range.oooId,
+                              startDate: range.startDate,
+                              endDate: defaultReturn,
+                            });
+                          }}
+                        >
+                          Release early
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
                 </td>
                 <td>{assigneeLabel}</td>
                 <td>
-                  {canAssign && assignable.length > 0 ? (
+                  {showPicker ? (
                     <select
                       aria-label={`Assign ${room.code}`}
                       defaultValue=""

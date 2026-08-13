@@ -21,6 +21,8 @@ export function HousekeepingScreen() {
 
   const me = meQuery.data as PropertyMe | undefined;
   const canAssign = Boolean(me && hasPropertyPermission(me, 'housekeeping:write'));
+  const canReadRoster = Boolean(me && hasPropertyPermission(me, 'roster:read'));
+  const canSetOoo = Boolean(me && hasPropertyPermission(me, 'inventory:write'));
 
   return (
     <HousekeepingBoard
@@ -28,6 +30,8 @@ export function HousekeepingScreen() {
       defaultBusinessDate={defaultBusinessDate}
       api={api}
       canAssign={canAssign}
+      canReadRoster={canReadRoster}
+      canSetOoo={canSetOoo}
       classifyError={(err) => asClassified(err)}
     />
   );

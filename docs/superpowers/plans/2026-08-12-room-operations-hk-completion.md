@@ -1131,7 +1131,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo.spec.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `room-status.ts`:
 
@@ -1254,7 +1254,7 @@ expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
 - `OOO_INVALID_RANGE` / `OOO_RANGE_OVERLAP` / `OOO_ROOM_ASSIGNED` → 422 `{ error, reservationId? }`.
 - `LEDGER_INCONSISTENT` maps 409 (reuse `mapReservationCommandErrorStatus` — add the four `OOO_*` codes to the 422 list).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
@@ -1263,7 +1263,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo-routes.spec.ts
 
 Expected: FAIL — `[104]` undefined / 404 on POST.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `v1-http-routes.ts` append:
 
@@ -1318,7 +1318,7 @@ async setOooRange(
 
 POST `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/ooo`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
@@ -1330,7 +1330,7 @@ pnpm check:degraded
 
 Expected: all exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts \
@@ -1361,7 +1361,7 @@ EOF
 - Consumes: client `setOooRange` + `oooRanges` (Task 6); `hasPropertyPermission`
 - Produces: cleanliness-only dropdown; roster-error isolation; client-side filters; workload; OOO form gated on `canSetOoo`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Extend `HousekeepingApp.test.tsx`. Widen `renderApp` to accept `{ canAssign, canReadRoster, canSetOoo, defaultBusinessDate }`.
 
@@ -1379,7 +1379,7 @@ Extend `HousekeepingApp.test.tsx`. Widen `renderApp` to accept `{ canAssign, can
 
 `HousekeepingApi` gains optional `setOooRange`. `HousekeepingRoom` gains optional `oooRanges` and `floor`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/pms-housekeeping exec vitest run src/ui/HousekeepingApp.test.tsx
@@ -1387,7 +1387,7 @@ pnpm --filter @hospai/pms-housekeeping exec vitest run src/ui/HousekeepingApp.te
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `STATUSES = ['clean', 'dirty', 'inspected'] as const`. If `room.status === 'out_of_order'`, render text `out_of_order` (not a dropdown option), still no `out_of_order` `<option>`.
 
@@ -1413,7 +1413,7 @@ const canSetOoo = Boolean(me && hasPropertyPermission(me, 'inventory:write'));
 
 Pass all three. `api` already has `listRooms` / `listRoster` / `assignHousekeeping`; after Task 6 it has `setOooRange`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/pms-housekeeping exec vitest run src/ui/HousekeepingApp.test.tsx
@@ -1422,7 +1422,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/HousekeepingScreen.tes
 
 (If `HousekeepingScreen.test.tsx` does not exist, do not create it unless a current test imports the screen and fails.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add modules/pms/housekeeping/src/ui/HousekeepingApp.tsx \

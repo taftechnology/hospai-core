@@ -50,6 +50,7 @@ import {
   ROOM_OUT_OF_ORDER,
   BALANCE_DUE,
   OCCUPANCY_EXCEEDED,
+  FRONT_OFFICE_COMMENT_TOO_LONG,
   WINDOW_CLOSED,
   WINDOW_NOT_CLOSABLE,
   WINDOW_BALANCE_DUE,
@@ -151,6 +152,10 @@ describe('fingerprintPayload', () => {
     expect(ROOM_OUT_OF_ORDER).toBe('room_out_of_order');
     expect(BALANCE_DUE).toBe('balance_due');
     expect(OCCUPANCY_EXCEEDED).toBe('occupancy_exceeded');
+  });
+
+  it('front-office comment too long wire code', () => {
+    expect(FRONT_OFFICE_COMMENT_TOO_LONG).toBe('front_office_comment_too_long');
   });
 
   it('room OOO wire codes', () => {

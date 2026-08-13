@@ -594,6 +594,7 @@ describe('command catalog', () => {
   });
 
   it('reservations.update_status and check_out emit the lifecycle events', () => {
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.update_status')?.notes).toMatch(/DND/i);
     expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.update_status')?.events).toEqual([
       'reservation.front_office_updated',
     ]);

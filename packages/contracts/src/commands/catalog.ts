@@ -131,7 +131,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['reservation.front_office_updated'],
-    notes: 'Front-office comment + VIP flag. Not the status-machine column.',
+    notes: 'Front-office comment, VIP flag, DND flag. Not the status-machine column.',
     permission: 'reservations:write',
   },
   {

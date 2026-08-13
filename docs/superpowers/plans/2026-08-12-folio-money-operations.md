@@ -807,7 +807,7 @@ EOF
 - Consumes: `tryCaptureDueHolds` from Task 9
 - **Forbidden:** `ctx.waitUntil`. HTTP mapping waits for Task 12 (RPC tests call the stub directly). Existing check-out tests must be updated to expect `autoCapture: 'disabled'` (config default false) or they fail on extra field — **update them in this commit**.
 
-- [ ] **Step 1: Write tests 33 and 34**
+- [x] **Step 1: Write tests 33 and 34**
 
 33: config `pms.folio.auto_capture_on_check_out = true`, live check-out, authorized STAY hold, `require_zero` false → `checked_out`, hold `captured`, **`autoCapture: 'captured'`**. Do not call `tryCaptureDueHolds` from the test — the RPC must have awaited it.
 
@@ -815,13 +815,13 @@ EOF
 
 Also: adapter `failAfterAdapter` / throw after commit → guest `checked_out`, **`autoCapture: 'failed'`** (can live as 33’s sibling in the same file; not a second definition of 33).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-out.spec.ts`
 
 Existing tests that `expect(result).toEqual({ ok: true, reservationId })` will fail until Step 3 adds `autoCapture: 'disabled'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 After the checkout `transactionSync` returns ok:
 
@@ -847,13 +847,13 @@ return { ok: true, reservationId, autoCapture };
 
 `tryCaptureDueHolds` as an RPC still uses `runIdempotent` / actor gates. From check-out, call a **private** `captureDueHoldsAfterCheckout(reservationId)` that skips permission re-entry (already gated `reservations:write`) but uses the same capture seam. Do not fail check-out if that helper throws.
 
-The entire body — status transactionSync, then `await` the capture-due helper, then compose the response — runs INSIDE the `runIdempotent` callback. The cached response IS `{ ok, reservationId, autoCapture }`; a same-key live replay returns the first call's `autoCapture` verbatim (spec §6.4 line: cached live success includes autoCapture). The capture helper call is wrapped in try/catch inside the callback: catch → `autoCapture: 'failed'`, still a cached success. Desk retry after 'failed' is `POST …/capture-due` with a fresh idempotency key, never a check-out replay. No post-cache UPDATE, no recompute-on-cache-hit.
+**Locked (replaces cached-blob):** `runIdempotent` stays sync and caches the status-txn base `{ ok, reservationId }` — atomic mutation+idem-row unchanged. Peek the idempotency row **before** `runIdempotent` to detect a cache hit. First live call (no prior row, not provisional): after `runIdempotent` returns, `await` the capture-due helper inside try/catch. `autoCapture` = actual outcome: helper captured ≥1 → `'captured'`; config on but nothing to capture → `'skipped'`; helper threw → `'failed'` (check-out still succeeds); config off → `'disabled'`. Cache hit (same key, live): **recompute** `autoCapture` from current state, do **not** re-await the helper — config off → `'disabled'`; ≥1 captured STAY payment → `'captured'`; ≥1 authorized STAY hold remains → `'failed'`; else `'skipped'`. Provisional replay: config on → `'skipped'`, off → `'disabled'`. Desk retry after `'failed'` is `POST …/capture-due` with a fresh idempotency key, never a check-out replay. No post-cache UPDATE. Spec §6.4 documents the one benign divergence (hold already captured before check-out: first-call `'skipped'`, replay `'captured'`).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-out.spec.ts test/folio-payment-lifecycle.spec.ts test/degraded-mode.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/reservations-check-out.spec.ts

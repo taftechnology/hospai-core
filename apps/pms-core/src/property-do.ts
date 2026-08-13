@@ -176,6 +176,7 @@ import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } f
 import { hasEventLogR2, reportObjectKey } from './event-log.js';
 
 type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown' | 'voided' | 'refunded';
+type CheckOutAutoCapture = 'captured' | 'failed' | 'skipped' | 'disabled';
 
 type PaymentRow = {
   payment_id: string;
@@ -6145,7 +6146,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
-    | { ok: true; reservationId: string }
+    | { ok: true; reservationId: string; autoCapture: CheckOutAutoCapture }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
     | { ok: false; error: typeof BALANCE_DUE }
@@ -6164,8 +6165,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
 
+    const prior = this.ctx.storage.sql
+      .exec(`SELECT request_fingerprint FROM idempotency WHERE key = ?`, idem.key)
+      .toArray() as Array<{ request_fingerprint: string }>;
+    const cacheHit = Boolean(prior[0] && prior[0].request_fingerprint === idem.fingerprint);
+
     try {
-      return this.ctx.storage.transactionSync(() =>
+      const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
           const expiredTouch = this.expireIfDueSync(input.reservationId, Date.now());
@@ -6286,12 +6292,65 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           return { ok: true as const, reservationId: input.reservationId };
         }),
       );
+      if (!result.ok) return result;
+      const autoCapture = await this.resolveCheckOutAutoCapture({
+        cacheHit,
+        provisional: Boolean(provisional),
+        reservationId: input.reservationId,
+        actor,
+      });
+      return { ...result, autoCapture };
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  private async resolveCheckOutAutoCapture(input: {
+    cacheHit: boolean;
+    provisional: boolean;
+    reservationId: string;
+    actor: ActorContext;
+  }): Promise<CheckOutAutoCapture> {
+    const enabled = this.readConfigValueSync('pms.folio.auto_capture_on_check_out') === true;
+    if (!enabled) return 'disabled';
+    if (input.provisional) return 'skipped';
+    if (input.cacheHit) return this.recomputeCheckOutAutoCapture(input.reservationId);
+    try {
+      const captured = await this.captureDueHoldsAfterCheckout(input.actor, input.reservationId);
+      return captured.length > 0 ? 'captured' : 'skipped';
+    } catch {
+      return 'failed';
+    }
+  }
+
+  private recomputeCheckOutAutoCapture(reservationId: string): CheckOutAutoCapture {
+    const captured = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS hit FROM payment
+         WHERE reservation_id = ? AND status = 'captured' AND purpose = 'STAY'
+         LIMIT 1`,
+        reservationId,
+      )
+      .toArray();
+    if (captured[0]) return 'captured';
+    const authorized = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS hit FROM payment
+         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY'
+         LIMIT 1`,
+        reservationId,
+      )
+      .toArray();
+    if (authorized[0]) return 'failed';
+    return 'skipped';
+  }
+
+  /** Same capture seam as `folio.capture_due`, but skips permission re-entry (check-out already gated `reservations:write`). */
+  private async captureDueHoldsAfterCheckout(actor: ActorContext, reservationId: string): Promise<string[]> {
+    return this.captureDueHoldsInner(actor, reservationId, { skipGates: true, throwOnFailure: true });
   }
 
   /**
@@ -10190,6 +10249,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       idempotencyKey: string;
       captureFingerprint: string;
     },
+    opts?: { skipGates?: boolean },
   ): Promise<
     | {
         ok: true;
@@ -10215,11 +10275,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: 'org_id_unset' };
-    const denied = await this.gateCoreEntitlement(orgId);
-    if (denied) return denied;
+    if (!opts?.skipGates) {
+      const denied = await this.gateCoreEntitlement(orgId);
+      if (denied) return denied;
 
-    const permDenied = await this.gatePermission(actor, 'folio:post');
-    if (permDenied) return permDenied;
+      const permDenied = await this.gatePermission(actor, 'folio:post');
+      if (permDenied) return permDenied;
+    }
 
     if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
 
@@ -10277,6 +10339,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         );
       }
       return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
+    }
+
+    if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
+      return { ok: false, error: 'psp_adapter_failed' };
     }
 
     if (adapterResult.capturedAmountMinor > payment.amount_minor) {
@@ -10646,7 +10712,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
-  private async captureDueHoldsInner(actor: ActorContext, reservationId: string): Promise<string[]> {
+  private async captureDueHoldsInner(
+    actor: ActorContext,
+    reservationId: string,
+    opts?: { skipGates?: boolean; throwOnFailure?: boolean },
+  ): Promise<string[]> {
     const resRows = this.ctx.storage.sql
       .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
       .toArray();
@@ -10674,19 +10744,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     for (const hold of holds) {
       if (remaining <= 0) break;
       const amountMinor = Math.min(hold.amount_minor, remaining);
-      const result = await this.tryCapturePayment(actor, {
-        paymentId: hold.payment_id,
-        amountMinor,
-        idempotencyKey: `capture-due:${hold.payment_id}`,
-        captureFingerprint: await fingerprintPayload({
+      const result = await this.tryCapturePayment(
+        actor,
+        {
           paymentId: hold.payment_id,
           amountMinor,
-          source: 'capture_due',
-        }),
-      });
+          idempotencyKey: `capture-due:${hold.payment_id}`,
+          captureFingerprint: await fingerprintPayload({
+            paymentId: hold.payment_id,
+            amountMinor,
+            source: 'capture_due',
+          }),
+        },
+        { skipGates: opts?.skipGates },
+      );
       if (result.ok) {
         captured.push(hold.payment_id);
         remaining -= result.capturedAmountMinor;
+      } else if (opts?.throwOnFailure) {
+        throw new Error(result.error);
       }
     }
     return captured;

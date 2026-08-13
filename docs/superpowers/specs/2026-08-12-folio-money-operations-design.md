@@ -67,7 +67,7 @@ Implementation that violates these is out of spec.
 4. **Splits foot exactly.** `sum(splits.amountMinor) === source.amount_minor`. Remainder pennies via `allocate` (`packages/money`), never ad-hoc rounding. Cross-window split is subject to **both** split and transfer rules.
 5. **Payments stay `FAIL_CLOSED`.** Void, refund, capture-due, authorize, capture, cash — never queued. Nothing auto-resolves into money on provisional replay (§4.6 rule 5).
 6. **Auth is not money.** Void of `authorized` writes no folio line. Refund of `captured` posts a reversing line and does not mutate the capture line. Refund line **must not** set `payment_id` (`folio_line_payment_uidx` allows one non-null `payment_id`).
-7. **Check-out stays `QUEUE_PROVISIONAL` and entitlement-ungated.** Auto-capture is a **separate** `FAIL_CLOSED` command. Live check-out **awaits** it inline after the status txn commits (no fire-and-forget); replay of check-out must not. Capture failure does not fail check-out. The RPC/HTTP success body always carries `autoCapture`.
+7. **Check-out stays `QUEUE_PROVISIONAL` and entitlement-ungated.** Auto-capture is a **separate** `FAIL_CLOSED` command. Live check-out **awaits** it inline after the status txn commits (no fire-and-forget); a same-key live replay **must not re-await** the helper (it recomputes `autoCapture` from payment/config state). Capture failure does not fail check-out. The RPC/HTTP success body always carries `autoCapture`.
 8. **`NIGHT_AUDIT_STEPS` stays seven.** Auto-transfer does not fold into an existing step this chunk (§13).
 9. **Quote snapshot is the price source** for `penaltyMinor` and `postRoomChargesSync` when a night row exists. Missing snapshot on a pre-v21 row falls back to `rate_day` and lazily backfills. Missing `rate_day` with no snapshot → `RATE_MISSING` (unchanged fail-closed). Modify must **not** delete a snapshot night that already has a ROOM or NO_SHOW posting (consumed nights stay frozen).
 10. **New catalog commands** carry lane + degraded + idempotent + events + permission, and `entitlement: 'pms.core'` when `FAIL_CLOSED` with events. New events appear in `event-consumer.ts`. New entitled writers go in `AUDIT_WRITER_COMMAND_IDS`.
@@ -316,13 +316,15 @@ Permission: **`folio:adjust`** (money-out against a posted capture — manager).
 | Value | When |
 |---|---|
 | `'disabled'` | Config off (live or replay). Helper not called. |
-| `'skipped'` | Config on, helper not attempted: no eligible STAY holds, remaining `balanceMinor === 0`, **or** this call is a provisional replay. |
-| `'captured'` | Config on, live, helper ran, at least one hold captured. |
-| `'failed'` | Config on, live, helper threw / adapter failed after commit. Guest is still `checked_out`. |
+| `'skipped'` | Config on, helper not attempted: no eligible STAY holds, remaining `balanceMinor === 0`, **or** this call is a provisional replay. Live cache-hit with neither a captured STAY payment nor a remaining authorized STAY hold. |
+| `'captured'` | Config on, live first call, helper captured ≥1 hold; **or** live cache-hit recompute finds ≥1 captured STAY payment for the reservation. |
+| `'failed'` | Config on, live first call, helper threw / adapter failed after commit. Guest is still `checked_out`. Live cache-hit recompute: ≥1 authorized STAY hold remains. |
 
 SPA reads this field. Do not infer capture success from a payments refetch.
 
-The `{ ok: true }` shape becomes `{ ok: true; reservationId: string; autoCapture: 'captured' \| 'failed' \| 'skipped' \| 'disabled' }`. Idempotent replay of an already-checked-out live command returns the cached `runIdempotent` success (including the `autoCapture` from the first live call). A **new** provisional replay is a different key and returns `'skipped'`.
+The `{ ok: true }` shape becomes `{ ok: true; reservationId: string; autoCapture: 'captured' \| 'failed' \| 'skipped' \| 'disabled' }`. `runIdempotent` caches only the status-txn base `{ ok, reservationId }`. Idempotent replay of an already-checked-out **live** command does **not** re-await the helper; it **recomputes** `autoCapture` from current payment/config state: config off → `'disabled'`; ≥1 captured STAY payment → `'captured'`; ≥1 authorized STAY hold remains → `'failed'`; else `'skipped'`. First live call reports the actual helper outcome. A **new** provisional replay is a different key and returns `'skipped'` (config on) or `'disabled'` (config off).
+
+**Benign divergence:** a hold that was already captured (e.g. desk captured manually) before check-out yields first-call `'skipped'` (helper had nothing to capture) but same-key live replay `'captured'` (recompute sees the captured STAY payment). Both are non-error; the SPA reacts the same (refresh folio / payments).
 
 ### 6.5 Simulate adapter
 
@@ -534,7 +536,7 @@ All nine enter `AUDIT_WRITER_COMMAND_IDS` → size **44**. None enter `ENTITLEME
 | `folio.authorize` | Optional `purpose: 'STAY' \| 'DAMAGE'`. Fingerprint +`purpose`. |
 | `reservations.create` / `modify` / `hold` / `confirm` | Optional `noPost`. Create/hold/confirm also write `reservation_rate_night`. |
 | `reservations.update_status` | Optional `noPost`. |
-| `reservations.check_out` | After commit, live path **awaits** capture-due inline (config); never `waitUntil`. Success body gains `autoCapture: 'captured' \| 'failed' \| 'skipped' \| 'disabled'`. Capture failure does not fail check-out. Replay skips the helper (`autoCapture: 'skipped'` when config on). Optional GUEST auto-close (config, zero balance) stays in the status txn. Events unchanged. Replay payload unchanged. |
+| `reservations.check_out` | After commit, live **first** call **awaits** capture-due inline (config); never `waitUntil`. Success body gains `autoCapture: 'captured' \| 'failed' \| 'skipped' \| 'disabled'`. Capture failure does not fail check-out. Same-key live replay skips the helper and **recomputes** `autoCapture` from payment/config state. Optional GUEST auto-close (config, zero balance) stays in the status txn. Events unchanged. Replay payload unchanged. |
 | `folio.split_charge` / `split_charge_payment` | Implementation shares extended helper; contracts unchanged. |
 
 ### 10.3 Wire codes (`packages/contracts/src/idempotency.ts`)
@@ -669,7 +671,7 @@ Never print a folio in `DEGRADED` (existing §4.6 UI rule).
 5. **Night-audit auto-transfer. Resolved: defer.** Primitive ships; step does not. Do not grow `NIGHT_AUDIT_STEPS`. Do not fold into POST/ARCHIVE.
 6. **Existing split commands. Resolved: keep as same-window shims; v2 is cross-window capable.** Not deprecated this chunk.
 7. **Void/refund money. Resolved: void = status only; refund = reversing `PAYMENT_REFUND` line, `payment_id` NULL, original capture untouched.** Full refund only.
-8. **Auto-capture topology. Resolved: `folio.capture_due` FAIL_CLOSED; live check-out awaits the helper inline after commit (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; replay must not capture; event-consumer does not call the DO.** Config default false.
+8. **Auto-capture topology. Resolved: `folio.capture_due` FAIL_CLOSED; live check-out awaits the helper inline after commit (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; same-key live replay does not re-await — it recomputes `autoCapture` from payment/config state (see §6.4); event-consumer does not call the DO.** Config default false. First call reports the actual helper outcome; replay recomputes. One benign divergence: a hold already captured before check-out is first-call `'skipped'` and replay `'captured'` — both non-error, same SPA reaction.
 9. **Damage deposit. Resolved: authorize `purpose=DAMAGE` hold; not auto-captured; desk voids or captures + posts `DAMAGE`.**
 10. **No-post grain. Resolved: per reservation, skips night-audit ROOM only.**
 11. **Discount approval. Resolved: `folio:adjust` is the gate** (staff lack it). Reason required. Line-level. Tax-exempt this chunk.
@@ -727,7 +729,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 30. Cash refund (no PSP) → same ledger shape; simulate not called (spy / unbound adapter).
 31. Second refund same fingerprint → idempotent; one refund line (`folio_line_payment_uidx` still one capture line).
 32. Capture-due with two STAY holds covering the balance → captures FIFO until 0; DAMAGE hold untouched.
-33. `auto_capture_on_check_out = true`, live check-out with an authorized STAY hold and `require_zero` false → guest `checked_out`, hold `captured`, response **`autoCapture: 'captured'`**. (Not a capture-due HTTP retry — the RPC awaited the helper.)
+33. `auto_capture_on_check_out = true`, live check-out with an authorized STAY hold and `require_zero` false → guest `checked_out`, hold `captured`, response **`autoCapture: 'captured'`**. (Not a capture-due HTTP retry — the RPC awaited the helper.) Same-key live replay recomputes `'captured'` and does not re-await the helper.
 34. Provisional replay of check-out with config true and an eligible STAY hold → payment still `authorized`, response **`autoCapture: 'skipped'`**.
 35. `unknown` void/refund/capture → not_voidable / not_refundable / not_capturable.
 36. Simulate-off void → `PSP_UNAVAILABLE` 501.
@@ -809,7 +811,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 - [ ] `tryOpenFolioWindow` / `tryCloseFolioWindow` / `tryReopenFolioWindow`; check-out auto-close config path.
 - [ ] `tryTransferCharge`; tax restamp; deterministic ids.
 - [ ] Extend `splitFolioLineSync` dest window; `trySplitChargeV2`; v1 unchanged contracts.
-- [ ] `tryVoidPayment` / `tryRefundPayment` / `tryCaptureDueHolds`; simulate void/refund; live `tryCheckOut` **awaits** helper inline (no `waitUntil`); `autoCapture` on success body; replay skip (`skipped`).
+- [ ] `tryVoidPayment` / `tryRefundPayment` / `tryCaptureDueHolds`; simulate void/refund; live `tryCheckOut` **awaits** helper inline (no `waitUntil`); `autoCapture` on success body; same-key live replay recomputes `autoCapture` from state (does not re-await).
 - [ ] `tryPostDiscount`; `no_post` skip in `postRoomChargesSync`; authorize `purpose`.
 - [ ] `snapshotRateNightsSync` on inventory commit + modify; **retain consumed** (ROOM/NO_SHOW) nights on shorten; `penaltyMinor` / `postRoomChargesSync` read snapshot with lazy fallback.
 - [ ] Catalog + audit-writers 44 + events allowlist + two config keys + drop two PLATFORM_GAPS.
@@ -827,7 +829,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 - [ ] Transfer is reverse + dest posting, `split_of`, same-reservation, CLOSED reject; auto-transfer deferred with reasons; `NIGHT_AUDIT_STEPS` still 7.
 - [ ] Split v2 feet exactly via `allocate`; cross-window subject to transfer rules; v1 kept.
 - [ ] Void is not money; refund is a reversing line; capture line never updated; `payment_id` unique index preserved.
-- [ ] Auto-capture is FAIL_CLOSED, config-gated, **awaited inline** on live check-out (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; test 33 asserts `'captured'`; skipped on provisional replay; `folio.balance_due` remains the event seam.
+- [ ] Auto-capture is FAIL_CLOSED, config-gated, **awaited inline** on live check-out (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; test 33 asserts `'captured'`; same-key live replay recomputes from state; skipped on provisional replay; `folio.balance_due` remains the event seam.
 - [ ] Payments stay FAIL_CLOSED; new entitled commands have events + audit writers; size 44; routes append at 95.
 - [ ] Quote snapshot is the price source with lazy fallback for existing rows; `P === R` still holds; **modify retains consumed snapshot nights** (test 46).
 - [ ] Promo deferred with reasons; city ledger out; no new night-audit step.

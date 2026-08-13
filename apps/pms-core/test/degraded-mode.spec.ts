@@ -10,7 +10,7 @@ import {
 } from '../src/property-do-transport.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
-import { idemFor } from './fixtures';
+import { idemFor, seedBarRatesForHorizon } from './fixtures';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers';
 import { createHousekeeper } from './roster-helpers';
 
@@ -194,7 +194,10 @@ async function provisionHotel(actor: string) {
   expect(roomTypeRes.status).toBe(201);
   const { fromDate: arrival } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', arrival);
+    await resolved.stub.flushOutbox();
+  }
   const org = testOrgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {

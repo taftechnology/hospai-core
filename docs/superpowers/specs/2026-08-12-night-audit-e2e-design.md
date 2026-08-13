@@ -187,7 +187,7 @@ Wire codes (new, in `@hospai/contracts` idempotency constants): `PENDING_COMMAND
 
 ### 3.2 `PROCESS_NO_SHOWS`
 
-**Amended 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): this step also expires `pending`/`inquiry` (lazy `confirm_by` / arrival / `expires_at`); leftover 2 (penalty posting) is closed. `POST_ROOM_CHARGES` still uses predicate `status IN ('confirmed', 'checked_in')` and prices ROOM from `reservation.rate_plan_id`.
+**Amended 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): this step also expires `pending`/`inquiry` (lazy `confirm_by` / arrival / `expires_at`); leftover 2 (penalty posting) is closed. `POST_ROOM_CHARGES` still uses predicate `status IN ('confirmed', 'checked_in')` and prices ROOM from `reservation.rate_plan_id`. The occupancy/revenue snapshot's `roomNet` now sums `NIGHT_AUDIT` **or** `SPLIT_REVERSAL` ROOM lines (so a reversed no-show room charge nets out), and gains `pendingCount`.
 
 **Predicate:** `status = 'confirmed' AND arrival_date <= <closing business_date>`.
 

@@ -1,7 +1,7 @@
 # Reservation Lifecycle Completion
 
 **Date:** 2026-08-12  
-**Status:** Draft v2 — review-round edits (P/R never halts audit; POST_ROOM_CHARGES prices from `reservation.rate_plan_id`; lazy-expiry wire codes unified)  
+**Status:** Draft v3 — kill-switch on entitled routes is 503 (dispatcher evaluates it before entitlement; spec v2's 402 was wrong)  
 
 **Sources:** ARCHITECTURE.md §4.2 (lanes), §4.4 (single alarm slot), §4.6 (degraded classes + replay), §5.1 (DOMAIN config), §7.1 (room-type inventory; `held` reserved; assign-at-check-in; sold invariant), §7.3 (`folio.balance_due`), §7.4 (lifecycle machine), §16.5 (drift + still-unnamed rows); [reservations vertical](./2026-08-04-reservations-vertical-design.md); [booking wizard](./2026-08-11-booking-wizard-design.md); [night audit E2E](./2026-08-12-night-audit-e2e-design.md); [front-desk operational reads](./2026-08-07-front-desk-operational-reads-design.md); [rate plans](./2026-08-05-rate-plans-vertical-design.md); [rooms/housekeeping](./2026-08-05-rooms-housekeeping-vertical-design.md); [folio front desk](./2026-08-08-folio-front-desk-design.md); command catalog `reservations.*`; `PropertyDO` `tryCreateReservation` / `tryCancelReservation` / `tryModifyReservation` / `tryCheckIn` / `tryCheckOut` / `tryCancelCheckIn` / `tryAssignRoom` / `tryNoShow` / `processNoShowsSync` / `postRoomChargesSync` / `readFolio` / `listArrivals`
 
@@ -661,7 +661,7 @@ Bodies: confirm/hold `{ idempotencyKey, ratePlanId? }` (hold also `confirmBy?`).
 
 Existing `POST /reservations` and `PATCH /reservations/:rid` accept the new optional fields. `GET /reservations/:rid` and the three front-desk lists return them.
 
-Kill-switch: confirm/hold 402; front-office and check-in/out still 200 (ungated). Test that pair.
+Kill-switch: confirm/hold **503**; front-office and check-in/out still 200 (ungated). The dispatcher evaluates the kill-switch before entitlement, so every entitled route shares 503 rather than 402. Test that pair.
 
 ---
 
@@ -781,7 +781,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 30. `cancel_check_in` → `confirmed`, `room_id` kept, room status unchanged (still clean).
 31. **Replay canary:** enqueue check-in with `roomId` A; before drain, live-assign A to another confirmed stay; drain → `provisional_exception`, first reservation still `confirmed`.
 32. **Replay canary:** enqueue check-in without room and without pre-assign → exception `ROOM_REQUIRED`.
-33. Kill-switch `pms.core` + check-in → 200 (still ungated). Confirm → 402.
+33. Kill-switch `pms.core` + check-in → 200 (still ungated). Confirm → 503.
 
 **Check-out**
 

@@ -76,6 +76,8 @@ import {
   FX_RATE_MISSING,
   FX_RATE_NOT_LEDGER,
   FX_RATE_OPEN_EXISTS,
+  FX_REASON_REQUIRED,
+  PAYMENT_NOT_CHARGEBACKABLE,
   SPLIT_AMOUNT_MISMATCH,
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
@@ -451,6 +453,13 @@ class FxRateOpenExistsError extends Error {
   constructor() {
     super(FX_RATE_OPEN_EXISTS);
     this.name = 'FxRateOpenExistsError';
+  }
+}
+
+class PaymentNotChargebackableError extends Error {
+  constructor() {
+    super(PAYMENT_NOT_CHARGEBACKABLE);
+    this.name = 'PaymentNotChargebackableError';
   }
 }
 
@@ -11212,6 +11221,33 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return rows[0] ?? null;
   }
 
+  private readPaymentDisputeSync(paymentId: string): {
+    disputeId: string;
+    status: 'open' | 'closed';
+    reason: string;
+    openedAt: number;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT dispute_id, status, reason, opened_at FROM payment_dispute WHERE payment_id = ? LIMIT 1`,
+        paymentId,
+      )
+      .toArray() as Array<{
+      dispute_id: string;
+      status: 'open' | 'closed';
+      reason: string;
+      opened_at: number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      disputeId: row.dispute_id,
+      status: row.status,
+      reason: row.reason,
+      openedAt: row.opened_at,
+    };
+  }
+
   private readPaymentByIdempotencyKeySync(idempotencyKey: string): PaymentRow | null {
     const rows = this.ctx.storage.sql
       .exec(
@@ -11276,7 +11312,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private applyPaymentEventSync(event: {
-    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
+    type:
+      | 'payment.authorized'
+      | 'payment.captured'
+      | 'payment.refunded'
+      | 'payment.failed'
+      | 'payment.chargeback_received';
     eventId: string;
     gatewayReference: string | null;
     payload: {
@@ -11289,7 +11330,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       folioLineId?: string;
       purpose?: 'STAY' | 'DAMAGE';
       stage?: 'authorize' | 'capture';
-      reason?: 'declined' | 'timeout' | 'unknown';
+      reason?: string;
+      feeLedgerMinor?: number;
     };
   }): { applied: boolean; folioLineId?: string } {
     const recorded = this.recordPaymentEventRowSync({
@@ -11474,11 +11516,112 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { applied: true, folioLineId: refundLineId };
     }
 
+    if (event.type === 'payment.chargeback_received') {
+      const payment = this.readPaymentRowSync(event.payload.paymentId);
+      if (!payment || payment.status !== 'captured') {
+        throw new PaymentNotChargebackableError();
+      }
+      const captureLineId = `${event.payload.paymentId}:capture`;
+      const captureRows = this.ctx.storage.sql
+        .exec(
+          `SELECT folio_line_id, amount_minor, ledger_amount_minor, txn_currency, fx_rate, fx_rate_at
+           FROM folio_line WHERE folio_line_id = ? OR payment_id = ? LIMIT 1`,
+          captureLineId,
+          event.payload.paymentId,
+        )
+        .toArray() as Array<{
+        folio_line_id: string;
+        amount_minor: number;
+        ledger_amount_minor: number;
+        txn_currency: string;
+        fx_rate: string;
+        fx_rate_at: number;
+      }>;
+      const capture = captureRows[0];
+      if (!capture) throw new Error(NOT_FOUND);
+      const reversalId = `${event.payload.paymentId}:chargeback`;
+      const existingReversal = this.ctx.storage.sql
+        .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, reversalId)
+        .toArray();
+      if (existingReversal.length === 0) {
+        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
+        this.insertFolioLineSync({
+          folioLineId: reversalId,
+          folioWindowId: payment.folio_window_id,
+          reservationId: payment.reservation_id,
+          chargeCode: 'PAYMENT',
+          posted: {
+            amountMinor: -capture.amount_minor,
+            txnCurrency: currencyCode(capture.txn_currency),
+            ledgerAmountMinor: -capture.ledger_amount_minor,
+            fxRate: capture.fx_rate,
+            fxRateAt: capture.fx_rate_at,
+          },
+          source: 'CHARGEBACK',
+          splitOf: capture.folio_line_id,
+          paymentId: null,
+        });
+      }
+      const feeLedgerMinor = event.payload.feeLedgerMinor ?? 0;
+      if (!Number.isInteger(feeLedgerMinor) || feeLedgerMinor < 0) throw new Error(MONEY_INVALID);
+      const feeId = `${event.payload.paymentId}:chargeback-fee`;
+      const ledger = this.readStoredLedgerCurrencySync();
+      if (!ledger) throw new Error(CURRENCY_UNSET);
+      const existingFee = this.ctx.storage.sql
+        .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, feeId)
+        .toArray();
+      if (existingFee.length === 0) {
+        this.assertChargeCodeSync('CHARGEBACK_FEE', { requireActive: true });
+        this.insertFolioLineSync({
+          folioLineId: feeId,
+          folioWindowId: payment.folio_window_id,
+          reservationId: payment.reservation_id,
+          chargeCode: 'CHARGEBACK_FEE',
+          posted: {
+            amountMinor: feeLedgerMinor,
+            txnCurrency: ledger,
+            ledgerAmountMinor: feeLedgerMinor,
+            fxRate: '1',
+            fxRateAt: now,
+          },
+          source: 'CHARGEBACK',
+        });
+      }
+      const existingDispute = this.ctx.storage.sql
+        .exec(`SELECT dispute_id FROM payment_dispute WHERE payment_id = ?`, event.payload.paymentId)
+        .toArray();
+      if (existingDispute.length === 0) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO payment_dispute (
+             dispute_id, payment_id, reversal_folio_line_id, fee_folio_line_id, reason, opened_at, status
+           ) VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+          crypto.randomUUID(),
+          event.payload.paymentId,
+          reversalId,
+          feeId,
+          event.payload.reason ?? '',
+          now,
+        );
+      }
+      this.ctx.storage.sql.exec(
+        `UPDATE payment SET status = 'chargeback', last_payment_event_id = ?, updated_at = ? WHERE payment_id = ?`,
+        event.eventId,
+        now,
+        event.payload.paymentId,
+      );
+      return { applied: true, folioLineId: reversalId };
+    }
+
     return { applied: true };
   }
 
   async applyPaymentEventForTest(event: {
-    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
+    type:
+      | 'payment.authorized'
+      | 'payment.captured'
+      | 'payment.refunded'
+      | 'payment.failed'
+      | 'payment.chargeback_received';
     eventId: string;
     gatewayReference: string | null;
     payload: {
@@ -11491,7 +11634,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       folioLineId?: string;
       purpose?: 'STAY' | 'DAMAGE';
       stage?: 'authorize' | 'capture';
-      reason?: 'declined' | 'timeout' | 'unknown';
+      reason?: string;
+      feeLedgerMinor?: number;
     };
   }): Promise<{ applied: boolean; folioLineId?: string }> {
     this.assertUnsafeLocal('applyPaymentEventForTest');
@@ -12402,6 +12546,222 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async tryRecordChargeback(
+    actor: ActorContext,
+    input: { paymentId: string; feeLedgerMinor: number; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; paymentId: string; status: 'chargeback' }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof PAYMENT_NOT_CHARGEBACKABLE }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (!Number.isInteger(input.feeLedgerMinor) || input.feeLedgerMinor < 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+
+    const payment = this.readPaymentRowSync(input.paymentId);
+    if (!payment) return { ok: false, error: NOT_FOUND };
+    if (payment.status !== 'captured' && payment.status !== 'chargeback') {
+      return { ok: false, error: PAYMENT_NOT_CHARGEBACKABLE };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const current = this.readPaymentRowSync(input.paymentId);
+          if (!current) throw new Error(NOT_FOUND);
+          if (current.status === 'chargeback') throw new PaymentNotChargebackableError();
+          if (current.status !== 'captured') throw new PaymentNotChargebackableError();
+
+          const eventId = crypto.randomUUID();
+          const applied = this.applyPaymentEventSync({
+            type: 'payment.chargeback_received',
+            eventId,
+            gatewayReference: current.gateway_reference,
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: current.reservation_id,
+              amountMinor: current.captured_amount_minor ?? current.amount_minor,
+              currency: current.currency,
+              feeLedgerMinor: input.feeLedgerMinor,
+              reason: input.reason,
+            },
+          });
+
+          this.appendPropertyOutbox({
+            eventId,
+            eventType: 'payment.chargeback_received',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: current.reservation_id,
+              amountMinor: current.captured_amount_minor ?? current.amount_minor,
+              currency: current.currency,
+              feeLedgerMinor: input.feeLedgerMinor,
+              reason: input.reason,
+              eventId,
+              gatewayReference: current.gateway_reference,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.record_chargeback',
+            entityType: 'payment',
+            entityId: input.paymentId,
+            beforeJson: { status: 'captured' },
+            afterJson: {
+              status: 'chargeback',
+              feeLedgerMinor: input.feeLedgerMinor,
+              reason: input.reason,
+              folioLineId: applied.folioLineId,
+            },
+            reservationId: current.reservation_id,
+          });
+          return { ok: true as const, paymentId: input.paymentId, status: 'chargeback' as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof PaymentNotChargebackableError) {
+        return { ok: false, error: PAYMENT_NOT_CHARGEBACKABLE };
+      }
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryPostFxAdjustment(
+    actor: ActorContext,
+    input: {
+      reservationId: string;
+      folioWindowId: string;
+      kind: 'gain' | 'loss';
+      amountMinor: number;
+      reason: string;
+      sourcePaymentId?: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioLineId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FX_REASON_REQUIRED }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const reason = input.reason.trim();
+    if (reason.length < 1 || reason.length > 500) {
+      return { ok: false, error: FX_REASON_REQUIRED };
+    }
+    if (input.kind !== 'gain' && input.kind !== 'loss') {
+      return { ok: false, error: MONEY_INVALID };
+    }
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+
+    const ledger = this.readStoredLedgerCurrencySync();
+    if (!ledger) return { ok: false, error: CURRENCY_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const window = this.assertFolioWindowOpenSync(input.folioWindowId);
+          if (window.reservationId !== input.reservationId) throw new Error(NOT_FOUND);
+
+          const folioLineId = crypto.randomUUID();
+          const signed = input.kind === 'gain' ? -input.amountMinor : input.amountMinor;
+          const chargeCode = input.kind === 'gain' ? 'FX_GAIN' : 'FX_LOSS';
+          this.assertChargeCodeSync(chargeCode, { requireActive: true });
+          this.insertFolioLineSync({
+            folioLineId,
+            folioWindowId: input.folioWindowId,
+            reservationId: input.reservationId,
+            chargeCode,
+            posted: {
+              amountMinor: signed,
+              txnCurrency: ledger,
+              ledgerAmountMinor: signed,
+              fxRate: '1',
+              fxRateAt: Date.now(),
+            },
+            source: 'DESK',
+          });
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.fx_adjusted',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              folioWindowId: input.folioWindowId,
+              folioLineId,
+              kind: input.kind,
+              amountMinor: signed,
+              reason,
+              sourcePaymentId: input.sourcePaymentId ?? null,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.post_fx_adjustment',
+            entityType: 'folio_line',
+            entityId: folioLineId,
+            beforeJson: null,
+            afterJson: {
+              folioLineId,
+              kind: input.kind,
+              amountMinor: signed,
+              reason,
+              sourcePaymentId: input.sourcePaymentId ?? null,
+            },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, folioLineId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   async tryCaptureDueHolds(
     actor: ActorContext,
     input: { reservationId: string },
@@ -12966,6 +13326,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           shiftId: string | null;
           createdAt: number;
           updatedAt: number;
+          dispute: {
+            disputeId: string;
+            status: 'open' | 'closed';
+            reason: string;
+            openedAt: number;
+          } | null;
         };
       }
     | { ok: false; error: typeof NOT_FOUND }
@@ -12973,7 +13339,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     const row = this.readPaymentRowSync(paymentId);
     if (!row) return { ok: false, error: NOT_FOUND };
-    return { ok: true, payment: this.mapPaymentRow(row) };
+    return { ok: true, payment: { ...this.mapPaymentRow(row), dispute: this.readPaymentDisputeSync(paymentId) } };
   }
 
   async listPaymentsForReservation(reservationId: string): Promise<

@@ -191,7 +191,15 @@ import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.j
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 import { hasEventLogR2, reportObjectKey } from './event-log.js';
 
-type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown' | 'voided' | 'refunded';
+type PaymentStatus =
+  | 'pending'
+  | 'authorized'
+  | 'declined'
+  | 'captured'
+  | 'unknown'
+  | 'voided'
+  | 'refunded'
+  | 'chargeback';
 type CheckOutAutoCapture = 'captured' | 'failed' | 'skipped' | 'disabled';
 
 type PaymentRow = {
@@ -211,6 +219,10 @@ type PaymentRow = {
   purpose: 'STAY' | 'DAMAGE';
   void_fingerprint: string | null;
   refund_fingerprint: string | null;
+  fx_rate: string | null;
+  fx_rate_at: number | null;
+  balance_at_risk: number;
+  last_payment_event_id: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -11190,6 +11202,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
                 capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
                 created_at, updated_at
          FROM payment WHERE payment_id = ?`,
         paymentId,
@@ -11204,12 +11217,284 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
                 capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
                 created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
         idempotencyKey,
       )
       .toArray() as PaymentRow[];
     return rows[0] ?? null;
+  }
+
+  private resolveCapturePostedSync(
+    txnAmountMinor: number,
+    txnCurrency: string,
+    at: number,
+  ): PostedLineAmount {
+    const ledger = this.readStoredLedgerCurrencySync();
+    if (!ledger) throw new Error(CURRENCY_UNSET);
+    const code = currencyCode(txnCurrency);
+    if (code === ledger) {
+      return postToLedger(money(-txnAmountMinor, code), ledger, '1', at);
+    }
+    const quote = this.lookupFxRateSync(code, ledger, at);
+    if (!quote) throw new Error(FX_RATE_MISSING);
+    return postToLedger(money(-txnAmountMinor, code), ledger, quote.rate, at);
+  }
+
+  private recordPaymentEventRowSync(input: {
+    eventId: string;
+    eventType: string;
+    gatewayReference: string | null;
+    paymentId: string | null;
+  }): 'applied' | 'duplicate' {
+    const byId = this.ctx.storage.sql
+      .exec(`SELECT event_id FROM payment_event WHERE event_id = ?`, input.eventId)
+      .toArray();
+    if (byId.length > 0) return 'duplicate';
+    if (input.gatewayReference) {
+      const byGw = this.ctx.storage.sql
+        .exec(
+          `SELECT event_id FROM payment_event WHERE event_type = ? AND gateway_reference = ?`,
+          input.eventType,
+          input.gatewayReference,
+        )
+        .toArray();
+      if (byGw.length > 0) return 'duplicate';
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO payment_event (event_id, event_type, gateway_reference, payment_id, applied_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      input.eventId,
+      input.eventType,
+      input.gatewayReference,
+      input.paymentId,
+      Date.now(),
+    );
+    return 'applied';
+  }
+
+  private applyPaymentEventSync(event: {
+    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
+    eventId: string;
+    gatewayReference: string | null;
+    payload: {
+      propertyId: string;
+      paymentId: string;
+      reservationId: string;
+      amountMinor?: number;
+      capturedAmountMinor?: number;
+      currency?: string;
+      folioLineId?: string;
+      purpose?: 'STAY' | 'DAMAGE';
+      stage?: 'authorize' | 'capture';
+      reason?: 'declined' | 'timeout' | 'unknown';
+    };
+  }): { applied: boolean; folioLineId?: string } {
+    const recorded = this.recordPaymentEventRowSync({
+      eventId: event.eventId,
+      eventType: event.type,
+      gatewayReference: event.gatewayReference,
+      paymentId: event.payload.paymentId,
+    });
+    if (recorded === 'duplicate') {
+      return { applied: false };
+    }
+
+    const now = Date.now();
+    if (event.type === 'payment.authorized') {
+      const row = this.readPaymentRowSync(event.payload.paymentId);
+      if (row?.status === 'captured') {
+        this.ctx.storage.sql.exec(
+          `UPDATE payment SET last_payment_event_id = ?, balance_at_risk = 0, updated_at = ? WHERE payment_id = ?`,
+          event.eventId,
+          now,
+          event.payload.paymentId,
+        );
+        return { applied: true };
+      }
+      this.ctx.storage.sql.exec(
+        `UPDATE payment
+         SET status = CASE WHEN status IN ('captured', 'refunded', 'chargeback') THEN status ELSE 'authorized' END,
+             gateway_reference = COALESCE(?, gateway_reference),
+             last_payment_event_id = ?,
+             balance_at_risk = 0,
+             updated_at = ?
+         WHERE payment_id = ?`,
+        event.gatewayReference,
+        event.eventId,
+        now,
+        event.payload.paymentId,
+      );
+      return { applied: true };
+    }
+
+    if (event.type === 'payment.failed') {
+      this.ctx.storage.sql.exec(
+        `UPDATE payment
+         SET status = CASE
+               WHEN ? = 'authorize' AND status = 'pending' THEN CASE WHEN ? = 'declined' THEN 'declined' ELSE 'unknown' END
+               ELSE status
+             END,
+             balance_at_risk = 1,
+             last_payment_event_id = ?,
+             updated_at = ?
+         WHERE payment_id = ?`,
+        event.payload.stage ?? 'authorize',
+        event.payload.reason ?? 'unknown',
+        event.eventId,
+        now,
+        event.payload.paymentId,
+      );
+      return { applied: true };
+    }
+
+    if (event.type === 'payment.captured') {
+      const capturedTxn = event.payload.capturedAmountMinor;
+      if (capturedTxn == null || capturedTxn <= 0) throw new Error(MONEY_INVALID);
+      const currency = event.payload.currency;
+      if (!currency) throw new Error(MONEY_INVALID);
+      const posted = this.resolveCapturePostedSync(capturedTxn, currency, now);
+      const folioLineId = event.payload.folioLineId ?? `${event.payload.paymentId}:capture`;
+      const existingLine = this.ctx.storage.sql
+        .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, folioLineId)
+        .toArray();
+      const row = this.readPaymentRowSync(event.payload.paymentId);
+      if (!row) {
+        this.ensureGuestFolioWindowSync(event.payload.reservationId);
+        const folioWindowId = this.readGuestFolioWindowIdSync(event.payload.reservationId);
+        this.ctx.storage.sql.exec(
+          `INSERT INTO payment (
+             payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+             gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+             capture_fingerprint, tender_type, purpose, fx_rate, fx_rate_at, balance_at_risk,
+             last_payment_event_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'captured', ?, ?, ?, ?, NULL, 'CARD', 'STAY', ?, ?, 0, ?, ?, ?)`,
+          event.payload.paymentId,
+          event.payload.reservationId,
+          folioWindowId,
+          capturedTxn,
+          currency,
+          event.gatewayReference,
+          capturedTxn,
+          `evt:${event.eventId}`,
+          event.eventId,
+          posted.fxRate,
+          posted.fxRateAt,
+          event.eventId,
+          now,
+          now,
+        );
+      } else if (row.status !== 'captured') {
+        this.ctx.storage.sql.exec(
+          `UPDATE payment
+           SET status = 'captured',
+               captured_amount_minor = ?,
+               gateway_reference = COALESCE(?, gateway_reference),
+               fx_rate = ?,
+               fx_rate_at = ?,
+               balance_at_risk = 0,
+               last_payment_event_id = ?,
+               updated_at = ?
+           WHERE payment_id = ?`,
+          capturedTxn,
+          event.gatewayReference,
+          posted.fxRate,
+          posted.fxRateAt,
+          event.eventId,
+          now,
+          event.payload.paymentId,
+        );
+      }
+      if (existingLine.length === 0) {
+        const payment = this.readPaymentRowSync(event.payload.paymentId);
+        if (!payment) throw new Error(NOT_FOUND);
+        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
+        this.insertFolioLineSync({
+          folioLineId,
+          folioWindowId: payment.folio_window_id,
+          reservationId: payment.reservation_id,
+          chargeCode: 'PAYMENT',
+          posted,
+          source: 'PAYMENT',
+          paymentId: event.payload.paymentId,
+        });
+      }
+      return { applied: true, folioLineId };
+    }
+
+    if (event.type === 'payment.refunded') {
+      const payment = this.readPaymentRowSync(event.payload.paymentId);
+      if (!payment || (payment.status !== 'captured' && payment.status !== 'refunded')) {
+        throw new Error(PAYMENT_NOT_REFUNDABLE);
+      }
+      const captureLineId = `${event.payload.paymentId}:capture`;
+      const captureRows = this.ctx.storage.sql
+        .exec(
+          `SELECT folio_line_id, amount_minor, ledger_amount_minor, txn_currency, fx_rate, fx_rate_at
+           FROM folio_line WHERE folio_line_id = ? OR payment_id = ? LIMIT 1`,
+          captureLineId,
+          event.payload.paymentId,
+        )
+        .toArray() as Array<{
+        folio_line_id: string;
+        amount_minor: number;
+        ledger_amount_minor: number;
+        txn_currency: string;
+        fx_rate: string;
+        fx_rate_at: number;
+      }>;
+      const capture = captureRows[0];
+      if (!capture) throw new Error(NOT_FOUND);
+      const refundLineId = event.payload.folioLineId ?? `${event.payload.paymentId}:refund`;
+      this.assertChargeCodeSync('PAYMENT', { requireActive: true });
+      this.insertFolioLineSync({
+        folioLineId: refundLineId,
+        folioWindowId: payment.folio_window_id,
+        reservationId: payment.reservation_id,
+        chargeCode: 'PAYMENT',
+        posted: {
+          amountMinor: Math.abs(capture.amount_minor),
+          txnCurrency: currencyCode(capture.txn_currency),
+          ledgerAmountMinor: Math.abs(capture.ledger_amount_minor),
+          fxRate: capture.fx_rate,
+          fxRateAt: capture.fx_rate_at,
+        },
+        source: 'PAYMENT_REFUND',
+        splitOf: capture.folio_line_id,
+        paymentId: null,
+      });
+      this.ctx.storage.sql.exec(
+        `UPDATE payment SET status = 'refunded', last_payment_event_id = ?, updated_at = ? WHERE payment_id = ?`,
+        event.eventId,
+        now,
+        event.payload.paymentId,
+      );
+      return { applied: true, folioLineId: refundLineId };
+    }
+
+    return { applied: true };
+  }
+
+  async applyPaymentEventForTest(event: {
+    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
+    eventId: string;
+    gatewayReference: string | null;
+    payload: {
+      propertyId: string;
+      paymentId: string;
+      reservationId: string;
+      amountMinor?: number;
+      capturedAmountMinor?: number;
+      currency?: string;
+      folioLineId?: string;
+      purpose?: 'STAY' | 'DAMAGE';
+      stage?: 'authorize' | 'capture';
+      reason?: 'declined' | 'timeout' | 'unknown';
+    };
+  }): Promise<{ applied: boolean; folioLineId?: string }> {
+    this.assertUnsafeLocal('applyPaymentEventForTest');
+    return this.ctx.storage.transactionSync(() => this.applyPaymentEventSync(event));
   }
 
   private mapPaymentRow(row: PaymentRow): {
@@ -11369,6 +11654,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       paymentId: string;
       reservationId: string;
       amountMinor: number;
+      currency?: string;
       idempotencyKey: string;
       requestFingerprint: string;
       purpose?: 'STAY' | 'DAMAGE';
@@ -11399,6 +11685,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
     if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+    const txnCurrency = input.currency ? currencyCode(input.currency) : ledgerCurrency;
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
@@ -11429,7 +11716,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.reservationId,
             folioWindowId,
             input.amountMinor,
-            ledgerCurrency,
+            txnCurrency,
             input.idempotencyKey,
             input.requestFingerprint,
             shiftId,
@@ -11463,7 +11750,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       {
         paymentId: input.paymentId,
         amountMinor: input.amountMinor,
-        currency: ledgerCurrency,
+        currency: txnCurrency,
       },
       this.pspSimulateOutcomeForTest,
     );
@@ -11490,15 +11777,44 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             if (!current) throw new Error(NOT_FOUND);
             return current;
           }
+          const authEventId = crypto.randomUUID();
+          this.applyPaymentEventSync({
+            type: 'payment.authorized',
+            eventId: authEventId,
+            gatewayReference: adapterResult.gatewayReference,
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              amountMinor: input.amountMinor,
+              currency: txnCurrency,
+              purpose: input.purpose ?? 'STAY',
+            },
+          });
           this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
+            eventId: authEventId,
             eventType: 'folio.payment_authorized',
             payload: {
               propertyId,
               paymentId: input.paymentId,
               reservationId: input.reservationId,
               amountMinor: input.amountMinor,
-              currency: ledgerCurrency,
+              currency: txnCurrency,
+              gatewayReference: adapterResult.gatewayReference,
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'payment.authorized',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              amountMinor: input.amountMinor,
+              currency: txnCurrency,
+              purpose: input.purpose ?? 'STAY',
+              eventId: authEventId,
               gatewayReference: adapterResult.gatewayReference,
             },
           });
@@ -11513,7 +11829,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               paymentId: input.paymentId,
               reservationId: input.reservationId,
               amountMinor: input.amountMinor,
-              currency: ledgerCurrency,
+              currency: txnCurrency,
               status: 'authorized',
               shiftId: authorizedRow?.shift_id ?? null,
             },
@@ -11521,17 +11837,57 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
         } else if (adapterResult.outcome === 'declined') {
-          this.ctx.storage.sql.exec(
-            `UPDATE payment SET status = 'declined', updated_at = ? WHERE payment_id = ? AND status = 'pending'`,
-            now,
-            input.paymentId,
-          );
+          const failEventId = crypto.randomUUID();
+          this.applyPaymentEventSync({
+            type: 'payment.failed',
+            eventId: failEventId,
+            gatewayReference: null,
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              stage: 'authorize',
+              reason: 'declined',
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: failEventId,
+            eventType: 'payment.failed',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              stage: 'authorize',
+              reason: 'declined',
+            },
+          });
         } else {
-          this.ctx.storage.sql.exec(
-            `UPDATE payment SET status = 'unknown', updated_at = ? WHERE payment_id = ? AND status = 'pending'`,
-            now,
-            input.paymentId,
-          );
+          const failEventId = crypto.randomUUID();
+          this.applyPaymentEventSync({
+            type: 'payment.failed',
+            eventId: failEventId,
+            gatewayReference: null,
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              stage: 'authorize',
+              reason: adapterResult.outcome === 'timeout' ? 'timeout' : 'unknown',
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: failEventId,
+            eventType: 'payment.failed',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: input.reservationId,
+              stage: 'authorize',
+              reason: adapterResult.outcome === 'timeout' ? 'timeout' : 'unknown',
+            },
+          });
         }
 
         const current = this.readPaymentRowSync(input.paymentId);
@@ -11569,7 +11925,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           | typeof PSP_UNAVAILABLE
           | typeof IDEM_KEY_REUSED
           | typeof PAYMENT_NOT_CAPTURABLE
-          | typeof MONEY_INVALID;
+          | typeof MONEY_INVALID
+          | typeof FX_RATE_MISSING;
       }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
@@ -11624,6 +11981,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
     }
 
+    try {
+      this.resolveCapturePostedSync(input.amountMinor, payment.currency, Date.now());
+    } catch (e) {
+      if (e instanceof Error && e.message === FX_RATE_MISSING) {
+        return { ok: false, error: FX_RATE_MISSING };
+      }
+      throw e;
+    }
+
     const adapterResult = await simulateCapture(
       {
         paymentId: input.paymentId,
@@ -11635,13 +12001,40 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
 
     if (adapterResult.outcome !== 'approved') {
-      if (adapterResult.outcome === 'timeout') {
-        this.ctx.storage.sql.exec(
-          `UPDATE payment SET status = 'unknown', updated_at = ? WHERE payment_id = ? AND status = 'authorized'`,
-          Date.now(),
-          input.paymentId,
-        );
-      }
+      const failEventId = crypto.randomUUID();
+      this.ctx.storage.transactionSync(() => {
+        this.applyPaymentEventSync({
+          type: 'payment.failed',
+          eventId: failEventId,
+          gatewayReference: payment.gateway_reference,
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            stage: 'capture',
+            reason: adapterResult.outcome === 'timeout' ? 'timeout' : adapterResult.outcome === 'declined' ? 'declined' : 'unknown',
+          },
+        });
+        this.appendPropertyOutbox({
+          eventId: failEventId,
+          eventType: 'payment.failed',
+          payload: {
+            version: 1,
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            stage: 'capture',
+            reason: adapterResult.outcome === 'timeout' ? 'timeout' : adapterResult.outcome === 'declined' ? 'declined' : 'unknown',
+          },
+        });
+        if (adapterResult.outcome === 'timeout') {
+          this.ctx.storage.sql.exec(
+            `UPDATE payment SET status = 'unknown', updated_at = ? WHERE payment_id = ? AND status = 'authorized'`,
+            Date.now(),
+            input.paymentId,
+          );
+        }
+      });
       return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
     }
 
@@ -11655,17 +12048,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     try {
       return this.ctx.storage.transactionSync(() => {
+        const postedPreview = this.resolveCapturePostedSync(
+          adapterResult.capturedAmountMinor,
+          payment.currency,
+          Date.now(),
+        );
         const updated = this.ctx.storage.sql.exec(
           `UPDATE payment
            SET status = 'captured',
                captured_amount_minor = ?,
                capture_fingerprint = ?,
                gateway_reference = ?,
+               fx_rate = ?,
+               fx_rate_at = ?,
+               balance_at_risk = 0,
                updated_at = ?
            WHERE payment_id = ? AND status = 'authorized'`,
           adapterResult.capturedAmountMinor,
           input.captureFingerprint,
           adapterResult.gatewayReference,
+          postedPreview.fxRate,
+          postedPreview.fxRateAt,
           Date.now(),
           input.paymentId,
         );
@@ -11688,26 +12091,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }
 
         const folioLineId = `${input.paymentId}:capture`;
-        const fxRateAt = Date.now();
-        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
-        this.insertFolioLineSync({
-          folioLineId,
-          folioWindowId: payment.folio_window_id,
-          reservationId: payment.reservation_id,
-          chargeCode: 'PAYMENT',
-          posted: {
-            amountMinor: -adapterResult.capturedAmountMinor,
-            txnCurrency: currencyCode(payment.currency),
-            ledgerAmountMinor: -adapterResult.capturedAmountMinor,
-            fxRate: '1',
-            fxRateAt,
+        const captureEventId = crypto.randomUUID();
+        const applied = this.applyPaymentEventSync({
+          type: 'payment.captured',
+          eventId: captureEventId,
+          gatewayReference: adapterResult.gatewayReference,
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            capturedAmountMinor: adapterResult.capturedAmountMinor,
+            currency: payment.currency,
+            folioLineId,
           },
-          source: 'PAYMENT',
-          paymentId: input.paymentId,
         });
 
         this.appendPropertyOutbox({
-          eventId: crypto.randomUUID(),
+          eventId: captureEventId,
           eventType: 'folio.payment_captured',
           payload: {
             propertyId,
@@ -11716,7 +12116,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             capturedAmountMinor: adapterResult.capturedAmountMinor,
             currency: payment.currency,
             gatewayReference: adapterResult.gatewayReference,
-            folioLineId,
+            folioLineId: applied.folioLineId ?? folioLineId,
+          },
+        });
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'payment.captured',
+          payload: {
+            version: 1,
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            capturedAmountMinor: adapterResult.capturedAmountMinor,
+            currency: payment.currency,
+            folioLineId: applied.folioLineId ?? folioLineId,
+            eventId: captureEventId,
+            gatewayReference: adapterResult.gatewayReference,
           },
         });
 
@@ -11746,6 +12161,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         };
       });
     } catch (e) {
+      if (e instanceof Error && e.message === FX_RATE_MISSING) {
+        return { ok: false, error: FX_RATE_MISSING };
+      }
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -11923,29 +12341,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           return { ok: false as const, error: PAYMENT_NOT_REFUNDABLE };
         }
 
-        const captureLineId = `${input.paymentId}:capture`;
-        const refundLineId = `${input.paymentId}:refund`;
-        const fxRateAt = Date.now();
-        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
-        this.insertFolioLineSync({
-          folioLineId: refundLineId,
-          folioWindowId: payment.folio_window_id,
-          reservationId: payment.reservation_id,
-          chargeCode: 'PAYMENT',
-          posted: {
+        const refundEventId = crypto.randomUUID();
+        const applied = this.applyPaymentEventSync({
+          type: 'payment.refunded',
+          eventId: refundEventId,
+          gatewayReference: payment.gateway_reference,
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
             amountMinor: refundAmount,
-            txnCurrency: currencyCode(payment.currency),
-            ledgerAmountMinor: refundAmount,
-            fxRate: '1',
-            fxRateAt,
+            currency: payment.currency,
+            folioLineId: `${input.paymentId}:refund`,
           },
-          source: 'PAYMENT_REFUND',
-          splitOf: captureLineId,
-          paymentId: null,
         });
+        const refundLineId = applied.folioLineId ?? `${input.paymentId}:refund`;
 
         this.appendPropertyOutbox({
-          eventId: crypto.randomUUID(),
+          eventId: refundEventId,
           eventType: 'folio.payment_refunded',
           payload: {
             propertyId,
@@ -11954,6 +12367,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             amountMinor: refundAmount,
             currency: payment.currency,
             folioLineId: refundLineId,
+          },
+        });
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'payment.refunded',
+          payload: {
+            version: 1,
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            amountMinor: refundAmount,
+            currency: payment.currency,
+            folioLineId: refundLineId,
+            eventId: refundEventId,
+            gatewayReference: payment.gateway_reference,
           },
         });
         this.appendAuditLogSync({
@@ -12279,6 +12707,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       paymentId: string;
       reservationId: string;
       amountMinor: number;
+      currency?: string;
       idempotencyKey: string;
       requestFingerprint: string;
     },
@@ -12290,7 +12719,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         shiftId: string | null;
         folioLineId: string;
       }
-    | { ok: false; error: typeof MONEY_INVALID | typeof NOT_FOUND | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof MONEY_INVALID | typeof NOT_FOUND | typeof IDEM_KEY_REUSED | typeof FX_RATE_MISSING }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof CURRENCY_UNSET | typeof PROPERTY_ID_UNSET | 'org_id_unset' }
@@ -12311,6 +12740,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
     if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+    const txnCurrency = input.currency ? currencyCode(input.currency) : ledgerCurrency;
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
@@ -12339,56 +12769,72 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
         const shiftId = this.readOpenShiftIdForActorSync(actor);
         const now = Date.now();
+        const posted = this.resolveCapturePostedSync(input.amountMinor, txnCurrency, now);
         this.ctx.storage.sql.exec(
           `INSERT INTO payment (
              payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
              gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-             capture_fingerprint, tender_type, shift_id, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 'captured', NULL, ?, ?, ?, NULL, 'CASH', ?, ?, ?)`,
+             capture_fingerprint, tender_type, shift_id, fx_rate, fx_rate_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'captured', NULL, ?, ?, ?, NULL, 'CASH', ?, ?, ?, ?, ?)`,
           input.paymentId,
           input.reservationId,
           folioWindowId,
           input.amountMinor,
-          ledgerCurrency,
+          txnCurrency,
           input.amountMinor,
           input.idempotencyKey,
           input.requestFingerprint,
           shiftId,
+          posted.fxRate,
+          posted.fxRateAt,
           now,
           now,
         );
 
         const folioLineId = `${input.paymentId}:capture`;
-        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
-        this.insertFolioLineSync({
-          folioLineId,
-          folioWindowId,
-          reservationId: input.reservationId,
-          chargeCode: 'PAYMENT',
-          posted: {
-            amountMinor: -input.amountMinor,
-            txnCurrency: ledgerCurrency,
-            ledgerAmountMinor: -input.amountMinor,
-            fxRate: '1',
-            fxRateAt: now,
+        const cashEventId = crypto.randomUUID();
+        this.applyPaymentEventSync({
+          type: 'payment.captured',
+          eventId: cashEventId,
+          gatewayReference: null,
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: txnCurrency,
+            folioLineId,
           },
-          source: 'PAYMENT',
-          paymentId: input.paymentId,
         });
 
         this.appendPropertyOutbox({
-          eventId: crypto.randomUUID(),
+          eventId: cashEventId,
           eventType: 'folio.payment_captured',
           payload: {
             propertyId,
             paymentId: input.paymentId,
             reservationId: input.reservationId,
             capturedAmountMinor: input.amountMinor,
-            currency: ledgerCurrency,
+            currency: txnCurrency,
             gatewayReference: null,
             folioLineId,
             tenderType: 'CASH',
             shiftId,
+          },
+        });
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'payment.captured',
+          payload: {
+            version: 1,
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: txnCurrency,
+            folioLineId,
+            eventId: cashEventId,
+            gatewayReference: null,
           },
         });
 
@@ -12422,6 +12868,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      if (e instanceof Error && e.message === FX_RATE_MISSING) {
+        return { ok: false, error: FX_RATE_MISSING };
+      }
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -12689,6 +13138,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           amountMinor: number;
           ledgerAmountMinor: number;
           txnCurrency: string;
+          fxRate: string;
+          fxRateAt: number;
           source: string | null;
           businessDate: string | null;
           splitOf: string | null;
@@ -12698,6 +13149,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           taxRuleId: string | null;
         }>;
         balanceMinor: number;
+        ledgerCurrency: string | null;
+        balanceAtRisk: boolean;
+        txnBalances: Array<{ currency: string; amountMinor: number }>;
         noPost: boolean;
       }
     | { ok: false; error: typeof NOT_FOUND }
@@ -12735,7 +13189,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const lineRows = this.ctx.storage.sql
       .exec(
         `SELECT folio_line_id, folio_window_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
-                source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
+                fx_rate, fx_rate_at, source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
          FROM folio_line WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -12747,6 +13201,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       amount_minor: number;
       ledger_amount_minor: number;
       txn_currency: string;
+      fx_rate: string;
+      fx_rate_at: number;
       source: string | null;
       business_date: string | null;
       split_of: string | null;
@@ -12758,6 +13214,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
     const guestWindow = windowRows.find((row) => row.kind === 'GUEST');
+    const atRiskRows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS n FROM payment WHERE reservation_id = ? AND balance_at_risk = 1 LIMIT 1`,
+        reservationId,
+      )
+      .toArray();
+    const txnBalanceMap = new Map<string, number>();
+    for (const row of lineRows) {
+      txnBalanceMap.set(row.txn_currency, (txnBalanceMap.get(row.txn_currency) ?? 0) + row.amount_minor);
+    }
 
     return {
       ok: true,
@@ -12784,6 +13250,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         amountMinor: row.amount_minor,
         ledgerAmountMinor: row.ledger_amount_minor,
         txnCurrency: row.txn_currency,
+        fxRate: row.fx_rate,
+        fxRateAt: row.fx_rate_at,
         source: row.source,
         businessDate: row.business_date,
         splitOf: row.split_of,
@@ -12793,6 +13261,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         taxRuleId: row.tax_rule_id,
       })),
       balanceMinor,
+      ledgerCurrency: this.readStoredLedgerCurrencySync(),
+      balanceAtRisk: atRiskRows.length > 0 && balanceMinor > 0,
+      txnBalances: [...txnBalanceMap.entries()].map(([currency, amountMinor]) => ({
+        currency,
+        amountMinor,
+      })),
       noPost: reservationRows[0].no_post === 1,
     };
   }

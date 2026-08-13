@@ -978,4 +978,145 @@ describe('reservations vertical HTTP routes', () => {
     );
     expect(checkInAllowed.status).toBe(200);
   });
+
+  it('POST front-office dndFlag then GET reservation', async () => {
+    const actor = 'user_res_owner_dnd';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = `res_dnd_${crypto.randomUUID()}`;
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              reservationId,
+              roomTypeId: 'rt_king',
+              guestRef,
+              arrivalDate: arrival,
+              departureDate: departure,
+              idempotencyKey: `idem-dnd-book-${crypto.randomUUID()}`,
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+
+    const foRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/front-office`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            idempotencyKey: `idem-dnd-fo-${crypto.randomUUID()}`,
+            dndFlag: true,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(foRes.status).toBe(200);
+
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(getRes.status).toBe(200);
+    expect(await getRes.json()).toMatchObject({ reservationId, dndFlag: true });
+  });
+
+  it('POST front-office noPost only does not clobber comment/VIP', async () => {
+    const actor = 'user_res_owner_nopost';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = `res_np_${crypto.randomUUID()}`;
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              reservationId,
+              roomTypeId: 'rt_king',
+              guestRef,
+              arrivalDate: arrival,
+              departureDate: departure,
+              idempotencyKey: `idem-np-book-${crypto.randomUUID()}`,
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/front-office`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+              body: JSON.stringify({
+                idempotencyKey: `idem-np-comment-${crypto.randomUUID()}`,
+                frontOfficeComment: 'keep me',
+                vipFlag: true,
+              }),
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/front-office`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+              body: JSON.stringify({
+                idempotencyKey: `idem-np-only-${crypto.randomUUID()}`,
+                noPost: true,
+              }),
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(getRes.status).toBe(200);
+    expect(await getRes.json()).toMatchObject({
+      reservationId,
+      frontOfficeComment: 'keep me',
+      vipFlag: true,
+    });
+
+    const folioRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(folioRes.status).toBe(200);
+    expect(await folioRes.json()).toMatchObject({ noPost: true });
+  });
 });

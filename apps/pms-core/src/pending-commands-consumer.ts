@@ -59,7 +59,13 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
     invoke: (stub, payload, idem, ctx) =>
       stub.tryUpdateFrontOffice(
         REPLAY_ACTOR,
-        payload as { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean },
+        payload as {
+          reservationId: string;
+          frontOfficeComment?: string;
+          vipFlag?: boolean;
+          dndFlag?: boolean;
+          noPost?: boolean;
+        },
         idem,
         ctx,
       ),

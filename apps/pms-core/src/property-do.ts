@@ -13,6 +13,7 @@ import {
   HOLD_EXPIRED,
   INQUIRY_EXPIRED,
   OCCUPANCY_EXCEEDED,
+  FRONT_OFFICE_COMMENT_TOO_LONG,
   NOT_FOUND,
   NO_AVAILABILITY,
   OVERSELL,
@@ -497,6 +498,13 @@ class OccupancyExceededError extends Error {
   }
 }
 
+class FrontOfficeCommentTooLongError extends Error {
+  constructor() {
+    super(FRONT_OFFICE_COMMENT_TOO_LONG);
+    this.name = 'FrontOfficeCommentTooLongError';
+  }
+}
+
 class HoldExpiredError extends Error {
   constructor() {
     super(HOLD_EXPIRED);
@@ -701,6 +709,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof HOLD_EXPIRED }
   | { ok: false; error: typeof INQUIRY_EXPIRED }
   | { ok: false; error: typeof OCCUPANCY_EXCEEDED }
+  | { ok: false; error: typeof FRONT_OFFICE_COMMENT_TOO_LONG }
   | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
   | { ok: false; error: typeof RATE_MISSING; date: string }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
@@ -735,6 +744,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof HoldExpiredError) return { ok: false, error: HOLD_EXPIRED };
   if (e instanceof InquiryExpiredError) return { ok: false, error: INQUIRY_EXPIRED };
   if (e instanceof OccupancyExceededError) return { ok: false, error: OCCUPANCY_EXCEEDED };
+  if (e instanceof FrontOfficeCommentTooLongError) return { ok: false, error: FRONT_OFFICE_COMMENT_TOO_LONG };
   if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
   if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
@@ -7257,18 +7267,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
-   * Front-office comment + VIP flag. Implements catalog `reservations.update_status`.
-   * Fingerprint: `{ reservationId, frontOfficeComment?, vipFlag? }`. QUEUE_PROVISIONAL, ungated.
+   * Front-office comment, VIP flag, DND flag, no-post. Implements catalog `reservations.update_status`.
+   * Fingerprint: `{ reservationId, frontOfficeComment?, vipFlag?, dndFlag?, noPost? }`. QUEUE_PROVISIONAL, ungated.
    */
   async tryUpdateFrontOffice(
     actor: ActorContext,
-    input: { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean },
+    input: {
+      reservationId: string;
+      frontOfficeComment?: string;
+      vipFlag?: boolean;
+      dndFlag?: boolean;
+      noPost?: boolean;
+    },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof NOT_MODIFIABLE }
+    | { ok: false; error: typeof FRONT_OFFICE_COMMENT_TOO_LONG }
     | { ok: false; error: typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
@@ -7291,7 +7308,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag, no_post
+              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag, dnd_flag, no_post
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -7301,6 +7318,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: string;
             front_office_comment: string | null;
             vip_flag: number;
+            dnd_flag: number;
             no_post: number;
           }>;
           const reservation = resRows[0];
@@ -7316,12 +7334,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const nextComment =
             input.frontOfficeComment !== undefined ? input.frontOfficeComment : reservation.front_office_comment;
           const nextVip = input.vipFlag !== undefined ? (input.vipFlag ? 1 : 0) : reservation.vip_flag;
+          const nextDnd = input.dndFlag !== undefined ? (input.dndFlag ? 1 : 0) : reservation.dnd_flag;
           const nextNoPost = input.noPost !== undefined ? (input.noPost ? 1 : 0) : reservation.no_post;
+          if (typeof nextComment === 'string' && nextComment.length > 2000) {
+            throw new FrontOfficeCommentTooLongError();
+          }
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, no_post = ?, updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, dnd_flag = ?, no_post = ?, updated_at = ? WHERE reservation_id = ?`,
             nextComment,
             nextVip,
+            nextDnd,
             nextNoPost,
             now,
             input.reservationId,
@@ -7336,6 +7359,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId: reservation.pii_key_id,
               frontOfficeComment: nextComment,
               vipFlag: nextVip === 1,
+              dndFlag: nextDnd === 1,
               noPost: nextNoPost === 1,
             },
           });
@@ -7347,11 +7371,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             beforeJson: {
               frontOfficeComment: reservation.front_office_comment,
               vipFlag: reservation.vip_flag === 1,
+              dndFlag: reservation.dnd_flag === 1,
               noPost: reservation.no_post === 1,
             },
             afterJson: {
               frontOfficeComment: nextComment,
               vipFlag: nextVip === 1,
+              dndFlag: nextDnd === 1,
               noPost: nextNoPost === 1,
             },
             reservationId: input.reservationId,
@@ -7383,6 +7409,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           children: number;
           frontOfficeComment: string | null;
           vipFlag: boolean;
+          dndFlag: boolean;
           ratePlanId: string;
           cancelPenaltyType: string;
           confirmBy: number | null;
@@ -7396,7 +7423,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
-                adults, children, front_office_comment, vip_flag, rate_plan_id, cancel_penalty_type,
+                adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, cancel_penalty_type,
                 confirm_by, expires_at, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
@@ -7414,6 +7441,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       children: number;
       front_office_comment: string | null;
       vip_flag: number;
+      dnd_flag: number;
       rate_plan_id: string;
       cancel_penalty_type: string;
       confirm_by: number | null;
@@ -7438,6 +7466,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         children: row.children,
         frontOfficeComment: row.front_office_comment,
         vipFlag: row.vip_flag === 1,
+        dndFlag: row.dnd_flag === 1,
         ratePlanId: row.rate_plan_id,
         cancelPenaltyType: row.cancel_penalty_type,
         confirmBy: row.confirm_by,
@@ -7466,6 +7495,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     children: number;
     front_office_comment: string | null;
     vip_flag: number;
+    dnd_flag: number;
     confirm_by: number | null;
     rate_plan_id: string;
   }) {
@@ -7481,6 +7511,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       children: row.children,
       frontOfficeComment: row.front_office_comment,
       vipFlag: row.vip_flag === 1,
+      dndFlag: row.dnd_flag === 1,
       confirmBy: row.confirm_by,
       ratePlanId: row.rate_plan_id,
     };
@@ -7504,6 +7535,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           children: number;
           frontOfficeComment: string | null;
           vipFlag: boolean;
+          dndFlag: boolean;
           confirmBy: number | null;
           ratePlanId: string;
         }>;
@@ -7518,13 +7550,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         cursor
           ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE arrival_date = ? AND status IN ('confirmed', 'pending') AND reservation_id > ?
              ORDER BY reservation_id ASC
              LIMIT ?`
           : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE arrival_date = ? AND status IN ('confirmed', 'pending')
              ORDER BY reservation_id ASC
@@ -7543,6 +7575,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       children: number;
       front_office_comment: string | null;
       vip_flag: number;
+      dnd_flag: number;
       confirm_by: number | null;
       rate_plan_id: string;
     }>;
@@ -7572,6 +7605,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           children: number;
           frontOfficeComment: string | null;
           vipFlag: boolean;
+          dndFlag: boolean;
           confirmBy: number | null;
           ratePlanId: string;
         }>;
@@ -7586,14 +7620,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         cursor
           ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE departure_date = ?
                AND (status > ? OR (status = ? AND reservation_id > ?))
              ORDER BY status ASC, reservation_id ASC
              LIMIT ?`
           : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE departure_date = ?
              ORDER BY status ASC, reservation_id ASC
@@ -7614,6 +7648,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       children: number;
       front_office_comment: string | null;
       vip_flag: number;
+      dnd_flag: number;
       confirm_by: number | null;
       rate_plan_id: string;
     }>;
@@ -7641,6 +7676,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           children: number;
           frontOfficeComment: string | null;
           vipFlag: boolean;
+          dndFlag: boolean;
           confirmBy: number | null;
           ratePlanId: string;
         }>;
@@ -7655,14 +7691,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         cursor
           ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE status = 'checked_in'
                AND (departure_date > ? OR (departure_date = ? AND reservation_id > ?))
              ORDER BY departure_date ASC, reservation_id ASC
              LIMIT ?`
           : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
+                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE status = 'checked_in'
              ORDER BY departure_date ASC, reservation_id ASC
@@ -7683,6 +7719,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       children: number;
       front_office_comment: string | null;
       vip_flag: number;
+      dnd_flag: number;
       confirm_by: number | null;
       rate_plan_id: string;
     }>;
@@ -12317,6 +12354,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     children?: number;
     frontOfficeComment?: string;
     vipFlag?: boolean;
+    dndFlag?: boolean;
     ratePlanId?: string;
     cancelPenaltyType?: string;
     cancelGraceHours?: number;
@@ -12334,6 +12372,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.children !== undefined ||
       input.frontOfficeComment !== undefined ||
       input.vipFlag !== undefined ||
+      input.dndFlag !== undefined ||
       input.ratePlanId !== undefined ||
       input.cancelPenaltyType !== undefined ||
       input.cancelGraceHours !== undefined ||
@@ -12361,10 +12400,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.ctx.storage.sql.exec(
       `INSERT INTO reservation (
          reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
-         status, room_id, adults, children, front_office_comment, vip_flag, rate_plan_id,
+         status, room_id, adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id,
          cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
          confirm_by, expires_at, no_post, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.reservationId,
       input.roomTypeId,
       input.guestRef,
@@ -12377,6 +12416,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.children ?? 0,
       input.frontOfficeComment ?? null,
       input.vipFlag ? 1 : 0,
+      input.dndFlag ? 1 : 0,
       input.ratePlanId ?? 'BAR',
       input.cancelPenaltyType ?? 'none',
       input.cancelGraceHours ?? 0,

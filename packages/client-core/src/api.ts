@@ -66,6 +66,7 @@ export type ReservationRead = {
   children?: number;
   frontOfficeComment?: string | null;
   vipFlag?: boolean;
+  dndFlag?: boolean;
   ratePlanId?: string;
   confirmBy?: number | null;
   createdAt: number;
@@ -858,7 +859,7 @@ export function createClient(opts: {
       propertyId: string,
       reservationId: string,
       opId: string,
-      extra: { frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean },
+      extra: { frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean; dndFlag?: boolean },
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(

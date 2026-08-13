@@ -66,6 +66,7 @@ import {
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
   OOO_INVALID_RANGE,
+  FRONT_OFFICE_COMMENT_TOO_LONG,
   OCCUPANCY_EXCEEDED,
   WINDOW_CLOSED,
   WINDOW_NOT_CLOSABLE,
@@ -277,6 +278,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === OOO_RANGE_OVERLAP ||
     error === OOO_INVALID_RANGE ||
     error === OCCUPANCY_EXCEEDED ||
+    error === FRONT_OFFICE_COMMENT_TOO_LONG ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||
@@ -1923,6 +1925,8 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
     idempotencyKey: string;
     frontOfficeComment?: string;
     vipFlag?: boolean;
+    dndFlag?: boolean;
+    noPost?: boolean;
   };
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
@@ -1933,6 +1937,8 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
     reservationId,
     ...(body.frontOfficeComment !== undefined ? { frontOfficeComment: body.frontOfficeComment } : {}),
     ...(body.vipFlag !== undefined ? { vipFlag: body.vipFlag } : {}),
+    ...(body.dndFlag !== undefined ? { dndFlag: body.dndFlag } : {}),
+    ...(body.noPost !== undefined ? { noPost: body.noPost } : {}),
   };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALREADY_CANCELLED,
+  FRONT_OFFICE_COMMENT_TOO_LONG,
   HOLD_EXPIRED,
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
@@ -744,6 +745,116 @@ describe('reservation lifecycle inquiry/pending', () => {
       await idemFor('asg', { reservationId, roomId: 'rm_1' }),
     );
     expect(assign).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+  });
+});
+
+describe('prototype holes front-office DND', () => {
+  async function checkInStay(name: string) {
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const roomId = `rm_${crypto.randomUUID()}`;
+    const room = { roomId, roomTypeId: 'rt_king', code: '101' };
+    expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({
+      ok: true,
+    });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor(`c-${reservationId}`, create)),
+    ).toMatchObject({ ok: true });
+    const ci = await stub.tryCheckIn(
+      TEST_OWNER_ACTOR,
+      { reservationId, roomId },
+      await idemFor(`ci-${reservationId}`, { reservationId, roomId }),
+    );
+    expect(ci).toMatchObject({ ok: true });
+    return { stub, reservationId };
+  }
+
+  it('2. DND flag persists on front-office update, outbox, and audit', async () => {
+    const { stub, reservationId } = await checkInStay(`fo-dnd-2-${crypto.randomUUID()}`);
+    const input = { reservationId, dndFlag: true };
+    const result = await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, await idemFor('fo-dnd-2', input));
+    expect(result).toMatchObject({ ok: true });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.dndFlag).toBe(true);
+    const events = await stub.listOutboxPayloads();
+    const fo = events.find((e) => e.eventType === 'reservation.front_office_updated');
+    expect(fo).toBeDefined();
+    expect(JSON.parse(fo!.payload)).toMatchObject({ dndFlag: true });
+    const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
+    expect(audit.ok).toBe(true);
+    const row = (
+      audit as { ok: true; rows: Array<{ commandId: string; afterJson: Record<string, unknown> }> }
+    ).rows.find((r) => r.commandId === 'reservations.update_status');
+    expect(row?.afterJson).toMatchObject({ dndFlag: true });
+  });
+
+  it('3. DND toggle off; checked_out is not modifiable', async () => {
+    const { stub, reservationId } = await checkInStay(`fo-dnd-3-${crypto.randomUUID()}`);
+    const on = { reservationId, dndFlag: true };
+    expect(
+      await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, on, await idemFor('fo-dnd-3-on', on)),
+    ).toMatchObject({ ok: true });
+    const off = { reservationId, dndFlag: false };
+    expect(
+      await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, off, await idemFor('fo-dnd-3-off', off)),
+    ).toMatchObject({ ok: true });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.dndFlag).toBe(false);
+    const co = await stub.tryCheckOut(
+      TEST_OWNER_ACTOR,
+      { reservationId, overrideBalance: true },
+      await idemFor(`co-${reservationId}`, { reservationId }),
+    );
+    expect(co).toMatchObject({ ok: true });
+    const afterOut = { reservationId, dndFlag: true };
+    expect(
+      await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, afterOut, await idemFor('fo-dnd-3-out', afterOut)),
+    ).toMatchObject({ ok: false, error: NOT_MODIFIABLE });
+  });
+
+  it('4. listInHouse includes dndFlag', async () => {
+    const { stub, reservationId } = await checkInStay(`fo-dnd-4-${crypto.randomUUID()}`);
+    const input = { reservationId, dndFlag: true };
+    expect(
+      await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, await idemFor('fo-dnd-4', input)),
+    ).toMatchObject({ ok: true });
+    const listed = await stub.listInHouse({ limit: 50 });
+    expect(listed.ok).toBe(true);
+    const item = (
+      listed as { ok: true; items: Array<{ reservationId: string; dndFlag: boolean }> }
+    ).items.find((i) => i.reservationId === reservationId);
+    expect(item?.dndFlag).toBe(true);
+  });
+
+  it('5. same fingerprint is idempotent; one audit row', async () => {
+    const { stub, reservationId } = await checkInStay(`fo-dnd-5-${crypto.randomUUID()}`);
+    const input = { reservationId, dndFlag: true };
+    const idem = await idemFor('fo-dnd-5', input);
+    expect(await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
+    expect(await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
+    const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
+    expect(audit.ok).toBe(true);
+    const rows = (audit as { ok: true; rows: Array<{ commandId: string }> }).rows.filter(
+      (r) => r.commandId === 'reservations.update_status',
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it('16. comment over 2000 chars → FRONT_OFFICE_COMMENT_TOO_LONG', async () => {
+    const { stub, reservationId } = await checkInStay(`fo-dnd-16-${crypto.randomUUID()}`);
+    const input = { reservationId, frontOfficeComment: 'x'.repeat(2001) };
+    const result = await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, await idemFor('fo-dnd-16', input));
+    expect(result).toMatchObject({ ok: false, error: FRONT_OFFICE_COMMENT_TOO_LONG });
   });
 });
 

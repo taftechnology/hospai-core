@@ -70,6 +70,7 @@ if (process.argv.includes('--self-test')) {
   let ROOM_OOO_V22_SQL;
   let PROTOTYPE_HOLES_V23_SQL;
   let MULTI_CURRENCY_FOLIO_V24_SQL;
+  let EXCEPTION_QUEUE_WORKBENCH_V25_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -107,6 +108,7 @@ if (process.argv.includes('--self-test')) {
       ROOM_OOO_V22_SQL,
       PROTOTYPE_HOLES_V23_SQL,
       MULTI_CURRENCY_FOLIO_V24_SQL,
+      EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -359,6 +361,16 @@ const doPropertyTargets = [
 
 `,
     sql: MULTI_CURRENCY_FOLIO_V24_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0025_exception_queue_workbench.sql'),
+    header: `-- PropertyDO exception-queue workbench — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: ALTER provisional_exception ADD assigned_to, assigned_at, assigned_by, open_retry_key.
+
+`,
+    sql: EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
   },
 ];
 

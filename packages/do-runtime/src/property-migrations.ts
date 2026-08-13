@@ -965,6 +965,16 @@ export const MULTI_CURRENCY_FOLIO_V24_STATEMENTS: string[] = [
 
 export const MULTI_CURRENCY_FOLIO_V24_SQL = MULTI_CURRENCY_FOLIO_V24_STATEMENTS.join(';\n\n') + ';\n';
 
+export const EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS = [
+  `ALTER TABLE provisional_exception ADD COLUMN assigned_to TEXT`,
+  `ALTER TABLE provisional_exception ADD COLUMN assigned_at INTEGER`,
+  `ALTER TABLE provisional_exception ADD COLUMN assigned_by TEXT`,
+  `ALTER TABLE provisional_exception ADD COLUMN open_retry_key TEXT`,
+] as const;
+
+export const EXCEPTION_QUEUE_WORKBENCH_V25_SQL =
+  EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1085,5 +1095,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 24,
     name: 'multi_currency_folio',
     statements: MULTI_CURRENCY_FOLIO_V24_STATEMENTS,
+  },
+  {
+    version: 25,
+    name: 'exception_queue_workbench',
+    statements: EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS,
   },
 ] as const;

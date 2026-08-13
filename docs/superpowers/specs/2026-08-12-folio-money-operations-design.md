@@ -806,32 +806,32 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 
 ## 20. Implementation checklist
 
-- [ ] v21: folio_window rebuild + CHECK; payment rebuild + voided/refunded/purpose; `no_post`; `reservation_rate_night`; DISCOUNT/DAMAGE seed; `SYSTEM_CHARGE_CODES` length 6; `PRAGMA foreign_keys` wrap; `pnpm generate:ddl`; real-SQLite test.
-- [ ] `insertFolioLineSync` CLOSED gate; all writers flow through it.
-- [ ] `tryOpenFolioWindow` / `tryCloseFolioWindow` / `tryReopenFolioWindow`; check-out auto-close config path.
-- [ ] `tryTransferCharge`; tax restamp; deterministic ids.
-- [ ] Extend `splitFolioLineSync` dest window; `trySplitChargeV2`; v1 unchanged contracts.
-- [ ] `tryVoidPayment` / `tryRefundPayment` / `tryCaptureDueHolds`; simulate void/refund; live `tryCheckOut` **awaits** helper inline (no `waitUntil`); `autoCapture` on success body; same-key live replay recomputes `autoCapture` from state (does not re-await).
-- [ ] `tryPostDiscount`; `no_post` skip in `postRoomChargesSync`; authorize `purpose`.
-- [ ] `snapshotRateNightsSync` on inventory commit + modify; **retain consumed** (ROOM/NO_SHOW) nights on shorten; `penaltyMinor` / `postRoomChargesSync` read snapshot with lazy fallback.
-- [ ] Catalog + audit-writers 44 + events allowlist + two config keys + drop two PLATFORM_GAPS.
-- [ ] Routes 95–103; GET folio additive `windows` / `folioWindowId` / `noPost`; existing check-out JSON includes `autoCapture`.
-- [ ] SPA §14.
-- [ ] Bidirectional one-liners in lifecycle / payments / charge-code specs.
-- [ ] Test matrix §17; `pnpm build`, `check:ddl`, `check:entitlements`, `check:permissions`, `check:degraded`, `check:pms-core-test-dates`, `check:do-transport-guards`, `check:class-denylist`, `typecheck`, package tests, `pnpm lint`.
+- [x] v21: folio_window rebuild + CHECK; payment rebuild + voided/refunded/purpose; `no_post`; `reservation_rate_night`; DISCOUNT/DAMAGE seed; `SYSTEM_CHARGE_CODES` length 6; `PRAGMA foreign_keys` wrap; `pnpm generate:ddl`; real-SQLite test.
+- [x] `insertFolioLineSync` CLOSED gate; all writers flow through it.
+- [x] `tryOpenFolioWindow` / `tryCloseFolioWindow` / `tryReopenFolioWindow`; check-out auto-close config path.
+- [x] `tryTransferCharge`; tax restamp; deterministic ids.
+- [x] Extend `splitFolioLineSync` dest window; `trySplitChargeV2`; v1 unchanged contracts.
+- [x] `tryVoidPayment` / `tryRefundPayment` / `tryCaptureDueHolds`; simulate void/refund; live `tryCheckOut` **awaits** helper inline (no `waitUntil`); `autoCapture` on success body; same-key live replay recomputes `autoCapture` from state (does not re-await).
+- [x] `tryPostDiscount`; `no_post` skip in `postRoomChargesSync`; authorize `purpose`.
+- [x] `snapshotRateNightsSync` on inventory commit + modify; **retain consumed** (ROOM/NO_SHOW) nights on shorten; `penaltyMinor` / `postRoomChargesSync` read snapshot with lazy fallback.
+- [x] Catalog + audit-writers 44 + events allowlist + two config keys + drop two PLATFORM_GAPS.
+- [x] Routes 95–103; GET folio additive `windows` / `folioWindowId` / `noPost`; existing check-out JSON includes `autoCapture`.
+- [x] SPA §14.
+- [x] Bidirectional one-liners in lifecycle / payments / charge-code specs.
+- [x] Test matrix §17; `pnpm build`, `check:ddl`, `check:entitlements`, `check:permissions`, `check:degraded`, `check:pms-core-test-dates`, `check:do-transport-guards`, `check:class-denylist`, `typecheck`, package tests, `pnpm lint`.
 
 ---
 
 ## 21. Acceptance (reviewer checklist)
 
-- [ ] Window close vs lifecycle balance gate is a state machine, not a slogan: default stays OPEN; config auto-close only at zero; late charge on CLOSED is `WINDOW_CLOSED` / exception, never silent reopen; explicit reopen exists.
-- [ ] `cancel_check_in` cannot observe a closed GUEST window.
-- [ ] Transfer is reverse + dest posting, `split_of`, same-reservation, CLOSED reject; auto-transfer deferred with reasons; `NIGHT_AUDIT_STEPS` still 7.
-- [ ] Split v2 feet exactly via `allocate`; cross-window subject to transfer rules; v1 kept.
-- [ ] Void is not money; refund is a reversing line; capture line never updated; `payment_id` unique index preserved.
-- [ ] Auto-capture is FAIL_CLOSED, config-gated, **awaited inline** on live check-out (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; test 33 asserts `'captured'`; same-key live replay recomputes from state; skipped on provisional replay; `folio.balance_due` remains the event seam.
-- [ ] Payments stay FAIL_CLOSED; new entitled commands have events + audit writers; size 44; routes append at 95.
-- [ ] Quote snapshot is the price source with lazy fallback for existing rows; `P === R` still holds; **modify retains consumed snapshot nights** (test 46).
-- [ ] Promo deferred with reasons; city ledger out; no new night-audit step.
-- [ ] Open questions section has zero unresolved items.
-- [ ] Out of scope includes city ledger, real PSP, partial refund, routing-rules table.
+- [x] Window close vs lifecycle balance gate is a state machine, not a slogan: default stays OPEN; config auto-close only at zero; late charge on CLOSED is `WINDOW_CLOSED` / exception, never silent reopen; explicit reopen exists.
+- [x] `cancel_check_in` cannot observe a closed GUEST window.
+- [x] Transfer is reverse + dest posting, `split_of`, same-reservation, CLOSED reject; auto-transfer deferred with reasons; `NIGHT_AUDIT_STEPS` still 7.
+- [x] Split v2 feet exactly via `allocate`; cross-window subject to transfer rules; v1 kept.
+- [x] Void is not money; refund is a reversing line; capture line never updated; `payment_id` unique index preserved.
+- [x] Auto-capture is FAIL_CLOSED, config-gated, **awaited inline** on live check-out (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; test 33 asserts `'captured'`; same-key live replay recomputes from state; skipped on provisional replay; `folio.balance_due` remains the event seam.
+- [x] Payments stay FAIL_CLOSED; new entitled commands have events + audit writers; size 44; routes append at 95.
+- [x] Quote snapshot is the price source with lazy fallback for existing rows; `P === R` still holds; **modify retains consumed snapshot nights** (test 46).
+- [x] Promo deferred with reasons; city ledger out; no new night-audit step.
+- [x] Open questions section has zero unresolved items.
+- [x] Out of scope includes city ledger, real PSP, partial refund, routing-rules table.

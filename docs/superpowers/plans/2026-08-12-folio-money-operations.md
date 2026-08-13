@@ -485,19 +485,19 @@ EOF
 - Consumes: v21 `reservation_rate_night`; `enumerateStayDates`; `rate_day`
 - **Forbidden:** changing `penaltyMinor` / `postRoomChargesSync` lookups (Task 5).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Test 44: create pending, no `rate_day` → `RATE_MISSING`, no reservation row, `SELECT COUNT(*) FROM reservation_rate_night` is 0, `sold` unchanged.
 
 Test 42 write half: create confirmed 2-night stay with `rate_day` filled → two snapshot rows equal to those amounts.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-quote-snapshot.spec.ts`
 
 Expected: FAIL — no snapshot rows.
 
-- [ ] **Step 3: Implement `snapshotRateNightsSync`**
+- [x] **Step 3: Implement `snapshotRateNightsSync`**
 
 Call it in the same txn as `sold + 1` after the reservation INSERT, when `commitsInventory` (create pending/confirmed) and on hold/confirm (inquiry → pending/confirmed). Missing `rate_day` → `RateMissingError` **before** the reservation insert if possible; if after, the txn rolls back.
 
@@ -523,13 +523,13 @@ private snapshotRateNightsSync(
 
 Inquiry create: do **not** call it.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-quote-snapshot.spec.ts`
 
 Existing create/cancel tests stay green (`pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-quote-snapshot.spec.ts
@@ -555,7 +555,7 @@ EOF
 - Consumes: Task 4 writers
 - **Forbidden:** shipping readers in Task 4.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 42 remainder: after snapshot exists, `UPDATE rate_day` for night 1 → `penaltyMinor` / `POST_ROOM_CHARGES` still use snapshot amount.
 
@@ -565,13 +565,13 @@ EOF
 
 46: 2-night stay, run `POST_ROOM_CHARGES` for night 1, modify departure so night 2 drops → night-1 snapshot **retained**, night-2 **deleted**. Edit `rate_day` night 1 → snapshot still old.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-quote-snapshot.spec.ts`
 
 Expected: FAIL — readers still use `rate_day`; modify deletes consumed nights.
 
-- [ ] **Step 3: Implement readers + modify sync**
+- [x] **Step 3: Implement readers + modify sync**
 
 Replace `rateDayAmountSync` calls in `penaltyMinor` and `postRoomChargesSync` with `rateNightAmountSync`.
 
@@ -585,13 +585,13 @@ SELECT 1 FROM folio_line
 
 If a row exists → keep snapshot. Else `DELETE FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`. New nights: `snapshotRateNightsSync` for those dates only (`INSERT`; do not overwrite overlapping).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-quote-snapshot.spec.ts test/night-audit-room-charges.spec.ts test/night-audit-no-shows.spec.ts`
 
 Expected: PASS. `P === R` still holds (both read snapshot).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1048,7 +1048,7 @@ EOF
 
 **Spec:** §17 test 49, §20 last bullet, §21.
 
-- [ ] **Step 1: Run the `checks` job commands in order**
+- [x] **Step 1: Run the `checks` job commands in order**
 
 ```bash
 pnpm build
@@ -1077,7 +1077,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1088,11 +1088,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Expected: all four exit 0.
 
-- [ ] **Step 3: Tick living checkboxes on this plan**
+- [x] **Step 3: Tick living checkboxes on this plan**
 
 Mark Tasks 1–15 steps `- [x]` in this file. Same PR as the last implementation commit, or a docs commit in that PR.
 
-- [ ] **Step 4: Commit only if Step 3 left docs dirty**
+- [x] **Step 4: Commit only if Step 3 left docs dirty**
 
 ```bash
 git add docs/superpowers/plans/2026-08-12-folio-money-operations.md

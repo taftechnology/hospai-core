@@ -615,6 +615,14 @@ describe('command catalog', () => {
       });
       expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
     }
+    expect(V1_HTTP_ROUTE_AUDIT[126]?.id).toBe('get_guest_stays');
+    expect(V1_HTTP_ROUTE_AUDIT[127]?.id).toBe('post_demo_seed');
+    expect(V1_HTTP_ROUTE_AUDIT[127]).toMatchObject({ scope: 'dev' });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect('permission' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect('entitlement' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
     expect(COMMAND_CATALOG).toHaveLength(77);
     expect(PLATFORM_GAPS).toEqual([]);

@@ -743,4 +743,8 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_demo_seed',
+    scope: 'dev',
+  },
 ];

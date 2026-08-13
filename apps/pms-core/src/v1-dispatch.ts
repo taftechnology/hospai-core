@@ -128,6 +128,7 @@ import {
 } from './night-audit-http.js';
 import { guestPurgeWorkflowId, closeOrgForPurge, nextOrgPurgeWorkflowId, reopenOrg } from './purge-certificate.js';
 import { ensurePurgeWorkflowInstance } from './purge-workflow-create.js';
+import { runDemoSeed } from './demo-seed.js';
 import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
 import { isOrgDoTransportFailure } from './org-do-transport.js';
 import {
@@ -575,6 +576,60 @@ async function handlePostMigrationSweep(ctx: V1DispatchContext): Promise<Respons
     params: { triggeredBy: ctx.actor.userId },
   });
   return json({ workflowId: instance.id }, 202);
+}
+
+async function handlePostDemoSeed(ctx: V1DispatchContext): Promise<Response> {
+  if (!isDevActorAllowed(ctx.env)) return json({ error: 'not_found' }, 404);
+
+  let body: { orgId?: string; propertyId?: string };
+  try {
+    body = (await ctx.request.json()) as { orgId?: string; propertyId?: string };
+  } catch {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!body?.orgId || !body.propertyId) return json({ error: 'invalid_body' }, 400);
+
+  try {
+    validateTenantId(body.orgId);
+    validateTenantId(body.propertyId);
+  } catch (e) {
+    if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+    throw e;
+  }
+
+  const property = await getProperty(ctx.env, body.propertyId);
+  if (!property) return json({ error: 'not_found' }, 404);
+  if (property.orgId !== body.orgId) return json({ error: 'org_property_mismatch' }, 400);
+
+  const denied = await requirePermission(
+    ctx.env,
+    body.orgId,
+    null,
+    ctx.actor.userId,
+    'property:provision',
+  );
+  if (denied) return denied;
+
+  const resolved = await resolvePropertyFromRegistry(ctx.env, body.propertyId);
+  if (!resolved) return json({ error: 'not_found' }, 404);
+  resolveOrgStub(ctx.env.ORG_DO, { orgId: body.orgId });
+
+  try {
+    const result = await runDemoSeed({
+      env: ctx.env,
+      actor: { kind: 'user', userId: ctx.actor.userId },
+      orgId: body.orgId,
+      propertyId: body.propertyId,
+      propertyName: property.name,
+      timeZone: property.timeZone,
+    });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e) || isOrgDoTransportFailure(e)) {
+      return json({ error: 'unavailable', degraded: 'FAIL_CLOSED' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
 }
 
 async function handlePostOrgCancel(ctx: V1DispatchContext): Promise<Response> {
@@ -7109,6 +7164,12 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'guests:read',
     entitlement: 'pms.core',
     handler: handleGetGuestStays,
+  },
+  {
+    scope: 'dev',
+    method: 'POST',
+    pattern: /^\/v1\/admin\/demo-seed$/,
+    handler: handlePostDemoSeed,
   },
 ];
 

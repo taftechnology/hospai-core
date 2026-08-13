@@ -79,6 +79,18 @@ a {
   color: var(--muted);
 }
 
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.content-visibility-auto {
+  content-visibility: auto;
+}
+
+.overscroll-contain {
+  overscroll-behavior: contain;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

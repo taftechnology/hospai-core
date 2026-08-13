@@ -98,7 +98,7 @@ function RateCell(props: {
         value={raw}
         autoComplete="off"
         inputMode="decimal"
-        style={{ fontVariantNumeric: 'tabular-nums' }}
+        className="tabular-nums"
         onChange={(e) => setRaw(e.target.value)}
         onBlur={async () => {
           if (raw.trim() === '') return;
@@ -401,7 +401,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 <tr>
                   <th>Type</th>
                   {dates.map((d) => (
-                    <th key={d} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    <th key={d} className="tabular-nums">
                       {d}
                     </th>
                   ))}
@@ -501,7 +501,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   onChange={(e) => setBulkAmount(e.target.value)}
                   autoComplete="off"
                   inputMode="decimal"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                  className="tabular-nums"
                 />
               </label>
               <button type="submit" disabled={savingBulk}>

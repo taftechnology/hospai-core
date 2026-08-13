@@ -637,7 +637,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                   <td>{r.name}</td>
                   <td translate="no">{r.ruleKey}</td>
                   <td>{r.ruleType}</td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.rate}</td>
+                  <td className="tabular-nums">{r.rate}</td>
                   <td>{r.taxGroup}</td>
                   <td translate="no">{r.outputChargeCode}</td>
                   <td>
@@ -668,7 +668,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                             value={superRate}
                             onChange={(e) => setSuperRate(e.target.value)}
                             autoComplete="off"
-                            style={{ fontVariantNumeric: 'tabular-nums' }}
+                            className="tabular-nums"
                           />
                         </label>
                         <label>
@@ -722,7 +722,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                 value={taxRate}
                 onChange={(e) => setTaxRate(e.target.value)}
                 autoComplete="off"
-                style={{ fontVariantNumeric: 'tabular-nums' }}
+                className="tabular-nums"
               />
             </label>
             <label>

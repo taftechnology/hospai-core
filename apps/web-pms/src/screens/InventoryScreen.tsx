@@ -314,7 +314,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     No rooms in this type — create one. Sellable count is still {t.roomCount}.
                   </p>
                 ) : (
-                  <table style={rooms.length > 50 ? { contentVisibility: 'auto' } : undefined}>
+                  <table className={rooms.length > 50 ? 'content-visibility-auto' : undefined}>
                     <thead>
                       <tr>
                         <th>Code</th>
@@ -340,7 +340,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                   autoComplete="off"
                                   spellCheck={false}
                                   translate="no"
-                                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                                  className="tabular-nums"
                                   onChange={(e) =>
                                     setRoomEdits((prev) => ({
                                       ...prev,
@@ -445,7 +445,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
       )}
 
       {archiveTarget ? (
-        <div role="dialog" aria-modal="true" className="panel" style={{ overscrollBehavior: 'contain' }}>
+        <div role="dialog" aria-modal="true" className="panel overscroll-contain">
           <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
           <button type="button" onClick={() => setArchiveTarget(null)}>
             Cancel

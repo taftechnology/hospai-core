@@ -793,7 +793,10 @@ describe('prototype holes front-office DND', () => {
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
     expect(audit.ok).toBe(true);
     const row = (
-      audit as { ok: true; rows: Array<{ commandId: string; afterJson: Record<string, unknown> }> }
+      audit as unknown as {
+        ok: true;
+        rows: Array<{ commandId: string; afterJson: Record<string, unknown> }>;
+      }
     ).rows.find((r) => r.commandId === 'reservations.update_status');
     expect(row?.afterJson).toMatchObject({ dndFlag: true });
   });
@@ -844,7 +847,9 @@ describe('prototype holes front-office DND', () => {
     expect(await stub.tryUpdateFrontOffice(TEST_OWNER_ACTOR, input, idem)).toMatchObject({ ok: true });
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
     expect(audit.ok).toBe(true);
-    const rows = (audit as { ok: true; rows: Array<{ commandId: string }> }).rows.filter(
+    const rows = (
+      audit as unknown as { ok: true; rows: Array<{ commandId: string }> }
+    ).rows.filter(
       (r) => r.commandId === 'reservations.update_status',
     );
     expect(rows).toHaveLength(1);

@@ -814,7 +814,7 @@ Existing no-shows tests 7–10 run PROCESS **without** POST (`R === 0`, `P === 0
 
 **Do not call `splitFolioLineSync`.** Split semantics ≠ reversal semantics (the helper writes a `SPLIT_REVERSAL` plus caller-provided child splits; the reverse line itself uses `${source.folio_line_id}:rev:${crypto.randomUUID()}`). Spec requires deterministic reversal ids. Write `reverseNightAuditRoomSync(reservationId, businessDate)` with `${reservationId}:noshow:audit:${D}:room-rev` and `${taxLineId}:noshow:audit:${D}:tax-rev`.
 
-- [ ] **Step 1: Write failing tests 16–22b and update reports 11 expectation**
+- [x] **Step 1: Write failing tests 16–22b and update reports 11 expectation**
 
 16: insert pending (`insertReservationForTest` + `confirmBy` in the past or `arrival_date = D`) with `bumpSoldForTest`; PROCESS → `cancelled`, sold 0, no folio, sibling confirmed → `no_show`.
 17: `auto_no_show = false` → confirmed stays; due pending still expires.
@@ -825,13 +825,13 @@ Existing no-shows tests 7–10 run PROCESS **without** POST (`R === 0`, `P === 0
 22a: `percent` 50% 1-night → `P < R`, same reverse-then-post-P, COMPLETED, not halted.
 22b: create CORP plan, `rate_day` CORP=15000 BAR=10000, reservation `ratePlanId: 'CORP'`, POST → ROOM 15000.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-no-shows.spec.ts test/night-audit-room-charges.spec.ts test/night-audit-reports.spec.ts`
 
 Expected: FAIL on new cases; reports 11 still 20000 until Step 3 (if you change the expectation in Step 1 first, reports 11 fails immediately — **change the expectation in Step 3 with the implementation** so Step 2’s fail is the new tests).
 
-- [ ] **Step 3: Implement processNoShowsSync**
+- [x] **Step 3: Implement processNoShowsSync**
 
 ```ts
 private processNoShowsSync(businessDate: string): void {
@@ -869,13 +869,13 @@ else: reverse ROOM+TAX if R > 0; insert NO_SHOW / NIGHT_AUDIT / D / id `${res}:n
 
 Occupancy snapshot: add `pendingCount` (`status = 'pending' AND arrival_date <= D AND departure_date > D`).
 
-- [ ] **Step 4: Run all night-audit specs**
+- [x] **Step 4: Run all night-audit specs**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-no-shows.spec.ts test/night-audit-room-charges.spec.ts test/night-audit-reports.spec.ts test/night-audit-double-post.spec.ts test/night-audit.spec.ts test/night-audit-routes.spec.ts test/night-audit-precheck.spec.ts`
 
 Expected: PASS. reports 11 `roomNet === 10000`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/night-audit-no-shows.spec.ts apps/pms-core/test/night-audit-room-charges.spec.ts apps/pms-core/test/night-audit-reports.spec.ts

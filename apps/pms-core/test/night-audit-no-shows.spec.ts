@@ -122,4 +122,254 @@ describe('night audit PROCESS_NO_SHOWS', () => {
     const res = await stub.readReservation('res_left');
     expect(res.ok && res.reservation.status).toBe('no_show');
   });
+
+  it('16: pending arriving D expires to cancelled; confirmed sibling no_show', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-16-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_pend',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'pending',
+      confirmBy: Date.now() - 60_000,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    await stub.insertReservationForTest({
+      reservationId: 'res_conf',
+      roomTypeId: 'rt_a',
+      guestRef: 'g2',
+      piiKeyId: 'p2',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'confirmed',
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const pend = await stub.readReservation('res_pend');
+    const conf = await stub.readReservation('res_conf');
+    expect(pend.ok && pend.reservation.status).toBe('cancelled');
+    expect(conf.ok && conf.reservation.status).toBe('no_show');
+    expect((await stub.readAvailabilityDay('rt_a', d))?.sold).toBe(0);
+    expect(await stub.countFolioLinesForReservation('res_pend')).toBe(0);
+  });
+
+  it('17: auto_no_show false keeps confirmed; due pending still expires', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-17-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
+      'pms.night_audit.auto_no_show',
+      false,
+      { reason: 'test' },
+      await idemFor('cfg-17', { key: 'pms.night_audit.auto_no_show', value: false, reason: 'test' }),
+    );
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_conf17',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'confirmed',
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_pend17',
+      roomTypeId: 'rt_a',
+      guestRef: 'g2',
+      piiKeyId: 'p2',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'pending',
+      confirmBy: Date.now() - 1,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const conf = await stub.readReservation('res_conf17');
+    const pend = await stub.readReservation('res_pend17');
+    expect(conf.ok && conf.reservation.status).toBe('confirmed');
+    expect(pend.ok && pend.reservation.status).toBe('cancelled');
+  });
+
+  it('18: inquiry arriving D → cancelled, no ledger', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-18-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_inq',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'inquiry',
+    });
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const inq = await stub.readReservation('res_inq');
+    expect(inq.ok && inq.reservation.status).toBe('cancelled');
+    expect((await stub.readAvailabilityDay('rt_a', d))?.sold).toBe(0);
+    expect(await stub.countFolioLinesForReservation('res_inq')).toBe(0);
+  });
+
+  it('20: policy none after POST → ROOM reversed, no NO_SHOW', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-20-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const rate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'BAR',
+      stayDate: d,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r20', rate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_20',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'confirmed',
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    expect((await stub.runAuditStep(d, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    expect((await stub.runAuditStep(d, 'PROCESS_NO_SHOWS')).status).toBe('COMPLETED');
+    const lines = await stub.listFolioLinesForReservation('res_20');
+    expect(lines.some((l) => l.source === 'SPLIT_REVERSAL' && l.chargeCode === 'ROOM')).toBe(true);
+    expect(lines.some((l) => l.chargeCode === 'NO_SHOW')).toBe(false);
+  });
+
+  it('21: first_night + arrival D → P===R, ROOM remains, no NO_SHOW', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-21-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const rate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'BAR',
+      stayDate: d,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r21', rate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_21',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'confirmed',
+      cancelPenaltyType: 'first_night',
+      cancelGraceHours: 0,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    expect((await stub.runAuditStep(d, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    expect((await stub.runAuditStep(d, 'PROCESS_NO_SHOWS')).status).toBe('COMPLETED');
+    const lines = await stub.listFolioLinesForReservation('res_21');
+    expect(lines.filter((l) => l.chargeCode === 'ROOM' && l.source === 'NIGHT_AUDIT')).toHaveLength(1);
+    expect(lines.some((l) => l.source === 'SPLIT_REVERSAL')).toBe(false);
+    expect(lines.some((l) => l.chargeCode === 'NO_SHOW')).toBe(false);
+  });
+
+  it('22: full on 2-night stay reverses ROOM and posts NO_SHOW for P; retry is no-op', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-22-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    for (const stayDate of [d, addDays(d, 1)]) {
+      const rate = {
+        roomTypeId: 'rt_a',
+        ratePlanId: 'BAR',
+        stayDate,
+        amountMinor: 10000,
+        currency: 'USD',
+      };
+      expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor(`r22-${stayDate}`, rate))).toMatchObject(
+        { ok: true },
+      );
+    }
+    await stub.insertReservationForTest({
+      reservationId: 'res_22',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 2),
+      status: 'confirmed',
+      cancelPenaltyType: 'full',
+      cancelGraceHours: 0,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    await stub.bumpSoldForTest('rt_a', addDays(d, 1), 1);
+    expect((await stub.runAuditStep(d, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    expect((await stub.runAuditStep(d, 'PROCESS_NO_SHOWS')).status).toBe('COMPLETED');
+    const lines = await stub.listFolioLinesForReservation('res_22');
+    expect(lines.some((l) => l.source === 'SPLIT_REVERSAL' && l.chargeCode === 'ROOM')).toBe(true);
+    const noshow = lines.find((l) => l.chargeCode === 'NO_SHOW' && l.source === 'NIGHT_AUDIT');
+    expect(noshow).toMatchObject({
+      folioLineId: `res_22:noshow:audit:${d}`,
+      amountMinor: 20000,
+    });
+    await expect(
+      stub.insertFolioLineRawForTest({
+        folioLineId: `res_22:noshow:audit:${d}:dup`,
+        folioWindowId: 'res_22:GUEST',
+        reservationId: 'res_22',
+        chargeCode: 'NO_SHOW',
+        amountMinor: 20000,
+        source: 'NIGHT_AUDIT',
+        businessDate: d,
+      }),
+    ).rejects.toThrow(/UNIQUE constraint failed|folio_line_audit_uniq/i);
+    const before = await stub.countFolioLinesForReservation('res_22');
+    expect((await stub.runAuditStep(d, 'PROCESS_NO_SHOWS')).status).toBe('COMPLETED');
+    expect(await stub.countFolioLinesForReservation('res_22')).toBe(before);
+  });
+
+  it('22a: percent 50% 1-night P<R reverse-then-post-P, COMPLETED', async () => {
+    const { stub } = await provisionedPropertyStub(`na-ns-22a-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const rate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'BAR',
+      stayDate: d,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r22a', rate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_22a',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'confirmed',
+      cancelPenaltyType: 'percent',
+      cancelPenaltyBps: 5000,
+      cancelGraceHours: 0,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+    expect((await stub.runAuditStep(d, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const lines = await stub.listFolioLinesForReservation('res_22a');
+    expect(lines.some((l) => l.source === 'SPLIT_REVERSAL')).toBe(true);
+    expect(lines.find((l) => l.chargeCode === 'NO_SHOW')).toMatchObject({ amountMinor: 5000 });
+  });
 });
+

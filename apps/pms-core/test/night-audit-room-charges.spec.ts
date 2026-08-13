@@ -223,4 +223,50 @@ describe('night audit POST_ROOM_CHARGES', () => {
     });
     expect(await stub.countFolioLinesForReservation('res_preslice')).toBe(1);
   });
+
+  it('22b: CORP plan reservation posts ROOM from CORP rate_day, not BAR', async () => {
+    const { stub } = await provisionedPropertyStub(`na-corp-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const plan = { ratePlanId: 'CORP', code: 'CORP', name: 'Corporate' };
+    expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p-corp', plan))).toMatchObject({
+      ok: true,
+    });
+    const corpRate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'CORP',
+      stayDate: businessDate,
+      amountMinor: 15000,
+      currency: 'USD',
+    };
+    const barRate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: DEFAULT_RATE_PLAN_ID,
+      stayDate: businessDate,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, corpRate, await idemFor('r-corp', corpRate))).toMatchObject({
+      ok: true,
+    });
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, barRate, await idemFor('r-bar', barRate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_corp',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 1),
+      status: 'confirmed',
+      ratePlanId: 'CORP',
+    });
+    const result = await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES');
+    expect(result.status).toBe('COMPLETED');
+    const lines = await stub.listFolioLinesForReservation('res_corp');
+    expect(lines.find((l) => l.chargeCode === 'ROOM' && l.source === 'NIGHT_AUDIT')).toMatchObject({
+      amountMinor: 15000,
+    });
+  });
 });

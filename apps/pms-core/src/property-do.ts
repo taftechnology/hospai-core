@@ -2054,19 +2054,302 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
-   * `PROCESS_NO_SHOWS` body — sync, inside Txn B. Copies tryNoShow inventory+status
-   * writes. Does not call tryNoShow. Posts no folio lines.
+   * Reverse NIGHT_AUDIT ROOM (+ TAX dependents) with deterministic SPLIT_REVERSAL ids.
+   * Does not call splitFolioLineSync — that helper mints random reverse ids and writes
+   * caller-provided child splits; split semantics ≠ reversal semantics.
+   */
+  private reverseNightAuditRoomSync(reservationId: string, businessDate: string): void {
+    const roomRows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, folio_window_id, amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at
+         FROM folio_line
+         WHERE reservation_id = ? AND business_date = ? AND charge_code = 'ROOM' AND source = 'NIGHT_AUDIT'`,
+        reservationId,
+        businessDate,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      folio_window_id: string;
+      amount_minor: number;
+      txn_currency: string;
+      ledger_amount_minor: number;
+      fx_rate: string;
+      fx_rate_at: number;
+    }>;
+    const source = roomRows[0];
+    if (!source) return;
+
+    const reverseId = `${reservationId}:noshow:audit:${businessDate}:room-rev`;
+    const already = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, reverseId)
+      .toArray();
+    if (already.length > 0) return;
+
+    const txnCurrency = currencyCode(source.txn_currency);
+    this.insertFolioLineSync({
+      folioLineId: reverseId,
+      folioWindowId: source.folio_window_id,
+      reservationId,
+      chargeCode: 'ROOM',
+      posted: {
+        amountMinor: -source.amount_minor,
+        txnCurrency,
+        ledgerAmountMinor: -source.ledger_amount_minor,
+        fxRate: source.fx_rate,
+        fxRateAt: source.fx_rate_at,
+      },
+      source: 'SPLIT_REVERSAL',
+      businessDate,
+      splitOf: source.folio_line_id,
+    });
+
+    const taxLines = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, amount_minor, charge_code, ledger_amount_minor
+         FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
+        source.folio_line_id,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      amount_minor: number;
+      charge_code: string;
+      ledger_amount_minor: number;
+    }>;
+    for (const tax of taxLines) {
+      this.insertFolioLineSync({
+        folioLineId: `${tax.folio_line_id}:noshow:audit:${businessDate}:tax-rev`,
+        folioWindowId: source.folio_window_id,
+        reservationId,
+        chargeCode: tax.charge_code,
+        posted: {
+          amountMinor: -tax.amount_minor,
+          txnCurrency,
+          ledgerAmountMinor: -tax.ledger_amount_minor,
+          fxRate: source.fx_rate,
+          fxRateAt: source.fx_rate_at,
+        },
+        source: 'SPLIT_REVERSAL',
+        businessDate,
+        splitOf: tax.folio_line_id,
+      });
+    }
+  }
+
+  private postAuditNoShowPenaltySync(
+    reservationId: string,
+    amountMinor: number,
+    businessDate: string,
+  ): void {
+    const folioLineId = `${reservationId}:noshow:audit:${businessDate}`;
+    const existing = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, folioLineId)
+      .toArray();
+    if (existing.length > 0) return;
+
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+    this.ensureGuestFolioWindowSync(reservationId);
+    const folioWindowId = this.readGuestFolioWindowIdSync(reservationId);
+    const fxRateAt = Date.now();
+    const posted: PostedLineAmount = {
+      amountMinor,
+      txnCurrency: ledgerCurrency,
+      ledgerAmountMinor: amountMinor,
+      fxRate: '1',
+      fxRateAt,
+    };
+    this.assertChargeCodeSync('NO_SHOW', { requireActive: true });
+    this.insertFolioLineSync({
+      folioLineId,
+      folioWindowId,
+      reservationId,
+      chargeCode: 'NO_SHOW',
+      posted,
+      source: 'NIGHT_AUDIT',
+      businessDate,
+    });
+    this.stampTaxForChargeSync({
+      parentLineId: folioLineId,
+      parentAmountMinor: amountMinor,
+      parentSource: 'NIGHT_AUDIT',
+      chargeCode: 'NO_SHOW',
+      reservationId,
+      folioWindowId,
+      postingDate: businessDate,
+      posted,
+    });
+  }
+
+  private reconcileNoShowPenaltySync(
+    reservation: {
+      reservation_id: string;
+      status: string;
+      arrival_date: string;
+      departure_date: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      cancel_penalty_type: string;
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
+    },
+    businessDate: string,
+    nowMs: number,
+    timeZone: string,
+  ): void {
+    const rRows = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS r
+         FROM folio_line
+         WHERE reservation_id = ? AND business_date = ? AND charge_code = 'ROOM' AND source = 'NIGHT_AUDIT'`,
+        reservation.reservation_id,
+        businessDate,
+      )
+      .toArray() as Array<{ r: number }>;
+    const roomPosted = Number(rRows[0]?.r ?? 0);
+    const penalty = this.penaltyMinor(reservation, nowMs, timeZone);
+    if (penalty === 0) {
+      if (roomPosted > 0) this.reverseNightAuditRoomSync(reservation.reservation_id, businessDate);
+      return;
+    }
+    if (penalty === roomPosted) return;
+    if (roomPosted > 0) this.reverseNightAuditRoomSync(reservation.reservation_id, businessDate);
+    this.postAuditNoShowPenaltySync(reservation.reservation_id, penalty, businessDate);
+  }
+
+  private expirePendingAndInquirySync(businessDate: string, nowMs: number): void {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    const pending = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
+         FROM reservation
+         WHERE status = 'pending' AND (confirm_by <= ? OR arrival_date <= ?)`,
+        nowMs,
+        businessDate,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      pii_key_id: string;
+      arrival_date: string;
+      departure_date: string;
+    }>;
+    for (const row of pending) {
+      const nights = enumerateStayDates(row.arrival_date, row.departure_date);
+      this.releaseSoldNightsSync(row.room_type_id, nights);
+      this.ctx.storage.sql.exec(
+        `UPDATE reservation SET status = 'cancelled', updated_at = ? WHERE reservation_id = ?`,
+        nowMs,
+        row.reservation_id,
+      );
+      const ariVersion = this.bumpAriVersionSync();
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'reservation.status_changed',
+        payload: {
+          propertyId,
+          reservationId: row.reservation_id,
+          guestRef: row.guest_ref,
+          piiKeyId: row.pii_key_id,
+          fromStatus: 'pending',
+          toStatus: 'cancelled',
+          reason: 'expired',
+        },
+      });
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'availability.changed',
+        payload: {
+          propertyId,
+          roomTypeId: row.room_type_id,
+          fromDate: nights[0]!,
+          toDate: nights[nights.length - 1]!,
+          version: ariVersion,
+        },
+      });
+      this.appendAuditLogSync({
+        actor: 'system:night_audit',
+        commandId: 'night_audit.run',
+        entityType: 'reservation',
+        entityId: row.reservation_id,
+        beforeJson: { status: 'pending', roomTypeId: row.room_type_id },
+        afterJson: { status: 'cancelled', roomTypeId: row.room_type_id, reason: 'expired' },
+        reservationId: row.reservation_id,
+      });
+    }
+
+    const inquiries = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id
+         FROM reservation
+         WHERE status = 'inquiry' AND (
+           (expires_at IS NOT NULL AND expires_at <= ?) OR arrival_date <= ?
+         )`,
+        nowMs,
+        businessDate,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      pii_key_id: string;
+    }>;
+    for (const row of inquiries) {
+      this.ctx.storage.sql.exec(
+        `UPDATE reservation SET status = 'cancelled', updated_at = ? WHERE reservation_id = ?`,
+        nowMs,
+        row.reservation_id,
+      );
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'reservation.status_changed',
+        payload: {
+          propertyId,
+          reservationId: row.reservation_id,
+          guestRef: row.guest_ref,
+          piiKeyId: row.pii_key_id,
+          fromStatus: 'inquiry',
+          toStatus: 'cancelled',
+          reason: 'expired',
+        },
+      });
+      this.appendAuditLogSync({
+        actor: 'system:night_audit',
+        commandId: 'night_audit.run',
+        entityType: 'reservation',
+        entityId: row.reservation_id,
+        beforeJson: { status: 'inquiry', roomTypeId: row.room_type_id },
+        afterJson: { status: 'cancelled', roomTypeId: row.room_type_id, reason: 'expired' },
+        reservationId: row.reservation_id,
+      });
+    }
+  }
+
+  /**
+   * `PROCESS_NO_SHOWS` body — sync, inside Txn B. Expires due pending/inquiry always
+   * (inventory hygiene). auto_no_show gates only the confirmed no-show loop.
+   * Does not call tryNoShow. P/R reconciliation never throws ledger_inconsistent.
    */
   private processNoShowsSync(businessDate: string): void {
+    const now = Date.now();
+    this.expirePendingAndInquirySync(businessDate, now);
+
     const auto = this.readConfigValueSync('pms.night_audit.auto_no_show');
     if (auto === false) return;
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) throw new Error(TIMEZONE_UNSET);
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
+                status, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
+                cancel_penalty_nights, cancel_penalty_bps
          FROM reservation
          WHERE status = 'confirmed' AND arrival_date <= ?`,
         businessDate,
@@ -2078,35 +2361,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       pii_key_id: string;
       arrival_date: string;
       departure_date: string;
+      status: string;
+      rate_plan_id: string;
+      cancel_penalty_type: string;
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
     }>;
 
-    const now = Date.now();
     for (const reservation of rows) {
       const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
-      for (const stayDate of nights) {
-        const soldRows = this.ctx.storage.sql
-          .exec(
-            `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-            reservation.room_type_id,
-            stayDate,
-          )
-          .toArray() as Array<{ sold: number }>;
-        if (soldRows.length === 0 || soldRows[0]!.sold < 1) {
-          throw new LedgerInconsistentError(stayDate);
-        }
-      }
-      for (const stayDate of nights) {
-        this.ctx.storage.sql.exec(
-          `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-          reservation.room_type_id,
-          stayDate,
-        );
-      }
+      this.releaseSoldNightsSync(reservation.room_type_id, nights);
       this.ctx.storage.sql.exec(
         `UPDATE reservation SET status = 'no_show', updated_at = ? WHERE reservation_id = ?`,
         now,
         reservation.reservation_id,
       );
+      this.reconcileNoShowPenaltySync(reservation, businessDate, now, timeZone);
       const ariVersion = this.bumpAriVersionSync();
       this.appendPropertyOutbox({
         eventId: crypto.randomUUID(),
@@ -2220,6 +2491,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           .toArray() as Array<{ n: number }>
       )[0]?.n ?? 0,
     );
+    const pendingCount = Number(
+      (
+        this.ctx.storage.sql
+          .exec(
+            `SELECT COUNT(*) AS n FROM reservation
+             WHERE status = 'pending' AND arrival_date <= ? AND departure_date > ?`,
+            businessDate,
+            businessDate,
+          )
+          .toArray() as Array<{ n: number }>
+      )[0]?.n ?? 0,
+    );
 
     const occupancy = {
       businessDate,
@@ -2230,6 +2513,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       inHouseCount,
       confirmedCount,
       noShowCount,
+      pendingCount,
     };
 
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
@@ -2242,7 +2526,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ charge_code: string; source: string | null; total: number }>;
     const roomNet = revenueRows
-      .filter((r) => r.charge_code === 'ROOM' && r.source === 'NIGHT_AUDIT')
+      .filter(
+        (r) =>
+          r.charge_code === 'ROOM' && (r.source === 'NIGHT_AUDIT' || r.source === 'SPLIT_REVERSAL'),
+      )
       .reduce((sum, r) => sum + Number(r.total), 0);
     const taxTotal = revenueRows
       .filter((r) => r.source === 'TAX')

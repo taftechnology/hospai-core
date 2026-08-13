@@ -104,12 +104,13 @@ describe('night audit SNAPSHOT_REPORTS / ARCHIVE', () => {
       inHouseCount: 1,
       confirmedCount: 0,
       noShowCount: 1,
+      pendingCount: 0,
     });
     expect(occupancy.physical).toBe(5);
 
     const revenue = await readReportJson(propertyId, d, 'revenue');
     expect(revenue.currency).toBe('USD');
-    expect(revenue.roomNet).toBe(20000);
+    expect(revenue.roomNet).toBe(10000);
 
     const cashier = await readReportJson(propertyId, d, 'cashier');
     expect(cashier.unattributedCashCount).toBe(0);

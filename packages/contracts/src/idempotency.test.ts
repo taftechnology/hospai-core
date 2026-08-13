@@ -43,6 +43,13 @@ import {
   PENDING_CENSUS_REQUIRED,
   PENDING_COMMANDS_UNDRAINED,
   PROVISIONAL_EXCEPTIONS_OPEN,
+  HOLD_EXPIRED,
+  INQUIRY_EXPIRED,
+  ROOM_REQUIRED,
+  ROOM_NOT_READY,
+  ROOM_OUT_OF_ORDER,
+  BALANCE_DUE,
+  OCCUPANCY_EXCEEDED,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -117,6 +124,16 @@ describe('fingerprintPayload', () => {
     expect(PENDING_CENSUS_REQUIRED).toBe('pending_census_required');
     expect(PENDING_COMMANDS_UNDRAINED).toBe('pending_commands_undrained');
     expect(PROVISIONAL_EXCEPTIONS_OPEN).toBe('provisional_exceptions_open');
+  });
+
+  it('reservation lifecycle wire codes', () => {
+    expect(HOLD_EXPIRED).toBe('hold_expired');
+    expect(INQUIRY_EXPIRED).toBe('inquiry_expired');
+    expect(ROOM_REQUIRED).toBe('room_required');
+    expect(ROOM_NOT_READY).toBe('room_not_ready');
+    expect(ROOM_OUT_OF_ORDER).toBe('room_out_of_order');
+    expect(BALANCE_DUE).toBe('balance_due');
+    expect(OCCUPANCY_EXCEEDED).toBe('occupancy_exceeded');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

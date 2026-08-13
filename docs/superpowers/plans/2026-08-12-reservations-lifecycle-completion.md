@@ -95,7 +95,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, `RESERVATION_STATUSES` (v8 sync + `boardRowSeverity` exhaustiveness would go red), any DO method body, any `/confirm` handler.
 
-- [ ] **Step 1: Write the failing register + idempotency tests**
+- [x] **Step 1: Write the failing register + idempotency tests**
 
 In `packages/contracts/src/idempotency.test.ts` add:
 
@@ -144,13 +144,13 @@ it('reservations.confirm / hold are entitled FAIL_CLOSED INTERACTIVE', () => {
 
 Also assert `reservations.update_status.events` is `['reservation.front_office_updated']` and `reservations.check_out.events` includes `folio.balance_due` + `room.status_changed`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts`
 
 Expected: FAIL — missing exports / size 33 / missing catalog ids.
 
-- [ ] **Step 3: Add codes, catalog edits, audit writers, config keys, event-consumer cases**
+- [x] **Step 3: Add codes, catalog edits, audit writers, config keys, event-consumer cases**
 
 `packages/contracts/src/idempotency.ts`:
 
@@ -253,13 +253,13 @@ entry({
 
 `event-consumer.ts` — add `case 'folio.balance_due':` (assert `propertyId`, `reservationId`) and `case 'reservation.front_office_updated':` next to the other reservation cases. Catalog allowlist test in `events-queue.spec.ts` stays mechanical.
 
-- [ ] **Step 4: Run contracts + events-queue**
+- [x] **Step 4: Run contracts + events-queue**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run && pnpm --filter @hospai/pms-core exec vitest run test/events-queue.spec.ts && pnpm check:entitlements && pnpm check:degraded && pnpm check:permissions`
 
 Expected: PASS. `check:permissions` green because audit length still matches dispatcher.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts packages/contracts/src/idempotency.ts packages/contracts/src/idempotency.test.ts packages/contracts/src/commands/audit-writers.ts packages/contracts/src/config/register.ts packages/contracts/src/register.test.ts apps/pms-core/src/event-consumer.ts

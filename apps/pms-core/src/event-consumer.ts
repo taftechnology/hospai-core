@@ -117,6 +117,12 @@ export async function handleDomainEvent(
       }
       break;
     }
+    case 'reservation.front_office_updated':
+    case 'folio.balance_due': {
+      assertStringField(payload, 'propertyId', message.eventType);
+      assertStringField(payload, 'reservationId', message.eventType);
+      break;
+    }
     case 'availability.changed':
     case 'inventory.room_type_changed':
     case 'reservation.status_changed':

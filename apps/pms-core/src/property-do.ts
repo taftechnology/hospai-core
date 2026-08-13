@@ -4225,6 +4225,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'reservations.create',
+            // Wired in Task 3: 'reservations.confirm' 'reservations.hold'
             entityType: 'reservation',
             entityId: input.reservationId,
             beforeJson: null,

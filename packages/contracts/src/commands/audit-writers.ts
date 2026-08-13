@@ -5,6 +5,8 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'reservations.no_show',
   'reservations.assign_room',
   'reservations.modify',
+  'reservations.confirm',
+  'reservations.hold',
   'rooms.create',
   'rooms.update',
   'folio.add_item',

@@ -21,7 +21,7 @@ import {
   requiredPermissionForKey,
 } from './index.js';
 
-/** Expected prototype config keys (88) — must match register.prototypeKey set. */
+/** Expected prototype config keys (94) — must match register.prototypeKey set. */
 const EXPECTED_PROTOTYPE_KEYS = [
   'pms_amenities_checklist',
   'pms_booking_engine_settings',
@@ -82,6 +82,12 @@ const EXPECTED_PROTOTYPE_KEYS = [
   'pms_property_policies',
   'pms_property_sources',
   'pms_property_split_inventory',
+  'pms_res_allow_balance_override',
+  'pms_res_allow_dirty_override',
+  'pms_res_check_in_cleanliness',
+  'pms_res_checkout_zero_bal',
+  'pms_res_inquiry_ttl_days',
+  'pms_res_pending_hold_hours',
   'pms_sys_allow_overbooking',
   'pms_sys_app_language',
   'pms_sys_audit_time',
@@ -118,8 +124,8 @@ describe('config register', () => {
     expect(() => assertRegisterInvariants()).not.toThrow();
   });
 
-  it('classifies all 88 prototype config keys', () => {
-    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(88);
+  it('classifies all 94 prototype config keys', () => {
+    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(94);
     expect(PROTOTYPE_CONFIG_KEYS).toEqual([...EXPECTED_PROTOTYPE_KEYS].sort());
     for (const k of EXPECTED_PROTOTYPE_KEYS) {
       expect(PROTOTYPE_CONFIG_KEYS).toContain(k);
@@ -242,7 +248,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(33);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(35);
   });
 
   it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
@@ -554,9 +560,44 @@ describe('command catalog', () => {
       'reservations.modify',
       'reservations.cancel',
       'reservations.no_show',
+      'reservations.confirm',
+      'reservations.hold',
     ] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)?.notes).toBe(INVENTORY_FAIL_CLOSED_NOTES);
     }
+  });
+
+  it('reservations.confirm / hold are entitled FAIL_CLOSED INTERACTIVE', () => {
+    for (const id of ['reservations.confirm', 'reservations.hold'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.lane).toBe('INTERACTIVE');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('reservations:write');
+      expect(c?.events).toEqual(['reservation.status_changed', 'availability.changed']);
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
+    }
+  });
+
+  it('reservations.update_status and check_out emit the lifecycle events', () => {
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.update_status')?.events).toEqual([
+      'reservation.front_office_updated',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_out')?.events).toEqual([
+      'reservation.status_changed',
+      'room.status_changed',
+      'folio.balance_due',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_in')?.events).toEqual([
+      'reservation.status_changed',
+      'reservation.room_assigned',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.cancel')?.events).toContain(
+      'folio.line_posted',
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.no_show')?.events).toContain(
+      'folio.line_posted',
+    );
   });
 
   it('guests.erase remains FAIL_CLOSED with guests:erase', () => {
@@ -717,6 +758,7 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.booking',
       'pms.money',
       'pms.folio',
+      'pms.reservations',
     ];
     for (const e of domainConfigKeys()) {
       expect(

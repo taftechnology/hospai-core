@@ -2101,7 +2101,9 @@ to a rule already stated in this document.
    (§10.1), and its emitted events (§8).
 3. **Rebuild screens against live APIs**, module by module, following Phase 1 order (§14).
    Preserve the interaction design; discard the state layer entirely. *Interaction* design —
-   not visual identity, which §16.4 governs separately.
+   not visual identity, which §16.4 governs separately. Inventory, rates, and settings now
+   have a live SPA against those APIs
+   ([property setup SPA](docs/superpowers/specs/2026-08-13-property-setup-spa-design.md)).
 4. **Keep the prototype runnable** as the behavioural reference for as long as Phase 1 lasts.
    When platform behaviour and prototype behaviour diverge, that is a product decision to
    record — in this document or the module's spec — not a bug to be silently resolved.

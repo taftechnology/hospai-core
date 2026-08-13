@@ -857,7 +857,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 ## 18. Leftovers (named, not silent)
 
 1. **Settlement-file ingest + settlement exception queue.** Rule locked (§7.7): never auto-correct. Not `provisional_exception`.
-2. **`pms.money.currencies_list`.** Unread DOMAIN array. Do not dual-write. Retire or define later.
+2. **`pms.money.currencies_list`.** `pms.money.currencies_list` may appear on Settings; it is still not the FX allowlist ([property setup SPA](./2026-08-13-property-setup-spa-design.md)).
 3. **Close / work a `payment_dispute`.** Open-only this chunk.
 4. **Partial refunds** (folio-money-ops leftover 4 remainder) and authorization expiry / `unknown` exit.
 5. **PCI payments Worker** consuming/producing `payment.*` via `event-consumer` → `applyPaymentEventSync`. Phase 1 apply is in-DO only.

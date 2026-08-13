@@ -369,6 +369,7 @@ STILL OUT  reservations.update_status   reservations.update_extras
            (+ five night-audit stubs)
 
 DEAD FLAG  rematerializesRates — declared on TZ (and others); not acted on in tryPutDomainConfig
+           GET /v1/properties/:pid/config/domain added by [property setup SPA](./2026-08-13-property-setup-spa-design.md) so DOMAIN PUT can round-trip. rematerializesRates remains a dead flag.
 
 UNGUARDED  helper→gatePermission wiring for per-key config (accepted until roles diverge)
 

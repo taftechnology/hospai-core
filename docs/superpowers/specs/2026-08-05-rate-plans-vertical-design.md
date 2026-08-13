@@ -425,3 +425,5 @@ One degraded smoke (not a new protocol surface):
 | `READ_STALE` rate-plan projection | No projection consumer yet |
 | Hard-delete of archived plans | Archive-only; YAGNI until a purge policy exists |
 | Un-archive / revive archived plan | Create rejects archived ids (§2.6a); no revive command this slice |
+
+`GET /rate-days` added by [property setup SPA](./2026-08-13-property-setup-spa-design.md). Plan-scoped `rate_plan_id ≠ '*'` restrictions stay out.

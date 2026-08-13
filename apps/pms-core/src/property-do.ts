@@ -1309,6 +1309,51 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * Local-only helper: INSERT OR IGNORE `availability_day` rows for nights
+   * before `__meta.business_date` so `commitSoldNightsSync` can book arrivals
+   * that started before the horizon. Does not bump business_date, ARI, or emit.
+   */
+  async ensurePastAvailabilityDays(
+    fromDate: string,
+    toExclusive: string,
+  ): Promise<{ inserted: number }> {
+    this.assertUnsafeLocal('ensurePastAvailabilityDays');
+    if (
+      !FRONT_OFFICE_ISO_DATE.test(fromDate) ||
+      !FRONT_OFFICE_ISO_DATE.test(toExclusive) ||
+      fromDate >= toExclusive
+    ) {
+      throw new Error('invalid_date_range');
+    }
+
+    const activeRoomTypes = this.ctx.storage.sql
+      .exec(`SELECT room_type_id, room_count FROM room_type WHERE status = 'active'`)
+      .toArray() as Array<{ room_type_id: string; room_count: number }>;
+
+    let inserted = 0;
+    for (const rt of activeRoomTypes) {
+      for (let stayDate = fromDate; stayDate < toExclusive; ) {
+        const result = this.ctx.storage.sql.exec(
+          `INSERT OR IGNORE INTO availability_day
+            (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
+           VALUES (?, ?, ?, 0, 0, 0, 0, 1)`,
+          rt.room_type_id,
+          stayDate,
+          rt.room_count,
+        );
+        inserted += result.rowsWritten;
+        const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stayDate);
+        if (!parts) throw new Error('invalid_date_range');
+        const next = new Date(
+          Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]) + 1),
+        );
+        stayDate = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+      }
+    }
+    return { inserted };
+  }
+
   async setRecordedJurisdiction(jurisdiction: Jurisdiction | null): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO property_config (key, value_json, version, updated_at)

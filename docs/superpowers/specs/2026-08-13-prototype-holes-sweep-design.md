@@ -60,7 +60,7 @@
 2. Occupancy remainder: enforce on check-in and modify; wizard + check-in display party size (§4).
 3. Registration-card printable view (§5).
 4. Front-office comment / VIP / DND editor on the desk (§6).
-5. Top-bar reservation search + `GET …/reservations/search` (§7).
+5. Top-bar reservation search + `GET …/reservations-search` (§7).
 6. Record defer/drop for recurring, HK extras, photos, keyless, inclusions so §16.5 is closed.
 
 ### 1.4 Scope out
@@ -251,12 +251,14 @@ There is no `confirmation_number`. **`reservation_id` is the confirmation.** Do 
 | | |
 |---|---|
 | id | `get_reservation_search` |
-| HTTP | `GET /v1/properties/:propertyId/reservations/search?q=` |
+| HTTP | `GET /v1/properties/:propertyId/reservations-search?q=` |
 | scope | property |
 | permission | `reservations:read` |
 | entitlement | `pms.core` |
 | `degradedRead` | **FAIL_CLOSED** |
 | commandId | omitted (read) |
+
+`findRoute` is first-match. `GET …/reservations/([^/]+)$` (`get_reservation`) would capture the literal `search` if the path were nested. Route audit is append-only, so splicing the search route earlier is not an option. Hyphenated `reservations-search` at index **105** (end) avoids the shadow.
 
 One degraded class per route. Name hydration uses OrgDO (`readGuests`), so this cannot be `READ_STALE` even though §4.6’s table lists “guest lookup” as `READ_STALE`. Follow **shipped** reservation/guest reads (`get_reservation`, `get_front_desk_*`, `get_guest`, `post_guests_batch` are all `FAIL_CLOSED`), not the stale table row. Do not “fix” arrivals in this chunk.
 
@@ -314,7 +316,7 @@ Append only:
 
 ```
 [105] get_reservation_search
-  GET /v1/properties/:propertyId/reservations/search
+  GET /v1/properties/:propertyId/reservations-search
   reservations:read, pms.core, degradedRead FAIL_CLOSED
 ```
 
@@ -419,7 +421,7 @@ Names are the acceptance list, not a file-split mandate. Existing lifecycle / ro
 
 **Search**
 
-17. `[105] = get_reservation_search`; `[104]` still `post_room_ooo_range`.
+17. `[105] = get_reservation_search`; `[104]` still `post_room_ooo_range`. Path is `GET …/reservations-search` (not `…/reservations/search`).
 18. `q` = exact `reservation_id` (including `checked_out`) → one item.
 19. Unknown id → `{ items: [] }` 200.
 20. Guest displayName substring (case-insensitive) matches in-house stay; erased guest name does not.

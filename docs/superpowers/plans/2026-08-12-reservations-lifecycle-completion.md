@@ -672,7 +672,7 @@ EOF
 - Consumes: config `check_in_cleanliness`, `allow_dirty_check_in_override`
 - Produces: `tryCheckIn(actor, { reservationId, roomId?: string, overrideCleanliness?: boolean }, idem, provisional?)`
 
-- [ ] **Step 1: Write failing tests 23–30, 31, 32, 33**
+- [x] **Step 1: Write failing tests 23–30, 31, 32, 33**
 
 23: confirmed, no `room_id`, no payload → `ROOM_REQUIRED`.
 24: `assign_room` then check-in without payload → `checked_in`, one `reservation.room_assigned` (the assign), check-in does not emit a second.
@@ -681,13 +681,13 @@ EOF
 30: `cancel_check_in` keeps `room_id`, room still `clean`.
 31/32: follow existing `degraded-mode.spec.ts` enqueue + drain pattern (`enqueueProvisionalCommand` / consumer). 31: queue check-in with `roomId` A, live-assign A to another stay, drain → exception, first still `confirmed`. 32: queue check-in with no room → exception `ROOM_REQUIRED`.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-in.spec.ts test/degraded-mode.spec.ts`
 
 Expected: FAIL — check-in still ignores `room_id`.
 
-- [ ] **Step 3: Implement tryCheckIn interlocks**
+- [x] **Step 3: Implement tryCheckIn interlocks**
 
 Inside `runIdempotent`, after `assertProvisionalBusinessDateOpen` and `expireIfDueSync`:
 
@@ -709,13 +709,13 @@ invoke: (stub, payload, idem, ctx) =>
   ),
 ```
 
-- [ ] **Step 4: Run check-in + degraded + existing reservations-routes check-in cases**
+- [x] **Step 4: Run check-in + degraded + existing reservations-routes check-in cases**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-in.spec.ts test/degraded-mode.spec.ts test/reservations-routes.spec.ts`
 
 Expected: existing HTTP check-in tests that use unassigned fixtures will now get `ROOM_REQUIRED` — **update those fixtures in this commit** to assign a clean room first (or the routes file goes red). Grep `check-in` in `reservations-routes.spec.ts` and `property-do.spec.ts` and fix fixtures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/pending-commands-consumer.ts apps/pms-core/test/reservations-check-in.spec.ts apps/pms-core/test/degraded-mode.spec.ts apps/pms-core/test/reservations-routes.spec.ts

@@ -1,7 +1,7 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingCommandMessage, ProvisionalExceptionRow } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED } from '@hospai/contracts';
+import { BUSINESS_DATE_CLOSED, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import {
@@ -204,6 +204,23 @@ async function provisionHotel(actor: string) {
   return { orgId, propertyId, actor, arrival, stub: resolved!.stub, guestRef: guest.guestRef };
 }
 
+async function assignCleanRoom(
+  stub: DurableObjectStub<import('../src/property-do.js').PropertyDO>,
+  actor: string,
+  reservationId: string,
+  roomId: string,
+  code: string,
+) {
+  const owner = { kind: 'user' as const, userId: actor };
+  const room = { roomId, roomTypeId: 'rt_king', code };
+  expect(await stub.tryCreateRoom(owner, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({ ok: true });
+  const assign = { reservationId, roomId };
+  expect(await stub.tryAssignRoom(owner, assign, await idemFor(`as-${reservationId}`, assign))).toMatchObject({
+    ok: true,
+  });
+  await stub.flushOutbox();
+}
+
 describe('degraded mode §4.6 fault injection', () => {
   beforeEach(async () => {
     resetPlatformSchemaGate();
@@ -246,6 +263,7 @@ describe('degraded mode §4.6 fault injection', () => {
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect((await postReservation(propertyId, actor, 'res_deg_2', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_2', 'rm_deg_2', '302');
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -274,6 +292,7 @@ describe('degraded mode §4.6 fault injection', () => {
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect((await postReservation(propertyId, actor, 'res_deg_3', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_3', 'rm_deg_3', '303');
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -411,6 +430,7 @@ describe('degraded mode §4.6 fault injection', () => {
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect((await postReservation(propertyId, actor, 'res_deg_5b', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_5b', 'rm_deg_5b', '305');
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -448,6 +468,7 @@ describe('degraded mode §4.6 fault injection', () => {
     const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect((await postReservation(propertyId, actor, 'res_deg_6', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_6', 'rm_deg_6', '306');
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -478,6 +499,7 @@ describe('degraded mode §4.6 fault injection', () => {
     const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
     expect((await postReservation(propertyId, actor, 'res_deg_6b', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_6b', 'rm_deg_6b', '316');
 
     const msg: PendingCommandMessage = {
       v: 1,
@@ -962,8 +984,9 @@ describe('degraded mode §4.6 fault injection', () => {
     expect((await postReservation(propertyId, actor, 'res_deg_26', arrival, departure, guestRef)).status).toBe(
       201,
     );
+    await assignCleanRoom(stub, actor, 'res_deg_26', 'rm_deg_26', '326');
     const before = await stub.readReservation('res_deg_26');
-    expect(before.ok && before.reservation.roomId).toBeNull();
+    expect(before.ok && before.reservation.roomId).toBe('rm_deg_26');
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
@@ -972,6 +995,73 @@ describe('degraded mode §4.6 fault injection', () => {
     await stub.setTransportBlockedForTest(false);
     await dispatchPendingBatch(sent);
     expect(await stub.getReservationStatus('res_deg_26')).toBe('checked_in');
+  });
+
+  it('31: replay check-in roomId A after live-assign A to another stay → exception, first still confirmed', async () => {
+    const actor = 'user_deg_31';
+    const owner = { kind: 'user' as const, userId: actor };
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_deg_31a', arrival, departure, guestRef)).status).toBe(201);
+    expect((await postReservation(propertyId, actor, 'res_deg_31b', arrival, departure, guestRef)).status).toBe(201);
+    const room = { roomId: 'rm_31', roomTypeId: 'rt_king', code: '331' };
+    expect(await stub.tryCreateRoom(owner, room, await idemFor('rm31', room))).toMatchObject({ ok: true });
+
+    const payload = { reservationId: 'res_deg_31a', roomId: 'rm_31' };
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-31',
+        requestFingerprint: (await idemFor('idem-31', payload)).fingerprint,
+        propertyId,
+        orgId: (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: { type: 'reservations.check_in', payload },
+        routeId: 'post_reservation_check_in',
+      },
+    };
+    const assignB = { reservationId: 'res_deg_31b', roomId: 'rm_31' };
+    expect(await stub.tryAssignRoom(owner, assignB, await idemFor('as31b', assignB))).toMatchObject({ ok: true });
+    await dispatchPendingBatch([msg]);
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions.length).toBe(1);
+    expect(exceptions[0]!.reason).toBe(ROOM_ALREADY_ASSIGNED);
+    expect(await stub.getReservationStatus('res_deg_31a')).toBe('confirmed');
+  });
+
+  it('32: replay check-in without room and without pre-assign → exception ROOM_REQUIRED', async () => {
+    const actor = 'user_deg_32';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_deg_32', arrival, departure, guestRef)).status).toBe(201);
+    const payload = { reservationId: 'res_deg_32' };
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-32',
+        requestFingerprint: (await idemFor('idem-32', payload)).fingerprint,
+        propertyId,
+        orgId: (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: { type: 'reservations.check_in', payload },
+        routeId: 'post_reservation_check_in',
+      },
+    };
+    await dispatchPendingBatch([msg]);
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions.length).toBe(1);
+    expect(exceptions[0]!.reason).toBe(ROOM_REQUIRED);
+    expect(await stub.getReservationStatus('res_deg_32')).toBe('confirmed');
   });
 
   it('get_property: PropertyDO blocked returns 200 partial with propertyDo unreachable', async () => {

@@ -922,11 +922,29 @@ describe('PropertyDO front-desk status machine', () => {
     return input;
   }
 
+  async function assignCleanRoom(
+    stub: DurableObjectStub<PropertyDO>,
+    reservationId: string,
+    roomId: string,
+    code: string,
+  ) {
+    const room = { roomId, roomTypeId: 'rt_king', code };
+    expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({
+      ok: true,
+    });
+    const assign = { reservationId, roomId };
+    expect(await stub.tryAssignRoom(TEST_OWNER_ACTOR, assign, await idemFor(`as-${reservationId}`, assign))).toMatchObject({
+      ok: true,
+    });
+    await stub.flushOutbox();
+  }
+
   it('check_in on confirmed sets checked_in without availability.changed', async () => {
     const { stub, guestRef } = await provisionedPropertyWithGuest(`status-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, guestRef, 'res_ci', 'rt_king', added.fromDate, departure);
+    await assignCleanRoom(stub, 'res_ci', 'rm_ci', '201');
 
     const result = await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci' }, await idemFor('ci', { reservationId: 'res_ci' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_ci' });
@@ -939,6 +957,7 @@ describe('PropertyDO front-desk status machine', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, guestRef, 'res_ci2', 'rt_king', added.fromDate, departure);
+    await assignCleanRoom(stub, 'res_ci2', 'rm_ci2', '202');
     const idem1 = await idemFor('ci2', { reservationId: 'res_ci2' });
     expect(await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_ci2' }, idem1)).toMatchObject({ ok: true });
     const idem2 = await idemFor('ci2-dup', { reservationId: 'res_ci2' });
@@ -953,6 +972,7 @@ describe('PropertyDO front-desk status machine', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, guestRef, 'res_co', 'rt_king', added.fromDate, departure);
+    await assignCleanRoom(stub, 'res_co', 'rm_co', '203');
     await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
 
     const result = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
@@ -965,6 +985,7 @@ describe('PropertyDO front-desk status machine', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const departure = addDays(added.fromDate, 2);
     await bookConfirmed(stub, guestRef, 'res_cci', 'rt_king', added.fromDate, departure);
+    await assignCleanRoom(stub, 'res_cci', 'rm_cci', '204');
     await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_cci' }, await idemFor('ci-cci', { reservationId: 'res_cci' }));
 
     const result = await stub.tryCancelCheckIn(

@@ -35,6 +35,8 @@ import {
   ROOM_TYPE_MISMATCH,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_ASSIGNABLE,
+  ROOM_REQUIRED,
+  ROOM_NOT_READY,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -489,6 +491,20 @@ class RoomOutOfOrderError extends Error {
   }
 }
 
+class RoomRequiredError extends Error {
+  constructor() {
+    super(ROOM_REQUIRED);
+    this.name = 'RoomRequiredError';
+  }
+}
+
+class RoomNotReadyError extends Error {
+  constructor() {
+    super(ROOM_NOT_READY);
+    this.name = 'RoomNotReadyError';
+  }
+}
+
 class InvalidCancelPolicyError extends Error {
   constructor() {
     super('invalid_cancel_policy');
@@ -594,6 +610,10 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
   | { ok: false; error: typeof RATE_MISSING; date: string }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
+  | { ok: false; error: typeof ROOM_REQUIRED }
+  | { ok: false; error: typeof ROOM_NOT_READY }
+  | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
+  | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -620,6 +640,10 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
   if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
+  if (e instanceof RoomRequiredError) return { ok: false, error: ROOM_REQUIRED };
+  if (e instanceof RoomNotReadyError) return { ok: false, error: ROOM_NOT_READY };
+  if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
+  if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
   return null;
 }
 
@@ -3918,6 +3942,41 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Fingerprint allowlist: `{ reservationId, roomId }`.
    * FAIL_CLOSED — no provisional parameter. Overlap uses half-open [arrival, departure).
    */
+  private assertRoomAssignableSync(
+    roomId: string,
+    reservation: {
+      reservationId: string;
+      roomTypeId: string;
+      arrivalDate: string;
+      departureDate: string;
+    },
+  ): { room_type_id: string; status: string } {
+    const roomRows = this.ctx.storage.sql
+      .exec(`SELECT room_type_id, status FROM room WHERE room_id = ?`, roomId)
+      .toArray() as Array<{ room_type_id: string; status: string }>;
+    const room = roomRows[0];
+    if (!room) throw new RoomNotFoundError();
+    if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
+    if (room.room_type_id !== reservation.roomTypeId) throw new RoomTypeMismatchError();
+    const conflict = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id FROM reservation
+         WHERE room_id = ?
+           AND reservation_id != ?
+           AND status IN ('pending', 'confirmed', 'checked_in')
+           AND arrival_date < ?
+           AND departure_date > ?
+         LIMIT 1`,
+        roomId,
+        reservation.reservationId,
+        reservation.departureDate,
+        reservation.arrivalDate,
+      )
+      .toArray();
+    if (conflict.length > 0) throw new RoomAlreadyAssignedError();
+    return room;
+  }
+
   async tryAssignRoom(
     actor: ActorContext,
     input: { reservationId: string; roomId: string },
@@ -3978,36 +4037,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             throw new RoomNotAssignableError();
           }
 
-          const roomRows = this.ctx.storage.sql
-            .exec(`SELECT room_type_id, status FROM room WHERE room_id = ?`, input.roomId)
-            .toArray() as Array<{ room_type_id: string; status: string }>;
-          const room = roomRows[0];
-          if (!room) throw new RoomNotFoundError();
-
-          if (room.status === 'out_of_order') {
-            throw new RoomOutOfOrderError();
-          }
-
-          if (room.room_type_id !== reservation.room_type_id) {
-            throw new RoomTypeMismatchError();
-          }
-
-          const conflict = this.ctx.storage.sql
-            .exec(
-              `SELECT reservation_id FROM reservation
-               WHERE room_id = ?
-                 AND reservation_id != ?
-                 AND status IN ('pending', 'confirmed', 'checked_in')
-                 AND arrival_date < ?
-                 AND departure_date > ?
-               LIMIT 1`,
-              input.roomId,
-              input.reservationId,
-              reservation.departure_date,
-              reservation.arrival_date,
-            )
-            .toArray();
-          if (conflict.length > 0) throw new RoomAlreadyAssignedError();
+          this.assertRoomAssignableSync(input.roomId, {
+            reservationId: input.reservationId,
+            roomTypeId: reservation.room_type_id,
+            arrivalDate: reservation.arrival_date,
+            departureDate: reservation.departure_date,
+          });
 
           const now = Date.now();
           const previousRoomId = reservation.room_id;
@@ -5395,17 +5430,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Check in a confirmed reservation. Implements catalog `reservations.check_in`.
-   * Fingerprint: `{ reservationId }`. No ledger mutation.
+   * Fingerprint: `{ reservationId, roomId?, overrideCleanliness? }`.
    */
   async tryCheckIn(
     actor: ActorContext,
-    input: { reservationId: string },
+    input: { reservationId: string; roomId?: string; overrideCleanliness?: boolean },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof ROOM_REQUIRED }
+    | { ok: false; error: typeof ROOM_NOT_READY }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
+    | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
+    | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
@@ -5430,14 +5470,70 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT guest_ref, pii_key_id, status, room_id, room_type_id, arrival_date, departure_date
+               FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
-            .toArray() as Array<{ guest_ref: string; pii_key_id: string; status: string }>;
+            .toArray() as Array<{
+            guest_ref: string;
+            pii_key_id: string;
+            status: string;
+            room_id: string | null;
+            room_type_id: string;
+            arrival_date: string;
+            departure_date: string;
+          }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
           if (reservation.status !== 'confirmed') {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+
+          const resolvedRoomId = input.roomId ?? reservation.room_id;
+          if (!resolvedRoomId) throw new RoomRequiredError();
+
+          if (resolvedRoomId !== reservation.room_id) {
+            this.assertRoomAssignableSync(resolvedRoomId, {
+              reservationId: input.reservationId,
+              roomTypeId: reservation.room_type_id,
+              arrivalDate: reservation.arrival_date,
+              departureDate: reservation.departure_date,
+            });
+            const nowAssign = Date.now();
+            const previousRoomId = reservation.room_id;
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET room_id = ?, updated_at = ? WHERE reservation_id = ?`,
+              resolvedRoomId,
+              nowAssign,
+              input.reservationId,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'reservation.room_assigned',
+              payload: {
+                propertyId,
+                reservationId: input.reservationId,
+                roomId: resolvedRoomId,
+                previousRoomId,
+              },
+            });
+          }
+
+          const roomRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM room WHERE room_id = ?`, resolvedRoomId)
+            .toArray() as Array<{ status: string }>;
+          const room = roomRows[0];
+          if (!room) throw new RoomNotFoundError();
+          if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
+          const cleanliness = this.readConfigValueSync('pms.reservations.check_in_cleanliness') ?? 'strict';
+          const allowDirtyOverride =
+            this.readConfigValueSync('pms.reservations.allow_dirty_check_in_override') !== false;
+          if (
+            room.status === 'dirty' &&
+            cleanliness === 'strict' &&
+            !(input.overrideCleanliness === true && allowDirtyOverride)
+          ) {
+            throw new RoomNotReadyError();
           }
 
           const now = Date.now();
@@ -5461,11 +5557,26 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.check_in',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: 'confirmed', roomId: reservation.room_id },
+            afterJson: {
+              status: 'checked_in',
+              roomId: resolvedRoomId,
+              ...(input.overrideCleanliness ? { overrideCleanliness: true } : {}),
+            },
+            reservationId: input.reservationId,
+          });
+
           return { ok: true as const, reservationId: input.reservationId };
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };

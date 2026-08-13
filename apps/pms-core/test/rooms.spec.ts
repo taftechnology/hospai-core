@@ -4,6 +4,7 @@ import {
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
   ROOM_NOT_ASSIGNABLE,
+  ROOM_REQUIRED,
   ROOM_TYPE_MISMATCH,
   ROOM_UNITS_EXCEED_COUNT,
 } from '@hospai/contracts';
@@ -312,7 +313,7 @@ describe('PropertyDO rooms + housekeeping', () => {
     ).toEqual({ ok: false, error: ROOM_NOT_ASSIGNABLE });
   });
 
-  it('27: tryCheckIn with room_id NULL still ok', async () => {
+  it('27: tryCheckIn with room_id NULL → ROOM_REQUIRED', async () => {
     const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-ci-${crypto.randomUUID()}`);
     await addRoomType(stub, 'rt_king', 5);
     const book = {
@@ -333,7 +334,7 @@ describe('PropertyDO rooms + housekeeping', () => {
         { reservationId: 'res_ci' },
         await idemFor('ci', { reservationId: 'res_ci' }),
       ),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: false, error: ROOM_REQUIRED });
   });
 
   it('28: readReservation roomId null then set', async () => {

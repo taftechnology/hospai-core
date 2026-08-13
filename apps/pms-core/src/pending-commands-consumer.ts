@@ -32,7 +32,12 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
   'reservations.check_in': {
     fingerprintInput: (p) => p,
     invoke: (stub, payload, idem, ctx) =>
-      stub.tryCheckIn(REPLAY_ACTOR, payload as { reservationId: string }, idem, ctx),
+      stub.tryCheckIn(
+        REPLAY_ACTOR,
+        payload as { reservationId: string; roomId?: string; overrideCleanliness?: boolean },
+        idem,
+        ctx,
+      ),
   },
   'reservations.check_out': {
     fingerprintInput: (p) => p,

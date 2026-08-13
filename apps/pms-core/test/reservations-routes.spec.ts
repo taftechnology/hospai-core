@@ -12,6 +12,8 @@ import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { idemFor } from './fixtures';
+import type { PropertyDO } from '../src/property-do';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -94,6 +96,25 @@ async function provisionHotel(actor: string, roomCount = 10) {
     userId: actor,
   });
   return { orgId, propertyId, actor, arrival: roomTypeData.fromDate, guestRef: guest.guestRef };
+}
+
+async function assignCleanRoom(
+  propertyId: string,
+  actor: string,
+  reservationId: string,
+  roomId: string,
+  code: string,
+) {
+  const resolved = await resolvePropertyFromRegistry(env, propertyId);
+  const stub = resolved!.stub as DurableObjectStub<PropertyDO>;
+  const owner = { kind: 'user' as const, userId: actor };
+  const room = { roomId, roomTypeId: 'rt_king', code };
+  expect(await stub.tryCreateRoom(owner, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({ ok: true });
+  const assign = { reservationId, roomId };
+  expect(await stub.tryAssignRoom(owner, assign, await idemFor(`as-${reservationId}`, assign))).toMatchObject({
+    ok: true,
+  });
+  await stub.flushOutbox();
 }
 
 describe('reservations vertical HTTP routes', () => {
@@ -309,6 +330,7 @@ describe('reservations vertical HTTP routes', () => {
 
     const resolved = await resolvePropertyFromRegistry(env, propertyId);
     await resolved!.stub.flushOutbox();
+    await assignCleanRoom(propertyId, actor, reservationId, 'rm_status_1', '101');
 
     const checkInRes = await worker.fetch(
       new Request(
@@ -396,6 +418,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
     expect(book3.status).toBe(201);
+    await assignCleanRoom(propertyId, actor, 'res_status_3', 'rm_status_3', '103');
     await worker.fetch(
       new Request(
         `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_status_3/check-in`,
@@ -507,6 +530,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
     expect(book6.status).toBe(201);
+    await assignCleanRoom(propertyId, actor, 'res_status_6', 'rm_status_6', '106');
     await worker.fetch(
       new Request(
         `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_status_6/check-in`,
@@ -605,6 +629,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
     expect(bookRes.status).toBe(201);
+    await assignCleanRoom(propertyId, owner, 'res_rbac', 'rm_rbac', '190');
 
     const strangerRes = await worker.fetch(
       new Request(
@@ -667,6 +692,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
 
+    await assignCleanRoom(propertyId, actor, 'res_ks_2', 'rm_ks_2', '192');
     await setKillSwitch(env, 'pms.core', true);
 
     const noShowBlocked = await worker.fetch(

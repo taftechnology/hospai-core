@@ -118,7 +118,7 @@ export const NOTE_LIMIT = 'note_limit' as const;
   openRetryKey?: string | null;
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `register.test.ts`, change the existing size pins:
 
@@ -165,7 +165,7 @@ it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', ()
 
 Do **not** add `[120]` assertions this commit (`[119]` stays `get_front_desk_stream`; `[120]` is undefined until Task 3).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
@@ -173,7 +173,7 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
 
 Expected: FAIL — length still 74 / size still 49 / new ids missing.
 
-- [ ] **Step 3: Implement catalog + writers + codes + allowlist**
+- [x] **Step 3: Implement catalog + writers + codes + allowlist**
 
 Catalog entries (copy this shape; insert after `provisional.resolve_exception`):
 
@@ -218,7 +218,7 @@ Catalog entries (copy this shape; insert after `provisional.resolve_exception`):
 
 `event-consumer.ts`: add `case 'provisional.exception_retried':`, `case 'provisional.exception_assigned':`, `case 'provisional.exception_noted':` in the same `switch` as `provisional.exception_resolved` (fall through to `break`). Shape-only; do not call PropertyDO.
 
-- [ ] **Step 4: Rebuild contracts, re-run tests**
+- [x] **Step 4: Rebuild contracts, re-run tests**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -230,7 +230,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/events-queue.spec.ts
 
 Expected: all exit 0. `check:permissions` still reports current `V1_HTTP_ROUTE_AUDIT.length` (no new route). Catalog-events allowlist in `events-queue.spec.ts` accepts the three new types.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts \
@@ -264,7 +264,7 @@ EOF
 - Consumes: Task 1 types only
 - **Forbidden this commit:** `V1_ROUTES`, PropertyDO method bodies, SPA, catalog edits.
 
-- [ ] **Step 1: Write the failing head pins**
+- [x] **Step 1: Write the failing head pins**
 
 In `migrate.test.ts`:
 
@@ -356,7 +356,7 @@ describe('exception_queue_workbench v25 real sqlite', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts
@@ -364,7 +364,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts
 
 Expected: FAIL — head still 24 / Unhandled SQL if statements exist without MemorySql prefixes, or v25 missing.
 
-- [ ] **Step 3: Implement migration + generate DDL**
+- [x] **Step 3: Implement migration + generate DDL**
 
 In `property-migrations.ts`, next to v19 resolved_at statements style:
 
@@ -398,7 +398,7 @@ pnpm generate:ddl
 
 Expected: creates `migrations/do-property/0025_exception_queue_workbench.sql`. `git diff` on v1–v24 SQL files must be empty.
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/exception-queue-workbench-migration.sqlite.test.ts
@@ -408,7 +408,7 @@ pnpm check:purge
 
 Expected: all exit 0. Purge list unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts \
@@ -527,7 +527,7 @@ async tryAddExceptionNote(
 - Consumes: Task 1 catalog ids / wire codes; Task 2 columns; existing `tryResolveProvisionalException` (unchanged semantics)
 - **Forbidden this commit:** SPA, client-core, `enqueueProvisionalCommand` from retry, new table, `CLASS_DENYLIST`, changing resolve into a replay, rewriting `businessDate`.
 
-- [ ] **Step 1: Write the failing register pins + workbench HTTP tests**
+- [x] **Step 1: Write the failing register pins + workbench HTTP tests**
 
 In the existing route-audit `it` that pins `[119]`, append (keep `[119]` assertions):
 
@@ -585,7 +585,7 @@ Cover spec tests **6–17** as distinct `it` blocks with those numbers in the ti
 
 Invalid query: `resolution=bogus` → 400 `{ error: 'invalid_query' }`. Bad cursor → 400 `{ error: 'invalid_cursor' }`. `limit=0` or `201` → 400.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -595,7 +595,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/exception-workbench.spec.ts
 
 Expected: FAIL — `[120]` undefined / 404 on new paths.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 **3a. Audit rows** — append to `V1_HTTP_ROUTE_AUDIT` exactly as spec §3 table (no `degradedRead` on 121–123).
 
@@ -708,7 +708,7 @@ GET detail: `property:read` already enforced by the route. Handler: 404 on `NOT_
 
 List route stays `…/provisional-exceptions$`. Detail is one extra segment. Method-discriminated POSTs under `/:id/retry|assign|notes` do not collide with `/:id/resolve`.
 
-- [ ] **Step 4: Rebuild, tests, permissions**
+- [x] **Step 4: Rebuild, tests, permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -721,7 +721,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/exception-workbench.spec.ts 
 
 Expected: all exit 0. No-query list tests still see only open rows.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts \
@@ -784,22 +784,22 @@ POSTs mint `idempotencyKey` via existing `stableKeyForOperation(opId, opts.keySt
 
 `getProvisionalExceptions`: if `query` omitted, URL has **no** search string (preserves today’s no-query semantics). If present, `URLSearchParams` only for defined keys.
 
-- [ ] **Step 1: Write failing client tests** — assert method, path, query string, JSON bodies (copy `api.test.ts` fetch-mock style).
-- [ ] **Step 2: Run to fail**
+- [x] **Step 1: Write failing client tests** — assert method, path, query string, JSON bodies (copy `api.test.ts` fetch-mock style).
+- [x] **Step 2: Run to fail**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-exception-workbench.test.ts
 ```
 
-- [ ] **Step 3: Implement methods**
-- [ ] **Step 4: Rebuild + tests**
+- [x] **Step 3: Implement methods**
+- [x] **Step 4: Rebuild + tests**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/client-core exec vitest run test/api-exception-workbench.test.ts test/api.test.ts
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts packages/client-core/test/api-exception-workbench.test.ts
@@ -853,7 +853,7 @@ Submit enabled until in-flight; labels “Retrying…” / “Resolving…” / 
 
 Replace `<a href="#replay-exceptions">`.
 
-- [ ] **Step 1: Write failing SPA tests**
+- [x] **Step 1: Write failing SPA tests**
 
 `me.test.ts`: live `property:read` includes `'exceptions'` in filtered ids; order 65 (exceptions after `night-audit`, before `settings`).
 
@@ -863,7 +863,7 @@ Replace `<a href="#replay-exceptions">`.
 
 `NightAuditScreen.test.tsx`: link `href` includes `/exceptions?resolution=open`.
 
-- [ ] **Step 2: Run to fail**
+- [x] **Step 2: Run to fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
@@ -875,8 +875,8 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/shell/AppShell.boot.test.tsx
 ```
 
-- [ ] **Step 3: Implement screens / nav / App route**
-- [ ] **Step 4: Re-run tests + colors**
+- [x] **Step 3: Implement screens / nav / App route**
+- [x] **Step 4: Re-run tests + colors**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -891,7 +891,7 @@ pnpm check:web-pms-colors
 pnpm check:web-pms-me-gating
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/nav.ts apps/web-pms/src/App.tsx \
@@ -927,8 +927,8 @@ Pointer sentence example (adapt per file):
 **Closed 2026-08-13** by [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md).
 ```
 
-- [ ] **Step 1: Edit pointers**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Edit pointers**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-night-audit-e2e-design.md \
@@ -948,7 +948,7 @@ EOF
 
 **Spec:** §2 invariants, §16.1–5, §16.23, §17.
 
-- [ ] **Step 1: Hygiene pins**
+- [x] **Step 1: Hygiene pins**
 
 ```bash
 pnpm generate:ddl
@@ -958,7 +958,7 @@ git diff --exit-code -- tooling/eslint-plugin-hospai/src/class-denylist.ts
 
 Expected: no-op after Task 2’s SQL is already committed. `PROPERTY_SCHEMA_HEAD === 25`. `NIGHT_AUDIT_STEPS.length === 7`. `PROPERTY_PURGE_INVENTORY_TABLES` unchanged. `COMMAND_CATALOG.length === 77`. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `[119]=get_front_desk_stream`; `[120]`–`[123]` as spec. `CLASS_DENYLIST` untouched.
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -988,7 +988,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1007,8 +1007,8 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–8 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Mark checkboxes**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-exception-queue-workbench.md

@@ -23,7 +23,8 @@
     "check:web-pms-me-gating": "node scripts/web-pms-me-gating-check.mjs",
     "check:pms-core-test-dates": "node scripts/pms-core-test-dates-check.mjs",
     "check:module-manifests": "pnpm --filter @hospai/kernel build && node scripts/module-manifests-check.mjs",
-    "check:purge": "pnpm --filter @hospai/contracts build && node scripts/purge-check.mjs"
+    "check:purge": "pnpm --filter @hospai/contracts build && node scripts/purge-check.mjs",
+    "demo:seed": "node scripts/demo-seed.mjs"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.26.0",

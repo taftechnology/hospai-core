@@ -38,6 +38,7 @@ import {
   ROOM_REQUIRED,
   ROOM_NOT_READY,
   BALANCE_DUE,
+  WINDOW_CLOSED,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -510,6 +511,13 @@ class BalanceDueError extends Error {
   constructor(public readonly balanceMinor: number) {
     super(BALANCE_DUE);
     this.name = 'BalanceDueError';
+  }
+}
+
+class WindowClosedError extends Error {
+  constructor() {
+    super(WINDOW_CLOSED);
+    this.name = 'WindowClosedError';
   }
 }
 
@@ -1651,6 +1659,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setAuditAppendFaultForTest(fault: boolean): Promise<void> {
     this.assertUnsafeLocal('setAuditAppendFaultForTest');
     this.auditAppendFaultForTest = fault;
+  }
+
+  async stampFolioWindowClosedForTest(folioWindowId: string): Promise<void> {
+    this.assertUnsafeLocal('stampFolioWindowClosedForTest');
+    this.ctx.storage.sql.exec(
+      `UPDATE folio_window SET status = 'CLOSED', closed_at = ? WHERE folio_window_id = ?`,
+      Date.now(),
+      folioWindowId,
+    );
   }
 
   private auditActorSync(actor: ActorContext): string {
@@ -8493,6 +8510,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
 
+    const win = this.ctx.storage.sql
+      .exec(`SELECT status FROM folio_window WHERE folio_window_id = ?`, input.folioWindowId)
+      .toArray() as Array<{ status: string }>;
+    if (!win[0]) throw new Error(NOT_FOUND);
+    if (win[0].status === 'CLOSED') throw new WindowClosedError();
+
     if (input.source === 'TAX') {
       if (!input.taxOf || !input.taxRuleId) {
         throw new Error('tax lines require tax_of and tax_rule_id');
@@ -8806,6 +8829,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof WINDOW_CLOSED }
     | { ok: false; error: string }
   > {
     this.assertRpcAvailable();
@@ -8889,6 +8913,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (mapped) return mapped;
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

@@ -386,7 +386,7 @@ EOF
 - Consumes: v21 CHECK allowing `CLOSED`
 - **Forbidden:** `tryCloseFolioWindow` / HTTP close (Task 6). Gate must not depend on the close command.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 it('7: add_item on CLOSED window returns WINDOW_CLOSED and does not reopen', async () => {
@@ -408,13 +408,13 @@ it('7: add_item on CLOSED window returns WINDOW_CLOSED and does not reopen', asy
 
 Use the same guest/reservation helpers as `reservations-lifecycle.spec.ts`. Charge code `MISC` is seeded.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-windows.spec.ts`
 
 Expected: FAIL — `stampFolioWindowClosedForTest` missing and add_item succeeds.
 
-- [ ] **Step 3: Implement the gate**
+- [x] **Step 3: Implement the gate**
 
 ```ts
 class WindowClosedError extends Error {
@@ -452,13 +452,13 @@ async stampFolioWindowClosedForTest(folioWindowId: string): Promise<void> {
 
 `ensureGuestFolioWindowSync` stays `INSERT OR IGNORE` as OPEN — must not `UPDATE` a CLOSED row.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-windows.spec.ts`
 
 Also run an existing folio add-item test (`test/folio-routes.spec.ts` or charges spec) to prove OPEN still posts.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-windows.spec.ts

@@ -52,7 +52,7 @@ This chunk turns the existing columns on, sources rates honestly (staff-entered,
 6. Extend **every** existing money writer so reversal / split / transfer / discount / tax / refund / auto-capture honour frozen rates and both legs (§8).
 7. Reports stay ledger-only; cashier snapshot gains a per-txn-currency tender breakdown (§12).
 8. Folio SPA: dual amounts when they differ; payment forms accept currency; FX rate editor for `settings:configure` (§13).
-9. Migration v24: new tables + payment rebuild (CHECK + frozen-rate columns). **`folio_line` is not rebuilt.**
+9. Migration v24: new tables + payment rebuild (CHECK + frozen-rate columns). `folio_line` is a **byte-identical copy rebuild** (no backfill) so the payment DROP is FK-safe in workerd.
 10. ARCHITECTURE.md revision-note honesty (§20).
 
 ### 1.3 Scope out
@@ -554,15 +554,17 @@ Cross-currency auto-capture is therefore legal. Capture failure still does not f
 
 ---
 
-## 9. Schema — v24 `multi_currency_folio`
+## 9. Schema — v24 `multi_currency_folio` (FK-safe payment + byte-identical `folio_line` copy)
 
 `packages/do-runtime/src/property-migrations.ts` version **24**, name `multi_currency_folio`. `pnpm generate:ddl` → `migrations/do-property/0024_multi_currency_folio.sql`. Pin `PROPERTY_SCHEMA_HEAD === 24`.
 
-**`folio_line` is not rebuilt and is not ALTERed.** The five money columns have existed since v1. Existing rows are already `txn_currency =` then-ledger, `fx_rate = '1'`, `ledger_amount_minor = amount_minor` because every writer went through the identity gate. A backfill `UPDATE` would be theater and risks touching history.
+**`folio_line` is not backfilled and is not ALTERed in place.** The five money columns have existed since v1. Existing rows stay byte-identical (`txn_currency` / `fx_rate` / `ledger_amount_minor` unchanged). A backfill `UPDATE` would be theater and risks touching history. The lock was about avoiding that mutation — not about leaving the table name untouched.
 
-### 9.1 Payment rebuild (CHECK must grow)
+The workerd lesson (v21): `PRAGMA foreign_keys` is not honored across DO `sql.exec` calls, and `migrateSql` runs each statement as a separate exec with no transaction, so `defer_foreign_keys` is not an option. Dropping `payment` while `folio_line.payment_id` still references it runs an implicit `DELETE FROM payment` under enforced FKs and bricks any store with a captured payment. v24 therefore rebuilds `folio_line` as a **byte-identical copy** in the payment rebuild chain (same columns, same values; child dropped first). `folio_window` stays.
 
-SQLite cannot ALTER a CHECK. Status gains `chargeback`. New columns cannot be NOT NULL without a rebuild *or* a careful ALTER+backfill; do one rename rebuild (v21 pattern) under `PRAGMA foreign_keys = OFF` … `ON`.
+### 9.1 Payment rebuild (CHECK must grow) + `folio_line` copy chain
+
+SQLite cannot ALTER a CHECK. Status gains `chargeback`. New payment columns cannot be NOT NULL without a rebuild *or* a careful ALTER+backfill; do one rename rebuild following the v21 pattern (**no** `PRAGMA foreign_keys` wrapper).
 
 `payment_v24` = every v21 column plus:
 
@@ -577,11 +579,18 @@ status             TEXT NOT NULL
   ))
 ```
 
-Copy existing rows: `fx_rate` / `fx_rate_at` / `last_payment_event_id` NULL, `balance_at_risk = 0`, status unchanged. Recreate `payment_idempotency_uidx`, `payment_reservation_idx`.
+FK-safe order (v21 minus `folio_window`):
 
-`folio_line.payment_id` still references `payment`. Real-SQLite test (not workerd PRAGMA) must: apply 1–23 with FKs on, insert window + payment + capture line + tax line, apply v24, assert counts, assert orphan `payment_id` still throws, assert `status='chargeback'` succeeds and `'BOGUS'` fails.
+1. `CREATE TABLE payment_v24` — FK to existing `folio_window`.
+2. `CREATE TABLE folio_line_v24` — identical schema to current `folio_line`, but `FOREIGN KEY (payment_id) REFERENCES payment_v24(payment_id)` and `tax_of TEXT REFERENCES folio_line_v24(folio_line_id)`; `folio_window_id` still references `folio_window`.
+3. Copy `payment` → `payment_v24` (`fx_rate` / `fx_rate_at` / `last_payment_event_id` NULL, `balance_at_risk = 0`, status unchanged). Copy `folio_line` → `folio_line_v24` byte-identically (no value changes).
+4. `DROP TABLE folio_line` (child first — v21 proved self-referencing drop works in workerd), then `DROP TABLE payment` (now unreferenced).
+5. `ALTER TABLE payment_v24 RENAME TO payment` (rewrites `folio_line_v24`'s payment FK), then `ALTER TABLE folio_line_v24 RENAME TO folio_line`.
+6. Recreate `payment_idempotency_uidx`, `payment_reservation_idx`, and the v21 `folio_line` indexes (`folio_line_audit_uniq`, `folio_line_window_idx`, `folio_line_payment_uidx`, `folio_line_tax_uniq`, `folio_line_tax_of_idx`).
 
-`MemorySql` must accept `INSERT INTO payment_v24`, `DROP TABLE payment`, `ALTER TABLE payment_v24 RENAME TO payment`, and any wrap `PRAGMA`. `CREATE TABLE fx_rate` / `payment_event` / `payment_dispute` already match the generic `CREATE TABLE` prefix.
+Real-SQLite test (FKs on): apply 1–23, insert window + payment + capture line + tax line, apply v24, assert counts, assert `folio_line` rows are byte-identical, assert orphan `payment_id` still throws, assert `status='chargeback'` succeeds and `'BOGUS'` fails.
+
+`MemorySql` must accept `INSERT INTO payment_v24`, `INSERT INTO folio_line_v24`, `DROP TABLE folio_line`, `DROP TABLE payment`, `ALTER TABLE payment_v24 RENAME TO payment`, `ALTER TABLE folio_line_v24 RENAME TO folio_line`. `CREATE TABLE fx_rate` / `payment_event` / `payment_dispute` already match the generic `CREATE TABLE` prefix.
 
 ### 9.2 New tables
 
@@ -754,7 +763,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 **Migration**
 
 1. `PROPERTY_SCHEMA_HEAD === 24`. `MemorySql` applies through 24 without `Unhandled SQL`.
-2. Real-SQLite: apply 1–23 with FKs on; insert `folio_window`, `payment` (`captured`), `folio_line` ROOM + PAYMENT (`payment_id` set) + TAX; apply v24; counts preserved; `payment.balance_at_risk = 0`; `fx_rate` / `fx_rate_at` NULL; `status='chargeback'` insert succeeds; `'BOGUS'` CHECK fails; orphan `folio_line.payment_id` throws; `fx_rate` / `payment_event` / `payment_dispute` exist.
+2. Real-SQLite: apply 1–23 with FKs on; insert `folio_window`, `payment` (`captured`), `folio_line` ROOM + PAYMENT (`payment_id` set) + TAX; apply v24; counts preserved; `folio_line` rows byte-identical; `payment.balance_at_risk = 0`; `fx_rate` / `fx_rate_at` NULL; `status='chargeback'` insert succeeds; `'BOGUS'` CHECK fails; orphan `folio_line.payment_id` throws; `fx_rate` / `payment_event` / `payment_dispute` exist.
 3. `SYSTEM_CHARGE_CODES` length 9 includes `FX_GAIN`, `FX_LOSS`, `CHARGEBACK_FEE`. `INSERT OR IGNORE` seed is idempotent on a second migrate.
 4. `PROPERTY_PURGE_INVENTORY_TABLES` contains `fx_rate`, `payment_event`, `payment_dispute`; `countPropertyInventoryRows` SQL mentions all three.
 
@@ -885,7 +894,7 @@ Recorded so the implementer and the architecture edit do not “fix” the wrong
 
 | Claim | Reality (verified) | What this chunk does |
 |---|---|---|
-| Prompt: “`folio_line` gains `txn_currency` / `ledger_amount_minor` / `fx_rate` / `fx_rate_at`” | Those columns exist on the v1 freeze-gate table and survived v14/v21 rebuilds | Do **not** add or backfill them. v24 leaves `folio_line` DDL alone |
+| Prompt: “`folio_line` gains `txn_currency` / `ledger_amount_minor` / `fx_rate` / `fx_rate_at`” | Those columns exist on the v1 freeze-gate table and survived v14/v21 rebuilds | Do **not** add or backfill them. v24 copies `folio_line` byte-identically as part of the FK-safe payment rebuild (pragma is not honored across `sql.exec`) |
 | Prompt: “PropertyDO is single-currency today” | Schema is multi-column; **behaviour** is identity-rate via `CROSS_CURRENCY_UNSUPPORTED` | Lift the gate on the surfaces in §5 |
 | ARCHITECTURE §7.3 events are `payment.*` | Tree emits `folio.payment_*` only | Dual-emit; versioned `payment.*` contracts |
 | ARCHITECTURE “Still owed: FX rate sourcing” (lines 52–54) | Still true until this chunk ships | Close that sentence in the same PR as the code |
@@ -913,7 +922,7 @@ Recorded so the implementer and the architecture edit do not “fix” the wrong
 ## 21. Acceptance (reviewer checklist)
 
 - Three currencies are a rule, not a comment: reporting currency never enters the DO; balances and night-audit revenue sum `ledger_amount_minor` only.
-- `folio_line` is not rebuilt; v24 is payment CHECK + new tables + seeds; real-SQLite upgrades a populated v23 store.
+- `folio_line` is a byte-identical copy rebuild (no data mutation, no backfill); v24 is payment CHECK + the FK-safe folio_line chain + new tables + seeds; real-SQLite upgrades a populated v23 store.
 - Rates are staff-entered, effective-dated, frozen at post; no feed; no seeded pairs.
 - Payments + optional add_item are the foreign surface; ROOM/tax/rates stay ledger.
 - Residual FX is a separate line via a manual command; capture does not invent one; settlement ingest is a named leftover.

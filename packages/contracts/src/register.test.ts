@@ -452,6 +452,11 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[105] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[106]?.id).toBe('post_fx_rates');
+    expect(V1_HTTP_ROUTE_AUDIT[107]?.id).toBe('post_fx_rate_supersede');
+    expect(V1_HTTP_ROUTE_AUDIT[108]?.id).toBe('get_fx_rates');
+    expect(V1_HTTP_ROUTE_AUDIT[109]?.id).toBe('post_folio_chargeback');
+    expect(V1_HTTP_ROUTE_AUDIT[110]?.id).toBe('post_folio_fx_adjustment');
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
     expect(COMMAND_CATALOG).toHaveLength(74);
   });

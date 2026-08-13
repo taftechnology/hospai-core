@@ -51,6 +51,11 @@ import {
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
   FX_RATE_INVALID,
+  FX_RATE_MISSING,
+  FX_RATE_NOT_LEDGER,
+  FX_RATE_OPEN_EXISTS,
+  FX_REASON_REQUIRED,
+  PAYMENT_NOT_CHARGEBACKABLE,
   LEDGER_AMOUNT_MISMATCH,
   MONEY_INVALID,
   SPLIT_AMOUNT_MISMATCH,
@@ -259,6 +264,11 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === LEDGER_AMOUNT_MISMATCH ||
     error === MONEY_INVALID ||
     error === CROSS_CURRENCY_UNSUPPORTED ||
+    error === FX_RATE_MISSING ||
+    error === FX_RATE_NOT_LEDGER ||
+    error === FX_RATE_OPEN_EXISTS ||
+    error === FX_REASON_REQUIRED ||
+    error === PAYMENT_NOT_CHARGEBACKABLE ||
     error === SPLIT_AMOUNT_MISMATCH ||
     error === LINE_NOT_SPLITTABLE ||
     error === ROOM_CODE_EXISTS ||
@@ -3977,6 +3987,7 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
   const body = (await ctx.request.json()) as {
     paymentId: string;
     amountMinor: number;
+    currency?: string;
     idempotencyKey: string;
   };
   if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
@@ -3990,12 +4001,14 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
+    ...(body.currency ? { currency: body.currency } : {}),
   });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
+    ...(body.currency ? { currency: body.currency } : {}),
     idempotencyKey: body.idempotencyKey,
     requestFingerprint,
   };
@@ -4652,7 +4665,12 @@ function mapPaymentCommandErrorStatus(error: string): number {
     error === LINE_NOT_SPLITTABLE ||
     error === SPLIT_AMOUNT_MISMATCH ||
     error === MONEY_INVALID ||
-    error === CURRENCY_UNSET
+    error === CURRENCY_UNSET ||
+    error === FX_RATE_MISSING ||
+    error === FX_RATE_NOT_LEDGER ||
+    error === FX_RATE_OPEN_EXISTS ||
+    error === FX_REASON_REQUIRED ||
+    error === PAYMENT_NOT_CHARGEBACKABLE
   ) {
     return 422;
   }
@@ -4669,6 +4687,7 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
   const body = (await ctx.request.json()) as {
     paymentId: string;
     amountMinor: number;
+    currency?: string;
     idempotencyKey: string;
   };
   if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
@@ -4682,12 +4701,14 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
+    ...(body.currency ? { currency: body.currency } : {}),
   });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
+    ...(body.currency ? { currency: body.currency } : {}),
     idempotencyKey: body.idempotencyKey,
     requestFingerprint,
   };
@@ -5128,6 +5149,245 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
     return json({ ok: true, alreadyResolved: true }, 200);
   }
   return json({ ok: true }, 200);
+}
+
+async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    quoteId: string;
+    fromCurrency: string;
+    toCurrency: string;
+    rate: string;
+    effectiveFrom: number;
+    idempotencyKey: string;
+  };
+  if (
+    !body?.quoteId ||
+    !body.fromCurrency ||
+    !body.toCurrency ||
+    !body.rate ||
+    body.effectiveFrom == null ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    quoteId: body.quoteId,
+    fromCurrency: body.fromCurrency,
+    toCurrency: body.toCurrency,
+    rate: body.rate,
+    effectiveFrom: body.effectiveFrom,
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateFxRate']>>>({
+    env: ctx.env,
+    commandId: 'folio.create_fx_rate',
+    routeId: 'post_fx_rates',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryCreateFxRate(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const supersedeQuoteId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    quoteId: string;
+    rate: string;
+    effectiveFrom: number;
+    idempotencyKey: string;
+  };
+  if (!body?.quoteId || !body.rate || body.effectiveFrom == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    quoteId: body.quoteId,
+    supersedeQuoteId,
+    rate: body.rate,
+    effectiveFrom: body.effectiveFrom,
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySupersedeFxRate']>>>({
+    env: ctx.env,
+    commandId: 'folio.supersede_fx_rate',
+    routeId: 'post_fx_rate_supersede',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.trySupersedeFxRate(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleGetFxRates(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const pair = new URL(ctx.request.url).searchParams.get('pair');
+    const [rates, ledgerCurrency] = await Promise.all([
+      resolvedCtx.resolved.stub.listFxRates(),
+      resolvedCtx.resolved.stub.readStoredLedgerCurrency(),
+    ]);
+    let listed = rates.filter((r) => r.effectiveTo === null);
+    if (pair && pair.length === 6) {
+      const fromCurrency = pair.slice(0, 3).toUpperCase();
+      const toCurrency = pair.slice(3).toUpperCase();
+      listed = rates.filter((r) => r.fromCurrency === fromCurrency && r.toCurrency === toCurrency);
+    }
+    return json({ ledgerCurrency, rates: listed }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const paymentId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    feeLedgerMinor: number;
+    reason: string;
+    idempotencyKey: string;
+  };
+  if (body?.feeLedgerMinor == null || body.reason == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = { paymentId, feeLedgerMinor: body.feeLedgerMinor, reason: body.reason };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordChargeback']>>>({
+    env: ctx.env,
+    commandId: 'folio.record_chargeback',
+    routeId: 'post_folio_chargeback',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryRecordChargeback(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    folioWindowId: string;
+    kind: 'gain' | 'loss';
+    amountMinor: number;
+    reason: string;
+    sourcePaymentId?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.folioWindowId || !body.kind || body.amountMinor == null || body.reason == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    reservationId,
+    folioWindowId: body.folioWindowId,
+    kind: body.kind,
+    amountMinor: body.amountMinor,
+    reason: body.reason,
+    ...(body.sourcePaymentId ? { sourcePaymentId: body.sourcePaymentId } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostFxAdjustment']>>>({
+    env: ctx.env,
+    commandId: 'folio.post_fx_adjustment',
+    routeId: 'post_folio_fx_adjustment',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryPostFxAdjustment(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
 }
 
 export const V1_ROUTES: V1RouteDef[] = [
@@ -5978,6 +6238,50 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handleGetReservationSearch,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/fx-rates$/,
+    permission: 'settings:configure',
+    commandId: 'folio.create_fx_rate',
+    entitlement: 'pms.core',
+    handler: handlePostFxRates,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/fx-rates\/([^/]+)\/supersede$/,
+    permission: 'settings:configure',
+    commandId: 'folio.supersede_fx_rate',
+    entitlement: 'pms.core',
+    handler: handlePostFxRateSupersede,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/fx-rates$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFxRates,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/chargeback$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.record_chargeback',
+    entitlement: 'pms.core',
+    handler: handlePostFolioChargeback,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/fx-adjustment$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.post_fx_adjustment',
+    entitlement: 'pms.core',
+    handler: handlePostFolioFxAdjustment,
   },
 ];
 

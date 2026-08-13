@@ -13406,6 +13406,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           capturedAmountMinor: number | null;
           createdAt: number;
           updatedAt: number;
+          dispute: {
+            disputeId: string;
+            status: 'open' | 'closed';
+            reason: string;
+            openedAt: number;
+          } | null;
         }>;
       }
     | { ok: false; error: typeof NOT_FOUND }
@@ -13450,6 +13456,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         capturedAmountMinor: row.captured_amount_minor,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        dispute: this.readPaymentDisputeSync(row.payment_id),
       })),
     };
   }

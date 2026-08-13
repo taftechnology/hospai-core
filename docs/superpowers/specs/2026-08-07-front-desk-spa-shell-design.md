@@ -6,6 +6,8 @@
 
 **Implementation order:** after front-desk operational reads (server routes live). This slice stands up `apps/web-pms` + `@hospai/client-core`, served same-origin from `pms-core`.
 
+**Amends (2026-08-13):** stale-data watermark and front-office hibernation WebSocket are closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md); `entitlement.changed` push remains deferred.
+
 ---
 
 ## 1. Context & Motivation

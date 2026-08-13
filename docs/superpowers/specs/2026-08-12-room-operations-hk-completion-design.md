@@ -681,7 +681,7 @@ OOO does **not** move into the housekeeping module (`availability_day` is not in
 5. **Maintenance work orders** — consume `room.ooo_changed`; freeze-gate / module when `pms.maintenance` exists. Architecture §7.1 rule 3 is event-shaped until then.
 6. **`rooms.delete` / physical-unit archive** — rooms-vertical leftover; count invariant still has no delete path.
 7. **Unassign / atomic move+OOO.**
-8. **Hibernating WebSocket operational reads** (§7.7) — board stays HTTP.
+8. **Hibernating WebSocket operational reads** (§7.7) — closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md).
 9. **HK manager priorities / budgeting / mobile attendant / HK inventory** — extra tabs; `pms_hk_*` excluded keys. Workload counts are not that surface.
 10. **Shifts / capacity** — roster leftover 7.
 11. **`pms.ops.auto_assign_rooms`** — lifecycle leftover 3; unread.

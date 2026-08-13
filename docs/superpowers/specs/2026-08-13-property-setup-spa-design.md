@@ -538,7 +538,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 1 | Virtual room types | §7.1; no constituent UI |
 | 2 | Derived / OrgDO rate plans | §7.2; property-local plans stay |
 | 3 | `rooms.delete` / unit archive | Rooms-vertical leftover |
-| 4 | Tape chart / hibernating WebSockets | §7.7 |
+| 4 | Tape chart / hibernating WebSockets | Closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md). |
 | 5 | `ui-kit` / visual identity | §16.4 |
 | 6 | City ledger / AR | §7.3 |
 | 7 | Invoice generation | §16.1 / §4.7 R2 |

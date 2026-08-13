@@ -6,6 +6,8 @@
 
 **Implementation order:** after audit log (migration head **v17**). This slice is **v18** (additive indexes only). Server slice first — the SPA vertical consumes these routes; it does not invent them.
 
+**Amends (2026-08-13):** leftover hibernation WebSocket for front-desk deltas is closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md).
+
 ---
 
 ## 1. Context & Motivation

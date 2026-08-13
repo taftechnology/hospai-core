@@ -6,7 +6,7 @@
 
 **Closes:** DEMO-READY P0-1 (one-command named demo hotel). README “Run locally” step 3 becomes this command. The empty-board default after the three-curl bootstrap is no longer the meeting path.
 
-**Amends:** [README.md](../../../README.md) “Run locally” §3 (implementation PR). DEMO-READY P0-1 checkboxes (same PR). Bidirectional pointer: one sentence in DEMO-READY when this chunk lands. Do **not** rewrite ARCHITECTURE §14 / §16 as “demo seed shipped” beyond an optional Phase 1 note.
+**Amends:** [README.md](../../../README.md) “Run locally” §3 meeting path is `pnpm demo:seed`. DEMO-READY P0-1 checkboxes (same PR). Bidirectional pointer: one sentence in DEMO-READY when this chunk lands. Do **not** rewrite ARCHITECTURE §14 / §16 as “demo seed shipped” beyond an optional Phase 1 note.
 
 ---
 

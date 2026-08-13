@@ -56,23 +56,22 @@ Work these in order. Each item is independently demoable; P0-1 unblocks every la
 
 ### P0-1. One-command demo hotel
 
-- [ ] A single local command provisions a **named** demo tenant (no curl sequence in the room).
-- [ ] Property name a GM would recognize (not `prop_demo` on the tape header).
-- [ ] ~20 rooms with human codes (`101`, `102`, …) and type names (`King Deluxe`, `Twin`,
+- [x] A single local command provisions a **named** demo tenant (no curl sequence in the room).
+- [x] Property name a GM would recognize (not `prop_demo` on the tape header).
+- [x] ~20 rooms with human codes (`101`, `102`, …) and type names (`King Deluxe`, `Twin`,
       `Suite`) — never lead with `rt_king` / raw ids.
-- [ ] BAR (or equivalent) rates seeded across the visible tape window so Book does not look
+- [x] BAR (or equivalent) rates seeded across the visible tape window so Book does not look
       empty or unpriced.
-- [ ] Today’s board is occupied: roughly 8 in-house, 4 arrivals, 3 departures, a mix of
+- [x] Today’s board is occupied: roughly 8 in-house, 4 arrivals, 3 departures, a mix of
       assigned and one unassigned arrival.
-- [ ] Named guests (first + last). Stay blocks on the tape show **guest name**, not
+- [x] Named guests (first + last). Stay blocks on the tape show **guest name**, not
       `reservationId`.
-- [ ] Idempotent re-run (or a documented wipe + re-seed) so a failed dry run can recover in
+- [x] Idempotent re-run (or a documented wipe + re-seed) so a failed dry run can recover in
       minutes.
-- [ ] README “Run locally” points at this command; the three-curl bootstrap remains for
+- [x] README “Run locally” points at this command; the three-curl bootstrap remains for
       developers, not for the meeting.
 
-Today: [README.md](README.md) bootstrap is `POST /v1/orgs` → property → one room type. Empty
-board is the default.
+Closed 2026-08-13 by [demo tenant seed](docs/superpowers/specs/2026-08-13-demo-tenant-seed-design.md).
 
 ### P0-2. Folio first-paint is a bill
 

@@ -84,9 +84,28 @@ pnpm --filter @hospai/web-pms dev
 
 Open **http://127.0.0.1:5173/**. Optionally build the SPA and hit **http://127.0.0.1:8787/** alone (`pnpm --filter @hospai/web-pms build`; Worker serves `apps/web-pms/dist`).
 
-### 3 — Bootstrap tenant (once per local DO/D1 store)
+### 3 — Seed the demo hotel (once per local DO/D1 store)
 
-Order matters: org → property → room types. `currency` is required on provision. Room types seed a year of availability; without them, **Book** shows no room types.
+Worker must already be running (step 2, terminal A).
+
+```bash
+pnpm demo:seed
+```
+
+This provisions **Harborlight Hospitality** / **The Meridian Seattle** (`org_demo` / `prop_demo` — same ids as `apps/web-pms/.env.example`): ~20 rooms, BAR rates, and today’s board (8 in-house, 4 arrivals, 3 due out). Re-run is safe (idempotent).
+
+If a dry run left the hotel dirty, wipe local persist and seed again:
+
+1. Stop `pnpm --filter @hospai/pms-core dev`
+2. Delete `apps/pms-core/.wrangler/state`
+3. Start the Worker again
+4. `pnpm demo:seed`
+
+Do not run org purge for this.
+
+#### Developer bootstrap (empty hotel)
+
+Engineers who want a blank property can still curl org → property → one room type. A prior curl plus `pnpm demo:seed` heals `rt_king` to **King Deluxe** and PATCHes the property name. A messy mix of leftover types is a wipe (above).
 
 ```bash
 # 1 — org (insert-only; 409 if orgId already exists)

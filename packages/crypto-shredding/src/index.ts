@@ -8,4 +8,11 @@ export type {
 } from './types.js';
 export { KeyNotFoundError, KeyShreddedError } from './errors.js';
 export { generatePiiKeyId, importMasterKeyHex } from './master-key.js';
+export {
+  type BlindIndexKind,
+  blindIndexHash,
+  blindIndexRows,
+  importBlindIndexKeyHex,
+  normalizeBlindIndexValue,
+} from './blind-index.js';
 export { PiiVault } from './vault.js';

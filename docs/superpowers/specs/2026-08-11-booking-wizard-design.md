@@ -137,7 +137,7 @@ Not new to the SPA. Same query retry as Board/ShiftStrip (`read_stale` ×2, `ret
 
 Defer both; name the asymmetry:
 
-- `reservations.update_status` — placeholder (`prototypeAction: null`, notes, deferred pending non-status-machine field). Constrains folding VIP into the status machine.
+- `reservations.update_status` — **retargeted 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): stay front-office comment + VIP flag (`reservation.front_office_updated`), not the status machine.
 - `reservations.update_extras` — sole carrier of `UPDATE_RESERVATION_EXTRAS` in `PROTOTYPE_ACTIONS` coverage. Retirement needs a third category (“not carried forward”), not a two-line delete. Flagged as retirement candidate for a VIP/extras vertical.
 
 No SPA affordance for either.
@@ -284,13 +284,13 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **Rates in booking** | `reservation` carries no `rate_plan_id`; `quoteStay` ([property-do.ts](../../../apps/pms-core/src/property-do.ts)) is DO-only and defaults to `DEFAULT_RATE_PLAN_ID`. Showing a total requires deciding whether a reservation *has* a plan — schema + create-shape — not just an HTTP route. Until then the wizard is quantity-only by decision. `RATE_MISSING` unreachable from create; booking widens operator reach of silent missing `rate_day`. BAR looks safe on a fresh property until a second plan exists. |
+| 1 | **Rates in booking** | **Schema landed 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): `reservation.rate_plan_id` is `NOT NULL DEFAULT 'BAR'`. The wizard remains quantity-only (no plan picker / total). `quoteStay` still defaults to BAR. |
 | 2 | **Guest equality lookup** | Blind HMAC over normalized email/phone; key survives PII shred. Equality only — not prototype substring search. Abandoned wizard after step-3 `guests.create` leaves a guest with no reservation — legitimate standalone create, but without search that orphan is unreachable and will be re-created next visit, compounding this debt. |
 | 3 | **`BoardScreen` UTC seed** | [BoardScreen.tsx](../../../apps/web-pms/src/screens/BoardScreen.tsx) seeds `useState(todayUtc())` while severity uses `propertyLocalToday`. Not a one-line swap: `usePropertyTimeZone()` resolves after the initializer and can be `null`; `useState` never re-seeds. Needs `date: string \| null` with query gated, or a re-seed effect. Booking defaults use `propertyLocalToday` directly and do not inherit this. |
 | 4 | **Fingerprint field-set coupling** | Booking opId mirrors server fingerprint fields that exist only as an inline literal in `handlePostReservations`. Shared contracts export would want applying across ~10 fingerprinted routes — not this slice. |
 | 5 | **SPA date-helper gate counterpart** | Booking is a second site of property-local calendar arithmetic under `apps/web-pms`. `check:pms-core-test-dates` covers pms-core tests only. Future SPA gate possible; out of this slice. |
 | 6 | **Room-type directory (cosmetic)** | No GET `/room-types`; labels = `roomTypeId`. Archived types filtered by zero `physical` / `free`. |
-| 7 | **`update_status` / `update_extras`** | Defer; asymmetry named (§2.8). |
+| 7 | **`update_status` / `update_extras`** | **`update_status` retargeted 2026-08-12** to front-office comment + VIP ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)). `update_extras` still deferred (§2.8). |
 | 8 | **Proactive entitlement chrome** | Unchanged `/me` leftover; wizard inherits 402-reactive store only. |
 | 9 | **Multi-line gate residual** | In `pms-core-test-dates-check.mjs`. Task 0 touches `degraded-check.mjs` only → **explicitly out**; leave until that script is next touched. |
 | 10 | **Check-in “Book for guest”** | Spec once listed Check-in beside Board/Folio; plan scoped the link to rows that already expose `guestRef`. `CheckInScreen` only reads `reservationId` from the URL and never loads the reservation, so adding the link means adding a read. Deferred — optional when that screen grows a reservation fetch. |

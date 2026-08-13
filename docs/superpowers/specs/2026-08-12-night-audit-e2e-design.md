@@ -187,6 +187,8 @@ Wire codes (new, in `@hospai/contracts` idempotency constants): `PENDING_COMMAND
 
 ### 3.2 `PROCESS_NO_SHOWS`
 
+**Amended 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): this step also expires `pending`/`inquiry` (lazy `confirm_by` / arrival / `expires_at`); leftover 2 (penalty posting) is closed. `POST_ROOM_CHARGES` still uses predicate `status IN ('confirmed', 'checked_in')` and prices ROOM from `reservation.rate_plan_id`.
+
 **Predicate:** `status = 'confirmed' AND arrival_date <= <closing business_date>`.
 
 That includes same-day arrivals who never checked in **and** leftover confirmed rows accumulated while this step was a stub.
@@ -448,15 +450,11 @@ No per-stay incidental schedule table exists. `pms.folio.breakfast_rule` is DOMA
 
 Guest registration *reporting* is fiscal (§7.9) and out of this chunk. A printable reg card is a document template + R2 object with no engine and no route. **Drop** as a front-desk/night-audit deliverable. Revisit only with a documents engine, not as a night-audit step.
 
-### 8.3 No-show penalty — **do not post**
+### 8.3 No-show penalty — **posted when policy is not `none`** (amended 2026-08-12)
 
-`reservations.no_show` / `reservations.cancel` are `FAIL_CLOSED` because a penalty cannot survive provisional replay. Night audit is also `FAIL_CLOSED` and *could* post. It will not, this chunk:
+Closed by [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md). Rate plans carry cancellation policy; desk cancel/no-show and `PROCESS_NO_SHOWS` post under `CANCEL` / `NO_SHOW`. Audit uses `source = 'NIGHT_AUDIT'` and reconciles P vs R so a first-night ROOM line is not double-charged. `SYSTEM_CHARGE_CODES` includes `CANCEL` and `NO_SHOW`.
 
-- Rate plans have no cancellation-policy amount (§16.5 still unnamed).
-- Inventing first-night BAR as a `NO_SHOW` charge code would either double-charge (ROOM already posted) or require shrinking `POST_ROOM_CHARGES` — a product change, not a stub fill-in.
-- Desk `tryNoShow` posts no money. Audit must match.
-
-**When a policy field exists**, penalty posting lands on **both** `tryNoShow` and `PROCESS_NO_SHOWS`, as `source = 'NIGHT_AUDIT'` (audit) / a non-`NIGHT_AUDIT` source (desk), under a then-seeded system charge code, taxed via `tax_group`. Until then, `SYSTEM_CHARGE_CODES` stays `ROOM` + `PAYMENT`.
+The original this-chunk lock (no penalty; `SYSTEM_CHARGE_CODES` = `ROOM` + `PAYMENT`) is superseded.
 
 ### 8.4 Tax-posting invariant
 
@@ -561,7 +559,7 @@ Existing `night-audit.spec.ts` / `night-audit-room-charges.spec.ts` stay. New co
 ## 12. Leftovers (named, not silent)
 
 1. **Year-end `ARCHIVE` prune** of `audit_log` / closed-year folio projection (policy in audit-log §2.4; nightly body does not DELETE).
-2. **No-show / cancel penalty posting** once rate-plan cancellation policy exists (§8.3).
+2. **No-show / cancel penalty posting** — **closed 2026-08-12** by [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md) (desk cancel/no-show + `PROCESS_NO_SHOWS` P/R).
 3. **Recurring incidental schedule** + posting inside `POST_ROOM_CHARGES` (§8.1).
 4. **`pms.night_audit.auto_extend`** — unread config.
 5. **Alarm workflow ids** remain timestamped; HTTP run is deterministic get-or-create. Unifying them is optional hygiene, not required.

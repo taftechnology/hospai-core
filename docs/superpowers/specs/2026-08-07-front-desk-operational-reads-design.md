@@ -62,11 +62,11 @@ A reservation KV projection **cannot contain guest names** (§4.8). A name-less 
 
 ### 2.3 Query shapes and indexes (Q3)
 
-Status domain: `confirmed | cancelled | checked_in | checked_out | no_show`. Arrivals and in-house filter status in SQL; departures return every row for the date (including `cancelled` / `no_show` if present) and the client groups the board columns — none of the three is an unfiltered "directory of reservations."
+Status domain: `inquiry | pending | confirmed | cancelled | checked_in | checked_out | no_show`. Arrivals and in-house filter status in SQL; departures return every row for the date (including `cancelled` / `no_show` if present) and the client groups the board columns — none of the three is an unfiltered "directory of reservations."
 
 | List | Filter | Sort | Index |
 |---|---|---|---|
-| **Arrivals** | `arrival_date = ? AND status = 'confirmed'` | `reservation_id ASC` | existing `reservation_arrival_idx` |
+| **Arrivals** | `arrival_date = ? AND status IN ('confirmed', 'pending')` | `reservation_id ASC` | existing `reservation_arrival_idx` |
 | **Departures** | `departure_date = ?` (return `status`; client groups due-out `checked_in` vs departed `checked_out`) | `status ASC`, `reservation_id ASC` | **new** `reservation_departure_idx ON reservation (departure_date)` — unfiltered, symmetric with arrivals |
 | **In-house** | `status = 'checked_in'` | `departure_date ASC`, `reservation_id ASC` (overstays first) | **new** partial `reservation_in_house_idx ON reservation (departure_date) WHERE status = 'checked_in'` |
 
@@ -323,7 +323,7 @@ New / extended specs under `apps/pms-core/test/`:
 
 | # | Scenario | Assertion |
 |---|---|---|
-| 1 | Arrivals for `date=D` | only `confirmed` with `arrival_date = D`; checked-in today **excluded** |
+| 1 | Arrivals for `date=D` | `confirmed | pending` with `arrival_date = D`; checked-in today **excluded** |
 | 2 | Arrivals excludes `cancelled` / `no_show` | none present |
 | 3 | Departures for `date=D` | all statuses with that departure date; includes both `checked_in` and `checked_out` |
 | 4 | In-house includes overstay | `checked_in` with `departure_date < today` present; sorted by `departure_date ASC` |
@@ -352,7 +352,7 @@ New / extended specs under `apps/pms-core/test/`:
 
 1. **Guest-name composition.** **Batch OrgDO read (C).** Failure-domain decoupling; 2N cost of A; owned two-calls-per-page cost.
 2. **Reservation projection.** **None this slice (A).** Thin provisional check-in stated; leftover is individual-by-id projection, not list-only.
-3. **In-house filter.** **`status = 'checked_in'`** with partial `(departure_date) WHERE status = 'checked_in'`. Departures = `departure_date = ?` unfiltered index; arrivals status filter written down.
+3. **In-house filter.** **`status = 'checked_in'`** with partial `(departure_date) WHERE status = 'checked_in'`. Departures = `departure_date = ?` unfiltered index; arrivals filter **amended 2026-08-12** to `confirmed | pending` ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)).
 4. **Entitlement snapshot.** **Org-scoped**; no `degradedRead`; kill-switch out; refetch on 402; plan-upgrade lag accepted.
 5. **Shift lookup.** **`GET …/front-desk/shift`**; 200 + `null`; no expected cash; non-colliding path.
 6. **Route collision vs insert.** **Non-colliding `/front-desk/*` paths; append only** — do not shift `register.test.ts` pins.

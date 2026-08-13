@@ -1126,7 +1126,10 @@ Consequences:
 3. **New commands must follow the same shape** — interleaving checks with writes is a defect.
 
 Property-based tests (§11) assert the ledger invariant: for each `(room_type_id, stay_date)`,
-`sold` equals the count of confirmed reservations whose stay range covers that night.
+`sold` equals the count of reservations in `pending | confirmed | checked_in | checked_out`
+covering that night.
+
+Pre-assign is allowed; check-in without a resolved room is rejected.
 
 When holds do land, three things become mandatory at the same time: a `hold-expiry` schedule on
 the `AlarmScheduler` (§4.4), held inventory reading as **unavailable** in the ARI projection
@@ -2165,16 +2168,16 @@ and must not be redesigned from the prototype.
 | Channel manager, booking engine + live preview | §14 Phase 2, entitlements in §6 | Gated add-ons. |
 | Yield / competitor / forecast tabs on Rates | §7.8 / §14 Phase 3 | Today's occupancy forecast is OLTP; the yield engine is revenue-management. |
 
-**Architecture-vs-code drift (must not be silently resolved).** §7.4 specifies
+**Architecture-vs-code drift — restored 2026-08-12.** §7.4 specifies
 
 ```
 INQUIRY → PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT
                  ↘ CANCELLED   ↘ NO_SHOW
 ```
 
-The shipped reservation status machine is `confirmed | cancelled | checked_in | checked_out |
-no_show` only. Restore `INQUIRY` and `PENDING`, or record here that they are deferred. Leaving
-the machine and this section in disagreement is how the next vertical re-derives the lifecycle.
+The shipped reservation status machine matches that diagram (`inquiry | pending | confirmed |
+cancelled | checked_in | checked_out | no_show`). The 2026-08-12 reservation-lifecycle chunk
+restored `INQUIRY` and `PENDING`; this paragraph is no longer a disagreement.
 
 Catalogued implementation gaps that this document already designed: `rooms.set_ooo_range`
 (§7.1), `folio.transfer_charge` and `folio.split_charge_v2` (§7.3). They are build debt, not
@@ -2188,14 +2191,14 @@ text is listed so these are not over-counted.
 | Prototype behaviour | Closest text | Decision owed |
 |---|---|---|
 | **DND** as a room status | Room status / housekeeping board (§4.6, §7.7, §16.1). Status *values* are never listed. | Add `dnd` to the room-status machine, or state that DND is a stay flag / comment, not a room state. |
-| **Additional guests / adults / children** on a stay | Guest profiles in OrgDO (§4.8). Occupancy is room-type inventory (§7.1). | Party composition is a reservation field, not a second guest profile. Needed for occupancy display, breakfast posting, and registration documents. |
+| **Additional guests / adults / children** on a stay | Guest profiles in OrgDO (§4.8). Occupancy is room-type inventory (§7.1). | **Keep** (2026-08-12). `adults` / `children` are reservation fields; check-in enforces occupancy. |
 | **Fixed / recurring charges** (nightly parking, breakfast, spa) | `breakfast_rule` as DOMAIN auto-posting (§5.1). Night audit `POST_ROOM_CHARGES` (§8). | A per-stay recurring incidental schedule is not the same as the breakfast rule or the room-charge step. |
 | **Registration card print** | Never print a folio or invoice in `DEGRADED` (§4.6). Guest *registration reporting* is fiscal (§7.9). | Those are different documents. The reg card is a front-desk artifact; name it or drop it. |
 | **HK budgeting, metrics dashboards, mobile attendant** | §16.1 HK: roster, assignment, inventory, manager priorities. | Extra tabs. Core HK is covered; these are out of Phase 1 unless named. |
 | **Global reservation search** (name, res id, confirmation) | Available-rooms search (§16.1). Guest lookup is `READ_STALE` (§4.6). | Shell capability. Lookup exists as a degraded class; the top-bar search UX is not specified. |
-| **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | Shift handoff lives on the stay. Guest CRM notes are the wrong place. |
+| **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | **Keep** (2026-08-12). `reservations.update_status` writes the stay comment and VIP flag. |
 | **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | Storage exists; type-level media, keyless, and occupancy split are unnamed. |
-| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | Policy and inclusions are booking-engine and folio inputs, not modeled as plan fields. |
+| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Keep** (2026-08-12). Plan `cancel_penalty_type` / hours / amount; snapshotted onto the reservation at first inventory commit. |
 
 #### Deliberate differences (not gaps)
 
@@ -2203,7 +2206,7 @@ Already implied by earlier sections; recorded here so a later pass does not "fix
 
 | Prototype | This document | Section |
 |---|---|---|
-| Assign room before check-in; `waitingForRoom` flag | Room-type inventory; **assignment happens at check-in** | §7.1 |
+| Assign room before check-in; `waitingForRoom` flag | Room-type inventory; pre-assign allowed, **check-in requires a resolved room** | §7.1 |
 | `inquiry` → `confirmed` (no pending) | `INQUIRY` → `PENDING` → `CONFIRMED` | §7.4 |
 | Staff room blocks as zero-rate reservations | `held` column reserved; hold *behaviour* is Phase 3 | §7.1, §7.6 |
 | Yield / competitor scraper / forecast-and-overbook on the Rates screen | Today's occupancy forecast is OLTP; revenue-management is Phase 3 | §7.8, §14 |
@@ -2211,9 +2214,8 @@ Already implied by earlier sections; recorded here so a later pass does not "fix
 | Guest substring search in the booking wizard | No discovery path until a blind index exists; create-default + `guestRef` context | recorded in the booking-wizard spec, not this file |
 
 `waitingForRoom` is the one that looks like an unnamed gap and is not. §7.1 already chose
-assign-at-check-in. Pre-assigning a physical room, then parking arrivals as "waiting," is a
-different product. If Phase 1 needs assign-before-arrival, that is a change to §7.1, not a
-forgotten prototype field.
+type-level inventory with optional pre-assign. Pre-assign is allowed; check-in without a
+resolved room is rejected. Parking arrivals as "waiting" without a room is a different product.
 
 #### What "rebuild the prototype's screens" still means
 
@@ -2225,5 +2227,4 @@ forgotten prototype field.
   in "Still unnamed" above — keep, defer, or drop — before that vertical ships.
 - **§16.1 folio extras** (no-post, damage deposits, promo, manual discounts) are named and
   undesigned as domain rules. They need a vertical spec, not another inventory row.
-- **Do not silently drop `INQUIRY` / `PENDING`.** Align the shipped machine with §7.4 or amend
-  §7.4 in the same change.
+- **`INQUIRY` / `PENDING` restored 2026-08-12.** The shipped machine matches §7.4.

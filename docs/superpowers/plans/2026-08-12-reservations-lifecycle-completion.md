@@ -1031,7 +1031,7 @@ EOF
 - Modify: `docs/superpowers/specs/2026-08-07-front-desk-operational-reads-design.md` (arrivals filter `confirmed | pending`)
 - Modify: `docs/superpowers/specs/2026-08-11-booking-wizard-design.md` (leftover 1 schema landed; leftover 7 `update_status` retargeted)
 
-- [ ] **Step 1: Edit the four documents**
+- [x] **Step 1: Edit the four documents**
 
 §7.1 replace “sold equals the count of confirmed reservations” with “sold equals the count of reservations in `pending | confirmed | checked_in | checked_out` covering that night.”
 
@@ -1039,13 +1039,13 @@ EOF
 
 §16.5: delete the “shipped machine is confirmed|… only” drift paragraph (or replace with “restored 2026-08-12”). Mark the three still-unnamed rows keep.
 
-- [ ] **Step 2: Grep-check the pointers exist in both directions**
+- [x] **Step 2: Grep-check the pointers exist in both directions**
 
 Run: `rg -n "reservation.rate_plan_id|confirmed \\| pending|update_status" docs/superpowers/specs/2026-08-12-night-audit-e2e-design.md docs/superpowers/specs/2026-08-07-front-desk-operational-reads-design.md docs/superpowers/specs/2026-08-11-booking-wizard-design.md`
 
 Expected: each file has the one-sentence amend.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add ARCHITECTURE.md docs/superpowers/specs/2026-08-12-night-audit-e2e-design.md docs/superpowers/specs/2026-08-07-front-desk-operational-reads-design.md docs/superpowers/specs/2026-08-11-booking-wizard-design.md

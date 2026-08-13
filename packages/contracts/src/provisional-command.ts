@@ -44,4 +44,7 @@ export type ProvisionalExceptionRow = {
   reason: string;
   detail: unknown | null;
   createdAt: number;
+  /** Null on open rows. List/count default to unresolved (`resolved_at IS NULL`). */
+  resolvedAt?: number | null;
+  resolvedBy?: string | null;
 };

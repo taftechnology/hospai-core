@@ -113,7 +113,7 @@ describe('PropertyDO night audit', () => {
     expect(await stub.countAvailabilityDays('rt_king')).toBe(HORIZON_DAYS);
 
     for (let i = 0; i < N; i++) {
-      const result = await stub.startNightAudit();
+      const result = await stub.startNightAudit({ pendingOpenCount: 0 });
       expect(result.ok).toBe(true);
     }
 
@@ -150,13 +150,13 @@ describe('PropertyDO night audit', () => {
 
     const businessDateBefore = await stub.readBusinessDate();
     // Already current (business_date === today) — running the full sequence must not advance.
-    const result = await stub.startNightAudit();
+    const result = await stub.startNightAudit({ pendingOpenCount: 0 });
     expect(result.ok).toBe(true);
     const businessDateAfter = await stub.readBusinessDate();
     expect(businessDateAfter).toBe(businessDateBefore);
 
     // Run it again for good measure — still no advance.
-    const result2 = await stub.startNightAudit();
+    const result2 = await stub.startNightAudit({ pendingOpenCount: 0 });
     expect(result2.ok).toBe(true);
     expect(await stub.readBusinessDate()).toBe(businessDateBefore);
   });
@@ -202,7 +202,7 @@ describe('PropertyDO night audit', () => {
 
     expect(await stub.isNightAuditHalted()).toBe(true);
 
-    const start = await stub.startNightAudit();
+    const start = await stub.startNightAudit({ pendingOpenCount: 0 });
     expect(start).toEqual({ ok: false, error: NIGHT_AUDIT_HALTED });
   });
 
@@ -231,7 +231,7 @@ describe('PropertyDO night audit', () => {
     if (!added.ok) return;
     await stub.flushOutbox();
 
-    const preCheck = await stub.runAuditStep(startDate, 'PRE_CHECK');
+    const preCheck = await stub.runAuditStep(startDate, 'PRE_CHECK', { pendingOpenCount: 0 });
     expect(preCheck.status).toBe('COMPLETED');
     // PRE_CHECK alone must not touch business_date.
     expect(await stub.readBusinessDate()).toBe(startDate);

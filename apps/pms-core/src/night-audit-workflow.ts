@@ -1,5 +1,6 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NIGHT_AUDIT_STEPS } from './property-do.js';
+import { countPendingOpen } from './night-audit-census.js';
 import { resolvePropertyFromRegistry } from './provision.js';
 import type { NightAuditWorkflowParams, PmsEnv } from './env.js';
 
@@ -37,7 +38,11 @@ export class NightAuditWorkflow extends WorkflowEntrypoint<PmsEnv, NightAuditWor
       // itself carries a non-serializable `Symbol.dispose`, which a Workflow step's
       // durable checkpoint cannot store.
       const { status } = await step.do(auditStep, async () => {
-        const result = await stub.runAuditStep(businessDate, auditStep);
+        const census =
+          auditStep === 'PRE_CHECK'
+            ? { pendingOpenCount: await countPendingOpen(this.env.PLATFORM_DB, propertyId) }
+            : undefined;
+        const result = await stub.runAuditStep(businessDate, auditStep, census);
         return { status: result.status };
       });
       if (status === 'FAILED') return;

@@ -3,6 +3,9 @@ import {
   ARCHIVE_BLOCKED,
   BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
+  PENDING_CENSUS_REQUIRED,
+  PENDING_COMMANDS_UNDRAINED,
+  PROVISIONAL_EXCEPTIONS_OPEN,
   domainConfigKeys,
   getConfigEntry,
   requiredPermissionForKey,
@@ -277,6 +280,27 @@ class RateMissingError extends Error {
   }
 }
 
+class PendingCensusRequiredError extends Error {
+  constructor() {
+    super(PENDING_CENSUS_REQUIRED);
+    this.name = 'PendingCensusRequiredError';
+  }
+}
+
+class PendingCommandsUndrainedError extends Error {
+  constructor() {
+    super(PENDING_COMMANDS_UNDRAINED);
+    this.name = 'PendingCommandsUndrainedError';
+  }
+}
+
+class ProvisionalExceptionsOpenError extends Error {
+  constructor() {
+    super(PROVISIONAL_EXCEPTIONS_OPEN);
+    this.name = 'ProvisionalExceptionsOpenError';
+  }
+}
+
 class RatePlanNotFoundError extends Error {
   constructor() {
     super('Rate plan not found');
@@ -487,6 +511,9 @@ export const NIGHT_AUDIT_STEPS = [
 ] as const;
 
 export type NightAuditStep = (typeof NIGHT_AUDIT_STEPS)[number];
+
+/** Caller-passes-census — PropertyDO never reads PLATFORM_DB. Required for PRE_CHECK. */
+export type NightAuditCensus = { pendingOpenCount: number };
 
 /**
  * Set-reconcile `availability_day` to `[businessDate, businessDate + (HORIZON_DAYS - 1)]`
@@ -1548,8 +1575,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT exception_id, idempotency_key, command_type, payload,
-                issued_at, business_date, reason, detail, created_at
+                issued_at, business_date, reason, detail, created_at,
+                resolved_at, resolved_by
          FROM provisional_exception
+         WHERE resolved_at IS NULL
          ORDER BY created_at DESC`,
       )
       .toArray() as Array<{
@@ -1562,6 +1591,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reason: string;
         detail: string | null;
         created_at: number;
+        resolved_at: number | null;
+        resolved_by: string | null;
       }>;
 
     return {
@@ -1575,6 +1606,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reason: row.reason,
         detail: row.detail === null ? null : (JSON.parse(row.detail) as unknown),
         createdAt: row.created_at,
+        resolvedAt: row.resolved_at ?? null,
+        resolvedBy: row.resolved_by ?? null,
       })),
     };
   }
@@ -1582,7 +1615,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async countProvisionalExceptions(): Promise<number> {
     this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
-      .exec(`SELECT COUNT(*) AS n FROM provisional_exception`)
+      .exec(`SELECT COUNT(*) AS n FROM provisional_exception WHERE resolved_at IS NULL`)
       .toArray() as Array<{ n: number }>;
     return rows[0]?.n ?? 0;
   }
@@ -1619,6 +1652,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
        ON CONFLICT(business_date, step) DO UPDATE SET status = 'FAILED', error = 'forced-for-test'`,
       businessDate,
       now,
+    );
+  }
+
+  /** Test helper (unsafe-local only): seed a `night_audit_run` row at an arbitrary status. */
+  async seedNightAuditRunForTest(
+    businessDate: string,
+    step: NightAuditStep,
+    status: 'RUNNING' | 'FAILED' | 'COMPLETED',
+  ): Promise<void> {
+    this.assertUnsafeLocal('seedNightAuditRunForTest');
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO night_audit_run (business_date, step, status, attempt, started_at, completed_at, error)
+       VALUES (?, ?, ?, 1, ?, ?, ?)
+       ON CONFLICT(business_date, step) DO UPDATE SET
+         status = excluded.status,
+         error = excluded.error,
+         completed_at = excluded.completed_at`,
+      businessDate,
+      step,
+      status,
+      now,
+      status === 'COMPLETED' ? now : null,
+      status === 'FAILED' ? 'seeded-for-test' : null,
     );
   }
 
@@ -1694,8 +1751,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * a `COMPLETED` row short-circuits. Emits `night_audit.started` the first time any
    * step for `businessDate` enters `RUNNING`, and `night_audit.completed` when `ARCHIVE`
    * completes. Only `ROLL_BUSINESS_DATE` mutates `__meta.business_date` / the horizon —
-   * every other step in this slice is a no-op stub (§4.6 cites `PRE_CHECK` specifically;
-   * real provisional-queue drain+halt is future work).
+   * every other step except `PRE_CHECK` / money / cashier / roll is a no-op stub
+   * until later tasks. `PRE_CHECK` requires `census` (caller-passes-census).
    *
    * Three separate transactions, deliberately: the `RUNNING` bookkeeping and the
    * `FAILED` bookkeeping must survive, while the step *body* must roll back whole.
@@ -1706,6 +1763,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async runAuditStep(
     businessDate: string,
     step: NightAuditStep,
+    census?: NightAuditCensus,
   ): Promise<{ status: 'COMPLETED' | 'FAILED'; error?: string }> {
     const existing = this.ctx.storage.sql
       .exec(
@@ -1750,7 +1808,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       // Txn B — step body plus its COMPLETED marker: all of it, or none of it.
       return this.ctx.storage.transactionSync(() => {
-        if (step === 'ROLL_BUSINESS_DATE') {
+        if (step === 'PRE_CHECK') {
+          this.runPreCheckSync(businessDate, census);
+        } else if (step === 'ROLL_BUSINESS_DATE') {
           this.runRollStepSync(businessDate);
         } else if (step === 'ARCHIVE') {
           // No-op stub in this slice — real archival content is future work.
@@ -1759,7 +1819,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         } else if (step === 'CLOSE_CASHIER_SHIFTS') {
           this.forceCloseCashierShiftsSync(businessDate);
         } else {
-          // PRE_CHECK / PROCESS_NO_SHOWS / SNAPSHOT_REPORTS — still stubs.
+          // PROCESS_NO_SHOWS / SNAPSHOT_REPORTS — still stubs.
         }
 
         const completedAt = Date.now();
@@ -1794,6 +1854,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       });
       return { status: 'FAILED' as const, error: message };
     }
+  }
+
+  private runPreCheckSync(businessDate: string, census?: NightAuditCensus): void {
+    if (census === undefined) throw new PendingCensusRequiredError();
+    if (census.pendingOpenCount > 0) throw new PendingCommandsUndrainedError();
+    const open = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM provisional_exception
+         WHERE business_date = ? AND resolved_at IS NULL LIMIT 1`,
+        businessDate,
+      )
+      .toArray();
+    if (open.length > 0) throw new ProvisionalExceptionsOpenError();
   }
 
   /**
@@ -1862,7 +1935,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Task 5 switches the alarm path to `NightAuditWorkflow` while keeping this for tests.
    * Refuses outright while halted (any `FAILED` row) — never starts a new date's run.
    */
-  async startNightAudit(): Promise<{ ok: true } | { ok: false; error: string }> {
+  async startNightAudit(
+    census: NightAuditCensus,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     if (await this.isNightAuditHalted()) {
       return { ok: false, error: NIGHT_AUDIT_HALTED };
     }
@@ -1870,12 +1945,272 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
 
     for (const step of NIGHT_AUDIT_STEPS) {
-      const result = await this.runAuditStep(businessDate, step);
+      const result = await this.runAuditStep(
+        businessDate,
+        step,
+        step === 'PRE_CHECK' ? census : undefined,
+      );
       if (result.status === 'FAILED') {
         return { ok: false, error: result.error ?? NIGHT_AUDIT_HALTED };
       }
     }
     return { ok: true };
+  }
+
+  async tryResolveProvisionalException(
+    actor: ActorContext,
+    input: { exceptionId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; alreadyResolved?: true }
+    | { ok: false; error: typeof NOT_FOUND | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT exception_id, business_date, resolved_at FROM provisional_exception WHERE exception_id = ?`,
+              input.exceptionId,
+            )
+            .toArray() as Array<{
+            exception_id: string;
+            business_date: string;
+            resolved_at: number | null;
+          }>;
+          const row = rows[0];
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+          if (row.resolved_at != null) return { ok: true as const, alreadyResolved: true as const };
+
+          const now = Date.now();
+          const resolvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+          this.ctx.storage.sql.exec(
+            `UPDATE provisional_exception SET resolved_at = ?, resolved_by = ? WHERE exception_id = ?`,
+            now,
+            resolvedBy,
+            input.exceptionId,
+          );
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: PROVISIONAL_RESOLVE_EXCEPTION_COMMAND,
+            entityType: 'provisional_exception',
+            entityId: input.exceptionId,
+            beforeJson: { resolvedAt: null },
+            afterJson: { resolvedAt: now, resolvedBy },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'provisional.exception_resolved',
+            payload: { propertyId, exceptionId: input.exceptionId, businessDate: row.business_date },
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryRetryAuditStep(
+    actor: ActorContext,
+    input: { businessDate: string; step: NightAuditStep },
+    idem: IdempotencyKey,
+    census: NightAuditCensus,
+  ): Promise<
+    | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string }
+    | { ok: false; error: 'night_audit_step_not_failed' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const prior = this.lookupIdempotentResponse<{
+      ok: true;
+      status: 'COMPLETED' | 'FAILED';
+      error?: string;
+    }>(idem);
+    if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
+    if (prior) return prior;
+
+    const existing = this.ctx.storage.sql
+      .exec(
+        `SELECT status FROM night_audit_run WHERE business_date = ? AND step = ?`,
+        input.businessDate,
+        input.step,
+      )
+      .toArray() as Array<{ status: string }>;
+    if (existing[0]?.status !== 'FAILED') {
+      return { ok: false, error: 'night_audit_step_not_failed' };
+    }
+
+    const result = await this.runAuditStep(input.businessDate, input.step, census);
+    const attempt = (
+      this.ctx.storage.sql
+        .exec(
+          `SELECT attempt FROM night_audit_run WHERE business_date = ? AND step = ?`,
+          input.businessDate,
+          input.step,
+        )
+        .toArray() as Array<{ attempt: number }>
+    )[0]?.attempt ?? 0;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: NIGHT_AUDIT_RETRY_STEP_COMMAND,
+            entityType: 'night_audit_run',
+            entityId: `${input.businessDate}:${input.step}`,
+            afterJson: { businessDate: input.businessDate, step: input.step, status: result.status, attempt },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'night_audit.step_retried',
+            payload: {
+              propertyId,
+              businessDate: input.businessDate,
+              step: input.step,
+              attempt,
+            },
+          });
+          return result.status === 'FAILED'
+            ? { ok: true as const, status: 'FAILED' as const, error: result.error }
+            : { ok: true as const, status: 'COMPLETED' as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryResolveHalt(
+    actor: ActorContext,
+    input: { businessDate: string },
+    idem: IdempotencyKey,
+    census: NightAuditCensus,
+  ): Promise<
+    | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string; halted: boolean }
+    | { ok: false; error: typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const prior = this.lookupIdempotentResponse<{
+      ok: true;
+      status: 'COMPLETED' | 'FAILED';
+      error?: string;
+      halted: boolean;
+    }>(idem);
+    if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
+    if (prior) return prior;
+
+    const failedRows = this.ctx.storage.sql
+      .exec(
+        `SELECT step, error FROM night_audit_run WHERE business_date = ? AND status = 'FAILED'`,
+        input.businessDate,
+      )
+      .toArray() as Array<{ step: string; error: string | null }>;
+
+    if (failedRows.length > 0) {
+      for (const step of NIGHT_AUDIT_STEPS) {
+        const failed = failedRows.find((r) => r.step === step);
+        if (!failed) continue;
+        const retried = await this.runAuditStep(input.businessDate, step, census);
+        if (retried.status === 'FAILED') {
+          return { ok: true, status: 'FAILED', error: retried.error, halted: true };
+        }
+      }
+    }
+
+    for (const step of NIGHT_AUDIT_STEPS) {
+      const status = await this.getNightAuditStepStatus(input.businessDate, step);
+      if (status === 'COMPLETED') continue;
+      const walked = await this.runAuditStep(
+        input.businessDate,
+        step,
+        step === 'PRE_CHECK' ? census : undefined,
+      );
+      if (walked.status === 'FAILED') {
+        return { ok: true, status: 'FAILED', error: walked.error, halted: true };
+      }
+    }
+
+    const halted = await this.isNightAuditHalted();
+    const running = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM night_audit_run WHERE business_date = ? AND status = 'RUNNING' LIMIT 1`,
+        input.businessDate,
+      )
+      .toArray();
+
+    const payload = { ok: true as const, status: 'COMPLETED' as const, halted };
+
+    if (!halted && running.length === 0) {
+      try {
+        return this.ctx.storage.transactionSync(() =>
+          runIdempotent(this.ctx.storage.sql, idem, () => {
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: NIGHT_AUDIT_RESOLVE_HALT_COMMAND,
+              entityType: 'night_audit_run',
+              entityId: input.businessDate,
+              afterJson: { businessDate: input.businessDate, halted: false },
+            });
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'night_audit.halt_resolved',
+              payload: { propertyId, businessDate: input.businessDate },
+            });
+            return payload;
+          }),
+        );
+      } catch (e) {
+        if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    return payload;
+  }
+
+  private lookupIdempotentResponse<T>(idem: IdempotencyKey): T | 'fingerprint_mismatch' | null {
+    const prior = this.ctx.storage.sql
+      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+      .toArray() as Array<{ request_fingerprint: string; response: string }>;
+    if (prior.length === 0) return null;
+    if (prior[0]!.request_fingerprint !== idem.fingerprint) {
+      return 'fingerprint_mismatch';
+    }
+    return JSON.parse(prior[0]!.response) as T;
   }
 
   /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */

@@ -3,7 +3,12 @@
  * Empty in Phase 0 — audit-writers boundary keeps guest profiles in OrgDO.
  * When a denylist column starts being written, add it here (and implement guest purge).
  */
-export const PROPERTY_GUEST_PII_COLUMNS: readonly { column: string; reason: string }[] = [];
+export const PROPERTY_GUEST_PII_COLUMNS: readonly { column: string; reason: string }[] = [
+  {
+    column: 'billed_party',
+    reason: 'COMPANY folio window billed-party label (operator-supplied; not a city-ledger FK)',
+  },
+];
 
 /**
  * Columns that must not be written under apps/pms-core unless listed in

@@ -482,4 +482,23 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     );
     expect(result).toMatchObject({ ok: false, error: FORBIDDEN });
   });
+
+  it('guest purge nulls billed_party on COMPANY windows for that guest', async () => {
+    const name = `fw-purge-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    await stayCheckedIn(stub, guestRef, 'res_fw_purge', 'rm_fw_purge', arrival, addCalendarDays(arrival, 1));
+    const open = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_fw_purge', kind: 'COMPANY', billedParty: 'Acme Corp' },
+      await idemFor('open-fw-purge', { reservationId: 'res_fw_purge', kind: 'COMPANY', billedParty: 'Acme Corp' }),
+    );
+    expect(open).toMatchObject({ ok: true });
+    const companyId = open.ok ? open.folioWindowId : '';
+    expect((await stub.readFolioWindowForTest(companyId))?.billedParty).toBe('Acme Corp');
+    await stub.resetLaneGuardForTest();
+    expect(await stub.purgeGuestPiiColumns(guestRef)).toEqual({ ok: true, deleted: 1 });
+    expect((await stub.readFolioWindowForTest(companyId))?.billedParty).toBeNull();
+  });
 });

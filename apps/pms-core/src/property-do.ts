@@ -856,6 +856,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'rate_day',
   'rate_plan',
   'reservation',
+  'reservation_rate_night',
   'restriction_day',
   'room',
   'room_type',
@@ -886,6 +887,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM rate_day) +
       (SELECT COUNT(*) FROM rate_plan) +
       (SELECT COUNT(*) FROM reservation) +
+      (SELECT COUNT(*) FROM reservation_rate_night) +
       (SELECT COUNT(*) FROM restriction_day) +
       (SELECT COUNT(*) FROM room) +
       (SELECT COUNT(*) FROM room_type) +
@@ -1640,6 +1642,26 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       // alarm may already be gone after deleteAll on newer compat dates
     }
     return { ok: true, deletedApprox };
+  }
+
+  /**
+   * Guest purge — BULK lane, must not touchInteractive.
+   * Nulls declared PropertyDO guest-PII columns for this guest's reservations.
+   */
+  async purgeGuestPiiColumns(
+    guestRef: string,
+  ): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) {
+      return { ok: false, error: 'bulk_not_admitted' };
+    }
+    const updated = this.ctx.storage.sql.exec(
+      `UPDATE folio_window SET billed_party = NULL
+       WHERE billed_party IS NOT NULL
+         AND reservation_id IN (SELECT reservation_id FROM reservation WHERE guest_ref = ?)`,
+      guestRef,
+    );
+    return { ok: true, deleted: updated.rowsWritten };
   }
 
   /**

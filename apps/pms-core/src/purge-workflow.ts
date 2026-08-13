@@ -334,8 +334,38 @@ async function runGuestPlan(
       });
       return;
     }
-    // Phase 0: allowlist empty. When populated, implement column purge before CERTIFY.
-    throw new HaltError('guest_pii_purge_unimplemented');
+    const simulateJurisdiction = isJurisdictionSimulate(env);
+    let deleted = 0;
+    let after: string | null = null;
+    do {
+      const page = await listPropertiesForOrg(env, params.orgId, {
+        after,
+        limit: ORG_PURGE_PAGE_LIMIT,
+      });
+      for (const row of page.rows) {
+        const locationHint = locationHintFromTimeZone(row.timeZone);
+        const stub = resolvePropertyStub(
+          env.PROPERTY_DO,
+          {
+            orgId: row.orgId,
+            propertyId: row.propertyId,
+            jurisdiction: row.jurisdiction,
+            locationHint,
+          },
+          { simulateJurisdiction },
+        ) as DurableObjectStub<PropertyDO>;
+        const result = await stub.purgeGuestPiiColumns(params.guestRef);
+        if (!result.ok) throw new HaltError(result.error);
+        deleted += result.deleted;
+      }
+      after = page.nextAfter;
+    } while (after);
+    replaceStore(stores, {
+      store: 'property_do',
+      status: 'reached',
+      deleted,
+      note: 'billed_party_cleared',
+    });
   });
 
   await step.do('clear-guest-blobs', async () => {

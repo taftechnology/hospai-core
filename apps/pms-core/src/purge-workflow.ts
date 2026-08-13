@@ -15,6 +15,7 @@ import {
   deleteEventLogPrefix,
   eventLogPrefixesForOrg,
   hasEventLogR2,
+  reportsPrefixForProperty,
 } from './event-log.js';
 import type { OrgDO } from './org-do.js';
 import type { OrgEntitlementDO } from './org-entitlement-do.js';
@@ -173,7 +174,23 @@ async function runOrgPlan(
     for (const prefix of eventLogPrefixesForOrg(params.orgId, snapshot.propertyIds)) {
       deleted += await deleteEventLogPrefix(env.EVENT_LOG_R2, prefix);
     }
+    for (const propertyId of snapshot.propertyIds) {
+      deleted += await deleteEventLogPrefix(
+        env.EVENT_LOG_R2,
+        reportsPrefixForProperty(propertyId),
+      );
+    }
     replaceStore(stores, { store: 'r2', status: 'reached', deleted });
+  });
+
+  await step.do('purge-pending-command-open', async () => {
+    if (snapshot.propertyIds.length === 0) return;
+    const placeholders = snapshot.propertyIds.map(() => '?').join(',');
+    await env.PLATFORM_DB.prepare(
+      `DELETE FROM pending_command_open WHERE property_id IN (${placeholders})`,
+    )
+      .bind(...snapshot.propertyIds)
+      .run();
   });
 
   await step.do('skip-iceberg', async () => {
@@ -238,6 +255,16 @@ async function runOrgPlan(
       for (const prefix of eventLogPrefixesForOrg(params.orgId, snapshot.propertyIds)) {
         try {
           await assertEventLogPrefixEmpty(env.EVENT_LOG_R2, prefix);
+        } catch {
+          throw new HaltError('verify_r2_residue');
+        }
+      }
+      for (const propertyId of snapshot.propertyIds) {
+        try {
+          await assertEventLogPrefixEmpty(
+            env.EVENT_LOG_R2,
+            reportsPrefixForProperty(propertyId),
+          );
         } catch {
           throw new HaltError('verify_r2_residue');
         }

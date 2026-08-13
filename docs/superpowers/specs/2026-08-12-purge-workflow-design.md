@@ -181,6 +181,7 @@ Also: `org_no_delete` / `property_no_delete` (copy `subscription_no_delete`). Re
 5. PURGE_R2        when EVENT_LOG_R2 present: prefix-delete event-log segments for
                    snapshotted org + properties; record reached + deleted count.
                    when absent: skip with no_r2_binding (derived). See event-log design.
+                   Org D1 purge deletes `pending_command_open` rows for the org’s properties (night-audit PRE_CHECK census; see night-audit E2E spec leftover 11).
 6. SKIP_ICEBERG    skipped + no_iceberg_binding (visible in Workflow history)
 7. VERIFY          re-derive subjects from D1; any unexpected subject → HALT;
                    zero-row inventory via sqlite_master (see §2.6);

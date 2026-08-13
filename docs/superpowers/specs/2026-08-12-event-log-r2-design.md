@@ -216,6 +216,8 @@ Replace `skip-r2` with `purge-r2` when the binding is present:
 3. Certificate: `r2: { status: 'reached', deleted: <object count> }`.
 4. Iceberg remains `skipped: no_iceberg_binding`.
 
+Org `PURGE_R2` also deletes `reports/property/{propertyId}/` (night-audit close-out artifacts; see night-audit E2E spec §3.3).
+
 ### 5.3 Guest path
 
 Do **not** delete event-log segments. Events carry `guestRef` / `piiKeyId`, never values; retaining them matches §4.8 (“what survives erasure, deliberately”). There is no guest-scoped event-log prefix; deleting a property prefix would wipe unrelated history.

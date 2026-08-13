@@ -626,6 +626,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'folio_window',
   'housekeeping_assignment',
   'idempotency',
+  'night_audit_report',
   'night_audit_run',
   'outbox',
   'payment',
@@ -655,6 +656,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM folio_window) +
       (SELECT COUNT(*) FROM housekeeping_assignment) +
       (SELECT COUNT(*) FROM idempotency) +
+      (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +
       (SELECT COUNT(*) FROM payment) +

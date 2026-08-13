@@ -5,7 +5,8 @@ import type { DomainEventMessage, EventSource } from '@hospai/contracts';
 import { fingerprintPayload } from '@hospai/contracts';
 import { toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
-import { listEventLogKeys } from '../src/event-log.js';
+import { listEventLogKeys, reportsPrefixForProperty } from '../src/event-log.js';
+import { countPendingOpen, insertPendingOpen } from '../src/night-audit-census.js';
 import type { OrgDO } from '../src/org-do.js';
 import type { PropertyDO } from '../src/property-do.js';
 import { provisionProperty } from '../src/provision.js';
@@ -411,6 +412,7 @@ describe('PurgeWorkflow org plan', () => {
       'purge-property-do-page-0',
       'purge-org-do',
       'purge-r2',
+      'purge-pending-command-open',
       'skip-iceberg',
       'verify',
       'certify',
@@ -501,6 +503,121 @@ describe('PurgeWorkflow org plan', () => {
     expect(r2.deleted).toBeGreaterThanOrEqual(1);
     expect(await listEventLogKeys(env.EVENT_LOG_R2!, propertyPrefix)).toEqual([]);
     expect(await listEventLogKeys(env.EVENT_LOG_R2!, `events/org/${orgId}/`)).toEqual([]);
+  });
+
+  it('org purge deletes reports/property/{propertyId}/ objects and pending_command_open rows', async () => {
+    const orgId = `org_na_r2_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_na_r2_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Purge NA R2')).toBe(true);
+
+    const provisioned = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Purge NA Reports',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'USD',
+      actorUserId: actor,
+    });
+    expect(provisioned.ok).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest({ quietMs: 60_000 });
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
+
+    const reportsPrefix = reportsPrefixForProperty(propertyId);
+    await env.EVENT_LOG_R2!.put(
+      `${reportsPrefix}2026-03-01/occupancy.json`,
+      JSON.stringify({ businessDate: '2026-03-01' }),
+    );
+    await insertPendingOpen(env.PLATFORM_DB, {
+      propertyId,
+      idempotencyKey: `idem_purge_${crypto.randomUUID()}`,
+      businessDate: '2026-03-01',
+      commandId: 'folio.add_item',
+    });
+    expect((await listEventLogKeys(env.EVENT_LOG_R2!, reportsPrefix)).length).toBeGreaterThan(0);
+    expect(await countPendingOpen(env.PLATFORM_DB, propertyId)).toBe(1);
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    await runPurgeWorkflow({
+      kind: 'org',
+      workflowId,
+      orgId,
+      operatorUserId: actor,
+      started: 0,
+      nowMs: 2_000,
+    });
+
+    expect(await listEventLogKeys(env.EVENT_LOG_R2!, reportsPrefix)).toEqual([]);
+    expect(await countPendingOpen(env.PLATFORM_DB, propertyId)).toBe(0);
+  });
+
+  it('VERIFY residue HALT: leftover reports/property objects → verify_r2_residue', async () => {
+    const orgId = `org_na_res_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_na_res_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'NA Residue')).toBe(true);
+    expect(
+      (
+        await provisionProperty(env, {
+          orgId,
+          propertyId,
+          name: 'NA Residue Prop',
+          jurisdiction: null,
+          timeZone: 'UTC',
+          currency: 'USD',
+          actorUserId: actor,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.resetLaneGuardForTest();
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest();
+
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    const stepNames: string[] = [];
+
+    await expect(
+      runPurgeWorkflow(
+        {
+          kind: 'org',
+          workflowId,
+          orgId,
+          operatorUserId: actor,
+          started: 0,
+          nowMs: 2_000,
+        },
+        stepNames,
+        async (name) => {
+          if (name === 'verify') {
+            await env.EVENT_LOG_R2!.put(
+              `reports/property/${propertyId}/2026-03-01/occupancy.json`,
+              '{}',
+            );
+          }
+        },
+      ),
+    ).rejects.toThrow(HaltError);
+
+    expect(stepNames).toContain('verify');
+    expect(stepNames).not.toContain('certify');
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, halt_reason, certified FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; halt_reason: string; certified: number | null }>();
+
+    expect(row?.outcome).toBe('halted');
+    expect(row?.halt_reason).toBe('verify_r2_residue');
+    expect(row?.certified).toBeNull();
   });
 
   it('step-0 HALTs when org is still active', async () => {

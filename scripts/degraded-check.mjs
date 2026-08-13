@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const contractsPath = join(root, 'packages/contracts/dist/index.js');
 const consumerSrcPath = join(root, 'apps/pms-core/src/pending-commands-consumer.ts');
+const replaySrcPath = join(root, 'apps/pms-core/src/replay-dispatch.ts');
 
 let COMMAND_CATALOG;
 let V1_HTTP_ROUTE_AUDIT;
@@ -24,7 +25,10 @@ try {
 }
 
 const consumerSrc = readFileSync(consumerSrcPath, 'utf8');
-const replayBlock = consumerSrc.match(/export const REPLAY_DISPATCH[^=]*=\s*\{([\s\S]*?)\n\};/);
+const replaySrc = readFileSync(replaySrcPath, 'utf8');
+const replayBlock =
+  replaySrc.match(/export const REPLAY_DISPATCH[^=]*=\s*\{([\s\S]*?)\n\};/) ??
+  consumerSrc.match(/export const REPLAY_DISPATCH[^=]*=\s*\{([\s\S]*?)\n\};/);
 const REPLAY_COMMAND_IDS = replayBlock
   ? [...replayBlock[1].matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1])
   : [];

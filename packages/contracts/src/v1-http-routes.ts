@@ -694,4 +694,32 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'get_provisional_exception',
+    scope: 'property',
+    permission: 'property:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_provisional_exception_retry',
+    scope: 'property',
+    permission: 'night_audit:run',
+    commandId: 'provisional.retry_exception',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_provisional_exception_assign',
+    scope: 'property',
+    permission: 'night_audit:run',
+    commandId: 'provisional.assign_exception',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_provisional_exception_note',
+    scope: 'property',
+    permission: 'night_audit:run',
+    commandId: 'provisional.add_exception_note',
+    entitlement: 'pms.core',
+  },
 ];

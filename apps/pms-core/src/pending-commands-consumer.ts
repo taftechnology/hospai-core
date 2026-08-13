@@ -1,123 +1,22 @@
 import type {
   PendingCommandMessage,
-  ProvisionalCommand,
   ProvisionalContext,
 } from '@hospai/contracts';
 import { BUSINESS_DATE_CLOSED, fingerprintPayload } from '@hospai/contracts';
 import { LaneGuard } from '@hospai/do-runtime';
 import { logInfo, logWarn } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
-import type { PropertyDO } from './property-do.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { resolvePropertyFromRegistry } from './provision.js';
 import { assertTenantActive } from './registry.js';
 import { deletePendingOpen } from './night-audit-census.js';
+import { REPLAY_DISPATCH } from './replay-dispatch.js';
+
+export { REPLAY_DISPATCH, REPLAY_COMMAND_IDS } from './replay-dispatch.js';
 
 const replayLanes = new LaneGuard();
 
 const REPLAY_ACTOR = { kind: 'system' as const, reason: 'queue_replay' as const };
-
-type ReplayDispatch = {
-  fingerprintInput: (payload: unknown) => unknown;
-  invoke: (
-    stub: DurableObjectStub<PropertyDO>,
-    payload: unknown,
-    idem: { key: string; fingerprint: string },
-    ctx: ProvisionalContext,
-  ) => Promise<{ ok: boolean; error?: string }>;
-};
-
-/** Phase 1 replay registry — extend when new QUEUE_PROVISIONAL HTTP routes land. */
-export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
-  'reservations.check_in': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryCheckIn(
-        REPLAY_ACTOR,
-        payload as { reservationId: string; roomId?: string; overrideCleanliness?: boolean },
-        idem,
-        ctx,
-      ),
-  },
-  'reservations.check_out': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryCheckOut(
-        REPLAY_ACTOR,
-        payload as { reservationId: string; overrideBalance?: boolean },
-        idem,
-        ctx,
-      ),
-  },
-  'reservations.cancel_check_in': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryCancelCheckIn(REPLAY_ACTOR, payload as { reservationId: string }, idem, ctx),
-  },
-  'reservations.update_status': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryUpdateFrontOffice(
-        REPLAY_ACTOR,
-        payload as {
-          reservationId: string;
-          frontOfficeComment?: string;
-          vipFlag?: boolean;
-          dndFlag?: boolean;
-          noPost?: boolean;
-        },
-        idem,
-        ctx,
-      ),
-  },
-  'folio.add_item': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryAddFolioLine(
-        REPLAY_ACTOR,
-        payload as {
-          folioLineId: string;
-          reservationId: string;
-          chargeCode: string;
-          amountMinor: number;
-        },
-        idem,
-        ctx,
-      ),
-  },
-  'rooms.update_status': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryUpdateRoomStatus(
-        REPLAY_ACTOR,
-        payload as { roomId: string; status: string },
-        idem,
-        ctx,
-      ),
-  },
-  'rooms.bulk_update_status': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryBulkUpdateRoomStatus(
-        REPLAY_ACTOR,
-        payload as { updates: Array<{ roomId: string; status: string }> },
-        idem,
-        ctx,
-      ),
-  },
-  'housekeeping.assign': {
-    fingerprintInput: (p) => p,
-    invoke: (stub, payload, idem, ctx) =>
-      stub.tryAssignHousekeeping(
-        REPLAY_ACTOR,
-        payload as { roomId: string; businessDate: string; assigneeRef: string },
-        idem,
-        ctx,
-      ),
-  },
-};
-
-export const REPLAY_COMMAND_IDS = Object.keys(REPLAY_DISPATCH);
 
 async function ackTerminal(
   env: PmsEnv,
@@ -197,6 +96,7 @@ export async function handlePendingCommandsBatch(
 
       const result = await dispatch.invoke(
         resolved.stub,
+        REPLAY_ACTOR,
         provisional.command.payload,
         { key: provisional.idempotencyKey, fingerprint: provisional.requestFingerprint },
         provisionalCtx,

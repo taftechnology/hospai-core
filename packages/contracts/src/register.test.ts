@@ -574,6 +574,35 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[119] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[120]?.id).toBe('get_provisional_exception');
+    expect(V1_HTTP_ROUTE_AUDIT[120]).toMatchObject({
+      scope: 'property',
+      permission: 'property:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[120] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[121]?.id).toBe('post_provisional_exception_retry');
+    expect(V1_HTTP_ROUTE_AUDIT[121]).toMatchObject({
+      scope: 'property',
+      permission: 'night_audit:run',
+      commandId: 'provisional.retry_exception',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[122]?.id).toBe('post_provisional_exception_assign');
+    expect(V1_HTTP_ROUTE_AUDIT[122]).toMatchObject({
+      scope: 'property',
+      permission: 'night_audit:run',
+      commandId: 'provisional.assign_exception',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[123]?.id).toBe('post_provisional_exception_note');
+    expect(V1_HTTP_ROUTE_AUDIT[123]).toMatchObject({
+      scope: 'property',
+      permission: 'night_audit:run',
+      commandId: 'provisional.add_exception_note',
+      entitlement: 'pms.core',
+    });
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
     expect(COMMAND_CATALOG).toHaveLength(77);
     expect(PLATFORM_GAPS).toEqual([]);

@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ARCHIVE_BLOCKED,
+  ALREADY_RESOLVED,
   BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
   PENDING_CENSUS_REQUIRED,
@@ -15,6 +16,8 @@ import {
   OCCUPANCY_EXCEEDED,
   FRONT_OFFICE_COMMENT_TOO_LONG,
   NOT_FOUND,
+  NOTE_TOO_LONG,
+  NOTE_LIMIT,
   NO_AVAILABILITY,
   OVERSELL,
   PROPERTY_ID_UNSET,
@@ -141,6 +144,7 @@ import {
   type OutboxRow,
   type SqlStorageLike,
 } from '@hospai/do-runtime';
+import { REPLAY_DISPATCH } from './replay-dispatch.js';
 import {
   archiveBlocked,
   enumerateFromDate,
@@ -871,6 +875,163 @@ export const PROVISIONAL_RESOLVE_EXCEPTION_COMMAND = 'provisional.resolve_except
 export const PROVISIONAL_RETRY_EXCEPTION_COMMAND = 'provisional.retry_exception' as const;
 export const PROVISIONAL_ASSIGN_EXCEPTION_COMMAND = 'provisional.assign_exception' as const;
 export const PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND = 'provisional.add_exception_note' as const;
+
+export type AffectedRefs = {
+  reservationId: string | null;
+  roomId: string | null;
+  guestRef: string | null;
+  folioLineId: string | null;
+};
+
+export type ProvisionalExceptionListItem = ProvisionalExceptionRow & {
+  assignedTo: string | null;
+  assignedAt: number | null;
+  assignedBy: string | null;
+  openRetryKey: string | null;
+  affected: AffectedRefs;
+};
+
+export type ProvisionalExceptionListFilters = {
+  resolution?: 'open' | 'resolved' | 'all';
+  commandType?: string;
+  reason?: string;
+  businessDateFrom?: string;
+  businessDateTo?: string;
+  assigned?: 'all' | 'unassigned' | 'assigned';
+  assignedTo?: string;
+  limit?: number;
+  cursor?: { createdAt: number; exceptionId: string } | null;
+};
+
+type ProvisionalExceptionSqlRow = {
+  exception_id: string;
+  idempotency_key: string;
+  command_type: string;
+  payload: string;
+  issued_at: string;
+  business_date: string;
+  reason: string;
+  detail: string | null;
+  created_at: number;
+  resolved_at: number | null;
+  resolved_by: string | null;
+  assigned_to: string | null;
+  assigned_at: number | null;
+  assigned_by: string | null;
+  open_retry_key: string | null;
+};
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return {};
+  return payload as Record<string, unknown>;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/** Never throws; missing keys are null. GuestRef is filled by a later reservation hydrate. */
+export function affectedFromPayload(commandType: string, payload: unknown): AffectedRefs {
+  const rec = payloadRecord(payload);
+  const empty: AffectedRefs = { reservationId: null, roomId: null, guestRef: null, folioLineId: null };
+  try {
+    switch (commandType) {
+      case 'reservations.check_in':
+      case 'reservations.check_out':
+      case 'reservations.cancel_check_in':
+      case 'reservations.update_status':
+        return {
+          reservationId: optionalString(rec.reservationId),
+          roomId: optionalString(rec.roomId),
+          guestRef: null,
+          folioLineId: null,
+        };
+      case 'folio.add_item':
+        return {
+          reservationId: optionalString(rec.reservationId),
+          roomId: null,
+          guestRef: null,
+          folioLineId: optionalString(rec.folioLineId),
+        };
+      case 'rooms.update_status':
+        return {
+          reservationId: null,
+          roomId: optionalString(rec.roomId),
+          guestRef: null,
+          folioLineId: null,
+        };
+      case 'rooms.bulk_update_status': {
+        const updates = rec.updates;
+        const first =
+          Array.isArray(updates) && updates[0] && typeof updates[0] === 'object' && !Array.isArray(updates[0])
+            ? (updates[0] as Record<string, unknown>)
+            : null;
+        return {
+          reservationId: null,
+          roomId: optionalString(first?.roomId),
+          guestRef: null,
+          folioLineId: null,
+        };
+      }
+      case 'housekeeping.assign':
+        return {
+          reservationId: null,
+          roomId: optionalString(rec.roomId),
+          guestRef: null,
+          folioLineId: null,
+        };
+      default:
+        return empty;
+    }
+  } catch {
+    return empty;
+  }
+}
+
+function mapProvisionalExceptionRow(row: ProvisionalExceptionSqlRow): ProvisionalExceptionListItem {
+  const payload = JSON.parse(row.payload) as unknown;
+  return {
+    exceptionId: row.exception_id,
+    idempotencyKey: row.idempotency_key,
+    commandType: row.command_type,
+    payload,
+    issuedAt: row.issued_at,
+    businessDate: row.business_date,
+    reason: row.reason,
+    detail: row.detail === null ? null : (JSON.parse(row.detail) as unknown),
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at ?? null,
+    resolvedBy: row.resolved_by ?? null,
+    assignedTo: row.assigned_to ?? null,
+    assignedAt: row.assigned_at ?? null,
+    assignedBy: row.assigned_by ?? null,
+    openRetryKey: row.open_retry_key ?? null,
+    affected: affectedFromPayload(row.command_type, payload),
+  };
+}
+
+function hydrateGuestRefs(sql: SqlStorageLike, items: ProvisionalExceptionListItem[]): void {
+  const ids = [
+    ...new Set(
+      items
+        .map((item) => item.affected.reservationId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  if (ids.length === 0) return;
+  const rows = sql
+    .exec(
+      `SELECT reservation_id, guest_ref FROM reservation WHERE reservation_id IN (${ids.map(() => '?').join(',')})`,
+      ...ids,
+    )
+    .toArray() as Array<{ reservation_id: string; guest_ref: string | null }>;
+  const byId = new Map(rows.map((r) => [r.reservation_id, r.guest_ref]));
+  for (const item of items) {
+    const reservationId = item.affected.reservationId;
+    if (!reservationId) continue;
+    item.affected.guestRef = byId.get(reservationId) ?? null;
+  }
+}
 
 /** §8 night-audit step sequence. `ROLL_BUSINESS_DATE` is the only step that mutates `__meta.business_date` / the horizon. */
 export const NIGHT_AUDIT_STEPS = [
@@ -2118,46 +2279,77 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
-  async listProvisionalExceptions(): Promise<{ exceptions: ProvisionalExceptionRow[] }> {
+  async listProvisionalExceptions(
+    filters?: ProvisionalExceptionListFilters,
+  ): Promise<{
+    ok: true;
+    exceptions: ProvisionalExceptionListItem[];
+    nextCursor: { createdAt: number; exceptionId: string } | null;
+  }> {
     this.assertRpcAvailable();
+    const resolution = filters?.resolution ?? 'open';
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (resolution === 'open') conditions.push('resolved_at IS NULL');
+    else if (resolution === 'resolved') conditions.push('resolved_at IS NOT NULL');
+
+    if (filters?.commandType !== undefined) {
+      conditions.push('command_type = ?');
+      params.push(filters.commandType);
+    }
+    if (filters?.reason !== undefined) {
+      conditions.push('reason = ?');
+      params.push(filters.reason);
+    }
+    if (filters?.businessDateFrom !== undefined) {
+      conditions.push('business_date >= ?');
+      params.push(filters.businessDateFrom);
+    }
+    if (filters?.businessDateTo !== undefined) {
+      conditions.push('business_date <= ?');
+      params.push(filters.businessDateTo);
+    }
+    if (filters?.assigned === 'unassigned') conditions.push('assigned_to IS NULL');
+    else if (filters?.assigned === 'assigned') conditions.push('assigned_to IS NOT NULL');
+    if (filters?.assignedTo !== undefined) {
+      conditions.push('assigned_to = ?');
+      params.push(filters.assignedTo);
+    }
+    if (filters?.cursor) {
+      conditions.push('(created_at < ? OR (created_at = ? AND exception_id < ?))');
+      params.push(filters.cursor.createdAt, filters.cursor.createdAt, filters.cursor.exceptionId);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limitSql = filters?.limit !== undefined ? ' LIMIT ?' : '';
+    const limitParams = filters?.limit !== undefined ? [filters.limit] : [];
+
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT exception_id, idempotency_key, command_type, payload,
                 issued_at, business_date, reason, detail, created_at,
-                resolved_at, resolved_by
+                resolved_at, resolved_by, assigned_to, assigned_at, assigned_by, open_retry_key
          FROM provisional_exception
-         WHERE resolved_at IS NULL
-         ORDER BY created_at DESC`,
+         ${where}
+         ORDER BY created_at DESC, exception_id DESC${limitSql}`,
+        ...params,
+        ...limitParams,
       )
-      .toArray() as Array<{
-        exception_id: string;
-        idempotency_key: string;
-        command_type: string;
-        payload: string;
-        issued_at: string;
-        business_date: string;
-        reason: string;
-        detail: string | null;
-        created_at: number;
-        resolved_at: number | null;
-        resolved_by: string | null;
-      }>;
+      .toArray() as ProvisionalExceptionSqlRow[];
 
-    return {
-      exceptions: rows.map((row) => ({
-        exceptionId: row.exception_id,
-        idempotencyKey: row.idempotency_key,
-        commandType: row.command_type,
-        payload: JSON.parse(row.payload) as unknown,
-        issuedAt: row.issued_at,
-        businessDate: row.business_date,
-        reason: row.reason,
-        detail: row.detail === null ? null : (JSON.parse(row.detail) as unknown),
-        createdAt: row.created_at,
-        resolvedAt: row.resolved_at ?? null,
-        resolvedBy: row.resolved_by ?? null,
-      })),
-    };
+    const exceptions = rows.map(mapProvisionalExceptionRow);
+    hydrateGuestRefs(this.ctx.storage.sql, exceptions);
+
+    const nextCursor =
+      filters?.limit !== undefined && exceptions.length === filters.limit
+        ? {
+            createdAt: exceptions[exceptions.length - 1]!.createdAt,
+            exceptionId: exceptions[exceptions.length - 1]!.exceptionId,
+          }
+        : null;
+
+    return { ok: true, exceptions, nextCursor };
   }
 
   async countProvisionalExceptions(): Promise<number> {
@@ -3235,6 +3427,361 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             eventId: crypto.randomUUID(),
             eventType: 'provisional.exception_resolved',
             payload: { propertyId, exceptionId: input.exceptionId, businessDate: row.business_date },
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private loadProvisionalExceptionRow(exceptionId: string): ProvisionalExceptionSqlRow | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT exception_id, idempotency_key, command_type, payload,
+                issued_at, business_date, reason, detail, created_at,
+                resolved_at, resolved_by, assigned_to, assigned_at, assigned_by, open_retry_key
+         FROM provisional_exception WHERE exception_id = ?`,
+        exceptionId,
+      )
+      .toArray() as ProvisionalExceptionSqlRow[];
+    return rows[0] ?? null;
+  }
+
+  async readProvisionalException(exceptionId: string): Promise<
+    | {
+        ok: true;
+        exception: ProvisionalExceptionListItem;
+        actions: Array<{
+          at: number;
+          actor: string;
+          commandId: string;
+          action: 'resolved' | 'retried' | 'retry_failed' | 'assigned' | 'noted';
+          afterJson: unknown;
+        }>;
+        notes: Array<{ noteId: string; at: number; actor: string; text: string }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const row = this.loadProvisionalExceptionRow(exceptionId);
+    if (!row) return { ok: false, error: NOT_FOUND };
+
+    const exception = mapProvisionalExceptionRow(row);
+    hydrateGuestRefs(this.ctx.storage.sql, [exception]);
+
+    const auditRows = this.ctx.storage.sql
+      .exec(
+        `SELECT at, actor, command_id, after_json
+         FROM audit_log
+         WHERE entity_type = 'provisional_exception' AND entity_id = ?
+         ORDER BY at ASC, seq ASC`,
+        exceptionId,
+      )
+      .toArray() as Array<{ at: number; actor: string; command_id: string; after_json: string }>;
+
+    const actions: Array<{
+      at: number;
+      actor: string;
+      commandId: string;
+      action: 'resolved' | 'retried' | 'retry_failed' | 'assigned' | 'noted';
+      afterJson: unknown;
+    }> = [];
+    const notes: Array<{ noteId: string; at: number; actor: string; text: string }> = [];
+
+    for (const audit of auditRows) {
+      const afterJson = JSON.parse(audit.after_json) as unknown;
+      const afterRec =
+        afterJson !== null && typeof afterJson === 'object' && !Array.isArray(afterJson)
+          ? (afterJson as Record<string, unknown>)
+          : {};
+      let action: (typeof actions)[number]['action'] | null = null;
+      if (audit.command_id === PROVISIONAL_RESOLVE_EXCEPTION_COMMAND) action = 'resolved';
+      else if (audit.command_id === PROVISIONAL_RETRY_EXCEPTION_COMMAND) {
+        action = afterRec.action === 'retried' ? 'retried' : 'retry_failed';
+      } else if (audit.command_id === PROVISIONAL_ASSIGN_EXCEPTION_COMMAND) action = 'assigned';
+      else if (audit.command_id === PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND) action = 'noted';
+      if (!action) continue;
+      actions.push({
+        at: audit.at,
+        actor: audit.actor,
+        commandId: audit.command_id,
+        action,
+        afterJson,
+      });
+      if (action === 'noted') {
+        notes.push({
+          noteId: typeof afterRec.noteId === 'string' ? afterRec.noteId : '',
+          at: audit.at,
+          actor: audit.actor,
+          text: typeof afterRec.text === 'string' ? afterRec.text : '',
+        });
+      }
+    }
+
+    return { ok: true, exception, actions, notes };
+  }
+
+  async tryRetryProvisionalException(
+    actor: ActorContext,
+    input: { exceptionId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; retried: true }
+    | {
+        ok: false;
+        error: typeof NOT_FOUND | typeof ALREADY_RESOLVED | 'unknown_command' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string;
+        retried?: false;
+      }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const existing = this.loadProvisionalExceptionRow(input.exceptionId);
+    if (!existing) return { ok: false, error: NOT_FOUND };
+    if (existing.resolved_at != null) return { ok: false, error: ALREADY_RESOLVED };
+
+    const dispatch = REPLAY_DISPATCH[existing.command_type];
+    if (!dispatch) return { ok: false, error: 'unknown_command' };
+
+    if (existing.open_retry_key === null) {
+      const minted = `provisional-retry:${input.exceptionId}:${crypto.randomUUID()}`;
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.sql.exec(
+          `UPDATE provisional_exception SET open_retry_key = ? WHERE exception_id = ? AND open_retry_key IS NULL`,
+          minted,
+          input.exceptionId,
+        );
+      });
+    }
+
+    const keyed = this.loadProvisionalExceptionRow(input.exceptionId);
+    if (!keyed || keyed.resolved_at != null) return { ok: false, error: ALREADY_RESOLVED };
+    const openRetryKey = keyed.open_retry_key;
+    if (!openRetryKey) return { ok: false, error: 'internal_error' };
+
+    const payload = JSON.parse(keyed.payload) as unknown;
+    const fingerprint = await fingerprintPayload(dispatch.fingerprintInput(payload));
+    const operator = actor.kind === 'user' ? actor : { kind: 'user' as const, userId: this.auditActorSync(actor) };
+
+    const inner = await dispatch.invoke(
+      this,
+      operator,
+      payload,
+      { key: openRetryKey, fingerprint },
+      { issuedAt: keyed.issued_at, businessDate: keyed.business_date },
+    );
+
+    if (inner.error === 'org_unreachable') return { ok: false, error: 'org_unreachable' };
+
+    const resolvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadProvisionalExceptionRow(input.exceptionId);
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+
+          if (inner.ok) {
+            if (row.resolved_at != null) return { ok: true as const, retried: true as const };
+            const now = Date.now();
+            this.ctx.storage.sql.exec(
+              `UPDATE provisional_exception
+               SET resolved_at = ?, resolved_by = ?, open_retry_key = NULL
+               WHERE exception_id = ?`,
+              now,
+              resolvedBy,
+              input.exceptionId,
+            );
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: PROVISIONAL_RETRY_EXCEPTION_COMMAND,
+              entityType: 'provisional_exception',
+              entityId: input.exceptionId,
+              beforeJson: { resolvedAt: null },
+              afterJson: { action: 'retried', resolvedAt: now, resolvedBy },
+            });
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'provisional.exception_retried',
+              payload: {
+                propertyId,
+                exceptionId: input.exceptionId,
+                businessDate: row.business_date,
+                action: 'retried',
+              },
+            });
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'provisional.exception_resolved',
+              payload: {
+                propertyId,
+                exceptionId: input.exceptionId,
+                businessDate: row.business_date,
+                action: 'retried',
+              },
+            });
+            return { ok: true as const, retried: true as const };
+          }
+
+          const reason =
+            inner.error === BUSINESS_DATE_CLOSED ? 'business_date_closed' : (inner.error ?? 'domain_error');
+          this.ctx.storage.sql.exec(
+            `UPDATE provisional_exception
+             SET reason = ?, detail = ?, open_retry_key = NULL
+             WHERE exception_id = ?`,
+            reason,
+            JSON.stringify(inner),
+            input.exceptionId,
+          );
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: PROVISIONAL_RETRY_EXCEPTION_COMMAND,
+            entityType: 'provisional_exception',
+            entityId: input.exceptionId,
+            beforeJson: { reason: row.reason },
+            afterJson: { action: 'retry_failed', reason, detail: inner },
+          });
+          return { ok: false as const, error: reason, retried: false as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryAssignProvisionalException(
+    actor: ActorContext,
+    input: { exceptionId: string; assignedTo: string | null },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        error: typeof NOT_FOUND | typeof ALREADY_RESOLVED | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string;
+      }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const assignedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadProvisionalExceptionRow(input.exceptionId);
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+          if (row.resolved_at != null) return { ok: false as const, error: ALREADY_RESOLVED };
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE provisional_exception
+             SET assigned_to = ?, assigned_at = ?, assigned_by = ?
+             WHERE exception_id = ?`,
+            input.assignedTo,
+            now,
+            assignedBy,
+            input.exceptionId,
+          );
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: PROVISIONAL_ASSIGN_EXCEPTION_COMMAND,
+            entityType: 'provisional_exception',
+            entityId: input.exceptionId,
+            beforeJson: { assignedTo: row.assigned_to },
+            afterJson: { assignedTo: input.assignedTo, assignedAt: now, assignedBy },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'provisional.exception_assigned',
+            payload: { propertyId, exceptionId: input.exceptionId, assignedTo: input.assignedTo },
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryAddExceptionNote(
+    actor: ActorContext,
+    input: { exceptionId: string; noteId: string; text: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        error:
+          | typeof NOT_FOUND
+          | typeof NOTE_TOO_LONG
+          | typeof NOTE_LIMIT
+          | typeof FORBIDDEN
+          | typeof ENTITLEMENT_REQUIRED
+          | string;
+      }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const text = input.text.trim();
+    if (text.length > 2000) return { ok: false, error: NOTE_TOO_LONG };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadProvisionalExceptionRow(input.exceptionId);
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+
+          const countRows = this.ctx.storage.sql
+            .exec(
+              `SELECT COUNT(*) AS n FROM audit_log
+               WHERE entity_type = 'provisional_exception' AND entity_id = ? AND command_id = ?`,
+              input.exceptionId,
+              PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND,
+            )
+            .toArray() as Array<{ n: number }>;
+          if ((countRows[0]?.n ?? 0) >= 50) return { ok: false as const, error: NOTE_LIMIT };
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND,
+            entityType: 'provisional_exception',
+            entityId: input.exceptionId,
+            afterJson: { noteId: input.noteId, text },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'provisional.exception_noted',
+            payload: { propertyId, exceptionId: input.exceptionId, noteId: input.noteId },
           });
           return { ok: true as const };
         }),

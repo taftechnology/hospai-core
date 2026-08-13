@@ -235,6 +235,8 @@ function decodeFrontDeskCursor<T>(raw: string | null): T | null | 'invalid' {
   }
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 function parseOptionalFrontDeskLimit(url: URL): number | undefined {
   const raw = url.searchParams.get('limit');
   if (raw === null || raw === '') return undefined;
@@ -2231,12 +2233,81 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
+  const resolutionRaw = ctx.url.searchParams.get('resolution');
+  if (resolutionRaw !== null && resolutionRaw !== '') {
+    if (resolutionRaw !== 'open' && resolutionRaw !== 'resolved' && resolutionRaw !== 'all') {
+      return json({ error: 'invalid_query' }, 400);
+    }
+  }
+  const assignedRaw = ctx.url.searchParams.get('assigned');
+  if (assignedRaw !== null && assignedRaw !== '') {
+    if (assignedRaw !== 'all' && assignedRaw !== 'unassigned' && assignedRaw !== 'assigned') {
+      return json({ error: 'invalid_query' }, 400);
+    }
+  }
+  const fromDate = ctx.url.searchParams.get('businessDateFrom');
+  const toDate = ctx.url.searchParams.get('businessDateTo');
+  if (fromDate !== null && fromDate !== '' && !ISO_DATE_RE.test(fromDate)) {
+    return json({ error: 'invalid_query' }, 400);
+  }
+  if (toDate !== null && toDate !== '' && !ISO_DATE_RE.test(toDate)) {
+    return json({ error: 'invalid_query' }, 400);
+  }
+  if (
+    fromDate !== null &&
+    fromDate !== '' &&
+    toDate !== null &&
+    toDate !== '' &&
+    fromDate > toDate
+  ) {
+    return json({ error: 'invalid_query' }, 400);
+  }
+
+  const limitRaw = ctx.url.searchParams.get('limit');
+  let limit: number | undefined;
+  if (limitRaw !== null && limitRaw !== '') {
+    const n = Number(limitRaw);
+    if (!Number.isInteger(n) || n < 1 || n > 200) return json({ error: 'invalid_query' }, 400);
+    limit = n;
+  }
+
+  const cursorRaw = ctx.url.searchParams.get('cursor');
+  const decoded = decodeFrontDeskCursor<{ createdAt: number; exceptionId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
+  if (
+    decoded &&
+    (typeof decoded.createdAt !== 'number' || typeof decoded.exceptionId !== 'string')
+  ) {
+    return json({ error: 'invalid_cursor' }, 400);
+  }
+
+  const commandType = ctx.url.searchParams.get('commandType');
+  const reason = ctx.url.searchParams.get('reason');
+  const assignedTo = ctx.url.searchParams.get('assignedTo');
+
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
-    const result = await resolvedCtx.resolved.stub.listProvisionalExceptions();
-    return json(result, 200);
+    const result = await resolvedCtx.resolved.stub.listProvisionalExceptions({
+      ...(resolutionRaw ? { resolution: resolutionRaw as 'open' | 'resolved' | 'all' } : {}),
+      ...(commandType ? { commandType } : {}),
+      ...(reason ? { reason } : {}),
+      ...(fromDate ? { businessDateFrom: fromDate } : {}),
+      ...(toDate ? { businessDateTo: toDate } : {}),
+      ...(assignedRaw ? { assigned: assignedRaw as 'all' | 'unassigned' | 'assigned' } : {}),
+      ...(assignedTo ? { assignedTo } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      ...(decoded ? { cursor: decoded } : {}),
+    });
+    return json(
+      {
+        ok: true,
+        exceptions: result.exceptions,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+    );
   } catch (e) {
     if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
     throw e;
@@ -4120,8 +4191,6 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 function inclusiveDateRangeError(fromDate: string | null, toDate: string | null): Response | null {
   if (!fromDate || !toDate || !ISO_DATE_RE.test(fromDate) || !ISO_DATE_RE.test(toDate)) {
     return json({ error: 'invalid_date' }, 400);
@@ -5434,6 +5503,173 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   return json({ ok: true }, 200);
 }
 
+async function handleGetProvisionalException(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readProvisionalException(exceptionId);
+    if (!result.ok) return json({ error: NOT_FOUND }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+function mapExceptionWriterError(error: string): Response {
+  if (error === 'forbidden') {
+    return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
+  }
+  if (error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
+  if (error === 'not_member') return json({ error: 'internal_error' }, 500);
+  if (error === 'org_unreachable') {
+    return json(
+      { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'provisional.retry_exception' },
+      503,
+      { 'Retry-After': '30' },
+    );
+  }
+  return json({ ok: false, error }, 422);
+}
+
+async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ exceptionId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryRetryProvisionalException']>>
+  >({
+    env: ctx.env,
+    commandId: 'provisional.retry_exception',
+    routeId: 'post_provisional_exception_retry',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { exceptionId },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryRetryProvisionalException(
+        actor,
+        { exceptionId },
+        { key: body.idempotencyKey!, fingerprint },
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    if (result.retried === false && result.error !== 'forbidden' && result.error !== NOT_FOUND && result.error !== 'not_member' && result.error !== 'org_unreachable') {
+      return json({ ok: false, error: result.error, retried: false }, 422);
+    }
+    return mapExceptionWriterError(result.error);
+  }
+  return json({ ok: true, retried: true }, 200);
+}
+
+async function handlePostProvisionalExceptionAssign(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey?: string; assignedTo?: string | null };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  if (!('assignedTo' in body)) return json({ error: 'invalid_body' }, 400);
+  if (body.assignedTo !== null && (typeof body.assignedTo !== 'string' || body.assignedTo === '')) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ exceptionId, assignedTo: body.assignedTo });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryAssignProvisionalException']>>
+  >({
+    env: ctx.env,
+    commandId: 'provisional.assign_exception',
+    routeId: 'post_provisional_exception_assign',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { exceptionId, assignedTo: body.assignedTo },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryAssignProvisionalException(
+        actor,
+        { exceptionId, assignedTo: body.assignedTo ?? null },
+        { key: body.idempotencyKey!, fingerprint },
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return mapExceptionWriterError(result.error);
+  return json({ ok: true }, 200);
+}
+
+async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey?: string;
+    noteId?: string;
+    text?: string;
+  };
+  if (!body?.idempotencyKey || !body.noteId) return json({ error: 'invalid_body' }, 400);
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ exceptionId, noteId: body.noteId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddExceptionNote']>>>({
+    env: ctx.env,
+    commandId: 'provisional.add_exception_note',
+    routeId: 'post_provisional_exception_note',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { exceptionId, noteId: body.noteId },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryAddExceptionNote(
+        actor,
+        { exceptionId, noteId: body.noteId!, text },
+        { key: body.idempotencyKey!, fingerprint },
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return mapExceptionWriterError(result.error);
+  return json({ ok: true }, 200);
+}
+
 async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -6637,6 +6873,41 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handleGetFrontOfficeStream,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)$/,
+    permission: 'property:read',
+    entitlement: 'pms.core',
+    handler: handleGetProvisionalException,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/retry$/,
+    permission: 'night_audit:run',
+    commandId: 'provisional.retry_exception',
+    entitlement: 'pms.core',
+    handler: handlePostProvisionalExceptionRetry,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/assign$/,
+    permission: 'night_audit:run',
+    commandId: 'provisional.assign_exception',
+    entitlement: 'pms.core',
+    handler: handlePostProvisionalExceptionAssign,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/notes$/,
+    permission: 'night_audit:run',
+    commandId: 'provisional.add_exception_note',
+    entitlement: 'pms.core',
+    handler: handlePostProvisionalExceptionNote,
   },
 ];
 

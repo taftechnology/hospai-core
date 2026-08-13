@@ -845,10 +845,10 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 ## 17. Leftovers (named, not silent)
 
 1. **`availability_day.held` behaviour** — CRS / group holds, Phase 3 (§7.1).
-2. **Quote snapshot** (nightly rates frozen on the reservation at create) — wizard is still quantity-only; penalty uses current `rate_day`.
+2. **Quote snapshot** (nightly rates frozen on the reservation at create) — wizard is still quantity-only; penalty uses current `rate_day`. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §8.
 3. **`pms.ops.auto_assign_rooms`** — unread; check-in stays explicit.
-4. **Folio window close on check-out** — money-ops; window stays `OPEN`.
-5. **Deposits / capture on `folio.balance_due`** — payments worker.
+4. **Folio window close on check-out** — money-ops; window stays `OPEN` by default. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §4 (explicit close; optional auto-close config).
+5. **Deposits / capture on `folio.balance_due`** — payments worker. Capture seam specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6.4 (`folio.capture_due` + live check-out `autoCapture`).
 6. **Priced wizard / plan picker** — schema is ready; UI is not this chunk’s job beyond Hold/Quote.
 7. **`reservations.update_extras`** — still a retirement candidate (booking-wizard leftover 7).
 8. **Quotes inbox** — inquiry is not on arrivals; a dedicated list is unbuilt.

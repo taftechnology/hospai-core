@@ -1027,9 +1027,9 @@ EOF
 
 Do **not** rewrite those specs. One sentence per leftover.
 
-- [ ] **Step 1: Edit the three specs**
+- [x] **Step 1: Edit the three specs**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-reservations-lifecycle-completion-design.md \

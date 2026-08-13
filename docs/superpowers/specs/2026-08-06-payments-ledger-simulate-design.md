@@ -361,9 +361,9 @@ Env: `HOSPAI_PSP_MODE` on `PmsEnv`; `isPspSimulate`; `assertEnvSafeForRequest` b
 | Departed-with-balance | Checkout ≠ settled; no operator view surfaces open balances after `checked_out` |
 | Auth expiry | `authorized` never ages out; no hold-lapse process |
 | `unknown` has no exit | Reachable via simulate timeout; no reconciliation transition this slice |
-| `folio_window.closed_at` inert; `status` wire-constant `OPEN` | Clients must not branch on it; migration that first writes a second status **must** add the CHECK |
-| Closed-window rejects postings | App logic in `insertFolioLineSync` later — existence FK does not enforce open/closed |
-| Real PSP / PCI Worker / settlement / refunds / voids / cashier | Deferred |
+| `folio_window.closed_at` inert; `status` wire-constant `OPEN` | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `status` is a real discriminator and `closed_at` is written on close. |
+| Closed-window rejects postings | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `insertFolioLineSync` rejects `WINDOW_CLOSED`. |
+| Real PSP / PCI Worker / settlement / refunds / voids / cashier | Real PSP / PCI / settlement / cashier still deferred; simulate voids/refunds specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6. |
 | `PLATFORM_GAPS.folio.split_charge_v2` | Narrowed to cross-window split+transfer remainder |
 
 ---

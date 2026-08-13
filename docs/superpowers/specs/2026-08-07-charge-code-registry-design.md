@@ -248,7 +248,7 @@ Append in **identical order** to `V1_HTTP_ROUTE_AUDIT` and `V1_ROUTES` (current 
 | Tax rules table (effective-dated; not `pms.money.tax_registry`) | Exclusive launch model; `rule_type` domain includes `PER_PERSON_PER_NIGHT` / `FLAT`, app rejects non-`PERCENTAGE` |
 | Tourist/city tax evaluation | Blocked on reservation occupancy |
 | Reservation occupancy (`adults`/`children`) | Rebuild on `reservation` (v11+); also needed for occupancy pricing and `maxOccupancy` enforcement |
-| Window routing rules table | §7.3 ranges → destination; not a column on `charge_code` |
+| Window routing rules table | §7.3 ranges → destination; not a column on `charge_code`. Auto-transfer still deferred; the transfer primitive is [folio money operations](./2026-08-12-folio-money-operations-design.md). |
 | `affectsTaxMoney` wiring | Declared on six config entries; read by nothing — wire or stop pretending |
 | `rematerializesRates` | Still declared-but-unhonored (rule3 leftovers) |
 | Cash tender vs `pending→authorized→captured` | Shape payment for cash before cashiering |

@@ -244,7 +244,7 @@ function isInclusiveTapeWindow(fromDate: string, toDate: string): boolean {
   if (!FRONT_OFFICE_ISO_DATE.test(fromDate) || !FRONT_OFFICE_ISO_DATE.test(toDate)) return false;
   if (fromDate > toDate) return false;
   const maxTo = enumerateFromDate(fromDate, 90)[89];
-  return Boolean(maxTo) && toDate <= maxTo;
+  return maxTo != null && toDate <= maxTo;
 }
 
 function stayOverlapsWindow(
@@ -263,7 +263,7 @@ function oooOverlapsWindow(
   endDate: string,
 ): boolean {
   const toExclusive = enumerateFromDate(toDate, 2)[1];
-  return Boolean(toExclusive) && startDate < toExclusive && endDate > fromDate;
+  return toExclusive != null && startDate < toExclusive && endDate > fromDate;
 }
 
 type PaymentRow = {

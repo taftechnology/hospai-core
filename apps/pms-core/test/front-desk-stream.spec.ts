@@ -388,7 +388,7 @@ describe('front-desk hibernating stream HTTP [119]', () => {
     } else {
       try {
         await runInDurableObject(stub, (_instance, state) => {
-          state.abort('hibernate', { webSockets: 'hibernate' } as never);
+          state.abort('hibernate');
         });
       } catch {
         /* 0.8.71 abort tears down the isolate and closes sockets */

@@ -58,6 +58,8 @@ export const LINE_NOT_DISCOUNTABLE = 'line_not_discountable' as const;
 export const PAYMENT_NOT_VOIDABLE = 'payment_not_voidable' as const;
 export const PAYMENT_NOT_REFUNDABLE = 'payment_not_refundable' as const;
 export const DISCOUNT_REASON_REQUIRED = 'discount_reason_required' as const;
+export const FX_REASON_REQUIRED = 'fx_reason_required' as const;
+export const PAYMENT_NOT_CHARGEBACKABLE = 'payment_not_chargebackable' as const;
 
 /** Payment wire codes */
 export const PSP_UNAVAILABLE = 'psp_unavailable' as const;

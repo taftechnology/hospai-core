@@ -250,7 +250,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
   });
 
   it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
@@ -452,7 +452,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[105] ?? {})).toBe(false);
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
+    expect(COMMAND_CATALOG).toHaveLength(74);
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
@@ -694,6 +695,8 @@ describe('command catalog', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.events).toEqual([
       'folio.payment_captured',
       'folio.line_posted',
+      'payment.captured',
+      'payment.failed',
     ]);
     expect(V1_HTTP_ROUTE_AUDIT[45]?.id).toBe('post_folio_authorize');
     expect(V1_HTTP_ROUTE_AUDIT[45]).toMatchObject({ permission: 'folio:post' });
@@ -723,7 +726,7 @@ describe('command catalog', () => {
       {
         id: 'folio.refund',
         permission: 'folio:adjust',
-        events: ['folio.payment_refunded', 'folio.line_posted'],
+        events: ['folio.payment_refunded', 'folio.line_posted', 'payment.refunded'],
       },
       { id: 'folio.post_discount', permission: 'folio:adjust', events: ['folio.line_posted'] },
       {
@@ -743,6 +746,51 @@ describe('command catalog', () => {
       expect(AUDIT_WRITER_COMMAND_IDS.has(row.id)).toBe(true);
       expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.some((e) => e.id === row.id)).toBe(false);
     }
+  });
+
+  it('multi-currency folio commands are entitled FAIL_CLOSED INTERACTIVE', () => {
+    const rows = [
+      { id: 'folio.create_fx_rate', permission: 'settings:configure', events: ['fx_rate.changed'] },
+      { id: 'folio.supersede_fx_rate', permission: 'settings:configure', events: ['fx_rate.changed'] },
+      {
+        id: 'folio.post_fx_adjustment',
+        permission: 'folio:adjust',
+        events: ['folio.line_posted', 'folio.fx_adjusted'],
+      },
+      {
+        id: 'folio.record_chargeback',
+        permission: 'folio:adjust',
+        events: ['payment.chargeback_received', 'folio.line_posted'],
+      },
+    ] as const;
+    for (const row of rows) {
+      const c = COMMAND_CATALOG.find((x) => x.id === row.id);
+      expect(c?.lane).toBe('INTERACTIVE');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.idempotent).toBe(true);
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe(row.permission);
+      expect(c?.events).toEqual([...row.events]);
+      expect(AUDIT_WRITER_COMMAND_IDS.has(row.id)).toBe(true);
+      expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.some((e) => e.id === row.id)).toBe(false);
+    }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.events).toEqual(
+      expect.arrayContaining(['folio.payment_authorized', 'payment.authorized', 'payment.failed']),
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.events).toEqual(
+      expect.arrayContaining([
+        'folio.payment_captured',
+        'folio.line_posted',
+        'payment.captured',
+        'payment.failed',
+      ]),
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.record_cash_payment')?.events).toEqual(
+      expect.arrayContaining(['folio.payment_captured', 'folio.line_posted', 'payment.captured']),
+    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.refund')?.events).toEqual(
+      expect.arrayContaining(['folio.payment_refunded', 'folio.line_posted', 'payment.refunded']),
+    );
   });
 
   it('PLATFORM_GAPS is empty after rooms.set_ooo_range promotion', () => {
@@ -795,7 +843,7 @@ describe('command catalog', () => {
     const cash = COMMAND_CATALOG.find((x) => x.id === 'folio.record_cash_payment');
     expect(cash?.permission).toBe('folio:post');
     expect(cash?.degraded).toBe('FAIL_CLOSED');
-    expect(cash?.events).toEqual(['folio.payment_captured', 'folio.line_posted']);
+    expect(cash?.events).toEqual(['folio.payment_captured', 'folio.line_posted', 'payment.captured']);
     expect(V1_HTTP_ROUTE_AUDIT[57]?.id).toBe('post_shifts');
     expect(V1_HTTP_ROUTE_AUDIT[58]?.id).toBe('put_shift_close');
     expect(V1_HTTP_ROUTE_AUDIT[59]?.id).toBe('post_cash_payment');

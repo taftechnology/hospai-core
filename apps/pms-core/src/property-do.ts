@@ -1868,6 +1868,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * 'folio.transfer_charge' 'folio.split_charge_v2' 'folio.void'
    * 'folio.refund' 'folio.post_discount' 'folio.capture_due'
    *
+   * Multi-currency folio audit writers (methods land in later tasks):
+   * 'folio.create_fx_rate' 'folio.supersede_fx_rate'
+   * 'folio.post_fx_adjustment' 'folio.record_chargeback'
+   *
    * Room OOO audit writer (method lands in a later task):
    * 'rooms.set_ooo_range'
    */

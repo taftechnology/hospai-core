@@ -64,6 +64,8 @@ import {
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
   DISCOUNT_REASON_REQUIRED,
+  FX_REASON_REQUIRED,
+  PAYMENT_NOT_CHARGEBACKABLE,
   OOO_VIA_RANGE,
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
@@ -179,6 +181,15 @@ describe('fingerprintPayload', () => {
     expect(PAYMENT_NOT_VOIDABLE).toBe('payment_not_voidable');
     expect(PAYMENT_NOT_REFUNDABLE).toBe('payment_not_refundable');
     expect(DISCOUNT_REASON_REQUIRED).toBe('discount_reason_required');
+    expect(FX_REASON_REQUIRED).toBe('fx_reason_required');
+    expect(PAYMENT_NOT_CHARGEBACKABLE).toBe('payment_not_chargebackable');
+  });
+
+  it('exports FX rate money wire codes', async () => {
+    const { FX_RATE_MISSING, FX_RATE_NOT_LEDGER, FX_RATE_OPEN_EXISTS } = await import('./money.js');
+    expect(FX_RATE_MISSING).toBe('fx_rate_missing');
+    expect(FX_RATE_NOT_LEDGER).toBe('fx_rate_not_ledger');
+    expect(FX_RATE_OPEN_EXISTS).toBe('fx_rate_open_exists');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

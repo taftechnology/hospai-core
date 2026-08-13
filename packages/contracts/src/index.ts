@@ -4,6 +4,7 @@ export * from './commands/audit-writers.js';
 export * from './tenancy/types.js';
 export * from './tenancy/ids.js';
 export * from './events.js';
+export * from './events/payment.js';
 export * from './idempotency.js';
 export * from './provisional-command.js';
 export * from './availability.js';

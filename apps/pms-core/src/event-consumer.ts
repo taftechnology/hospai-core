@@ -157,6 +157,13 @@ export async function handleDomainEvent(
     case 'folio.window_reopened':
     case 'folio.payment_voided':
     case 'folio.payment_refunded':
+    case 'payment.authorized':
+    case 'payment.captured':
+    case 'payment.refunded':
+    case 'payment.failed':
+    case 'payment.chargeback_received':
+    case 'fx_rate.changed':
+    case 'folio.fx_adjusted':
     case 'channel.synced':
     case 'channel.mapping.created':
     case 'property.updated':

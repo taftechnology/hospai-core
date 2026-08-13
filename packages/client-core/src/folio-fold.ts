@@ -5,6 +5,8 @@ export type FolioLine = {
   amountMinor: number;
   ledgerAmountMinor: number;
   txnCurrency: string;
+  fxRate?: string;
+  fxRateAt?: number;
   source: string | null;
   businessDate: string | null;
   splitOf: string | null;

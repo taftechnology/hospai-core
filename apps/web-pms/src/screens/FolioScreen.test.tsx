@@ -23,6 +23,11 @@ const postDiscount = vi.fn();
 const captureDue = vi.fn();
 const updateFrontOffice = vi.fn();
 const getProperty = vi.fn();
+const listFxRates = vi.fn();
+const createFxRate = vi.fn();
+const supersedeFxRate = vi.fn();
+const recordChargeback = vi.fn();
+const postFxAdjustment = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -60,6 +65,11 @@ vi.mock('../client.js', () => ({
     postDiscount: (...args: unknown[]) => postDiscount(...args),
     captureDue: (...args: unknown[]) => captureDue(...args),
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
+    listFxRates: (...args: unknown[]) => listFxRates(...args),
+    createFxRate: (...args: unknown[]) => createFxRate(...args),
+    supersedeFxRate: (...args: unknown[]) => supersedeFxRate(...args),
+    recordChargeback: (...args: unknown[]) => recordChargeback(...args),
+    postFxAdjustment: (...args: unknown[]) => postFxAdjustment(...args),
   },
 }));
 
@@ -170,6 +180,7 @@ describe('FolioScreen wiring', () => {
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
     });
+    listFxRates.mockResolvedValue({ ledgerCurrency: 'USD', rates: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
 
@@ -816,5 +827,110 @@ describe('FolioScreen wiring', () => {
       target: { value: 'x'.repeat(2001) },
     });
     expect((screen.getByTestId('front-office-save') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('40: foreign line shows line-fx; identity line does not', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 11000,
+      ledgerCurrency: 'USD',
+      lines: [
+        {
+          ...miscLine,
+          folioLineId: 'eur_room',
+          amountMinor: 10000,
+          ledgerAmountMinor: 11000,
+          txnCurrency: 'EUR',
+          fxRate: '1.10',
+        },
+        miscLine,
+      ],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('line-fx')).toBeTruthy());
+    expect(screen.getByTestId('line-fx').textContent).toMatch(/EUR/);
+    expect(screen.getAllByTestId('line-fx')).toHaveLength(1);
+  });
+
+  it('41: authorize select lists USD + EUR and submit sends currency', async () => {
+    listFxRates.mockResolvedValue({
+      ledgerCurrency: 'USD',
+      rates: [
+        {
+          quoteId: 'q1',
+          fromCurrency: 'EUR',
+          toCurrency: 'USD',
+          rate: '1.10',
+          effectiveFrom: 1,
+          effectiveTo: null,
+          createdAt: 1,
+          createdBy: null,
+        },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      ledgerCurrency: 'USD',
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    authorizePayment.mockResolvedValue({ ok: true });
+    renderFolio();
+    await waitFor(() => {
+      const select = screen.getByTestId('authorize-currency') as HTMLSelectElement;
+      expect([...select.options].map((o) => o.value)).toEqual(expect.arrayContaining(['USD', 'EUR']));
+    });
+    const select = screen.getByTestId('authorize-currency') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'EUR' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('authorize-card'));
+      await Promise.resolve();
+    });
+    expect(authorizePayment).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      expect.objectContaining({ currency: 'EUR' }),
+      expect.any(String),
+    );
+  });
+
+  it('42: chargeback and FX controls hide without folio:adjust / settings:configure', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      ledgerCurrency: 'USD',
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => {
+      expect(screen.queryByTestId('chargeback-form')).toBeNull();
+      expect(screen.queryByTestId('fx-adjustment-form')).toBeNull();
+      expect(screen.queryByTestId('fx-rates-editor')).toBeNull();
+    });
+  });
+
+  it('43: balanceAtRisk chip when the folio read says true', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 100,
+      ledgerCurrency: 'USD',
+      balanceAtRisk: true,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('balance-at-risk')).toBeTruthy());
   });
 });

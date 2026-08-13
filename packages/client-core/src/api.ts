@@ -51,6 +51,20 @@ export type FolioRead = {
   lines: FolioLine[];
   balanceMinor: number;
   noPost?: boolean;
+  ledgerCurrency?: string | null;
+  balanceAtRisk?: boolean;
+  txnBalances?: Array<{ currency: string; amountMinor: number }>;
+};
+
+export type FxRateRow = {
+  quoteId: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: string;
+  effectiveFrom: number;
+  effectiveTo: number | null;
+  createdAt: number;
+  createdBy: string | null;
 };
 
 export type ReservationRead = {
@@ -84,6 +98,15 @@ export type FolioPaymentRow = {
   capturedAmountMinor: number | null;
   createdAt: number;
   updatedAt: number;
+  fxRate?: string | null;
+  fxRateAt?: number | null;
+  balanceAtRisk?: boolean;
+  dispute?: {
+    disputeId: string;
+    status: 'open' | 'closed';
+    reason: string;
+    openedAt: number;
+  } | null;
 };
 
 export type AvailabilityRead = {
@@ -519,7 +542,7 @@ export function createClient(opts: {
     async recordCashPayment(
       propertyId: string,
       reservationId: string,
-      input: { paymentId: string; amountMinor: number },
+      input: { paymentId: string; amountMinor: number; currency?: string },
       opId: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
@@ -531,6 +554,7 @@ export function createClient(opts: {
           body: JSON.stringify({
             paymentId: input.paymentId,
             amountMinor: input.amountMinor,
+            ...(input.currency ? { currency: input.currency } : {}),
             idempotencyKey,
           }),
         },
@@ -540,7 +564,7 @@ export function createClient(opts: {
     async authorizePayment(
       propertyId: string,
       reservationId: string,
-      input: { paymentId: string; amountMinor: number },
+      input: { paymentId: string; amountMinor: number; currency?: string },
       opId: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
@@ -552,8 +576,75 @@ export function createClient(opts: {
           body: JSON.stringify({
             paymentId: input.paymentId,
             amountMinor: input.amountMinor,
+            ...(input.currency ? { currency: input.currency } : {}),
             idempotencyKey,
           }),
+        },
+        { reservationId },
+      );
+    },
+    async listFxRates(propertyId: string): Promise<{ ledgerCurrency: string | null; rates: FxRateRow[] }> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/fx-rates`);
+      const r = body as { ledgerCurrency?: string | null; rates?: FxRateRow[] };
+      return { ledgerCurrency: r.ledgerCurrency ?? null, rates: Array.isArray(r.rates) ? r.rates : [] };
+    },
+    async createFxRate(
+      propertyId: string,
+      input: { quoteId: string; fromCurrency: string; toCurrency: string; rate: string; effectiveFrom: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/fx-rates`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async supersedeFxRate(
+      propertyId: string,
+      supersedeQuoteId: string,
+      input: { quoteId: string; rate: string; effectiveFrom: number },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/fx-rates/${enc(supersedeQuoteId)}/supersede`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async recordChargeback(
+      propertyId: string,
+      paymentId: string,
+      input: { feeLedgerMinor: number; reason: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/folio/payments/${enc(paymentId)}/chargeback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async postFxAdjustment(
+      propertyId: string,
+      reservationId: string,
+      input: {
+        folioWindowId: string;
+        kind: 'gain' | 'loss';
+        amountMinor: number;
+        reason: string;
+        sourcePaymentId?: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/fx-adjustment`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
         },
         { reservationId },
       );

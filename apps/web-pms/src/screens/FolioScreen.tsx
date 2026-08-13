@@ -72,6 +72,15 @@ export function FolioScreen() {
   const [chargeOpId] = useState(() => `charge:${reservationId}:${crypto.randomUUID()}`);
   const [cashOpId] = useState(() => `cash:${reservationId}:${crypto.randomUUID()}`);
   const [authOpId] = useState(() => `auth:${reservationId}:${crypto.randomUUID()}`);
+  const [payCurrency, setPayCurrency] = useState('');
+  const [chargebackPaymentId, setChargebackPaymentId] = useState('');
+  const [chargebackFee, setChargebackFee] = useState('0.00');
+  const [chargebackReason, setChargebackReason] = useState('');
+  const [fxKind, setFxKind] = useState<'gain' | 'loss'>('loss');
+  const [fxAmount, setFxAmount] = useState('1.00');
+  const [fxReason, setFxReason] = useState('');
+  const [fxFrom, setFxFrom] = useState('EUR');
+  const [fxRate, setFxRate] = useState('1.10');
 
   const folioQ = useQuery({
     queryKey: ['folio', propertyId, reservationId],
@@ -87,6 +96,11 @@ export function FolioScreen() {
     queryKey: ['folio-payments', propertyId, reservationId],
     queryFn: () => api.getFolioPayments(propertyId, reservationId),
     enabled: Boolean(reservationId),
+  });
+  const fxRatesQ = useQuery({
+    queryKey: ['fx-rates', propertyId],
+    queryFn: () => api.listFxRates(propertyId),
+    enabled: Boolean(propertyId),
   });
   const openShiftQ = useQuery({
     queryKey: ['open-shift', propertyId],
@@ -137,6 +151,18 @@ export function FolioScreen() {
     !hasPropertyPermission(meShell.authority.me, 'reservations:write');
   const canPost = !postDenied;
   const canWrite = !writeDenied;
+  const configureDenied =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    !hasPropertyPermission(meShell.authority.me, 'settings:configure');
+  const canConfigureFx = !configureDenied;
+  const folioLive = folioQ.isSuccess && paymentsQ.isSuccess;
+  const ledgerCurrency = folioQ.data?.ledgerCurrency ?? fxRatesQ.data?.ledgerCurrency ?? 'USD';
+  const openFxFrom = (fxRatesQ.data?.rates ?? [])
+    .filter((r) => r.effectiveTo === null)
+    .map((r) => r.fromCurrency);
+  const payCurrencies = Array.from(new Set([ledgerCurrency, ...openFxFrom]));
+  const selectedPayCurrency = payCurrency || ledgerCurrency;
   const splitReason = adjustDenied
     ? 'Requires permission folio:adjust. Ask a manager.'
     : policy.reasons.split;
@@ -245,7 +271,11 @@ export function FolioScreen() {
       return api.recordCashPayment(
         propertyId,
         reservationId,
-        { paymentId: `pay_${cashOpId}`, amountMinor },
+        {
+          paymentId: `pay_${cashOpId}`,
+          amountMinor,
+          ...(selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {}),
+        },
         cashOpId,
       );
     },
@@ -274,7 +304,11 @@ export function FolioScreen() {
       return api.authorizePayment(
         propertyId,
         reservationId,
-        { paymentId: `pay_${authOpId}`, amountMinor },
+        {
+          paymentId: `pay_${authOpId}`,
+          amountMinor,
+          ...(selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {}),
+        },
         authOpId,
       );
     },
@@ -283,6 +317,71 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
+    },
+  });
+
+  const chargeback = useFolioActionMutation({
+    fallback: 'Chargeback failed',
+    setMessage,
+    mutationFn: () => {
+      const feeLedgerMinor = Math.round(Number(chargebackFee) * 100);
+      return api.recordChargeback(
+        propertyId,
+        chargebackPaymentId,
+        { feeLedgerMinor, reason: chargebackReason },
+        `cb:${chargebackPaymentId}:${crypto.randomUUID()}`,
+      );
+    },
+    onSuccess: () => {
+      setMessage('Chargeback recorded.');
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['folio-payments', propertyId, reservationId],
+      });
+    },
+  });
+
+  const fxAdjust = useFolioActionMutation({
+    fallback: 'FX adjustment failed',
+    setMessage,
+    mutationFn: () => {
+      const amountMinor = Math.round(Number(fxAmount) * 100);
+      return api.postFxAdjustment(
+        propertyId,
+        reservationId,
+        {
+          folioWindowId: guestWindowId,
+          kind: fxKind,
+          amountMinor,
+          reason: fxReason,
+        },
+        `fxadj:${reservationId}:${crypto.randomUUID()}`,
+      );
+    },
+    onSuccess: () => {
+      setMessage('FX adjustment posted.');
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    },
+  });
+
+  const createFx = useFolioActionMutation({
+    fallback: 'FX rate create failed',
+    setMessage,
+    mutationFn: () =>
+      api.createFxRate(
+        propertyId,
+        {
+          quoteId: crypto.randomUUID(),
+          fromCurrency: fxFrom,
+          toCurrency: ledgerCurrency,
+          rate: fxRate,
+          effectiveFrom: Date.now(),
+        },
+        `fxcreate:${propertyId}:${crypto.randomUUID()}`,
+      ),
+    onSuccess: () => {
+      setMessage('FX rate created.');
+      void queryClient.invalidateQueries({ queryKey: ['fx-rates', propertyId] });
     },
   });
 
@@ -647,6 +746,12 @@ export function FolioScreen() {
               No-post
             </span>
           ) : null}
+          {folioQ.data?.balanceAtRisk ? (
+            <span data-testid="balance-at-risk" className={statusClass('informational')}>
+              {' '}
+              Balance at risk
+            </span>
+          ) : null}
         </p>
       )}
       {canWrite ? (
@@ -853,7 +958,15 @@ export function FolioScreen() {
                 {node.orphanTax ? (
                   <strong className="error">Orphan tax (data defect) </strong>
                 ) : null}
-                {node.line.chargeCode} {formatMinor(node.line.ledgerAmountMinor)}
+                {node.line.chargeCode}{' '}
+                {node.line.txnCurrency !== ledgerCurrency || (node.line.fxRate && node.line.fxRate !== '1') ? (
+                  <span data-testid="line-fx">
+                    {node.line.txnCurrency} {formatMinor(node.line.amountMinor)} → {ledgerCurrency}{' '}
+                    {formatMinor(node.line.ledgerAmountMinor)} @ {node.line.fxRate ?? '1'}
+                  </span>
+                ) : (
+                  formatMinor(node.line.ledgerAmountMinor)
+                )}
                 {node.line.source ? ` · ${node.line.source}` : ''}
                 {canAdjust && transferDestsFor(node.line.folioWindowId).length > 0 ? (
                   <>
@@ -976,6 +1089,19 @@ export function FolioScreen() {
             No open shift — this payment will be unattributed until close discloses the count.
           </p>
         ) : null}
+        <select
+          aria-label="cash-currency"
+          data-testid="cash-currency"
+          value={selectedPayCurrency}
+          disabled={!policy.canPay || !folioLive}
+          onChange={(e) => setPayCurrency(e.target.value)}
+        >
+          {payCurrencies.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
         <input
           aria-label="cash-amount"
           value={cashAmount}
@@ -994,12 +1120,28 @@ export function FolioScreen() {
 
       <section className="stack-row">
         <h2>Authorize card</h2>
+        <select
+          aria-label="authorize-currency"
+          data-testid="authorize-currency"
+          value={selectedPayCurrency}
+          disabled={!policy.canPay || !folioLive}
+          onChange={(e) => setPayCurrency(e.target.value)}
+        >
+          {payCurrencies.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
         <input
           aria-label="auth-amount"
           value={authAmount}
           onChange={(e) => setAuthAmount(e.target.value)}
           disabled={!policy.canPay}
         />
+        {selectedPayCurrency !== ledgerCurrency ? (
+          <p className="muted">Indicative — captured at the rate in force at capture.</p>
+        ) : null}
         <button
           type="button"
           data-testid="authorize-card"
@@ -1108,6 +1250,96 @@ export function FolioScreen() {
             Post discount
           </button>
         </section>
+      ) : null}
+
+      {canAdjust ? (
+        <section className="stack-row" data-testid="chargeback-form">
+          <h2>Chargeback</h2>
+          <input
+            aria-label="chargeback-payment-id"
+            placeholder="payment id"
+            value={chargebackPaymentId}
+            onChange={(e) => setChargebackPaymentId(e.target.value)}
+            disabled={!folioLive}
+          />
+          <input
+            aria-label="chargeback-fee"
+            value={chargebackFee}
+            onChange={(e) => setChargebackFee(e.target.value)}
+            disabled={!folioLive}
+          />
+          <input
+            aria-label="chargeback-reason"
+            placeholder="reason"
+            value={chargebackReason}
+            onChange={(e) => setChargebackReason(e.target.value)}
+            disabled={!folioLive}
+          />
+          <button
+            type="button"
+            data-testid="record-chargeback"
+            disabled={!folioLive || !chargebackPaymentId || !chargebackReason.trim() || chargeback.isPending}
+            onClick={() => chargeback.mutate()}
+          >
+            Record chargeback
+          </button>
+        </section>
+      ) : null}
+
+      {canAdjust ? (
+        <section className="stack-row" data-testid="fx-adjustment-form">
+          <h2>FX adjustment</h2>
+          <select
+            aria-label="fx-kind"
+            value={fxKind}
+            onChange={(e) => setFxKind(e.target.value as 'gain' | 'loss')}
+            disabled={!folioLive}
+          >
+            <option value="loss">Loss</option>
+            <option value="gain">Gain</option>
+          </select>
+          <input
+            aria-label="fx-amount"
+            value={fxAmount}
+            onChange={(e) => setFxAmount(e.target.value)}
+            disabled={!folioLive}
+          />
+          <input
+            aria-label="fx-reason"
+            placeholder="reason"
+            value={fxReason}
+            onChange={(e) => setFxReason(e.target.value)}
+            disabled={!folioLive}
+          />
+          <button
+            type="button"
+            data-testid="post-fx-adjustment"
+            disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending}
+            onClick={() => fxAdjust.mutate()}
+          >
+            Post FX adjustment
+          </button>
+        </section>
+      ) : null}
+
+      {canConfigureFx ? (
+        <details data-testid="fx-rates-editor">
+          <summary>FX rates</summary>
+          <ul>
+            {(fxRatesQ.data?.rates ?? [])
+              .filter((r) => r.effectiveTo === null)
+              .map((r) => (
+                <li key={r.quoteId}>
+                  {r.fromCurrency}→{r.toCurrency} @ {r.rate}
+                </li>
+              ))}
+          </ul>
+          <input aria-label="fx-from" value={fxFrom} onChange={(e) => setFxFrom(e.target.value)} disabled={!folioLive} />
+          <input aria-label="fx-rate" value={fxRate} onChange={(e) => setFxRate(e.target.value)} disabled={!folioLive} />
+          <button type="button" data-testid="create-fx-rate" disabled={!folioLive || createFx.isPending} onClick={() => createFx.mutate()}>
+            Create FX rate
+          </button>
+        </details>
       ) : null}
 
       <section>

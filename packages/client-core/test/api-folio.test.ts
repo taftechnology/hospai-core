@@ -119,6 +119,57 @@ describe('folio API', () => {
     expect(paths[1]).toBe('/v1/properties/p/reservations/res_1/folio/capture-due');
   });
 
+  it('authorizePayment and recordCashPayment send optional currency', async () => {
+    const bodies: string[] = [];
+    const { client } = clientWith(async (_path, init) => {
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.authorizePayment(
+      'p',
+      'res_1',
+      { paymentId: 'pay_1', amountMinor: 1000, currency: 'EUR' },
+      'op-auth-eur',
+    );
+    await client.recordCashPayment(
+      'p',
+      'res_1',
+      { paymentId: 'pay_2', amountMinor: 500, currency: 'EUR' },
+      'op-cash-eur',
+    );
+    expect(JSON.parse(bodies[0]!).currency).toBe('EUR');
+    expect(JSON.parse(bodies[1]!).currency).toBe('EUR');
+  });
+
+  it('fx-rate, chargeback, and adjustment methods hit the new routes', async () => {
+    const paths: string[] = [];
+    const { client } = clientWith(async (path) => {
+      paths.push(path);
+      return new Response(JSON.stringify({ ok: true, ledgerCurrency: 'USD', rates: [] }), { status: 200 });
+    });
+    await client.listFxRates('p');
+    await client.createFxRate(
+      'p',
+      { quoteId: 'q1', fromCurrency: 'EUR', toCurrency: 'USD', rate: '1.10', effectiveFrom: 1 },
+      'op-fx-create',
+    );
+    await client.supersedeFxRate('p', 'q1', { quoteId: 'q2', rate: '1.12', effectiveFrom: 2 }, 'op-fx-sup');
+    await client.recordChargeback('p', 'pay_1', { feeLedgerMinor: 250, reason: 'scheme' }, 'op-cb');
+    await client.postFxAdjustment(
+      'p',
+      'res_1',
+      { folioWindowId: 'res_1:GUEST', kind: 'loss', amountMinor: 100, reason: 'short' },
+      'op-adj',
+    );
+    expect(paths).toEqual([
+      '/v1/properties/p/fx-rates',
+      '/v1/properties/p/fx-rates',
+      '/v1/properties/p/fx-rates/q1/supersede',
+      '/v1/properties/p/folio/payments/pay_1/chargeback',
+      '/v1/properties/p/reservations/res_1/folio/fx-adjustment',
+    ]);
+  });
+
   it('splitFolioLine 403 bare body is forbidden', async () => {
     const { client } = clientWith(
       () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }),

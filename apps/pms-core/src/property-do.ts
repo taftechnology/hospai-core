@@ -73,6 +73,8 @@ import {
   MONEY_INVALID,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
+  FX_RATE_NOT_LEDGER,
+  FX_RATE_OPEN_EXISTS,
   SPLIT_AMOUNT_MISMATCH,
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
@@ -163,6 +165,7 @@ import {
   currencyCode,
   InvalidFxRateError,
   InvalidMoneyError,
+  validateFxRate,
   LedgerAmountMismatchError,
   roundHalfAwayFromZero,
   type CurrencyCode,
@@ -418,6 +421,20 @@ class TaxOutputCodeTaxableError extends Error {
   constructor() {
     super(TAX_OUTPUT_CODE_TAXABLE);
     this.name = 'TaxOutputCodeTaxableError';
+  }
+}
+
+class FxRateNotLedgerError extends Error {
+  constructor() {
+    super(FX_RATE_NOT_LEDGER);
+    this.name = 'FxRateNotLedgerError';
+  }
+}
+
+class FxRateOpenExistsError extends Error {
+  constructor() {
+    super(FX_RATE_OPEN_EXISTS);
+    this.name = 'FxRateOpenExistsError';
   }
 }
 
@@ -9285,6 +9302,311 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       validFrom: r.valid_from,
       validTo: r.valid_to,
     }));
+  }
+
+  /** Current quote for `from` → `to` at instant `at` (epoch ms). Miss → null. */
+  private lookupFxRateSync(
+    fromCurrency: string,
+    toCurrency: string,
+    at: number,
+  ): { quoteId: string; rate: string; effectiveFrom: number } | null {
+    const from = fromCurrency.toUpperCase();
+    const to = toCurrency.toUpperCase();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT quote_id, rate, effective_from FROM fx_rate
+         WHERE from_currency = ? AND to_currency = ?
+           AND effective_from <= ? AND (effective_to IS NULL OR effective_to > ?)
+         ORDER BY effective_from DESC LIMIT 1`,
+        from,
+        to,
+        at,
+        at,
+      )
+      .toArray() as Array<{ quote_id: string; rate: string; effective_from: number }>;
+    const row = rows[0];
+    if (!row) return null;
+    return { quoteId: row.quote_id, rate: row.rate, effectiveFrom: row.effective_from };
+  }
+
+  async listFxRates(): Promise<
+    Array<{
+      quoteId: string;
+      fromCurrency: string;
+      toCurrency: string;
+      rate: string;
+      effectiveFrom: number;
+      effectiveTo: number | null;
+      createdAt: number;
+      createdBy: string | null;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT quote_id, from_currency, to_currency, rate, effective_from, effective_to, created_at, created_by
+         FROM fx_rate
+         ORDER BY from_currency, to_currency, effective_from`,
+      )
+      .toArray() as Array<{
+      quote_id: string;
+      from_currency: string;
+      to_currency: string;
+      rate: string;
+      effective_from: number;
+      effective_to: number | null;
+      created_at: number;
+      created_by: string | null;
+    }>;
+    return rows.map((r) => ({
+      quoteId: r.quote_id,
+      fromCurrency: r.from_currency,
+      toCurrency: r.to_currency,
+      rate: r.rate,
+      effectiveFrom: r.effective_from,
+      effectiveTo: r.effective_to,
+      createdAt: r.created_at,
+      createdBy: r.created_by,
+    }));
+  }
+
+  async tryCreateFxRate(
+    actor: ActorContext,
+    input: {
+      quoteId: string;
+      fromCurrency: string;
+      toCurrency: string;
+      rate: string;
+      effectiveFrom: number;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; quoteId: string }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof FX_RATE_NOT_LEDGER }
+    | { ok: false; error: typeof FX_RATE_OPEN_EXISTS }
+    | { ok: false; error: typeof FX_RATE_INVALID }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const ledger = this.readStoredLedgerCurrencySync();
+    if (!ledger) return { ok: false, error: CURRENCY_UNSET };
+
+    try {
+      const from = currencyCode(input.fromCurrency);
+      const to = currencyCode(input.toCurrency);
+      if (from === to) return { ok: false, error: MONEY_INVALID };
+      if (to !== ledger) return { ok: false, error: FX_RATE_NOT_LEDGER };
+      const rate = validateFxRate(input.rate);
+      if (rate === '0' || rate === '-0') return { ok: false, error: FX_RATE_INVALID };
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const open = this.ctx.storage.sql
+            .exec(
+              `SELECT quote_id FROM fx_rate
+               WHERE from_currency = ? AND to_currency = ? AND effective_to IS NULL LIMIT 1`,
+              from,
+              to,
+            )
+            .toArray();
+          if (open.length > 0) throw new FxRateOpenExistsError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO fx_rate (
+               quote_id, from_currency, to_currency, rate, effective_from, effective_to, created_at, created_by
+             ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+            input.quoteId,
+            from,
+            to,
+            rate,
+            input.effectiveFrom,
+            now,
+            this.auditActorSync(actor),
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'fx_rate.changed',
+            payload: {
+              propertyId,
+              quoteId: input.quoteId,
+              fromCurrency: from,
+              toCurrency: to,
+              op: 'create',
+              at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.create_fx_rate',
+            entityType: 'fx_rate',
+            entityId: input.quoteId,
+            beforeJson: null,
+            afterJson: {
+              quoteId: input.quoteId,
+              fromCurrency: from,
+              toCurrency: to,
+              rate,
+              effectiveFrom: input.effectiveFrom,
+            },
+          });
+
+          return { ok: true as const, quoteId: input.quoteId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FxRateOpenExistsError) return { ok: false, error: FX_RATE_OPEN_EXISTS };
+      if (e instanceof FxRateNotLedgerError) return { ok: false, error: FX_RATE_NOT_LEDGER };
+      if (e instanceof InvalidFxRateError || e instanceof InvalidMoneyError) {
+        return { ok: false, error: FX_RATE_INVALID };
+      }
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async trySupersedeFxRate(
+    actor: ActorContext,
+    input: {
+      quoteId: string;
+      supersedeQuoteId: string;
+      rate: string;
+      effectiveFrom: number;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; quoteId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof FX_RATE_NOT_LEDGER }
+    | { ok: false; error: typeof FX_RATE_INVALID }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const ledger = this.readStoredLedgerCurrencySync();
+    if (!ledger) return { ok: false, error: CURRENCY_UNSET };
+
+    try {
+      const rate = validateFxRate(input.rate);
+      if (rate === '0' || rate === '-0') return { ok: false, error: FX_RATE_INVALID };
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT quote_id, from_currency, to_currency, effective_to FROM fx_rate WHERE quote_id = ?`,
+              input.supersedeQuoteId,
+            )
+            .toArray() as Array<{
+            quote_id: string;
+            from_currency: string;
+            to_currency: string;
+            effective_to: number | null;
+          }>;
+          const prior = existing[0];
+          if (!prior || prior.effective_to !== null) throw new Error(NOT_FOUND);
+          if (prior.to_currency !== ledger) throw new FxRateNotLedgerError();
+
+          const now = Date.now();
+          const closeAt = input.effectiveFrom;
+          this.ctx.storage.sql.exec(
+            `UPDATE fx_rate SET effective_to = ? WHERE quote_id = ?`,
+            closeAt,
+            input.supersedeQuoteId,
+          );
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO fx_rate (
+               quote_id, from_currency, to_currency, rate, effective_from, effective_to, created_at, created_by
+             ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+            input.quoteId,
+            prior.from_currency,
+            prior.to_currency,
+            rate,
+            input.effectiveFrom,
+            now,
+            this.auditActorSync(actor),
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'fx_rate.changed',
+            payload: {
+              propertyId,
+              quoteId: input.quoteId,
+              supersedeQuoteId: input.supersedeQuoteId,
+              op: 'supersede',
+              at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.supersede_fx_rate',
+            entityType: 'fx_rate',
+            entityId: input.quoteId,
+            beforeJson: { quoteId: input.supersedeQuoteId },
+            afterJson: {
+              quoteId: input.quoteId,
+              supersedeQuoteId: input.supersedeQuoteId,
+              rate,
+              effectiveFrom: input.effectiveFrom,
+            },
+          });
+
+          return { ok: true as const, quoteId: input.quoteId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FxRateNotLedgerError) return { ok: false, error: FX_RATE_NOT_LEDGER };
+      if (e instanceof InvalidFxRateError || e instanceof InvalidMoneyError) {
+        return { ok: false, error: FX_RATE_INVALID };
+      }
+      if (e instanceof Error && e.message === NOT_FOUND) return { ok: false, error: NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   /**

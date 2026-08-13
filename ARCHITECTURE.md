@@ -2109,6 +2109,8 @@ to a rule already stated in this document.
    ([tape chart + live board](docs/superpowers/specs/2026-08-13-tape-chart-live-board-design.md)).
    The exception-queue operator screen now has a live SPA
    ([exception-queue workbench](docs/superpowers/specs/2026-08-13-exception-queue-workbench-design.md)).
+   The guests CRM directory now has a live SPA
+   ([guest CRM directory](docs/superpowers/specs/2026-08-13-guest-crm-directory-design.md)).
 4. **Keep the prototype runnable** as the behavioural reference for as long as Phase 1 lasts.
    When platform behaviour and prototype behaviour diverge, that is a product decision to
    record — in this document or the module's spec — not a bug to be silently resolved.

@@ -540,13 +540,13 @@ No `ARCHITECTURE.md` rewrite required beyond an optional §16.3 note when the ch
 | 12 | `entitlement.changed` WebSocket | Org-scoped; refetch-on-402 stays |
 | 13 | Reclass `get_front_desk_*` / `get_guest` / search to `READ_STALE` | Prototype-holes leftover 4 remainder — still no projection / names are OrgDO |
 | 14 | DND on housekeeping board | Prototype-holes leftover 3 |
-| 15 | Blind-index guest search | Prototype-holes leftover 2 |
+| 15 | Blind-index guest search | **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md). |
 | 16 | Reservation KV projection | Operational-reads Q2 still stands |
 | 17 | Materialized tape table | Rejected; assemble per bounded read |
 | 18 | Drag-assign / empty-cell book POST | Read-heavy; links only |
 | 19 | `roomId` on `reservations.create` | Assign stays the existing command |
 | 20 | Property setup / rates / settings rebuild | Shipped |
-| 21 | Guest CRM directory | Beyond batch hydrate |
+| 21 | Guest CRM directory | **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md). |
 | 22 | Group blocks / `held` | Phase 2 / 3 |
 | 23 | Changing `GET /rooms` permission | Tape does not use that route |
 | 24 | Constructor rewrite of `migrateSql` | Already cheap; do not “optimize” |

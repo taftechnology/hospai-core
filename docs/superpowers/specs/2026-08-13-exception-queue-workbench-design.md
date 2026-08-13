@@ -394,7 +394,7 @@ SPA one-click targets (use `<Link>`, not `div` onClick):
 | `reservationId` | `/folio/:reservationId` | Folio |
 | `reservationId` and command is `reservations.check_in` | also `/check-in/:reservationId` | Check-in |
 | `roomId` | `/housekeeping` | Room (HK board). Do **not** send operators to `/inventory/rooms` — that route is `inventory:write`. |
-| `guestRef` | no CRM href | Show hydrated name (batch) or `guestRef` with `translate="no"` |
+| `guestRef` | `/guests/:guestRef` | Hydrated name (batch) or `guestRef`. **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md). |
 
 Omit a control rather than linking to a screen that does not exist.
 
@@ -499,7 +499,7 @@ No `ARCHITECTURE.md` rewrite beyond dropping the exception-queue UX clause from 
 |---|---|---|
 | 1 | Tape chart / live board / WebSockets | Shipped; no exception deltas on the front-office socket |
 | 2 | Property setup / rates / settings rebuild | Shipped |
-| 3 | Guest CRM directory | Prototype-holes leftover 2 remains |
+| 3 | Guest CRM directory | **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md). |
 | 4 | Virtual room types | §7.1 |
 | 5 | Derived / OrgDO rate plans | §7.2 |
 | 6 | `rooms.delete` / unit archive | Rooms-vertical leftover |

@@ -440,7 +440,7 @@ Names are the acceptance list, not a file-split mandate. Existing lifecycle / ro
 ## 13. Leftovers (named, not this chunk)
 
 1. **Per-stay recurring incidental schedule** (row 3). Minimal later design, recorded so it is not re-derived: table `reservation_recurring_charge` `(schedule_id, reservation_id, charge_code, amount_minor, currency, frequency CHECK ('NIGHTLY'), start_date, end_date)` with amount snapshotted at schedule-create; post inside `POST_ROOM_CHARGES` after ROOM using a non-`ROOM` active charge code (unique index already allows a second `(reservation_id, business_date, charge_code)`); skip when `no_post = 1`; CLOSED GUEST window fails the step via `insertFolioLineSync` (do not special-case); do not grow `NIGHT_AUDIT_STEPS`; do not treat `breakfast_rule` as an engine; weekly/one-shot, inclusion-driven auto-schedules, and amount edits after a night has posted stay out of v1.
-2. **Blind-index guest / name search.** Replace the decrypt-scan in §7.3. Booking-wizard leftover stays: wizard has no search box.
+2. **Blind-index guest / name search.** Replace the decrypt-scan in §7.3. Booking-wizard leftover stays: wizard has no search box. **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md).
 3. **DND on the housekeeping board.** Requires a stay join on `listRooms` or assignments. Front-desk in-house is the Phase 1 signal.
 4. **`READ_STALE` vs shipped `FAIL_CLOSED` on front-desk and guest reads.** Operator watermark UI is closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md); list routes stay `FAIL_CLOSED`.
 5. **Type-level photos** once a booking engine or inventory gallery exists (R2 prefix, not a Phase 1 column).

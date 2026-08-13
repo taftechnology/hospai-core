@@ -63,7 +63,7 @@ There is no guest search. Reads are `get_guest` by id and `post_guests_batch` by
 
 - **Default:** inline `guests.create` then `reservations.create`.
 - **Context:** `/book?guestRef=` from board/folio/reservation; batch prefills display name; skip create step.
-- **No search box.** Duplicate guests accepted debt (idempotency is key-replay, not content dedupe). Destination later: C-with-equality-lookup via blind index — not prototype substring search. Deliberate divergence from prototype `useExistingGuest = true`.
+- **No search box.** Duplicate guests accepted debt (idempotency is key-replay, not content dedupe). Destination later: C-with-equality-lookup via blind index — not prototype substring search. Deliberate divergence from prototype `useExistingGuest = true`. **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md). Create-default remains the miss path.
 
 ### 2.3 Availability → commit (TOCTOU) + session ids
 

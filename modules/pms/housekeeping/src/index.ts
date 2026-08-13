@@ -5,7 +5,9 @@ export { assignHousekeeping } from './application/assign-housekeeping.js';
 export { readAssignments } from './application/read-assignments.js';
 export {
   HousekeepingRoomNotFoundError,
+  HousekeepingRoomOutOfOrderError,
+  HousekeepingOooViaRangeError,
   InvalidAssigneeRefError,
   isStaffRef,
 } from './domain/errors.js';
-export { isRoomStatus, ROOM_STATUSES } from './domain/room-status.js';
+export { isCleanlinessStatus, isRoomStatus, CLEANLINESS_STATUSES, ROOM_STATUSES } from './domain/room-status.js';

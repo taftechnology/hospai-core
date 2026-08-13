@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModuleTxnCtx } from '@hospai/contracts';
 import { bulkUpdateRoomStatus } from './bulk-update-room-status.js';
-import { HousekeepingRoomNotFoundError } from '../domain/errors.js';
+import { HousekeepingRoomNotFoundError, HousekeepingRoomOutOfOrderError } from '../domain/errors.js';
 import { MemorySql } from './memory-sql.fixture.js';
 
 function ctxOf(sql: MemorySql, events: Array<{ eventType: string; payload: Record<string, unknown> }>): ModuleTxnCtx {
@@ -53,7 +53,7 @@ describe('bulkUpdateRoomStatus', () => {
     });
   });
 
-  it('throws on a missing room and stops; earlier rows already mutated (txn is DO-owned)', () => {
+  it('throws on a missing room before any UPDATE (validate-all)', () => {
     const sql = new MemorySql();
     sql.rooms.set('room_a', { room_id: 'room_a', status: 'dirty', updated_at: 1 });
     const events: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
@@ -67,8 +67,8 @@ describe('bulkUpdateRoomStatus', () => {
       }),
     ).toThrow(HousekeepingRoomNotFoundError);
 
-    expect(sql.rooms.get('room_a')!.status).toBe('clean');
-    expect(events).toHaveLength(1);
+    expect(sql.rooms.get('room_a')!.status).toBe('dirty');
+    expect(events).toHaveLength(0);
   });
 
   it('returns empty roomIds for an empty updates list', () => {
@@ -78,6 +78,26 @@ describe('bulkUpdateRoomStatus', () => {
       ok: true,
       roomIds: [],
     });
+    expect(events).toHaveLength(0);
+  });
+
+  it('throws when one room is currently out_of_order; neither row changed', () => {
+    const sql = new MemorySql();
+    sql.rooms.set('room_a', { room_id: 'room_a', status: 'dirty', updated_at: 1 });
+    sql.rooms.set('room_b', { room_id: 'room_b', status: 'out_of_order', updated_at: 1 });
+    const events: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+
+    expect(() =>
+      bulkUpdateRoomStatus(ctxOf(sql, events), {
+        updates: [
+          { roomId: 'room_a', status: 'clean' },
+          { roomId: 'room_b', status: 'clean' },
+        ],
+      }),
+    ).toThrow(HousekeepingRoomOutOfOrderError);
+
+    expect(sql.rooms.get('room_a')!.status).toBe('dirty');
+    expect(sql.rooms.get('room_b')!.status).toBe('out_of_order');
     expect(events).toHaveLength(0);
   });
 });

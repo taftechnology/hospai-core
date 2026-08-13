@@ -1,5 +1,10 @@
 import type { ModuleTxnCtx } from '@hospai/contracts';
-import { HousekeepingRoomNotFoundError } from '../domain/errors.js';
+import {
+  HousekeepingOooViaRangeError,
+  HousekeepingRoomNotFoundError,
+  HousekeepingRoomOutOfOrderError,
+} from '../domain/errors.js';
+import { isCleanlinessStatus } from '../domain/room-status.js';
 
 export function updateRoomStatus(
   ctx: ModuleTxnCtx,
@@ -9,6 +14,8 @@ export function updateRoomStatus(
     .exec(`SELECT status FROM room WHERE room_id = ?`, input.roomId)
     .toArray() as Array<{ status: string }>;
   if (!rows[0]) throw new HousekeepingRoomNotFoundError();
+  if (!isCleanlinessStatus(input.status)) throw new HousekeepingOooViaRangeError();
+  if (rows[0].status === 'out_of_order') throw new HousekeepingRoomOutOfOrderError();
 
   const now = Date.now();
   ctx.sql.exec(

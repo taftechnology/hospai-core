@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AUDIT_WRITER_COMMAND_IDS,
   NO_AVAILABILITY,
   NOT_FOUND,
   OOO_INVALID_RANGE,
   OOO_RANGE_OVERLAP,
   OOO_ROOM_ASSIGNED,
+  OOO_VIA_RANGE,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_READY,
   ROOM_OUT_OF_ORDER,
@@ -773,5 +775,75 @@ describe('rooms.set_ooo_range', () => {
       await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m33', modify)),
     ).toMatchObject({ ok: false, error: ROOM_ALREADY_ASSIGNED });
     expect((await stub.readAvailabilityDay('rt_king', open))?.sold).toBe(soldBefore);
+  });
+
+  it('22. tryUpdateRoomStatus out_of_order → OOO_VIA_RANGE; blocked and status unchanged', async () => {
+    const { stub, open } = await setupOoo(`ooo-22-${crypto.randomUUID()}`);
+    const before = (await stub.readAvailabilityDay('rt_king', open))?.blocked;
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'out_of_order' },
+        await idemFor('st22', { roomId: 'rm_1', status: 'out_of_order' }),
+      ),
+    ).toMatchObject({ ok: false, error: OOO_VIA_RANGE });
+    expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(before);
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('clean');
+  });
+
+  it('23. bulk including one out_of_order payload fails all-or-nothing', async () => {
+    const { stub } = await setupOoo(`ooo-23-${crypto.randomUUID()}`);
+    await createRoom(stub, 'rm_2', '102');
+    const bulk = {
+      updates: [
+        { roomId: 'rm_1', status: 'dirty' },
+        { roomId: 'rm_2', status: 'out_of_order' },
+      ],
+    };
+    expect(
+      await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, bulk, await idemFor('bulk23', bulk)),
+    ).toMatchObject({ ok: false, error: OOO_VIA_RANGE });
+    const rooms = (await stub.listRooms()).rooms;
+    expect(rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('clean');
+    expect(rooms.find((r) => r.roomId === 'rm_2')?.status).toBe('clean');
+  });
+
+  it('24. covering OOO range rejects cleanliness write with ROOM_OUT_OF_ORDER', async () => {
+    const { stub, open } = await setupOoo(`ooo-24-${crypto.randomUUID()}`);
+    expect(
+      await setOoo(stub, { roomId: 'rm_1', startDate: open, endDate: addCalendarDays(open, 1) }, 'ooo-24'),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'clean' },
+        await idemFor('st24', { roomId: 'rm_1', status: 'clean' }),
+      ),
+    ).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('out_of_order');
+  });
+
+  it('30. dirty→clean writes audit_log; rooms.update_status is not an AUDIT_WRITER', async () => {
+    const { stub } = await setupOoo(`ooo-30-${crypto.randomUUID()}`);
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'dirty' },
+        await idemFor('st30d', { roomId: 'rm_1', status: 'dirty' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'clean' },
+        await idemFor('st30c', { roomId: 'rm_1', status: 'clean' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 500 });
+    expect(audit.ok).toBe(true);
+    const rows = audit.ok ? audit.rows.filter((r) => r.commandId === 'rooms.update_status') : [];
+    expect(rows.some((r) => JSON.stringify(r.afterJson).includes('clean'))).toBe(true);
+    expect(rows.some((r) => JSON.stringify(r.beforeJson).includes('dirty'))).toBe(true);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('rooms.update_status')).toBe(false);
   });
 });

@@ -1094,7 +1094,7 @@ EOF
 - Consumes: Task 4 rewrite (label-era tests already off `tryUpdateRoomStatus`)
 - Forbidden: HTTP OOO route; SPA dropdown (Task 7)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `room-status.test.ts`:
 
@@ -1122,7 +1122,7 @@ it('isCleanlinessStatus accepts clean/dirty/inspected and rejects out_of_order',
 
 30. Dirty→clean writes `audit_log` with `commandId: 'rooms.update_status'` and `{ status }` from/to; `AUDIT_WRITER_COMMAND_IDS.has('rooms.update_status')` is **false** (assert in register.test or here).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/pms-housekeeping exec vitest run
@@ -1186,7 +1186,7 @@ Widen `tryUpdateRoomStatus` / bulk return unions with `typeof OOO_VIA_RANGE` and
 
 Queued replay: no `REPLAY_DISPATCH` change. Drain hits the same preamble → exception `OOO_VIA_RANGE`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/pms-housekeeping exec vitest run
@@ -1195,7 +1195,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo.spec.ts test/degra
 
 Expected: PASS. `AUDIT_WRITER_COMMAND_IDS.size` still 45 (status/assign not added).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add modules/pms/housekeeping \

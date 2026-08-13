@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModuleTxnCtx } from '@hospai/contracts';
 import { updateRoomStatus } from './update-room-status.js';
-import { HousekeepingRoomNotFoundError } from '../domain/errors.js';
+import { HousekeepingRoomNotFoundError, HousekeepingRoomOutOfOrderError } from '../domain/errors.js';
 import { MemorySql } from './memory-sql.fixture.js';
 
 describe('updateRoomStatus', () => {
@@ -47,5 +47,22 @@ describe('updateRoomStatus', () => {
     expect(() => updateRoomStatus(ctx, { roomId: 'missing', status: 'clean' })).toThrow(
       HousekeepingRoomNotFoundError,
     );
+  });
+
+  it('throws HousekeepingRoomOutOfOrderError when current status is out_of_order; no UPDATE', () => {
+    const sql = new MemorySql();
+    sql.rooms.set('room_1', { room_id: 'room_1', status: 'out_of_order', updated_at: 1 });
+    const ctx: ModuleTxnCtx = {
+      sql,
+      orgId: 'org_1',
+      propertyId: 'prop_1',
+      appendOutbox: () => {
+        throw new Error('appendOutbox must not run');
+      },
+    };
+    expect(() => updateRoomStatus(ctx, { roomId: 'room_1', status: 'clean' })).toThrow(
+      HousekeepingRoomOutOfOrderError,
+    );
+    expect(sql.rooms.get('room_1')!.status).toBe('out_of_order');
   });
 });

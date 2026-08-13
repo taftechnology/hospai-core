@@ -15,3 +15,17 @@ export class InvalidAssigneeRefError extends Error {
     this.name = 'InvalidAssigneeRefError';
   }
 }
+
+export class HousekeepingRoomOutOfOrderError extends Error {
+  constructor() {
+    super('room_out_of_order');
+    this.name = 'HousekeepingRoomOutOfOrderError';
+  }
+}
+
+export class HousekeepingOooViaRangeError extends Error {
+  constructor() {
+    super('ooo_via_range');
+    this.name = 'HousekeepingOooViaRangeError';
+  }
+}

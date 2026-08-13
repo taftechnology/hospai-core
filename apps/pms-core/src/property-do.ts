@@ -29,6 +29,7 @@ import {
   RESTRICTION_VIOLATED,
   RATE_MISSING,
   ROOM_OUT_OF_ORDER,
+  OOO_VIA_RANGE,
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
   OOO_INVALID_RANGE,
@@ -101,8 +102,11 @@ import {
 import {
   assignHousekeeping,
   bulkUpdateRoomStatus,
+  HousekeepingOooViaRangeError,
   HousekeepingRoomNotFoundError,
+  HousekeepingRoomOutOfOrderError,
   InvalidAssigneeRefError,
+  isCleanlinessStatus,
   isRoomStatus,
   readAssignments,
   updateRoomStatus,
@@ -4789,6 +4793,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof OOO_VIA_RANGE }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
     | { ok: false; error: 'org_id_unset' | 'invalid_status' }
     | { ok: false; error: string }
   > {
@@ -4806,12 +4812,28 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!isRoomStatus(input.status)) {
       return { ok: false, error: 'invalid_status' };
     }
+    if (!isCleanlinessStatus(input.status)) {
+      return { ok: false, error: OOO_VIA_RANGE };
+    }
 
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          return updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          const fromRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ status: string }>;
+          const fromStatus = fromRows[0]?.status;
+          const result = updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rooms.update_status',
+            entityType: 'room',
+            entityId: input.roomId,
+            beforeJson: { status: fromStatus },
+            afterJson: { status: input.status },
+          });
+          return result;
         }),
       );
     } catch (e) {
@@ -4819,6 +4841,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
         return { ok: false, error: NOT_FOUND };
       }
+      if (e instanceof HousekeepingRoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
+      if (e instanceof HousekeepingOooViaRangeError) return { ok: false, error: OOO_VIA_RANGE };
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -4842,6 +4866,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof OOO_VIA_RANGE }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
     | { ok: false; error: 'org_id_unset' | 'invalid_status' }
     | { ok: false; error: string }
   > {
@@ -4860,13 +4886,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (!isRoomStatus(u.status)) {
         return { ok: false, error: 'invalid_status' };
       }
+      if (!isCleanlinessStatus(u.status)) {
+        return { ok: false, error: OOO_VIA_RANGE };
+      }
     }
 
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          return bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          const fromByRoom = new Map<string, string>();
+          for (const u of input.updates) {
+            const rows = this.ctx.storage.sql
+              .exec(`SELECT status FROM room WHERE room_id = ?`, u.roomId)
+              .toArray() as Array<{ status: string }>;
+            if (rows[0]) fromByRoom.set(u.roomId, rows[0].status);
+          }
+          const result = bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          for (const u of input.updates) {
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'rooms.bulk_update_status',
+              entityType: 'room',
+              entityId: u.roomId,
+              beforeJson: { status: fromByRoom.get(u.roomId) },
+              afterJson: { status: u.status },
+            });
+          }
+          return result;
         }),
       );
     } catch (e) {
@@ -4874,6 +4921,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
         return { ok: false, error: NOT_FOUND };
       }
+      if (e instanceof HousekeepingRoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
+      if (e instanceof HousekeepingOooViaRangeError) return { ok: false, error: OOO_VIA_RANGE };
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -5101,7 +5150,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
-          return assignHousekeeping(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          const result = assignHousekeeping(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'housekeeping.assign',
+            entityType: 'room',
+            entityId: input.roomId,
+            afterJson: {
+              roomId: input.roomId,
+              businessDate: input.businessDate,
+              assigneeRef: input.assigneeRef,
+            },
+          });
+          return result;
         }),
       );
     } catch (e) {

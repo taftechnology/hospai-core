@@ -1,7 +1,7 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingCommandMessage, ProvisionalExceptionRow } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED, BALANCE_DUE } from '@hospai/contracts';
+import { BUSINESS_DATE_CLOSED, OOO_VIA_RANGE, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED, BALANCE_DUE } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import {
@@ -813,6 +813,56 @@ describe('degraded mode §4.6 fault injection', () => {
       expect(payload.issuedAt).toBe(sent[0]!.provisional.issuedAt);
       expect(typeof payload.replayedAt).toBe('string');
     }
+  });
+
+  it('29: queued rooms.update_status with out_of_order drains to provisional_exception OOO_VIA_RANGE', async () => {
+    const actor = 'user_deg_ooo29';
+    const { propertyId, stub } = await provisionHotel(actor);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              roomId: 'room_deg_29',
+              roomTypeId: 'rt_king',
+              code: '629',
+              idempotencyKey: 'idem-create-29',
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    await stub.flushOutbox();
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    const blocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms/room_deg_29/status`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ status: 'out_of_order', idempotencyKey: 'idem-st-29' }),
+        },
+      ),
+      env,
+    );
+    expect(blocked.status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.provisional.command.type).toBe('rooms.update_status');
+    await dispatchPendingBatch(sent);
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions.length).toBe(1);
+    expect(exceptions[0]!.reason).toBe(OOO_VIA_RANGE);
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'room_deg_29')?.status).toBe('clean');
   });
 
   it('23: housekeeping.assign queues while blocked and replays once', async () => {

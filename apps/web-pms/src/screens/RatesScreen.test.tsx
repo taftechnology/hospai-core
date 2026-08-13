@@ -145,11 +145,12 @@ describe('RatesScreen', () => {
       string,
       Array<{ stayDate: string; amountMinor: number; currency: string; roomTypeId: string }>,
     ];
-    const updates = args[1];
+    const updates = args[1] ?? [];
     const dates = [...new Set(updates.map((u) => u.stayDate))].sort();
+    expect(dates.length).toBeGreaterThan(0);
     expect(dates.length).toBeLessThanOrEqual(90);
-    expect(dates[0]).toBe('2026-01-01');
-    expect(dates[dates.length - 1] <= '2026-03-31').toBe(true);
+    expect(dates.at(0)).toBe('2026-01-01');
+    expect((dates.at(-1) ?? '') <= '2026-03-31').toBe(true);
     expect(updates.every((u) => u.amountMinor === 20000 && u.currency === 'USD')).toBe(true);
     expect(updates.every((u) => Number.isInteger(u.amountMinor))).toBe(true);
   });

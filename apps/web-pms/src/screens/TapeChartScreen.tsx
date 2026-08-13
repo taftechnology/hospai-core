@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   addCalendarDays,
   ClassifiedError,
@@ -20,6 +20,10 @@ import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { guestLabel } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
+
+function cssVars(vars: Record<string, string>): CSSProperties {
+  return vars as CSSProperties;
+}
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -108,10 +112,10 @@ function StayBlock({
     <Link
       to={`/folio/${encodeURIComponent(block.reservationId)}`}
       className={`tape-block min-w-0 truncate ${statusClass(sev)}`}
-      style={{
-        ['--tape-col-start']: String(colStart),
-        ['--tape-col-end']: String(colEnd),
-      }}
+      style={cssVars({
+        '--tape-col-start': String(colStart),
+        '--tape-col-end': String(colEnd),
+      })}
     >
       <span className="truncate">{guestLabel(state, block.guestRef)}</span>
       {block.vipFlag === true ? <span data-testid="badge-vip"> VIP</span> : null}
@@ -290,13 +294,13 @@ export function TapeChartScreen() {
   } else {
     body = (
       <div className="tape-scroller">
-        <div className="tape-row" style={{ ['--tape-cols']: tapeCols }}>
+        <div className="tape-row" style={cssVars({ '--tape-cols': tapeCols })}>
           <div className="tape-room" />
           {dates.map((d, i) => (
             <div
               key={d}
               className="tape-header-cell tabular-nums"
-              style={{ ['--tape-col']: String(i + 2) }}
+              style={cssVars({ '--tape-col': String(i + 2) })}
             >
               {formatTapeHeader(d, timeZone ?? 'UTC')}
             </div>
@@ -306,11 +310,11 @@ export function TapeChartScreen() {
           <div
             data-testid="tape-unassigned"
             className="tape-row content-visibility-auto"
-            style={{ ['--tape-cols']: tapeCols }}
+            style={cssVars({ '--tape-cols': tapeCols })}
           >
             <div className="tape-room">Unassigned</div>
             {dates.map((d, i) => (
-              <div key={d} className="tape-cell min-w-0" style={{ ['--tape-col']: String(i + 2) }} />
+              <div key={d} className="tape-cell min-w-0" style={cssVars({ '--tape-col': String(i + 2) })} />
             ))}
             {unassigned.map((block) => {
               const span = spanRange(block.arrivalDate ?? from, block.departureDate, from, to, dates);
@@ -335,7 +339,7 @@ export function TapeChartScreen() {
               <div
                 key={room.roomId}
                 className="tape-row content-visibility-auto"
-                style={{ ['--tape-cols']: tapeCols }}
+                style={cssVars({ '--tape-cols': tapeCols })}
               >
                 <div className="tape-room min-w-0 truncate">
                   {room.code}{' '}
@@ -345,7 +349,7 @@ export function TapeChartScreen() {
                   <div
                     key={d}
                     className="tape-cell min-w-0"
-                    style={{ ['--tape-col']: String(i + 2) }}
+                    style={cssVars({ '--tape-col': String(i + 2) })}
                   />
                 ))}
                 {(assignedByRoom.get(room.roomId) ?? []).map((block) => {
@@ -378,10 +382,10 @@ export function TapeChartScreen() {
                       <div
                         key={row.oooId}
                         className={`tape-block min-w-0 truncate ${statusClass('attention')}`}
-                        style={{
-                          ['--tape-col-start']: String(span.colStart),
-                          ['--tape-col-end']: String(span.colEnd),
-                        }}
+                        style={cssVars({
+                          '--tape-col-start': String(span.colStart),
+                          '--tape-col-end': String(span.colEnd),
+                        })}
                         aria-label={label}
                       >
                         {label}

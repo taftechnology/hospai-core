@@ -482,7 +482,7 @@ Reservation columns: `adults INTEGER NOT NULL DEFAULT 1`, `children INTEGER NOT 
 
 Create / modify / hold / confirm accept `adults?` / `children?`. Validate `adults <= room_type.max_adults` and `adults + children <= room_type.max_occupancy` → `OCCUPANCY_EXCEEDED` (new). Inquiry uses the same check against the intended type (a quote for a party that cannot fit is rejected).
 
-Not a second guest profile. Not a CRM note.
+Not a second guest profile. Not a CRM note. Occupancy remainder (check-in + modify enforce; booking wizard collects party size) closed by [prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) §4.
 
 ### 7.2 Front-office comments + VIP — **keep** (§16.5)
 

@@ -444,11 +444,11 @@ Cashier-shift SPA leftover “night-audit chrome / force-close **action**” sta
 
 No per-stay incidental schedule table exists. `pms.folio.breakfast_rule` is DOMAIN config (a string default) and is not a posting engine. A keep would mean a new schedule aggregate + posting inside `POST_ROOM_CHARGES`, which this chunk would then own.
 
-**Defer.** `POST_ROOM_CHARGES` continues to post `ROOM` (+ tax) only. Breakfast/parking/spa recurring is a named follow-on. Do not read `breakfast_rule` in the step body.
+**Defer.** `POST_ROOM_CHARGES` continues to post `ROOM` (+ tax) only. Breakfast/parking/spa recurring is a named follow-on. Do not read `breakfast_rule` in the step body. [Prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) ratifies this deferral (leftover 1 there).
 
 ### 8.2 Registration card print (§16.5) — **drop** (Phase 1 artifact)
 
-Guest registration *reporting* is fiscal (§7.9) and out of this chunk. A printable reg card is a document template + R2 object with no engine and no route. **Drop** as a front-desk/night-audit deliverable. Revisit only with a documents engine, not as a night-audit step.
+Guest registration *reporting* is fiscal (§7.9) and out of this chunk. A printable reg card is a document template + R2 object with no engine and no route. **Drop** as a front-desk/night-audit deliverable. Revisit only with a documents engine, not as a night-audit step. [Prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) names a front-desk printable *view* (`window.print` of existing reservation + guest reads) and still does not make this an R2 object or a night-audit step.
 
 ### 8.3 No-show penalty — **posted when policy is not `none`** (amended 2026-08-12)
 

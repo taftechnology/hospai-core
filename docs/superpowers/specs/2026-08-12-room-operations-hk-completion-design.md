@@ -674,7 +674,7 @@ OOO does **not** move into the housekeeping module (`availability_day` is not in
 
 ## 19. Leftovers (named, not silent)
 
-1. **DND** — §16.5 unnamed. Not a `room.status`. Stay flag / front-office comment if product wants it. This chunk records **defer**.
+1. **DND** — §16.5 unnamed. Not a `room.status`. Stay flag / front-office comment if product wants it. This chunk records **defer**. [Prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) **keeps** `reservation.dnd_flag` as that stay flag and still does not add `dnd` to `room.status`.
 2. **Supervisor-only inspect** — would need `housekeeping:inspect` (or roster kind) and a ROLE_GRANTS change. Staff can mark `inspected` today; kept.
 3. **Auto-merge adjacent OOO ranges** — application overlap is the only constraint; two adjacent rows stand.
 4. **`OOO_WOULD_OVERSELL` gate** — taking the last vacant room OOO while `sold` fills the type. Allowed this chunk (oversell class).

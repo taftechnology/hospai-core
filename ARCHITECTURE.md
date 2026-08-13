@@ -2186,19 +2186,21 @@ spec debt.
 #### Still unnamed — product must decide keep, defer, or drop
 
 Prototype behaviour with **no section, table row, or rule** in this document. Closest related
-text is listed so these are not over-counted.
+text is listed so these are not over-counted. Decisions below are closed by
+[prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md)
+(2026-08-13); this table is a decision record, not an open punch list.
 
 | Prototype behaviour | Closest text | Decision owed |
 |---|---|---|
-| **DND** as a room status | Room status / housekeeping board (§4.6, §7.7, §16.1). Status *values* are never listed. | Add `dnd` to the room-status machine, or state that DND is a stay flag / comment, not a room state. |
-| **Additional guests / adults / children** on a stay | Guest profiles in OrgDO (§4.8). Occupancy is room-type inventory (§7.1). | **Keep** (2026-08-12). `adults` / `children` are reservation fields; check-in enforces occupancy. |
-| **Fixed / recurring charges** (nightly parking, breakfast, spa) | `breakfast_rule` as DOMAIN auto-posting (§5.1). Night audit `POST_ROOM_CHARGES` (§8). | A per-stay recurring incidental schedule is not the same as the breakfast rule or the room-charge step. |
-| **Registration card print** | Never print a folio or invoice in `DEGRADED` (§4.6). Guest *registration reporting* is fiscal (§7.9). | Those are different documents. The reg card is a front-desk artifact; name it or drop it. |
-| **HK budgeting, metrics dashboards, mobile attendant** | §16.1 HK: roster, assignment, inventory, manager priorities. | Extra tabs. Core HK is covered; these are out of Phase 1 unless named. |
-| **Global reservation search** (name, res id, confirmation) | Available-rooms search (§16.1). Guest lookup is `READ_STALE` (§4.6). | Shell capability. Lookup exists as a degraded class; the top-bar search UX is not specified. |
-| **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | **Keep** (2026-08-12). `reservations.update_status` writes the stay comment and VIP flag. |
-| **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | Storage exists; type-level media, keyless, and occupancy split are unnamed. |
-| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Keep** (2026-08-12). Plan `cancel_penalty_type` / hours / amount; snapshotted onto the reservation at first inventory commit. |
+| **DND** as a room status | Room status / housekeeping board (§4.6, §7.7, §16.1). Status *values* are never listed. | **DROP as `room.status`. KEEP as stay flag `dnd_flag`.** Recorded in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2 / §3. |
+| **Additional guests / adults / children** on a stay | Guest profiles in OrgDO (§4.8). Occupancy is room-type inventory (§7.1). | **KEEP** (2026-08-12). Remainder (check-in / modify enforce; wizard collects) closed in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §4. |
+| **Fixed / recurring charges** (nightly parking, breakfast, spa) | `breakfast_rule` as DOMAIN auto-posting (§5.1). Night audit `POST_ROOM_CHARGES` (§8). | **DEFER.** Named leftover 1 in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md); not Phase 1. |
+| **Registration card print** | Never print a folio or invoice in `DEGRADED` (§4.6). Guest *registration reporting* is fiscal (§7.9). | **KEEP** as a front-desk printable *view* ([prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §5). Not R2, not a night-audit step. |
+| **HK budgeting, metrics dashboards, mobile attendant** | §16.1 HK: roster, assignment, inventory, manager priorities. | **DROP from Phase 1.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
+| **Global reservation search** (name, res id, confirmation) | Available-rooms search (§16.1). Guest lookup is `READ_STALE` (§4.6). | **KEEP** (shell). [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §7. `reservation_id` is the confirmation. |
+| **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | **KEEP** (2026-08-12). SPA editor remainder closed in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §6. |
+| **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | **Occupancy split: done. Photos: DEFER. Keyless: DROP.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
+| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Penalty snapshot: done. Inclusions: DEFER.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
 
 #### Deliberate differences (not gaps)
 

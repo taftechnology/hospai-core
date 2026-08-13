@@ -3,14 +3,23 @@ import {
   fingerprintPayload,
   ROOM_ALREADY_ASSIGNED,
   type PendingCommandMessage,
-  type ProvisionalExceptionRow,
 } from '@hospai/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
+import type { PropertyDO } from '../src/property-do.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { idemFor, orgStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './guest-helpers.js';
 import { createGuest } from './guest-helpers.js';
+
+type ExceptionList = Awaited<ReturnType<PropertyDO['listProvisionalExceptions']>>;
+
+async function listExceptions(
+  stub: DurableObjectStub<PropertyDO>,
+  filters?: Parameters<PropertyDO['listProvisionalExceptions']>[0],
+): Promise<ExceptionList> {
+  return (await stub.listProvisionalExceptions(filters)) as ExceptionList;
+}
 
 const EMPTY_CENSUS = { pendingOpenCount: 0 };
 
@@ -240,7 +249,7 @@ describe('exception-queue workbench HTTP', () => {
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
-    const listed = (await stub.listProvisionalExceptions()) as { exceptions: ProvisionalExceptionRow[] };
+    const listed = await listExceptions(stub);
     expect(listed.exceptions).toHaveLength(3);
     const resolved = await stub.tryResolveProvisionalException(
       TEST_OWNER_ACTOR,
@@ -291,7 +300,7 @@ describe('exception-queue workbench HTTP', () => {
       'domain_error',
       null,
     );
-    const listed = (await stub.listProvisionalExceptions({ resolution: 'all' })).exceptions;
+    const listed = (await listExceptions(stub, { resolution: 'all' })).exceptions;
     expect(listed).toHaveLength(3);
     const toResolve = listed.find((e) => e.businessDate === d2)!;
     expect(
@@ -361,7 +370,7 @@ describe('exception-queue workbench HTTP', () => {
       'domain_error',
       null,
     );
-    const listed = (await stub.listProvisionalExceptions()).exceptions;
+    const listed = (await listExceptions(stub)).exceptions;
     const exceptionId = listed[0]!.exceptionId;
     expect(
       await stub.tryResolveProvisionalException(
@@ -393,7 +402,7 @@ describe('exception-queue workbench HTTP', () => {
     const org = orgStub(orgId);
     await org.ensureMember(staff, 'staff');
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
-    const exceptionId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const exceptionId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
 
     const staffList = await getList(propertyId, staff);
     expect(staffList.status).toBe(200);
@@ -450,7 +459,7 @@ describe('exception-queue workbench HTTP', () => {
     const assignB = { reservationId: 'res_ew_10b', roomId: 'rm_ew_10' };
     expect(await stub.tryAssignRoom(owner, assignB, await idemFor('as10b', assignB))).toMatchObject({ ok: true });
     await dispatchPendingBatch([msg]);
-    const open = (await stub.listProvisionalExceptions()).exceptions;
+    const open = (await listExceptions(stub)).exceptions;
     expect(open).toHaveLength(1);
     expect(open[0]!.reason).toBe(ROOM_ALREADY_ASSIGNED);
     const exceptionId = open[0]!.exceptionId;
@@ -459,7 +468,7 @@ describe('exception-queue workbench HTTP', () => {
     expect(conflictRetry.status).toBe(422);
     const conflictBody = (await conflictRetry.json()) as { ok: false; error: string; retried: false };
     expect(conflictBody.retried).toBe(false);
-    const stillOpen = (await stub.listProvisionalExceptions()).exceptions;
+    const stillOpen = (await listExceptions(stub)).exceptions;
     expect(stillOpen).toHaveLength(1);
     expect(stillOpen[0]!.exceptionId).toBe(exceptionId);
     expect(stillOpen[0]!.resolvedAt).toBeNull();
@@ -510,7 +519,7 @@ describe('exception-queue workbench HTTP', () => {
     const assignB = { reservationId: 'res_ew_11b', roomId: 'rm_ew_11' };
     expect(await stub.tryAssignRoom(owner, assignB, await idemFor('as11b', assignB))).toMatchObject({ ok: true });
     await dispatchPendingBatch([msg]);
-    const exception = (await stub.listProvisionalExceptions()).exceptions[0]!;
+    const exception = (await listExceptions(stub)).exceptions[0]!;
     expect(exception.idempotencyKey).toBe(originalKey);
     expect(exception.openRetryKey).toBeNull();
 
@@ -551,11 +560,11 @@ describe('exception-queue workbench HTTP', () => {
       'domain_error',
       null,
     );
-    const exceptionId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const exceptionId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
     const retry = await postRetry(propertyId, exceptionId, actor, `idem-closed-${crypto.randomUUID()}`);
     expect(retry.status).toBe(422);
     expect(await retry.json()).toMatchObject({ error: 'business_date_closed', retried: false });
-    expect((await stub.listProvisionalExceptions()).exceptions).toHaveLength(1);
+    expect((await listExceptions(stub)).exceptions).toHaveLength(1);
 
     expect(
       (
@@ -574,7 +583,7 @@ describe('exception-queue workbench HTTP', () => {
       'unknown_command',
       null,
     );
-    const exceptionId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const exceptionId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
     const retry = await postRetry(propertyId, exceptionId, actor, `idem-unk-${crypto.randomUUID()}`);
     expect(retry.status).toBe(422);
     expect(await retry.json()).toMatchObject({ error: 'unknown_command' });
@@ -587,7 +596,7 @@ describe('exception-queue workbench HTTP', () => {
     const actor = 'user_owner';
     const { propertyId, orgId, arrival, stub } = await provisionHotel(actor);
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
-    const exceptionId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const exceptionId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
 
     expect(
       (await postAssign(propertyId, exceptionId, actor, 'user_a', `idem-as-${crypto.randomUUID()}`)).status,
@@ -618,7 +627,7 @@ describe('exception-queue workbench HTTP', () => {
     const { propertyId, orgId, arrival, stub } = await provisionHotel(actor);
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
     await stub.recordProvisionalException(sampleCmd({ propertyId, orgId, businessDate: arrival }), 'domain_error', null);
-    const [first, second] = (await stub.listProvisionalExceptions()).exceptions;
+    const [first, second] = (await listExceptions(stub)).exceptions;
     const openId = first!.exceptionId;
     const limitId = second!.exceptionId;
 
@@ -678,7 +687,7 @@ describe('exception-queue workbench HTTP', () => {
       'domain_error',
       null,
     );
-    const exceptionId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const exceptionId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
     const key = `idem-res16-${crypto.randomUUID()}`;
     expect((await postResolve(propertyId, exceptionId, actor, key)).status).toBe(200);
     const again = await postResolve(propertyId, exceptionId, actor, `idem-res16b-${crypto.randomUUID()}`);
@@ -714,7 +723,7 @@ describe('exception-queue workbench HTTP', () => {
       },
     };
     await dispatchPendingBatch([msg]);
-    const retryId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const retryId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
     expect(await stub.countFolioLinesForReservation('res_ew_17')).toBe(0);
 
     expect((await postReservation(propertyId, actor, 'res_ew_17', arrival, departure, guestRef)).status).toBe(201);
@@ -739,7 +748,7 @@ describe('exception-queue workbench HTTP', () => {
       'not_found',
       null,
     );
-    const resolveId = (await stub.listProvisionalExceptions()).exceptions[0]!.exceptionId;
+    const resolveId = (await listExceptions(stub)).exceptions[0]!.exceptionId;
     const before = await stub.countFolioLines();
     expect((await postResolve(propertyId, resolveId, actor, `idem-fl-res-${crypto.randomUUID()}`)).status).toBe(200);
     expect(await stub.countFolioLines()).toBe(before);

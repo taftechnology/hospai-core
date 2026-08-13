@@ -2289,7 +2289,7 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
-    const result = await resolvedCtx.resolved.stub.listProvisionalExceptions({
+    const result = (await resolvedCtx.resolved.stub.listProvisionalExceptions({
       ...(resolutionRaw ? { resolution: resolutionRaw as 'open' | 'resolved' | 'all' } : {}),
       ...(commandType ? { commandType } : {}),
       ...(reason ? { reason } : {}),
@@ -2299,7 +2299,7 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
       ...(assignedTo ? { assignedTo } : {}),
       ...(limit !== undefined ? { limit } : {}),
       ...(decoded ? { cursor: decoded } : {}),
-    });
+    })) as Awaited<ReturnType<PropertyDO['listProvisionalExceptions']>>;
     return json(
       {
         ok: true,

@@ -64,6 +64,7 @@ if (process.argv.includes('--self-test')) {
   let CASHIERING_V16_SQL;
   let AUDIT_LOG_V17_SQL;
   let FRONT_DESK_READS_V18_SQL;
+  let NIGHT_AUDIT_E2E_V19_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -95,6 +96,7 @@ if (process.argv.includes('--self-test')) {
       CASHIERING_V16_SQL,
       AUDIT_LOG_V17_SQL,
       FRONT_DESK_READS_V18_SQL,
+      NIGHT_AUDIT_E2E_V19_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -285,6 +287,16 @@ const doPropertyTargets = [
 
 `,
     sql: FRONT_DESK_READS_V18_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0019_night_audit_e2e.sql'),
+    header: `-- PropertyDO night-audit e2e — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: provisional_exception resolved_at/resolved_by → night_audit_report index.
+
+`,
+    sql: NIGHT_AUDIT_E2E_V19_SQL,
   },
 ];
 

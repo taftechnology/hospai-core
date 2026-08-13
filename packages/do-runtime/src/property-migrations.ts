@@ -546,6 +546,22 @@ export const FRONT_DESK_READS_V18_STATEMENTS: string[] = [
 /** Canonical SQL file body — keep in sync via test against migrations/do-property/0018_front_desk_reads.sql */
 export const FRONT_DESK_READS_V18_SQL = FRONT_DESK_READS_V18_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v19 — exception resolve columns + night-audit report index. */
+export const NIGHT_AUDIT_E2E_V19_STATEMENTS: string[] = [
+  `ALTER TABLE provisional_exception ADD COLUMN resolved_at INTEGER`,
+  `ALTER TABLE provisional_exception ADD COLUMN resolved_by TEXT`,
+  `CREATE TABLE night_audit_report (
+  business_date TEXT NOT NULL,
+  report_id     TEXT NOT NULL,
+  r2_key        TEXT NOT NULL,
+  sha256        TEXT NOT NULL,
+  generated_at  INTEGER NOT NULL,
+  PRIMARY KEY (business_date, report_id)
+)`,
+];
+
+export const NIGHT_AUDIT_E2E_V19_SQL = NIGHT_AUDIT_E2E_V19_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -636,5 +652,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 18,
     name: 'front_desk_reads',
     statements: FRONT_DESK_READS_V18_STATEMENTS,
+  },
+  {
+    version: 19,
+    name: 'night_audit_e2e',
+    statements: NIGHT_AUDIT_E2E_V19_STATEMENTS,
   },
 ] as const;

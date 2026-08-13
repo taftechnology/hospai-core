@@ -32,6 +32,7 @@ import {
   CASHIERING_V16_SQL,
   AUDIT_LOG_V17_SQL,
   FRONT_DESK_READS_V18_SQL,
+  NIGHT_AUDIT_E2E_V19_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -132,6 +133,12 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE payment ADD COLUMN shift_id')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE provisional_exception ADD COLUMN resolved_at')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE provisional_exception ADD COLUMN resolved_by')) {
+      return { toArray: () => [] };
+    }
     if (
       q.startsWith('ALTER TABLE member ADD COLUMN updated_at') ||
       q.startsWith('ALTER TABLE member ADD COLUMN updated_by') ||
@@ -151,15 +158,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 18', () => {
+  it('applies property migrations through version 19', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(18);
+    expect(v1).toBe(19);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(18);
-    expect(sql.schemaVersion).toHaveLength(18);
+    expect(v2).toBe(19);
+    expect(sql.schemaVersion).toHaveLength(19);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -358,6 +365,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(FRONT_DESK_READS_V18_SQL.trim());
   });
 
+  it('migrations/do-property/0019_night_audit_e2e.sql matches NIGHT_AUDIT_E2E_V19_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0019_night_audit_e2e.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(NIGHT_AUDIT_E2E_V19_SQL.trim());
+  });
+
   it('migrations/do-property/0015_tax_posting.sql matches TAX_POSTING_V15_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-property/0015_tax_posting.sql');
@@ -503,8 +522,16 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(18);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(19);
     expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
+  });
+
+  it('property schema head is 19 after night-audit e2e', () => {
+    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(19);
+    const v19 = PROPERTY_MIGRATIONS.find((m) => m.version === 19);
+    expect(v19?.name).toBe('night_audit_e2e');
+    expect(v19?.statements.some((s) => s.includes('resolved_at'))).toBe(true);
+    expect(v19?.statements.some((s) => s.includes('night_audit_report'))).toBe(true);
   });
 });

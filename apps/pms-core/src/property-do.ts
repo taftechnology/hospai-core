@@ -10365,7 +10365,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const taxLines = this.ctx.storage.sql
       .exec(
-        `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor
+        `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor,
+                txn_currency, fx_rate, fx_rate_at
          FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
         source.folio_line_id,
       )
@@ -10375,6 +10376,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       tax_rule_id: string;
       charge_code: string;
       ledger_amount_minor: number;
+      txn_currency: string;
+      fx_rate: string;
+      fx_rate_at: number;
     }>;
 
     const reverseId = opts?.reverseId ?? `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
@@ -10405,10 +10409,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         chargeCode: tax.charge_code,
         posted: {
           amountMinor: -tax.amount_minor,
-          txnCurrency,
+          txnCurrency: currencyCode(tax.txn_currency),
           ledgerAmountMinor: -tax.ledger_amount_minor,
-          fxRate: source.fx_rate,
-          fxRateAt: source.fx_rate_at,
+          fxRate: tax.fx_rate,
+          fxRateAt: tax.fx_rate_at,
         },
         source: 'SPLIT_REVERSAL',
         splitOf: tax.folio_line_id,
@@ -10417,7 +10421,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       folioLineIds.push(reverseTaxId);
     }
 
-    for (const split of splits) {
+    const absWeights = splits.map((s) => Math.abs(s.amountMinor));
+    const txnSign = source.amount_minor < 0 ? -1 : 1;
+    const ledgerSign = source.ledger_amount_minor < 0 ? -1 : 1;
+    const txnPortions = allocate(Math.abs(source.amount_minor), absWeights, { policy: 'LAST' });
+    const ledgerPortions = allocate(Math.abs(source.ledger_amount_minor), absWeights, { policy: 'LAST' });
+
+    for (let i = 0; i < splits.length; i++) {
+      const split = splits[i]!;
       const destWindowId = split.folioWindowId ?? source.folio_window_id;
       const childSource =
         destWindowId !== source.folio_window_id
@@ -10431,9 +10442,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId: source.reservation_id,
         chargeCode: source.charge_code,
         posted: {
-          amountMinor: split.amountMinor,
+          amountMinor: txnSign * txnPortions[i]!,
           txnCurrency,
-          ledgerAmountMinor: split.amountMinor,
+          ledgerAmountMinor: ledgerSign * ledgerPortions[i]!,
           fxRate: source.fx_rate,
           fxRateAt: source.fx_rate_at,
         },
@@ -10444,13 +10455,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       folioLineIds.push(split.folioLineId);
     }
 
-    const absWeights = splits.map((s) => Math.abs(s.amountMinor));
     for (const tax of taxLines) {
-      const taxSign = tax.amount_minor < 0 ? -1 : 1;
-      const portions = allocate(Math.abs(tax.amount_minor), absWeights, { policy: 'LAST' });
+      const taxTxnSign = tax.amount_minor < 0 ? -1 : 1;
+      const taxLedgerSign = tax.ledger_amount_minor < 0 ? -1 : 1;
+      const taxTxnPortions = allocate(Math.abs(tax.amount_minor), absWeights, { policy: 'LAST' });
+      const taxLedgerPortions = allocate(Math.abs(tax.ledger_amount_minor), absWeights, { policy: 'LAST' });
+      const taxCurrency = currencyCode(tax.txn_currency);
       for (let i = 0; i < splits.length; i++) {
-        const portion = taxSign * portions[i]!;
-        if (portion === 0) continue;
+        const txnPortion = taxTxnSign * taxTxnPortions[i]!;
+        const ledgerPortion = taxLedgerSign * taxLedgerPortions[i]!;
+        if (txnPortion === 0 && ledgerPortion === 0) continue;
         const childLineId = splits[i]!.folioLineId;
         const destWindowId = splits[i]!.folioWindowId ?? source.folio_window_id;
         this.insertFolioLineSync({
@@ -10459,11 +10473,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           reservationId: source.reservation_id,
           chargeCode: tax.charge_code,
           posted: {
-            amountMinor: portion,
-            txnCurrency,
-            ledgerAmountMinor: portion,
-            fxRate: source.fx_rate,
-            fxRateAt: source.fx_rate_at,
+            amountMinor: txnPortion,
+            txnCurrency: taxCurrency,
+            ledgerAmountMinor: ledgerPortion,
+            fxRate: tax.fx_rate,
+            fxRateAt: tax.fx_rate_at,
           },
           source: 'TAX',
           taxOf: childLineId,
@@ -10767,6 +10781,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             'PAYMENT_REFUND',
             'TRANSFER_REVERSAL',
             'DISCOUNT',
+            'CHARGEBACK',
+            'FX_GAIN',
+            'FX_LOSS',
+            'CHARGEBACK_FEE',
           ]);
           if (blocked.has(source.source ?? '') || blocked.has(source.charge_code)) {
             throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
@@ -10797,18 +10815,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           this.assertChargeCodeSync('DISCOUNT', { requireActive: true });
           const txnCurrency = currencyCode(source.txn_currency);
+          const ledger = this.readStoredLedgerCurrencySync();
+          if (!ledger) throw new Error(CURRENCY_UNSET);
+          const posted = postToLedger(
+            money(-discountMinor, txnCurrency),
+            ledger,
+            source.fx_rate,
+            source.fx_rate_at,
+          );
           this.insertFolioLineSync({
             folioLineId: input.folioLineId,
             folioWindowId: source.folio_window_id,
             reservationId: source.reservation_id,
             chargeCode: 'DISCOUNT',
-            posted: {
-              amountMinor: -discountMinor,
-              txnCurrency,
-              ledgerAmountMinor: -discountMinor,
-              fxRate: source.fx_rate,
-              fxRateAt: source.fx_rate_at,
-            },
+            posted,
             source: 'DESK',
             splitOf: source.folio_line_id,
           });
@@ -10889,13 +10909,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }>;
           const source = sourceRows[0];
           if (!source) return { ok: false as const, error: NOT_FOUND };
-          if (source.source === 'PAYMENT') {
-            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
-          }
-          if (source.source === 'SPLIT_REVERSAL') {
-            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
-          }
-          if (source.source === 'TAX') {
+          if (
+            source.source === 'PAYMENT' ||
+            source.source === 'SPLIT_REVERSAL' ||
+            source.source === 'TAX' ||
+            source.source === 'CHARGEBACK' ||
+            source.charge_code === 'FX_GAIN' ||
+            source.charge_code === 'FX_LOSS' ||
+            source.charge_code === 'CHARGEBACK_FEE'
+          ) {
             return { ok: false as const, error: LINE_NOT_SPLITTABLE };
           }
 
@@ -10979,7 +11001,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (
             source.source === 'TAX' ||
             source.source === 'SPLIT_REVERSAL' ||
-            source.source === 'TRANSFER_REVERSAL'
+            source.source === 'TRANSFER_REVERSAL' ||
+            source.source === 'CHARGEBACK' ||
+            source.charge_code === 'FX_GAIN' ||
+            source.charge_code === 'FX_LOSS' ||
+            source.charge_code === 'CHARGEBACK_FEE'
           ) {
             throw new FolioWindowError(LINE_NOT_TRANSFERABLE);
           }

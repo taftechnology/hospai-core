@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ClassifiedError,
   type FrontDeskItem,
@@ -20,10 +20,6 @@ import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { guestLabel } from './guest-row.js';
 
 export type { BoardMode };
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -187,10 +183,25 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const dateParam = dateFromSearchParam(params.get('date'));
-  const [date, setDate] = useState(() => dateParam ?? todayUtc());
+  const [date, setDate] = useState<string | null>(() => dateParam);
+  const seededRef = useRef(Boolean(dateParam));
   const [cursor, setCursor] = useState<string | null>(null);
   const timeZone = usePropertyTimeZone();
   const [createdBanner, setCreatedBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (dateParam) {
+      seededRef.current = true;
+      setDate(dateParam);
+      return;
+    }
+    if (!timeZone) return;
+    const seeded = propertyLocalToday(timeZone);
+    seededRef.current = true;
+    setDate(seeded);
+    navigate({ search: `?date=${seeded}` }, { replace: true });
+  }, [dateParam, timeZone, navigate]);
 
   useEffect(() => {
     const state = location.state as { createdReservationId?: string } | null;
@@ -203,10 +214,11 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const listQ = useQuery({
     queryKey: ['board', mode, tenant.propertyId, date, cursor],
     queryFn: async () => {
-      if (mode === 'arrivals') return api.getArrivals(tenant.propertyId, date, cursor);
-      if (mode === 'departures') return api.getDepartures(tenant.propertyId, date, cursor);
+      if (mode === 'arrivals') return api.getArrivals(tenant.propertyId, date!, cursor);
+      if (mode === 'departures') return api.getDepartures(tenant.propertyId, date!, cursor);
       return api.getInHouse(tenant.propertyId, cursor);
     },
+    enabled: mode === 'in-house' || date != null,
     retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
@@ -243,7 +255,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const states = batchQ.data?.states ?? {};
 
   let body: ReactNode;
-  if (listQ.isLoading) {
+  if ((mode === 'arrivals' || mode === 'departures') && date == null) {
+    body = <p className="muted">Loading…</p>;
+  } else if (listQ.isLoading) {
     body = <p className="muted">Loading…</p>;
   } else if (items.length === 0) {
     body = <p className="muted">No reservations for this view</p>;
@@ -263,7 +277,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             <input
               type="date"
               data-testid="board-date"
-              value={date}
+              value={date ?? ''}
               onChange={(e) => {
                 setCursor(null);
                 setDate(e.target.value);

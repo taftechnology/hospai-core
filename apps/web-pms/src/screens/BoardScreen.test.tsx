@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getArrivals = vi.fn();
@@ -26,11 +26,17 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+const tzState: { current: string | null } = { current: 'UTC' };
 vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
+  usePropertyTimeZone: () => tzState.current,
 }));
 
 import { BoardScreen } from './BoardScreen.js';
+
+function SearchProbe() {
+  const loc = useLocation();
+  return <div data-testid="board-search">{loc.search}</div>;
+}
 
 const item = {
   reservationId: 'res_board_1',
@@ -60,7 +66,10 @@ function renderBoard(
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={entries}>
-        <BoardScreen mode={mode} />
+        <>
+          <BoardScreen mode={mode} />
+          <SearchProbe />
+        </>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -69,6 +78,7 @@ function renderBoard(
 describe('BoardScreen folio links', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    tzState.current = 'UTC';
     const page = { ok: true as const, items: [item], nextCursor: null };
     getArrivals.mockResolvedValue(page);
     getDepartures.mockResolvedValue({
@@ -147,5 +157,39 @@ describe('BoardScreen folio links', () => {
     expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy();
     const row = screen.getByText('res_pend').closest('tr');
     expect(row?.className).toMatch(/status-attention/);
+  });
+
+  it('seeds property-local today when Pacific date differs from UTC', async () => {
+    tzState.current = 'America/Los_Angeles';
+    vi.useFakeTimers({
+      now: Date.parse('2026-08-14T06:00:00.000Z'),
+      shouldAdvanceTime: true,
+    });
+    try {
+      renderBoard('arrivals');
+      await waitFor(() => {
+        expect(getArrivals.mock.calls.some((c) => c[1] === '2026-08-13')).toBe(true);
+      });
+      expect(screen.getByTestId('board-search').textContent).toBe('?date=2026-08-13');
+      expect((screen.getByTestId('board-date') as HTMLInputElement).value).toBe('2026-08-13');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('?date= still wins over timezone', async () => {
+    tzState.current = 'America/Los_Angeles';
+    renderBoard('arrivals', { pathname: '/arrivals', search: '?date=2026-09-14' });
+    await waitFor(() => {
+      expect((screen.getByTestId('board-date') as HTMLInputElement).value).toBe('2026-09-14');
+    });
+    expect(getArrivals.mock.calls.some((c) => c[1] === '2026-09-14')).toBe(true);
+  });
+
+  it('in-house does not wait on date', async () => {
+    tzState.current = null;
+    renderBoard('in-house');
+    await waitFor(() => expect(getInHouse).toHaveBeenCalled());
+    expect(getArrivals).not.toHaveBeenCalled();
   });
 });

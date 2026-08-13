@@ -8,6 +8,7 @@ const getAvailability = vi.fn();
 const createGuest = vi.fn();
 const createReservation = vi.fn();
 const postGuestsBatch = vi.fn();
+const listRoomTypes = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -25,6 +26,7 @@ vi.mock('../client.js', () => ({
     createGuest: (...a: unknown[]) => createGuest(...a),
     createReservation: (...a: unknown[]) => createReservation(...a),
     postGuestsBatch: (...a: unknown[]) => postGuestsBatch(...a),
+    listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
   },
 }));
 
@@ -131,6 +133,7 @@ describe('BookingScreen', () => {
     );
     createGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createReservation.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
   });
 
   afterEach(() => {
@@ -598,5 +601,49 @@ describe('BookingScreen', () => {
         "Party exceeds this room type’s occupancy.",
       );
     });
+  });
+
+  it('labels selectable types as name (code)', async () => {
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [
+        {
+          roomTypeId: 'rt_x',
+          code: 'KNG',
+          name: 'King Deluxe',
+          roomCount: 4,
+          maxOccupancy: 2,
+          maxAdults: 2,
+          status: 'active',
+        },
+      ],
+    });
+    getAvailability.mockImplementation(
+      async (_p: string, range: { fromDate: string; toDate: string }) =>
+        availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_x', free: 1 }]),
+    );
+    renderBook();
+    expect(await screen.findByRole('radio', { name: /King Deluxe/ })).toBeTruthy();
+    expect(screen.getByText('KNG').getAttribute('translate')).toBe('no');
+  });
+
+  it('FAIL_CLOSED room-types still lists ids and does not block Confirm', async () => {
+    listRoomTypes.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
+    getAvailability.mockImplementation(
+      async (_p: string, range: { fromDate: string; toDate: string }) =>
+        availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_x', free: 1 }]),
+    );
+    renderBook();
+    expect(await screen.findByText('rt_x')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /rt_x/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(false);
   });
 });

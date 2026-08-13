@@ -90,6 +90,24 @@ export function BookingScreen() {
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
 
+  const typesQ = useQuery({
+    queryKey: ['room-types', propertyId, 'active'],
+    queryFn: () => api.listRoomTypes(propertyId, { status: 'active' }),
+    retry: false,
+  });
+
+  const typeDir = useMemo(() => {
+    const m = new Map<string, { code: string; name: string }>();
+    for (const t of (typesQ.data?.roomTypes ?? []) as Array<{
+      roomTypeId: string;
+      code: string;
+      name: string;
+    }>) {
+      m.set(t.roomTypeId, { code: t.code, name: t.name });
+    }
+    return m;
+  }, [typesQ.data]);
+
   const quoteAriVersion = availQ.isSuccess ? availQ.data.ariVersion : null;
   const selectable =
     availQ.isSuccess && range
@@ -337,7 +355,15 @@ export function BookingScreen() {
                   checked={roomTypeId === id}
                   onChange={() => setRoomTypeId(id)}
                 />{' '}
-                {id}
+                {(() => {
+                  const t = typeDir.get(id);
+                  if (!t) return id;
+                  return (
+                    <>
+                      {t.name} (<span translate="no">{t.code}</span>)
+                    </>
+                  );
+                })()}
               </label>
             </li>
           ))}

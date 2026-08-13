@@ -28,6 +28,7 @@ import {
   NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
+  ROOM_OUT_OF_ORDER,
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
   ROOM_UNITS_EXCEED_COUNT,
@@ -139,6 +140,7 @@ import {
   InvalidFxRateError,
   InvalidMoneyError,
   LedgerAmountMismatchError,
+  roundHalfAwayFromZero,
   type CurrencyCode,
   type PostedLineAmount,
 } from '@hospai/money';
@@ -482,12 +484,95 @@ class InquiryExpiredError extends Error {
 
 class RoomOutOfOrderError extends Error {
   constructor() {
-    super('Room is out of order');
+    super(ROOM_OUT_OF_ORDER);
     this.name = 'RoomOutOfOrderError';
   }
 }
 
+class InvalidCancelPolicyError extends Error {
+  constructor() {
+    super('invalid_cancel_policy');
+    this.name = 'InvalidCancelPolicyError';
+  }
+}
+
 const STAY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CANCEL_PENALTY_TYPES = ['none', 'first_night', 'nights', 'percent', 'full'] as const;
+type CancelPenaltyType = (typeof CANCEL_PENALTY_TYPES)[number];
+
+function isCancelPenaltyType(value: string): value is CancelPenaltyType {
+  return (CANCEL_PENALTY_TYPES as readonly string[]).includes(value);
+}
+
+/** UTC instant of local midnight for `ymd` in `timeZone`. */
+function zonedMidnightMs(ymd: string, timeZone: string): number {
+  const [ys, ms, ds] = ymd.split('-');
+  const utcGuess = Date.UTC(Number(ys), Number(ms) - 1, Number(ds), 0, 0, 0);
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const asUtcFromZoned = (instant: number): number => {
+    const parts = dtf.formatToParts(new Date(instant));
+    const get = (type: Intl.DateTimeFormatPartTypes): number =>
+      Number(parts.find((p) => p.type === type)?.value);
+    return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+  };
+  const guess = utcGuess - (asUtcFromZoned(utcGuess) - utcGuess);
+  return utcGuess - (asUtcFromZoned(guess) - guess);
+}
+
+type RatePlanPolicyFields = {
+  cancelPenaltyType: string;
+  cancelGraceHours: number;
+  cancelPenaltyNights: number | null;
+  cancelPenaltyBps: number | null;
+  cancelPolicyText: string | null;
+};
+
+function normalizeRatePlanPolicy(
+  input: {
+    cancelPenaltyType?: string;
+    cancelGraceHours?: number;
+    cancelPenaltyNights?: number | null;
+    cancelPenaltyBps?: number | null;
+    cancelPolicyText?: string | null;
+  },
+  existing?: RatePlanPolicyFields,
+): RatePlanPolicyFields {
+  const type = input.cancelPenaltyType ?? existing?.cancelPenaltyType ?? 'none';
+  if (!isCancelPenaltyType(type)) throw new InvalidCancelPolicyError();
+  const grace = input.cancelGraceHours ?? existing?.cancelGraceHours ?? 0;
+  if (!Number.isInteger(grace) || grace < 0 || grace > 8760) throw new InvalidCancelPolicyError();
+  let nights: number | null = null;
+  let bps: number | null = null;
+  if (type === 'nights') {
+    nights = input.cancelPenaltyNights !== undefined ? input.cancelPenaltyNights : (existing?.cancelPenaltyNights ?? null);
+    if (nights == null || !Number.isInteger(nights) || nights < 1 || nights > 30) {
+      throw new InvalidCancelPolicyError();
+    }
+  } else if (type === 'percent') {
+    bps = input.cancelPenaltyBps !== undefined ? input.cancelPenaltyBps : (existing?.cancelPenaltyBps ?? null);
+    if (bps == null || !Number.isInteger(bps) || bps < 0 || bps > 10000) {
+      throw new InvalidCancelPolicyError();
+    }
+  }
+  const text =
+    input.cancelPolicyText !== undefined ? input.cancelPolicyText : (existing?.cancelPolicyText ?? null);
+  return {
+    cancelPenaltyType: type,
+    cancelGraceHours: grace,
+    cancelPenaltyNights: nights,
+    cancelPenaltyBps: bps,
+    cancelPolicyText: text,
+  };
+}
 
 function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -507,6 +592,8 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof INQUIRY_EXPIRED }
   | { ok: false; error: typeof OCCUPANCY_EXCEEDED }
   | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+  | { ok: false; error: typeof RATE_MISSING; date: string }
+  | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -531,6 +618,8 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof InquiryExpiredError) return { ok: false, error: INQUIRY_EXPIRED };
   if (e instanceof OccupancyExceededError) return { ok: false, error: OCCUPANCY_EXCEEDED };
   if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+  if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
+  if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
   return null;
 }
 
@@ -3839,6 +3928,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
     | { ok: false; error: typeof ROOM_NOT_ASSIGNABLE }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
     | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
@@ -3880,15 +3970,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const reservation = resRows[0];
           if (!reservation) throw new RoomNotFoundError();
 
-          if (reservation.status !== 'confirmed' && reservation.status !== 'checked_in') {
+          if (
+            reservation.status !== 'pending' &&
+            reservation.status !== 'confirmed' &&
+            reservation.status !== 'checked_in'
+          ) {
             throw new RoomNotAssignableError();
           }
 
           const roomRows = this.ctx.storage.sql
-            .exec(`SELECT room_type_id FROM room WHERE room_id = ?`, input.roomId)
-            .toArray() as Array<{ room_type_id: string }>;
+            .exec(`SELECT room_type_id, status FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ room_type_id: string; status: string }>;
           const room = roomRows[0];
           if (!room) throw new RoomNotFoundError();
+
+          if (room.status === 'out_of_order') {
+            throw new RoomOutOfOrderError();
+          }
 
           if (room.room_type_id !== reservation.room_type_id) {
             throw new RoomTypeMismatchError();
@@ -3899,7 +3997,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               `SELECT reservation_id FROM reservation
                WHERE room_id = ?
                  AND reservation_id != ?
-                 AND status IN ('confirmed', 'checked_in')
+                 AND status IN ('pending', 'confirmed', 'checked_in')
                  AND arrival_date < ?
                  AND departure_date > ?
                LIMIT 1`,
@@ -3954,6 +4052,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
       if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
       if (e instanceof RoomNotAssignableError) return { ok: false, error: ROOM_NOT_ASSIGNABLE };
+      if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -4139,6 +4238,116 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPenaltyNights: row.cancel_penalty_nights,
       cancelPenaltyBps: row.cancel_penalty_bps,
     };
+  }
+
+  private rateDayAmountSync(roomTypeId: string, ratePlanId: string, stayDate: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor FROM rate_day
+         WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+        roomTypeId,
+        ratePlanId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number }>;
+    if (!rows[0]) throw new RateMissingError(stayDate);
+    return rows[0].amount_minor;
+  }
+
+  private stayTotalMinorSync(roomTypeId: string, ratePlanId: string, nights: string[]): number {
+    let total = 0;
+    for (const stayDate of nights) {
+      total += this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+    }
+    return total;
+  }
+
+  /**
+   * Snapshotted cancel/no-show penalty in ledger minor units.
+   * Inquiry and type `none` are 0; in-grace is 0; missing rate_day throws RateMissingError.
+   */
+  private penaltyMinor(
+    row: {
+      status: string;
+      arrival_date: string;
+      departure_date: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      cancel_penalty_type: string;
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
+    },
+    nowMs: number,
+    timeZone: string,
+  ): number {
+    if (row.status === 'inquiry') return 0;
+    if (row.cancel_penalty_type === 'none') return 0;
+    const arrivalStart = zonedMidnightMs(row.arrival_date, timeZone);
+    if (nowMs < arrivalStart - row.cancel_grace_hours * 3_600_000) return 0;
+
+    const nights = enumerateStayDates(row.arrival_date, row.departure_date);
+    if (row.cancel_penalty_type === 'first_night') {
+      return this.rateDayAmountSync(row.room_type_id, row.rate_plan_id, row.arrival_date);
+    }
+    if (row.cancel_penalty_type === 'nights') {
+      const count = Math.min(row.cancel_penalty_nights ?? 0, nights.length);
+      if (count < 1) throw new RateMissingError(row.arrival_date);
+      let total = 0;
+      for (let i = 0; i < count; i++) {
+        total += this.rateDayAmountSync(row.room_type_id, row.rate_plan_id, nights[i]!);
+      }
+      return total;
+    }
+    const stayTotal = this.stayTotalMinorSync(row.room_type_id, row.rate_plan_id, nights);
+    if (row.cancel_penalty_type === 'full') return stayTotal;
+    if (row.cancel_penalty_type === 'percent') {
+      const bps = row.cancel_penalty_bps ?? 0;
+      return Number(roundHalfAwayFromZero(BigInt(stayTotal) * BigInt(bps), 10000n));
+    }
+    return 0;
+  }
+
+  private postDeskPenaltySync(
+    reservationId: string,
+    chargeCode: 'CANCEL' | 'NO_SHOW',
+    amountMinor: number,
+    businessDate: string,
+  ): void {
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+    this.ensureGuestFolioWindowSync(reservationId);
+    const folioWindowId = this.readGuestFolioWindowIdSync(reservationId);
+    const fxRateAt = Date.now();
+    const posted: PostedLineAmount = {
+      amountMinor,
+      txnCurrency: ledgerCurrency,
+      ledgerAmountMinor: amountMinor,
+      fxRate: '1',
+      fxRateAt,
+    };
+    const suffix = chargeCode === 'CANCEL' ? 'cancel' : 'noshow';
+    const folioLineId = `${reservationId}:${suffix}:${businessDate}`;
+    this.assertChargeCodeSync(chargeCode, { requireActive: true });
+    this.insertFolioLineSync({
+      folioLineId,
+      folioWindowId,
+      reservationId,
+      chargeCode,
+      posted,
+      source: 'DESK',
+      businessDate,
+    });
+    this.stampTaxForChargeSync({
+      parentLineId: folioLineId,
+      parentAmountMinor: amountMinor,
+      parentSource: 'DESK',
+      chargeCode,
+      reservationId,
+      folioWindowId,
+      postingDate: businessDate,
+      posted,
+    });
   }
 
   private commitSoldNightsSync(roomTypeId: string, arrivalDate: string, departureDate: string, nights: string[]): void {
@@ -4774,7 +4983,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
+                      rate_plan_id, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps
+               FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -4784,6 +4995,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             arrival_date: string;
             departure_date: string;
             status: string;
+            rate_plan_id: string;
+            cancel_penalty_type: string;
+            cancel_grace_hours: number;
+            cancel_penalty_nights: number | null;
+            cancel_penalty_bps: number | null;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -4793,6 +5009,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservation.status !== 'inquiry'
           ) {
             return { ok: false as const, error: ALREADY_CANCELLED };
+          }
+
+          if (reservation.status === 'pending' || reservation.status === 'confirmed') {
+            const timeZone = this.readStoredTimeZoneSync();
+            if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
+            const penalty = this.penaltyMinor(reservation, Date.now(), timeZone);
+            if (penalty > 0) {
+              const businessDate = this.readBusinessDateSync();
+              if (!businessDate) return { ok: false as const, error: BUSINESS_DATE_UNSET };
+              this.postDeskPenaltySync(input.reservationId, 'CANCEL', penalty, businessDate);
+            }
           }
 
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
@@ -4919,6 +5146,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const expired = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredErr = this.expiredWire(expired);
+          if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
@@ -4934,7 +5164,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
-          if (reservation.status !== 'confirmed') {
+          if (
+            reservation.status !== 'confirmed' &&
+            reservation.status !== 'pending' &&
+            reservation.status !== 'inquiry'
+          ) {
             return { ok: false as const, error: NOT_MODIFIABLE };
           }
 
@@ -4964,76 +5198,79 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const oldRoomTypeId = reservation.room_type_id;
           const oldNightSet = new Set(oldNights);
           const sameRoomType = oldRoomTypeId === input.roomTypeId;
+          const commitsInventory = reservation.status !== 'inquiry';
 
-          for (const stayDate of oldNights) {
-            const rows = this.ctx.storage.sql
-              .exec(
-                `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+          if (commitsInventory) {
+            for (const stayDate of oldNights) {
+              const rows = this.ctx.storage.sql
+                .exec(
+                  `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                  oldRoomTypeId,
+                  stayDate,
+                )
+                .toArray() as Array<{ sold: number }>;
+              if (rows.length === 0 || rows[0]!.sold < 1) {
+                throw new LedgerInconsistentError(stayDate);
+              }
+            }
+
+            const rowsByDate = new Map<string, AvailabilitySnapshot>();
+            for (const stayDate of newNights) {
+              const rows = this.ctx.storage.sql
+                .exec(
+                  `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                  input.roomTypeId,
+                  stayDate,
+                )
+                .toArray() as Array<{
+                physical: number;
+                blocked: number;
+                held: number;
+                sold: number;
+                oversell: number;
+              }>;
+              if (rows.length === 0) {
+                throw new UnbookableError(stayDate);
+              }
+              const row = rows[0]!;
+              const releasedSold = sameRoomType && oldNightSet.has(stayDate) ? row.sold - 1 : row.sold;
+              rowsByDate.set(stayDate, {
+                stayDate,
+                physical: row.physical,
+                blocked: row.blocked,
+                held: row.held,
+                sold: releasedSold,
+                oversell: row.oversell,
+              });
+            }
+
+            const unavailable = firstUnavailableNight(newNights, rowsByDate);
+            if (unavailable) {
+              throw new NoAvailabilityError(unavailable);
+            }
+
+            this.restrictionFailureSync(
+              input.roomTypeId,
+              input.arrivalDate,
+              input.departureDate,
+              newNights,
+            );
+
+            for (const stayDate of oldNights) {
+              this.ctx.storage.sql.exec(
+                `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
                 oldRoomTypeId,
                 stayDate,
-              )
-              .toArray() as Array<{ sold: number }>;
-            if (rows.length === 0 || rows[0]!.sold < 1) {
-              throw new LedgerInconsistentError(stayDate);
+              );
             }
-          }
 
-          const rowsByDate = new Map<string, AvailabilitySnapshot>();
-          for (const stayDate of newNights) {
-            const rows = this.ctx.storage.sql
-              .exec(
-                `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+            for (const stayDate of newNights) {
+              this.ctx.storage.sql.exec(
+                `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
                 input.roomTypeId,
                 stayDate,
-              )
-              .toArray() as Array<{
-              physical: number;
-              blocked: number;
-              held: number;
-              sold: number;
-              oversell: number;
-            }>;
-            if (rows.length === 0) {
-              throw new UnbookableError(stayDate);
+              );
             }
-            const row = rows[0]!;
-            const releasedSold = sameRoomType && oldNightSet.has(stayDate) ? row.sold - 1 : row.sold;
-            rowsByDate.set(stayDate, {
-              stayDate,
-              physical: row.physical,
-              blocked: row.blocked,
-              held: row.held,
-              sold: releasedSold,
-              oversell: row.oversell,
-            });
-          }
-
-          const unavailable = firstUnavailableNight(newNights, rowsByDate);
-          if (unavailable) {
-            throw new NoAvailabilityError(unavailable);
-          }
-
-          this.restrictionFailureSync(
-            input.roomTypeId,
-            input.arrivalDate,
-            input.departureDate,
-            newNights,
-          );
-
-          for (const stayDate of oldNights) {
-            this.ctx.storage.sql.exec(
-              `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-              oldRoomTypeId,
-              stayDate,
-            );
-          }
-
-          for (const stayDate of newNights) {
-            this.ctx.storage.sql.exec(
-              `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-              input.roomTypeId,
-              stayDate,
-            );
           }
 
           const now = Date.now();
@@ -5046,7 +5283,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.reservationId,
           );
 
-          const ariVersion = this.bumpAriVersionSync();
+          const ariVersion = commitsInventory ? this.bumpAriVersionSync() : this.readAriVersionSync();
           const unionFrom =
             oldNights[0]! < newNights[0]! ? oldNights[0]! : newNights[0]!;
           const unionTo =
@@ -5075,41 +5312,43 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
-          if (oldRoomTypeId === input.roomTypeId) {
-            this.appendPropertyOutbox({
-              eventId: crypto.randomUUID(),
-              eventType: 'availability.changed',
-              payload: {
-                propertyId,
-                roomTypeId: input.roomTypeId,
-                fromDate: unionFrom,
-                toDate: unionTo,
-                version: ariVersion,
-              },
-            });
-          } else {
-            this.appendPropertyOutbox({
-              eventId: crypto.randomUUID(),
-              eventType: 'availability.changed',
-              payload: {
-                propertyId,
-                roomTypeId: oldRoomTypeId,
-                fromDate: oldNights[0]!,
-                toDate: oldNights[oldNights.length - 1]!,
-                version: ariVersion,
-              },
-            });
-            this.appendPropertyOutbox({
-              eventId: crypto.randomUUID(),
-              eventType: 'availability.changed',
-              payload: {
-                propertyId,
-                roomTypeId: input.roomTypeId,
-                fromDate: newNights[0]!,
-                toDate: newNights[newNights.length - 1]!,
-                version: ariVersion,
-              },
-            });
+          if (commitsInventory) {
+            if (oldRoomTypeId === input.roomTypeId) {
+              this.appendPropertyOutbox({
+                eventId: crypto.randomUUID(),
+                eventType: 'availability.changed',
+                payload: {
+                  propertyId,
+                  roomTypeId: input.roomTypeId,
+                  fromDate: unionFrom,
+                  toDate: unionTo,
+                  version: ariVersion,
+                },
+              });
+            } else {
+              this.appendPropertyOutbox({
+                eventId: crypto.randomUUID(),
+                eventType: 'availability.changed',
+                payload: {
+                  propertyId,
+                  roomTypeId: oldRoomTypeId,
+                  fromDate: oldNights[0]!,
+                  toDate: oldNights[oldNights.length - 1]!,
+                  version: ariVersion,
+                },
+              });
+              this.appendPropertyOutbox({
+                eventId: crypto.randomUUID(),
+                eventType: 'availability.changed',
+                payload: {
+                  propertyId,
+                  roomTypeId: input.roomTypeId,
+                  fromDate: newNights[0]!,
+                  toDate: newNights[newNights.length - 1]!,
+                  version: ariVersion,
+                },
+              });
+            }
           }
 
           this.appendAuditLogSync({
@@ -5431,7 +5670,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredNsErr) return expiredNsErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
+                      rate_plan_id, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps
+               FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -5441,6 +5682,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             arrival_date: string;
             departure_date: string;
             status: string;
+            rate_plan_id: string;
+            cancel_penalty_type: string;
+            cancel_grace_hours: number;
+            cancel_penalty_nights: number | null;
+            cancel_penalty_bps: number | null;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -5449,6 +5695,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           if (businessDate < reservation.arrival_date) {
             return { ok: false as const, error: NO_SHOW_BEFORE_ARRIVAL };
+          }
+
+          const timeZone = this.readStoredTimeZoneSync();
+          if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
+          const penalty = this.penaltyMinor(reservation, Date.now(), timeZone);
+          if (penalty > 0) {
+            this.postDeskPenaltySync(input.reservationId, 'NO_SHOW', penalty, businessDate);
           }
 
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
@@ -6080,7 +6333,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private ensureSystemChargeCodesSync(): void {
     const now = Date.now();
     for (const code of SYSTEM_CHARGE_CODES) {
-      const name = code === 'ROOM' ? 'Room' : 'Payment';
+    const name =
+      code === 'ROOM'
+        ? 'Room'
+        : code === 'CANCEL'
+          ? 'Cancellation fee'
+          : code === 'NO_SHOW'
+            ? 'No-show fee'
+            : 'Payment';
       this.ctx.storage.sql.exec(
         `INSERT OR IGNORE INTO charge_code (code, name, status, created_at, updated_at)
          VALUES (?, ?, 'active', ?, ?)`,
@@ -6106,11 +6366,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Create a rate plan. Implements catalog `rates.create_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code, name }`.
+   * Fingerprint allowlist: `{ ratePlanId, code, name, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText? }`.
    */
   async tryCreateRatePlan(
     actor: ActorContext,
-    input: { ratePlanId: string; code: string; name: string },
+    input: {
+      ratePlanId: string;
+      code: string;
+      name: string;
+      cancelPenaltyType?: string;
+      cancelGraceHours?: number;
+      cancelPenaltyNights?: number | null;
+      cancelPenaltyBps?: number | null;
+      cancelPolicyText?: string | null;
+    },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; ratePlanId: string }
@@ -6153,15 +6422,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .toArray();
           if (codeTaken.length > 0) throw new RatePlanCodeExistsError();
 
+          const policy = normalizeRatePlanPolicy(input);
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `INSERT INTO rate_plan (rate_plan_id, code, name, status, created_at, updated_at)
-             VALUES (?, ?, ?, 'active', ?, ?)`,
+            `INSERT INTO rate_plan (
+               rate_plan_id, code, name, status, created_at, updated_at,
+               cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text
+             )
+             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
             input.ratePlanId,
             input.code,
             input.name,
             now,
             now,
+            policy.cancelPenaltyType,
+            policy.cancelGraceHours,
+            policy.cancelPenaltyNights,
+            policy.cancelPenaltyBps,
+            policy.cancelPolicyText,
           );
 
           this.appendPropertyOutbox({
@@ -6186,6 +6464,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               code: input.code,
               name: input.name,
               status: 'active',
+              cancelPenaltyType: policy.cancelPenaltyType,
+              cancelGraceHours: policy.cancelGraceHours,
             },
           });
 
@@ -6196,17 +6476,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RatePlanIdExistsError) return { ok: false, error: RATE_PLAN_ID_EXISTS };
       if (e instanceof RatePlanCodeExistsError) return { ok: false, error: RATE_PLAN_CODE_EXISTS };
+      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
 
   /**
    * Update an active rate plan's code/name. Implements catalog `rates.update_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code?, name? }`.
+   * Fingerprint allowlist: `{ ratePlanId, code?, name?, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText? }`.
    */
   async tryUpdateRatePlan(
     actor: ActorContext,
-    input: { ratePlanId: string; code?: string; name?: string },
+    input: {
+      ratePlanId: string;
+      code?: string;
+      name?: string;
+      cancelPenaltyType?: string;
+      cancelGraceHours?: number;
+      cancelPenaltyNights?: number | null;
+      cancelPenaltyBps?: number | null;
+      cancelPolicyText?: string | null;
+    },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; ratePlanId: string }
@@ -6239,10 +6529,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const rows = this.ctx.storage.sql
             .exec(
-              `SELECT code, name, status FROM rate_plan WHERE rate_plan_id = ?`,
+              `SELECT code, name, status, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text
+               FROM rate_plan WHERE rate_plan_id = ?`,
               input.ratePlanId,
             )
-            .toArray() as Array<{ code: string; name: string; status: string }>;
+            .toArray() as Array<{
+            code: string;
+            name: string;
+            status: string;
+            cancel_penalty_type: string;
+            cancel_grace_hours: number;
+            cancel_penalty_nights: number | null;
+            cancel_penalty_bps: number | null;
+            cancel_policy_text: string | null;
+          }>;
           const existing = rows[0];
           if (!existing || existing.status !== 'active') {
             throw new RatePlanNotFoundError();
@@ -6250,6 +6550,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const nextCode = input.code ?? existing.code;
           const nextName = input.name ?? existing.name;
+          const policy = normalizeRatePlanPolicy(input, {
+            cancelPenaltyType: existing.cancel_penalty_type,
+            cancelGraceHours: existing.cancel_grace_hours,
+            cancelPenaltyNights: existing.cancel_penalty_nights,
+            cancelPenaltyBps: existing.cancel_penalty_bps,
+            cancelPolicyText: existing.cancel_policy_text,
+          });
 
           if (
             input.ratePlanId === DEFAULT_RATE_PLAN_ID &&
@@ -6273,10 +6580,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE rate_plan SET code = ?, name = ?, updated_at = ? WHERE rate_plan_id = ?`,
+            `UPDATE rate_plan SET code = ?, name = ?, updated_at = ?,
+               cancel_penalty_type = ?, cancel_grace_hours = ?, cancel_penalty_nights = ?,
+               cancel_penalty_bps = ?, cancel_policy_text = ?
+             WHERE rate_plan_id = ?`,
             nextCode,
             nextName,
             now,
+            policy.cancelPenaltyType,
+            policy.cancelGraceHours,
+            policy.cancelPenaltyNights,
+            policy.cancelPenaltyBps,
+            policy.cancelPolicyText,
             input.ratePlanId,
           );
 
@@ -6296,8 +6611,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             commandId: 'rates.update_plan',
             entityType: 'rate_plan',
             entityId: input.ratePlanId,
-            beforeJson: { code: existing.code, name: existing.name },
-            afterJson: { code: nextCode, name: nextName },
+            beforeJson: {
+              code: existing.code,
+              name: existing.name,
+              cancelPenaltyType: existing.cancel_penalty_type,
+            },
+            afterJson: {
+              code: nextCode,
+              name: nextName,
+              cancelPenaltyType: policy.cancelPenaltyType,
+            },
           });
 
           return { ok: true as const, ratePlanId: input.ratePlanId };
@@ -6310,6 +6633,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DefaultRatePlanProtectedError) {
         return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
       }
+      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

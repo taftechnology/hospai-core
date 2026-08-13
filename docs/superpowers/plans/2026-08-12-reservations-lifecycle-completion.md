@@ -611,7 +611,7 @@ this.insertFolioLineSync({
 this.stampTaxForChargeSync({ /* parent = that line, chargeCode same, postingDate = businessDate */ });
 ```
 
-- [ ] **Step 1: Write failing tests 10, 11, 13, 14, 40–45**
+- [x] **Step 1: Write failing tests 10, 11, 13, 14, 40–45**
 
 40/41: `rates.create_plan` + `rates.update_plan` with `cancelPenaltyType: 'first_night', cancelGraceHours: 24`, create confirmed on that plan, cancel 48h before arrival (0 lines) vs after grace (`CANCEL` line = first-night `rate_day`).
 
@@ -623,13 +623,13 @@ this.stampTaxForChargeSync({ /* parent = that line, chargeCode same, postingDate
 
 13: modify pending dates (create pending, then `tryModifyReservation`).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts`
 
 Expected: FAIL on 40–45 / modify pending.
 
-- [ ] **Step 3: Implement gates + penaltyMinor + assign OOO + update_plan policy**
+- [x] **Step 3: Implement gates + penaltyMinor + assign OOO + update_plan policy**
 
 - `tryModifyReservation`: allow `inquiry | pending | confirmed`; inquiry skips ledger; call `expireIfDueSync` first.
 - `tryCancelReservation`: if `expireIfDueSync` fired → return ok (already done in Task 3). Else if live pending/confirmed → `penaltyMinor`; if `> 0` post `CANCEL` / `DESK`; then today’s release.
@@ -637,13 +637,13 @@ Expected: FAIL on 40–45 / modify pending.
 - `tryAssignRoom`: allowed `pending | confirmed | checked_in`; `SELECT status FROM room`; `out_of_order` → `ROOM_OUT_OF_ORDER` (new mapping; do not reuse `ROOM_NOT_ASSIGNABLE` for OOO).
 - `tryUpdateRatePlan`: persist policy columns; fingerprint includes them; validate nights/bps required by type.
 
-- [ ] **Step 4: Run lifecycle + ledger property + existing cancel/modify tests**
+- [x] **Step 4: Run lifecycle + ledger property + existing cancel/modify tests**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts test/reservations.spec.ts test/reservations-ledger.property.spec.ts test/rate-plans-routes.spec.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/reservations-lifecycle.spec.ts apps/pms-core/test/reservations-ledger.property.spec.ts

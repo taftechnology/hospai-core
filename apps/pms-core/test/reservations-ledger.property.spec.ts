@@ -93,12 +93,14 @@ describe('PropertyDO sold ledger property tests', () => {
         const los = 1 + Math.floor(rand() * 3);
         const departure = addDays(arrival, los);
         const id = `res_${seq++}`;
+        const asPending = rand() < 0.2;
         const input = {
           reservationId: id,
           roomTypeId: 'rt_king',
           guestRef: guest.guestRef,
           arrivalDate: arrival,
           departureDate: departure,
+          ...(asPending ? { status: 'pending' as const } : {}),
         };
         const result = await stub.tryCreateReservation(
           TEST_OWNER_ACTOR,
@@ -106,7 +108,7 @@ describe('PropertyDO sold ledger property tests', () => {
           await idemFor(`c-${step}-${id}`, input),
         );
         if (result.ok) live.push({ id, roomTypeId: 'rt_king', arrival, departure });
-      } else if (op < 0.7) {
+      } else if (op < 0.62) {
         const idx = Math.floor(rand() * live.length);
         const target = live[idx]!;
         const cancelInput = { reservationId: target.id };
@@ -116,7 +118,7 @@ describe('PropertyDO sold ledger property tests', () => {
           await idemFor(`x-${step}-${target.id}`, cancelInput),
         );
         if (result.ok) live.splice(idx, 1);
-      } else {
+      } else if (op < 0.88) {
         const idx = Math.floor(rand() * live.length);
         const target = live[idx]!;
         const shift = Math.floor(rand() * 2) - 1;
@@ -139,6 +141,15 @@ describe('PropertyDO sold ledger property tests', () => {
           target.arrival = newArrival;
           target.departure = newDeparture;
         }
+      } else {
+        const idx = Math.floor(rand() * live.length);
+        const target = live[idx]!;
+        const checkIn = { reservationId: target.id };
+        await stub.tryCheckIn(
+          TEST_OWNER_ACTOR,
+          checkIn,
+          await idemFor(`i-${step}-${target.id}`, checkIn),
+        );
       }
 
       if (step % 3 === 0) {

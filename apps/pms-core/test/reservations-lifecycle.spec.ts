@@ -4,6 +4,10 @@ import {
   HOLD_EXPIRED,
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
+  NOT_MODIFIABLE,
+  OCCUPANCY_EXCEEDED,
+  RATE_MISSING,
+  ROOM_OUT_OF_ORDER,
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays } from './date-helpers';
@@ -367,4 +371,354 @@ describe('reservation lifecycle inquiry/pending', () => {
     );
     expect(again).toMatchObject({ ok: false, error: ALREADY_CANCELLED });
   });
+
+  it('10. cancel inquiry → cancelled, no ledger, no folio line', async () => {
+    const name = `lc-10-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'inquiry' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c10', create)),
+    ).toMatchObject({ ok: true });
+    const cancel = await stub.tryCancelReservation(
+      TEST_OWNER_ACTOR,
+      { reservationId },
+      await idemFor('x10', { reservationId }),
+    );
+    expect(cancel.ok).toBe(true);
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.status).toBe('cancelled');
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
+  });
+
+  it('11. cancel pending type none → cancelled, sold − 1, no folio line', async () => {
+    const name = `lc-11-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'pending' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c11', create)),
+    ).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    const cancel = await stub.tryCancelReservation(
+      TEST_OWNER_ACTOR,
+      { reservationId },
+      await idemFor('x11', { reservationId }),
+    );
+    expect(cancel.ok).toBe(true);
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
+  });
+
+  it('13. modify pending dates → release/acquire like confirmed', async () => {
+    const name = `lc-13-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const newArrival = addCalendarDays(arrival, 2);
+    const newDeparture = addCalendarDays(arrival, 3);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'pending' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c13', create)),
+    ).toMatchObject({ ok: true });
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: newArrival,
+      departureDate: newDeparture,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m13', modify)),
+    ).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_king', newArrival))?.sold).toBe(1);
+  });
+
+  it('14. modify inquiry dates → no ledger', async () => {
+    const name = `lc-14-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const newArrival = addCalendarDays(arrival, 2);
+    const newDeparture = addCalendarDays(arrival, 3);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'inquiry' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c14', create)),
+    ).toMatchObject({ ok: true });
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: newArrival,
+      departureDate: newDeparture,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m14', modify)),
+    ).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_king', newArrival))?.sold).toBe(0);
+  });
+
+  it('40/41. first_night grace 24h: cancel 48h before → 0; after grace → CANCEL line', async () => {
+    const name = `lc-40-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = addCalendarDays(added.fromDate, 5);
+    const departure = addCalendarDays(arrival, 1);
+    const plan = { ratePlanId: 'NONREF', code: 'NONREF', name: 'Nonrefundable', cancelPenaltyType: 'first_night' as const, cancelGraceHours: 24 };
+    expect(
+      await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p40', plan)),
+    ).toMatchObject({ ok: true });
+    const rate = {
+      roomTypeId: 'rt_king',
+      ratePlanId: 'NONREF',
+      stayDate: arrival,
+      amountMinor: 12300,
+      currency: 'USD',
+    };
+    expect(
+      await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r40', rate)),
+    ).toMatchObject({ ok: true });
+
+    const far = `res_${crypto.randomUUID()}`;
+    const createFar = {
+      reservationId: far,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'NONREF',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, createFar, await idemFor('cfar', createFar)),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCancelReservation(TEST_OWNER_ACTOR, { reservationId: far }, await idemFor('xfar', { reservationId: far })),
+    ).toMatchObject({ ok: true });
+    expect(await stub.countFolioLinesForReservation(far)).toBe(0);
+
+    const closeArrival = added.fromDate;
+    const closeDeparture = addCalendarDays(closeArrival, 1);
+    const closeRate = { ...rate, stayDate: closeArrival };
+    expect(
+      await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, closeRate, await idemFor('r40c', closeRate)),
+    ).toMatchObject({ ok: true });
+    const close = `res_${crypto.randomUUID()}`;
+    const createClose = {
+      reservationId: close,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: closeArrival,
+      departureDate: closeDeparture,
+      ratePlanId: 'NONREF',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, createClose, await idemFor('cclose', createClose)),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCancelReservation(TEST_OWNER_ACTOR, { reservationId: close }, await idemFor('xclose', { reservationId: close })),
+    ).toMatchObject({ ok: true });
+    expect(await stub.countFolioLinesForReservation(close)).toBeGreaterThan(0);
+  });
+
+  it('42. cancel missing rate_day after grace → RATE_MISSING, still confirmed', async () => {
+    const name = `lc-42-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const plan = { ratePlanId: 'MISS', code: 'MISS', name: 'Missing', cancelPenaltyType: 'first_night' as const, cancelGraceHours: 0 };
+    expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p42', plan))).toMatchObject({ ok: true });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'MISS',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c42', create)),
+    ).toMatchObject({ ok: true });
+    const cancel = await stub.tryCancelReservation(
+      TEST_OWNER_ACTOR,
+      { reservationId },
+      await idemFor('x42', { reservationId }),
+    );
+    expect(cancel).toMatchObject({ ok: false, error: RATE_MISSING });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.status).toBe('confirmed');
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+  });
+
+  it('43. desk no-show after arrival, first_night → NO_SHOW DESK line', async () => {
+    const name = `lc-43-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const plan = {
+      ratePlanId: 'NS',
+      code: 'NS',
+      name: 'NoShow',
+      cancelPenaltyType: 'first_night' as const,
+      cancelGraceHours: 0,
+    };
+    expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p43', plan))).toMatchObject({
+      ok: true,
+    });
+    const rate = {
+      roomTypeId: 'rt_king',
+      ratePlanId: 'NS',
+      stayDate: arrival,
+      amountMinor: 15000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r43', rate))).toMatchObject({
+      ok: true,
+    });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'NS',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c43', create)),
+    ).toMatchObject({ ok: true });
+    const noshow = await stub.tryNoShow(
+      TEST_OWNER_ACTOR,
+      { reservationId },
+      await idemFor('n43', { reservationId }),
+    );
+    expect(noshow.ok).toBe(true);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBeGreaterThan(0);
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.status).toBe('no_show');
+  });
+
+  it('44. update_plan after snapshot does not rewrite existing stay', async () => {
+    const name = `lc-44-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const plan = { ratePlanId: 'SNAP', code: 'SNAP', name: 'Snap', cancelPenaltyType: 'none' as const, cancelGraceHours: 0 };
+    expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p44', plan))).toMatchObject({ ok: true });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'SNAP',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c44', create)),
+    ).toMatchObject({ ok: true });
+    const update = { ratePlanId: 'SNAP', cancelPenaltyType: 'first_night' as const, cancelGraceHours: 0 };
+    expect(
+      await stub.tryUpdateRatePlan(TEST_OWNER_ACTOR, update, await idemFor('u44', update)),
+    ).toMatchObject({ ok: true });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.cancelPenaltyType).toBe('none');
+  });
+
+  it('45. create adults+children > max_occupancy → OCCUPANCY_EXCEEDED', async () => {
+    const name = `lc-45-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const create = {
+      reservationId: `res_${crypto.randomUUID()}`,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 3,
+      children: 0,
+    };
+    const result = await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c45', create));
+    expect(result).toMatchObject({ ok: false, error: OCCUPANCY_EXCEEDED });
+  });
+
+  it('assign OOO → ROOM_OUT_OF_ORDER; pending is assignable', async () => {
+    const name = `lc-asg-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const room = { roomId: 'rm_1', roomTypeId: 'rt_king', code: '101' };
+    expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor('rm', room))).toMatchObject({ ok: true });
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'out_of_order' },
+        await idemFor('ooo', { roomId: 'rm_1', status: 'out_of_order' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'pending' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('casg', create)),
+    ).toMatchObject({ ok: true });
+    const assign = await stub.tryAssignRoom(
+      TEST_OWNER_ACTOR,
+      { reservationId, roomId: 'rm_1' },
+      await idemFor('asg', { reservationId, roomId: 'rm_1' }),
+    );
+    expect(assign).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+  });
 });
+

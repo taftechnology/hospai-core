@@ -25,6 +25,7 @@ import {
   ROOM_TYPE_MISMATCH,
   ROOM_ALREADY_ASSIGNED,
   ROOM_NOT_ASSIGNABLE,
+  BALANCE_DUE,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -242,6 +243,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_TYPE_MISMATCH ||
     error === ROOM_ALREADY_ASSIGNED ||
     error === ROOM_NOT_ASSIGNABLE ||
+    error === BALANCE_DUE ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||

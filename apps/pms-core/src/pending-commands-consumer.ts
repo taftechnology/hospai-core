@@ -42,7 +42,12 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
   'reservations.check_out': {
     fingerprintInput: (p) => p,
     invoke: (stub, payload, idem, ctx) =>
-      stub.tryCheckOut(REPLAY_ACTOR, payload as { reservationId: string }, idem, ctx),
+      stub.tryCheckOut(
+        REPLAY_ACTOR,
+        payload as { reservationId: string; overrideBalance?: boolean },
+        idem,
+        ctx,
+      ),
   },
   'reservations.cancel_check_in': {
     fingerprintInput: (p) => p,

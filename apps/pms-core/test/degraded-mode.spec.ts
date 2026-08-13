@@ -1,7 +1,7 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingCommandMessage, ProvisionalExceptionRow } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED } from '@hospai/contracts';
+import { BUSINESS_DATE_CLOSED, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED, BALANCE_DUE } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import {
@@ -1062,6 +1062,110 @@ describe('degraded mode §4.6 fault injection', () => {
     expect(exceptions.length).toBe(1);
     expect(exceptions[0]!.reason).toBe(ROOM_REQUIRED);
     expect(await stub.getReservationStatus('res_deg_32')).toBe('confirmed');
+  });
+
+  it('39: replay check-out vs folio.add_item orderings', async () => {
+    async function setupCheckedIn(actor: string, reservationId: string) {
+      const { propertyId, arrival, stub, guestRef, orgId } = await provisionHotel(actor);
+      const departure = addDays(arrival, 2);
+      expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+        201,
+      );
+      await assignCleanRoom(stub, actor, reservationId, `rm_${reservationId}`, reservationId.slice(-3));
+      expect(
+        await stub.tryCheckIn(
+          { kind: 'user', userId: actor },
+          { reservationId },
+          await idemFor(`ci-${reservationId}`, { reservationId }),
+        ),
+      ).toMatchObject({ ok: true });
+      return { propertyId, arrival, stub, orgId };
+    }
+
+    const chargeFirst = await setupCheckedIn('user_deg_39a', 'res_deg_39a');
+    const chargePayload = {
+      reservationId: 'res_deg_39a',
+      folioLineId: 'res_deg_39a:item:late',
+      chargeCode: 'MISC',
+      amountMinor: 1000,
+    };
+    const checkoutPayload = { reservationId: 'res_deg_39a' };
+    const chargeMsg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-39a-charge',
+        requestFingerprint: (await idemFor('idem-39a-charge', chargePayload)).fingerprint,
+        propertyId: chargeFirst.propertyId,
+        orgId: chargeFirst.orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: chargeFirst.arrival,
+        actor: { userId: 'user_deg_39a' },
+        command: { type: 'folio.add_item', payload: chargePayload },
+        routeId: 'post_folio_lines',
+      },
+    };
+    const checkoutMsg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-39a-co',
+        requestFingerprint: (await idemFor('idem-39a-co', checkoutPayload)).fingerprint,
+        propertyId: chargeFirst.propertyId,
+        orgId: chargeFirst.orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: chargeFirst.arrival,
+        actor: { userId: 'user_deg_39a' },
+        command: { type: 'reservations.check_out', payload: checkoutPayload },
+        routeId: 'post_reservation_check_out',
+      },
+    };
+    await dispatchPendingBatch([chargeMsg, checkoutMsg]);
+    expect(await chargeFirst.stub.getReservationStatus('res_deg_39a')).toBe('checked_in');
+    const { exceptions } = (await chargeFirst.stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions.some((e) => e.reason === BALANCE_DUE)).toBe(true);
+
+    const outFirst = await setupCheckedIn('user_deg_39b', 'res_deg_39b');
+    const chargePayloadB = {
+      reservationId: 'res_deg_39b',
+      folioLineId: 'res_deg_39b:item:late',
+      chargeCode: 'MISC',
+      amountMinor: 1000,
+    };
+    const checkoutPayloadB = { reservationId: 'res_deg_39b' };
+    const checkoutMsgB: PendingCommandMessage = {
+      ...checkoutMsg,
+      provisional: {
+        ...checkoutMsg.provisional,
+        idempotencyKey: 'idem-39b-co',
+        requestFingerprint: (await idemFor('idem-39b-co', checkoutPayloadB)).fingerprint,
+        propertyId: outFirst.propertyId,
+        orgId: outFirst.orgId,
+        businessDate: outFirst.arrival,
+        actor: { userId: 'user_deg_39b' },
+        command: { type: 'reservations.check_out', payload: checkoutPayloadB },
+      },
+    };
+    const chargeMsgB: PendingCommandMessage = {
+      ...chargeMsg,
+      provisional: {
+        ...chargeMsg.provisional,
+        idempotencyKey: 'idem-39b-charge',
+        requestFingerprint: (await idemFor('idem-39b-charge', chargePayloadB)).fingerprint,
+        propertyId: outFirst.propertyId,
+        orgId: outFirst.orgId,
+        businessDate: outFirst.arrival,
+        actor: { userId: 'user_deg_39b' },
+        command: { type: 'folio.add_item', payload: chargePayloadB },
+      },
+    };
+    await dispatchPendingBatch([checkoutMsgB, chargeMsgB]);
+    expect(await outFirst.stub.getReservationStatus('res_deg_39b')).toBe('checked_out');
+    expect(await outFirst.stub.countFolioLinesForReservation('res_deg_39b')).toBe(1);
+    const window = await outFirst.stub.readGuestFolioWindowForTest('res_deg_39b');
+    expect(window?.status).toBe('OPEN');
   });
 
   it('get_property: PropertyDO blocked returns 200 partial with propertyDo unreachable', async () => {

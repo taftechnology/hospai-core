@@ -37,6 +37,7 @@ import {
   ROOM_NOT_ASSIGNABLE,
   ROOM_REQUIRED,
   ROOM_NOT_READY,
+  BALANCE_DUE,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -505,6 +506,13 @@ class RoomNotReadyError extends Error {
   }
 }
 
+class BalanceDueError extends Error {
+  constructor(public readonly balanceMinor: number) {
+    super(BALANCE_DUE);
+    this.name = 'BalanceDueError';
+  }
+}
+
 class InvalidCancelPolicyError extends Error {
   constructor() {
     super('invalid_cancel_policy');
@@ -614,6 +622,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof ROOM_NOT_READY }
   | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
   | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
+  | { ok: false; error: typeof BALANCE_DUE }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -644,6 +653,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof RoomNotReadyError) return { ok: false, error: ROOM_NOT_READY };
   if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
   if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
+  if (e instanceof BalanceDueError) return { ok: false, error: BALANCE_DUE };
   return null;
 }
 
@@ -5585,17 +5595,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Check out a checked-in reservation. Implements catalog `reservations.check_out`.
-   * Fingerprint: `{ reservationId }`. No ledger mutation.
+   * Fingerprint: `{ reservationId, overrideBalance? }`.
    */
   async tryCheckOut(
     actor: ActorContext,
-    input: { reservationId: string },
+    input: { reservationId: string; overrideBalance?: boolean },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof BALANCE_DUE }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: string }
@@ -5620,14 +5631,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT guest_ref, pii_key_id, status, room_id FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
-            .toArray() as Array<{ guest_ref: string; pii_key_id: string; status: string }>;
+            .toArray() as Array<{
+            guest_ref: string;
+            pii_key_id: string;
+            status: string;
+            room_id: string | null;
+          }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
           if (reservation.status !== 'checked_in') {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+
+          const balanceRow = this.ctx.storage.sql
+            .exec(
+              `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS balance FROM folio_line WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ balance: number }>;
+          const balanceMinor = Number(balanceRow[0]?.balance ?? 0);
+          const requireZero =
+            this.readConfigValueSync('pms.reservations.check_out_require_zero_balance') !== false;
+          const allowOverride =
+            this.readConfigValueSync('pms.reservations.allow_balance_override') !== false;
+          if (requireZero && balanceMinor > 0 && !(input.overrideBalance === true && allowOverride)) {
+            throw new BalanceDueError(balanceMinor);
           }
 
           const now = Date.now();
@@ -5636,6 +5667,28 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.reservationId,
           );
+
+          if (reservation.room_id) {
+            const roomRows = this.ctx.storage.sql
+              .exec(`SELECT status FROM room WHERE room_id = ?`, reservation.room_id)
+              .toArray() as Array<{ status: string }>;
+            const fromStatus = roomRows[0]?.status ?? 'clean';
+            this.ctx.storage.sql.exec(
+              `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
+              now,
+              reservation.room_id,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'room.status_changed',
+              payload: {
+                propertyId,
+                roomId: reservation.room_id,
+                fromStatus,
+                toStatus: 'dirty',
+              },
+            });
+          }
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -5649,6 +5702,35 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               toStatus: 'checked_out',
               ...this.statusChangeOutboxExtras(provisional),
             },
+          });
+
+          if (balanceMinor > 0) {
+            const currency = this.readStoredLedgerCurrencySync();
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'folio.balance_due',
+              payload: {
+                propertyId,
+                reservationId: input.reservationId,
+                balanceMinor,
+                currency,
+                overridden: Boolean(input.overrideBalance && allowOverride),
+              },
+            });
+          }
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.check_out',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: 'checked_in', roomId: reservation.room_id },
+            afterJson: {
+              status: 'checked_out',
+              roomId: reservation.room_id,
+              ...(input.overrideBalance ? { overrideBalance: true } : {}),
+            },
+            reservationId: input.reservationId,
           });
 
           return { ok: true as const, reservationId: input.reservationId };

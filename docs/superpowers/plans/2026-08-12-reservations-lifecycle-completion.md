@@ -744,7 +744,7 @@ EOF
 - Produces: `tryCheckOut(actor, { reservationId, overrideBalance?: boolean }, idem, provisional?)`
 - Consumes: `readFolio` reduction (inline the same `SUM(ledger_amount_minor)` — do not call the async `readFolio` from inside `transactionSync`; copy the reduce). Config `check_out_require_zero_balance`, `allow_balance_override`.
 
-- [ ] **Step 1: Write failing tests 34–39**
+- [x] **Step 1: Write failing tests 34–39**
 
 34: checked_in, assigned clean room, zero folio → `checked_out`, room `dirty`, `room.status_changed`, no `folio.balance_due`.
 35: post a MISC line so `balanceMinor > 0`, no override → `BALANCE_DUE`, still `checked_in`, room still clean.
@@ -753,13 +753,13 @@ EOF
 38: `insertReservationForTest` checked_in with no `roomId` → status flip, no room update.
 39: enqueue check-out (no override) and enqueue `folio.add_item`; assert both replay orderings (charge-first → exception `BALANCE_DUE`; checkout-first → `checked_out` then late charge on still-OPEN window).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-out.spec.ts`
 
 Expected: FAIL — bare status flip, room stays clean.
 
-- [ ] **Step 3: Implement tryCheckOut**
+- [x] **Step 3: Implement tryCheckOut**
 
 After status-is-`checked_in`:
 
@@ -777,13 +777,13 @@ if (requireZero && balanceMinor > 0 && !(input.overrideBalance && allowOverride)
 
 Widen `REPLAY_DISPATCH['reservations.check_out']` payload. Add `BALANCE_DUE` to `mapReservationCommandErrorStatus` → 422 (Task 8 can also do this; do it here so DO tests that go through HTTP later compile — the mapper is HTTP-only, so DO tests just see `error: 'balance_due'`).
 
-- [ ] **Step 4: Run check-out + degraded + folio-routes checkout if any**
+- [x] **Step 4: Run check-out + degraded + folio-routes checkout if any**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-check-out.spec.ts test/degraded-mode.spec.ts test/folio-routes.spec.ts`
 
 Grep `check_out` / `check-out` in pms-core tests and fix fixtures that assume a bare flip with open balance.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/pending-commands-consumer.ts apps/pms-core/test/reservations-check-out.spec.ts apps/pms-core/test/degraded-mode.spec.ts

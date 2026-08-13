@@ -32,7 +32,7 @@ const staffMe = {
   propertyId: 'prop_demo',
   userId: 'user_staff',
   role: 'staff' as const,
-  permissions: ['reservations:read', 'folio:read'] as const,
+  permissions: ['reservations:read', 'folio:read', 'property:read'] as const,
   orgPermissions: ['org:read'] as const,
 };
 
@@ -40,14 +40,13 @@ const ownerMe = {
   ...staffMe,
   userId: 'user_owner',
   role: 'admin' as const,
-  permissions: ['night_audit:run'] as const,
+  permissions: ['night_audit:run', 'property:read'] as const,
 };
 
 function renderPanel() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
@@ -55,10 +54,9 @@ function renderPanel() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { invalidateSpy };
 }
 
-describe('ExceptionsPanel Resolve', () => {
+describe('ExceptionsPanel badge-as-link', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getProvisionalExceptionCount.mockResolvedValue({ propertyId: 'prop_demo', exceptionCount: 1 });
@@ -70,38 +68,29 @@ describe('ExceptionsPanel Resolve', () => {
 
   afterEach(() => cleanup());
 
-  it('27: Resolve absent without night_audit:run; present with it; click invalidates', async () => {
+  it('staff and owner see Exceptions link; no Resolve; click does not resolve', async () => {
     getMe.mockResolvedValue(staffMe);
     renderPanel();
     await waitFor(() => expect(screen.getByTestId('exceptions-panel')).toBeTruthy());
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button'));
-    });
-    await waitFor(() => expect(screen.getByText('exc_1')).toBeTruthy());
+    const staffLink = screen.getByRole('link', { name: /exceptions/i });
+    expect(staffLink.getAttribute('href')).toBe('/exceptions');
     expect(screen.queryByRole('button', { name: /^resolve$/i })).toBeNull();
+    await act(async () => {
+      fireEvent.click(staffLink);
+    });
+    expect(resolveProvisionalException).not.toHaveBeenCalled();
     cleanup();
 
     getMe.mockResolvedValue(ownerMe);
-    const { invalidateSpy } = renderPanel();
+    renderPanel();
     await waitFor(() => expect(screen.getByTestId('exceptions-panel')).toBeTruthy());
+    const ownerLink = screen.getByRole('link', { name: /exceptions/i });
+    expect(ownerLink.getAttribute('href')).toBe('/exceptions');
+    expect(screen.queryByRole('button', { name: /^resolve$/i })).toBeNull();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button'));
+      fireEvent.click(ownerLink);
     });
-    await waitFor(() => expect(screen.getByRole('button', { name: /^resolve$/i })).toBeTruthy());
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /^resolve$/i }));
-    });
-    await waitFor(() => expect(resolveProvisionalException).toHaveBeenCalled());
-    expect(resolveProvisionalException).toHaveBeenCalledWith(
-      'prop_demo',
-      'exc_1',
-      'provisional:resolve:prop_demo:exc_1',
-    );
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['provisional-exception-count', 'prop_demo'],
-    });
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['provisional-exceptions', 'prop_demo'],
-    });
+    expect(resolveProvisionalException).not.toHaveBeenCalled();
+    expect(getProvisionalExceptions).not.toHaveBeenCalled();
   });
 });

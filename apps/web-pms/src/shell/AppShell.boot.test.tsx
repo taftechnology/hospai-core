@@ -72,7 +72,7 @@ describe('AppShell boot path', () => {
     // fail_closed on /me → fail open: full nav after settle (not withheld forever)
     await waitFor(() => expect(screen.getByRole('link', { name: /arrivals/i })).toBeTruthy());
     expect(screen.getByText(/Queued commands/i)).toBeTruthy();
-    expect(screen.getByText(/Replay exceptions/i)).toBeTruthy();
+    expect(screen.getByTestId('exceptions-panel')).toBeTruthy();
     expect(screen.getByText('board-outlet')).toBeTruthy();
   });
 

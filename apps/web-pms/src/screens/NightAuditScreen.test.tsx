@@ -184,4 +184,14 @@ describe('NightAuditScreen', () => {
     expect(screen.getByTestId('report-table').textContent).toMatch(/150\.00/);
     expect(screen.getByTestId('report-table').textContent).toMatch(/12\.00/);
   });
+
+  it('open exceptions link points at /exceptions?resolution=open', async () => {
+    getNightAudit.mockResolvedValue(statusPayload({ closingExceptionCount: 2 }));
+    renderScreen();
+    await waitFor(() => expect(screen.getByRole('link', { name: /open exceptions/i })).toBeTruthy());
+    const href = screen.getByRole('link', { name: /open exceptions/i }).getAttribute('href') ?? '';
+    expect(href).toContain('/exceptions?resolution=open');
+    expect(href).toContain('businessDateFrom=2026-03-01');
+    expect(href).toContain('businessDateTo=2026-03-01');
+  });
 });

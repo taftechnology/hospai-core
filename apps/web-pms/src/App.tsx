@@ -12,6 +12,7 @@ import { ShiftScreen } from './screens/ShiftScreen.js';
 import { StaffRoute } from './screens/StaffRoute.js';
 import { RosterRoute } from './screens/RosterRoute.js';
 import { NightAuditRoute } from './screens/NightAuditRoute.js';
+import { ExceptionsScreen } from './screens/ExceptionsScreen.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
 import { InventoryRoute } from './screens/InventoryRoute.js';
 import { InventoryScreen } from './screens/InventoryScreen.js';
@@ -61,6 +62,7 @@ export function App() {
             <Route path="staff" element={<StaffRoute />} />
             <Route path="roster" element={<RosterRoute />} />
             <Route path="night-audit" element={<NightAuditRoute />} />
+            <Route path="exceptions" element={<ExceptionsScreen />} />
             <Route path="settings" element={<SettingsRoute />}>
               <Route index element={<Navigate to="property" replace />} />
               <Route path="property" element={<SettingsScreen tab="property" />} />

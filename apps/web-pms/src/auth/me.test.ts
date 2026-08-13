@@ -44,6 +44,7 @@ describe('me authority helpers', () => {
           e.id !== 'book' &&
           e.id !== 'roster' &&
           e.id !== 'night-audit' &&
+          e.id !== 'exceptions' &&
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
           e.id !== 'settings',
@@ -133,6 +134,23 @@ describe('me authority helpers', () => {
     expect(ids).toContain('inventory');
     expect(ids).toContain('rates');
     expect(ids).toContain('settings');
+  });
+
+  it('filterNavEntries: live property:read includes exceptions at order 65', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'property:read'],
+    };
+    const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
+    const ids = filtered.map((e) => e.id);
+    expect(ids).toContain('exceptions');
+    const exceptions = NAV_ENTRIES.find((e) => e.id === 'exceptions');
+    expect(exceptions?.order).toBe(65);
+    const night = filtered.findIndex((e) => e.id === 'night-audit');
+    const exc = filtered.findIndex((e) => e.id === 'exceptions');
+    const settings = filtered.findIndex((e) => e.id === 'settings');
+    expect(exc).toBeGreaterThan(night === -1 ? -1 : night);
+    if (settings !== -1) expect(exc).toBeLessThan(settings);
   });
 
   it('canShowShellOpen: pending false; unknown true; live needs folio:post', () => {

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { api, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -141,7 +142,11 @@ export function NightAuditScreen() {
             Closing {status.businessDate}
             {' · '}
             {status.closingExceptionCount} open exceptions.{' '}
-            <a href="#replay-exceptions">Open replay exceptions</a>
+            <Link
+              to={`/exceptions?resolution=open&businessDateFrom=${encodeURIComponent(status.businessDate)}&businessDateTo=${encodeURIComponent(status.businessDate)}`}
+            >
+              Open exceptions
+            </Link>
           </p>
           <p>
             <button type="button" disabled={runDisabled} onClick={() => runMutation.mutate()}>

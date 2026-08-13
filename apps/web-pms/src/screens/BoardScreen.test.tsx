@@ -125,6 +125,17 @@ describe('BoardScreen folio links', () => {
     });
   });
 
+  it('VIP and DND badges on the guest cell', async () => {
+    getArrivals.mockResolvedValue({
+      ok: true,
+      items: [{ ...item, vipFlag: true, dndFlag: true }],
+      nextCursor: null,
+    });
+    renderBoard('arrivals');
+    await waitFor(() => expect(screen.getByTestId('badge-vip')).toBeTruthy());
+    expect(screen.getByTestId('badge-dnd')).toBeTruthy();
+  });
+
   it('55: pending arrival is attention and shows Confirm', async () => {
     getArrivals.mockResolvedValue({
       ok: true,

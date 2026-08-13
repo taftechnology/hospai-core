@@ -48,6 +48,8 @@ export function BookingScreen() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
   const [guestCreated, setGuestCreated] = useState(false);
   const [contextGuestRef, setContextGuestRef] = useState<string | null>(urlGuestRef);
   const [contextDisplayName, setContextDisplayName] = useState<string | null>(null);
@@ -124,9 +126,14 @@ export function BookingScreen() {
     ? contextDisplayName != null
     : displayName.trim().length > 0;
 
+  const partyOk = adults >= 1 && children >= 0;
   const confirmEnabled =
-    quoteAriVersion != null && roomTypeId != null && guestResolved && !dateCapBlocked;
-  const quoteEnabled = roomTypeId != null && guestResolved && !dateCapBlocked;
+    quoteAriVersion != null &&
+    roomTypeId != null &&
+    guestResolved &&
+    !dateCapBlocked &&
+    partyOk;
+  const quoteEnabled = roomTypeId != null && guestResolved && !dateCapBlocked && partyOk;
 
   const availErrorClassified = availQ.isError ? asClassified(availQ.error) : null;
   const availDateRangeExceeded =
@@ -161,6 +168,8 @@ export function BookingScreen() {
         departureDate,
         guestRef,
         status,
+        adults,
+        children,
       });
       return api.createReservation(
         propertyId,
@@ -171,6 +180,8 @@ export function BookingScreen() {
           arrivalDate,
           departureDate,
           quoteAriVersion: quoteAriVersion ?? 0,
+          adults,
+          children,
           ...(status === 'confirmed' ? {} : { status }),
         },
         opId,
@@ -186,6 +197,10 @@ export function BookingScreen() {
       const body = err instanceof ClassifiedError ? err.classified.body : c.body;
       const code = bodyErrorCode(body);
 
+      if (code === 'occupancy_exceeded') {
+        setMessage('Party exceeds this room type’s occupancy.');
+        return;
+      }
       if (code === 'no_availability') {
         const date = bodyField(body, 'date');
         setMessage(
@@ -332,6 +347,30 @@ export function BookingScreen() {
             Quote ariVersion {quoteAriVersion}
           </p>
         ) : null}
+      </section>
+
+      <section className="stack">
+        <h2>Party</h2>
+        <label>
+          Adults{' '}
+          <input
+            type="number"
+            min={1}
+            data-testid="adults"
+            value={adults}
+            onChange={(e) => setAdults(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          Children{' '}
+          <input
+            type="number"
+            min={0}
+            data-testid="children"
+            value={children}
+            onChange={(e) => setChildren(Number(e.target.value))}
+          />
+        </label>
       </section>
 
       <section className="stack">

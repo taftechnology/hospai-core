@@ -22,6 +22,7 @@ const refundPayment = vi.fn();
 const postDiscount = vi.fn();
 const captureDue = vi.fn();
 const updateFrontOffice = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -37,6 +38,7 @@ vi.mock('../client.js', () => ({
   },
   api: {
     getMe: (...args: unknown[]) => getMe(...args),
+    getProperty: (...args: unknown[]) => getProperty(...args),
     getFolio: (...args: unknown[]) => getFolio(...args),
     getReservation: (...args: unknown[]) => getReservation(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
@@ -165,6 +167,10 @@ describe('FolioScreen wiring', () => {
       guests: {},
       states: { g1: { kind: 'name_pending' } },
     });
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
+    });
+    updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
 
   afterEach(() => {
@@ -677,5 +683,138 @@ describe('FolioScreen wiring', () => {
     const paymentsCallsAfterCheckout = getFolioPayments.mock.calls.length;
     await new Promise((r) => setTimeout(r, 50));
     expect(getFolioPayments.mock.calls.length).toBe(paymentsCallsAfterCheckout);
+  });
+
+  it('12–14: print-reg-card enabled with resolved guest; card omits balance', async () => {
+    const print = vi.fn();
+    vi.stubGlobal('print', print);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 424242,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      adults: 2,
+      children: 1,
+    });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+
+    renderFolio();
+    await waitFor(() =>
+      expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(false),
+    );
+    const card = screen.getByTestId('reg-card');
+    expect(card.textContent).toMatch(/res_1/);
+    expect(card.textContent).toMatch(/Ada Lovelace/);
+    expect(card.textContent).toMatch(/2026-08-08/);
+    expect(card.textContent).toMatch(/2026-08-10/);
+    expect(card.textContent).toMatch(/Adults 2/);
+    expect(card.textContent).toMatch(/Children 1/);
+    expect(card.textContent).not.toMatch(/424242/);
+    expect(card.textContent).not.toMatch(/balanceMinor/);
+    fireEvent.click(screen.getByTestId('print-reg-card'));
+    expect(print).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('13: print disabled on fail_closed reservation; window.print not called', async () => {
+    const print = vi.fn();
+    vi.stubGlobal('print', print);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('print-reg-card')).toBeTruthy());
+    expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('print-reg-card'));
+    expect(print).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Registration card is unavailable while the property is unreachable/i),
+    ).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('15: editor payload omits noPost; toggle-no-post stays { noPost } only', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+      noPost: false,
+    });
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      frontOfficeComment: '',
+      vipFlag: false,
+      dndFlag: false,
+    });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('front-office-save')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('front-office-comment'), {
+      target: { value: 'Late arrival' },
+    });
+    fireEvent.click(screen.getByTestId('vip-flag'));
+    fireEvent.click(screen.getByTestId('dnd-flag'));
+    fireEvent.click(screen.getByTestId('front-office-save'));
+    await waitFor(() => expect(updateFrontOffice).toHaveBeenCalled());
+    const editorExtra = updateFrontOffice.mock.calls[0]![3] as Record<string, unknown>;
+    expect(editorExtra).toEqual({
+      frontOfficeComment: 'Late arrival',
+      vipFlag: true,
+      dndFlag: true,
+    });
+    expect('noPost' in editorExtra).toBe(false);
+
+    updateFrontOffice.mockClear();
+    fireEvent.click(screen.getByTestId('toggle-no-post'));
+    await waitFor(() => expect(updateFrontOffice).toHaveBeenCalled());
+    const noPostExtra = updateFrontOffice.mock.calls[0]![3] as Record<string, unknown>;
+    expect(noPostExtra).toEqual({ noPost: true });
+  });
+
+  it('15b: comment over 2000 disables save', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('front-office-save')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('front-office-comment'), {
+      target: { value: 'x'.repeat(2001) },
+    });
+    expect((screen.getByTestId('front-office-save') as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -116,7 +116,15 @@ function BoardTable({
                 {row.reservationId}
                 {overstay ? ' (overstay)' : ''}
               </td>
-              <td className={statusClass(guestSev)}>{guestLabel(guestState, row.guestRef)}</td>
+              <td className={statusClass(guestSev)}>
+                {guestLabel(guestState, row.guestRef)}
+                {row.vipFlag === true ? (
+                  <span data-testid="badge-vip"> VIP</span>
+                ) : null}
+                {row.dndFlag === true ? (
+                  <span data-testid="badge-dnd"> DND</span>
+                ) : null}
+              </td>
               <td>
                 {mode === 'arrivals' && status === 'pending' ? (
                   <ConfirmPendingButton reservationId={row.reservationId} />

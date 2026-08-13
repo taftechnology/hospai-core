@@ -2,6 +2,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useState } from 'react';
 import { api, asClassified, tenant } from '../client.js';
+import { FrontOfficeEditor } from './front-office-editor.js';
+import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -10,6 +12,8 @@ function bodyErrorCode(body: unknown): string | null {
   }
   return null;
 }
+
+const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
 
 export function CheckInScreen() {
   const { reservationId = '' } = useParams();
@@ -22,6 +26,18 @@ export function CheckInScreen() {
     queryKey: ['reservation', tenant.propertyId, reservationId],
     queryFn: () => api.getReservation(tenant.propertyId, reservationId),
     enabled: Boolean(reservationId),
+  });
+
+  const guestRef = reservationQ.data?.guestRef;
+  const guestsQ = useQuery({
+    queryKey: ['check-in-guest', tenant.propertyId, guestRef],
+    queryFn: () => api.postGuestsBatch(tenant.propertyId, guestRef ? [guestRef] : []),
+    enabled: Boolean(guestRef),
+  });
+  const propertyQ = useQuery({
+    queryKey: ['property', tenant.propertyId],
+    queryFn: () => api.getProperty(tenant.propertyId),
+    retry: false,
   });
 
   useEffect(() => {
@@ -78,6 +94,15 @@ export function CheckInScreen() {
   });
 
   const canCheckIn = roomId.trim().length > 0 && !checkIn.isPending;
+  const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
+  const guestResolved = guestState?.kind === 'resolved';
+  const canPrint = reservationQ.isSuccess && guestResolved;
+  const displayName = guestState?.kind === 'resolved' ? guestState.displayName : null;
+  const adults = reservationQ.data?.adults ?? 1;
+  const children = reservationQ.data?.children ?? 0;
+  const editorDisabled = Boolean(
+    reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status),
+  );
 
   return (
     <div className="panel">
@@ -86,6 +111,11 @@ export function CheckInScreen() {
       </p>
       <h1>Check in {reservationId}</h1>
       <p className="muted">A room is required to check in.</p>
+      {reservationQ.isSuccess ? (
+        <p>
+          Adults {adults} · Children {children}
+        </p>
+      ) : null}
       <div className="stack-row">
         <input
           placeholder="room id"
@@ -116,6 +146,21 @@ export function CheckInScreen() {
         </label>
       ) : null}
       {message ? <p>{message}</p> : null}
+      {reservationQ.isSuccess ? (
+        <FrontOfficeEditor
+          reservationId={reservationId}
+          frontOfficeComment={reservationQ.data.frontOfficeComment}
+          vipFlag={reservationQ.data.vipFlag}
+          dndFlag={reservationQ.data.dndFlag}
+          disabled={editorDisabled}
+        />
+      ) : null}
+      <PrintRegCardControl canPrint={canPrint} />
+      <RegistrationCard
+        propertyName={propertyQ.data?.property?.name ?? null}
+        reservation={reservationQ.data}
+        displayName={displayName}
+      />
     </div>
   );
 }

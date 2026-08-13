@@ -810,6 +810,8 @@ export function createClient(opts: {
         departureDate: string;
         quoteAriVersion: number;
         status?: 'inquiry' | 'pending' | 'confirmed';
+        adults?: number;
+        children?: number;
       },
       opId: string,
     ) {
@@ -825,6 +827,8 @@ export function createClient(opts: {
           departureDate: input.departureDate,
           quoteAriVersion: input.quoteAriVersion,
           ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.adults !== undefined ? { adults: input.adults } : {}),
+          ...(input.children !== undefined ? { children: input.children } : {}),
           idempotencyKey,
         }),
       });

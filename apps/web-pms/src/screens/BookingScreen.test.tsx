@@ -558,4 +558,45 @@ describe('BookingScreen', () => {
     expect(holdOp).toContain(':pending');
     expect(holdOp).not.toBe(confirmOp);
   });
+
+  it('11: adults/children go on create; occupancy_exceeded copy', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.change(screen.getByTestId('adults'), { target: { value: '2' } });
+    fireEvent.change(screen.getByTestId('children'), { target: { value: '1' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    const resArg = createReservation.mock.calls[0]![1] as { adults: number; children: number };
+    expect(resArg.adults).toBe(2);
+    expect(resArg.children).toBe(1);
+    const opId = createReservation.mock.calls[0]![2] as string;
+    expect(opId).toMatch(/:2:1$/);
+
+    cleanup();
+    vi.clearAllMocks();
+    getAvailability.mockImplementation(
+      async (_p: string, range: { fromDate: string; toDate: string }) =>
+        availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_king', free: 1 }]),
+    );
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'occupancy_exceeded' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => {
+      expect(screen.getByTestId('book-message').textContent).toBe(
+        "Party exceeds this room type’s occupancy.",
+      );
+    });
+  });
 });

@@ -19,6 +19,8 @@ import { formatMinor } from '../money.js';
 import { statusClass } from '../status/status-class.js';
 import { guestLabel } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
+import { FrontOfficeEditor } from './front-office-editor.js';
+import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
 
@@ -101,6 +103,11 @@ export function FolioScreen() {
     queryKey: ['folio-guest', propertyId, guestRef],
     queryFn: () => api.postGuestsBatch(propertyId, guestRef ? [guestRef] : []),
     enabled: Boolean(guestRef),
+  });
+  const propertyQ = useQuery({
+    queryKey: ['property', propertyId],
+    queryFn: () => api.getProperty(propertyId),
+    retry: false,
   });
 
   const policy = folioActionPolicy({
@@ -600,6 +607,11 @@ export function FolioScreen() {
   });
 
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
+  const guestResolved = guestState?.kind === 'resolved';
+  const canPrint = reservationQ.isSuccess && guestResolved;
+  const editorDisabled =
+    writeDenied ||
+    Boolean(reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status));
 
   return (
     <div className="panel">
@@ -647,6 +659,22 @@ export function FolioScreen() {
           {noPost ? 'Clear no-post' : 'Set no-post'}
         </button>
       ) : null}
+
+      {reservationQ.isSuccess ? (
+        <FrontOfficeEditor
+          reservationId={reservationId}
+          frontOfficeComment={reservationQ.data.frontOfficeComment}
+          vipFlag={reservationQ.data.vipFlag}
+          dndFlag={reservationQ.data.dndFlag}
+          disabled={editorDisabled}
+        />
+      ) : null}
+      <PrintRegCardControl canPrint={canPrint} />
+      <RegistrationCard
+        propertyName={propertyQ.data?.property?.name ?? null}
+        reservation={reservationQ.data}
+        displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
+      />
 
       {windows.length > 0 ? (
         <section>

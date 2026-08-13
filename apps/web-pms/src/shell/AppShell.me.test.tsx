@@ -15,6 +15,7 @@ vi.mock('../client.js', () => ({
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
     getProvisionalExceptions: async () => ({ items: [] }),
+    searchReservations: async () => ({ classified: { class: 'live' }, body: { ok: true, items: [] } }),
   },
   queuedCommands: { entries: () => [] },
   asClassified: (err: unknown) => {

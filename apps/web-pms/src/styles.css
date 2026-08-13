@@ -180,3 +180,62 @@ button {
   font-size: 0.85rem;
 }
 
+.top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: center;
+}
+
+.reservation-search {
+  position: relative;
+  margin-left: auto;
+}
+
+.reservation-search ul {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-width: 16rem;
+}
+
+.reservation-search li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+@media screen {
+  .reg-card {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
+@media print {
+  .top-bar,
+  .shift-strip,
+  .side-panels,
+  .nav {
+    display: none !important;
+  }
+
+  .reg-card {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+}
+

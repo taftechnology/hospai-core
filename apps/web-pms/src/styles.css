@@ -91,6 +91,79 @@ a {
   overscroll-behavior: contain;
 }
 
+.min-w-0 {
+  min-width: 0;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.tape-scroller {
+  overflow: auto;
+  touch-action: manipulation;
+  overscroll-behavior: contain;
+}
+
+.tape-row {
+  display: grid;
+  align-items: stretch;
+}
+
+.tape-room {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.tape-cell {
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.tape-block {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  z-index: 2;
+  min-width: 0;
+  margin: 0.15rem;
+  padding: 0.2rem 0.4rem;
+  overflow: hidden;
+}
+
+.tape-header-cell {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tape-type {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tape-block {
+    transform: none;
+    transition: none;
+  }
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

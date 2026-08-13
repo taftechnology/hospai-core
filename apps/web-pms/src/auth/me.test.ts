@@ -49,6 +49,8 @@ describe('me authority helpers', () => {
           e.id !== 'settings',
       ),
     );
+    const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
+    expect(ids).toContain('board');
   });
 
   it('filterNavEntries: live with reservations:write → includes Book', () => {

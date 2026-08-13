@@ -10,6 +10,7 @@ export type NavEntry = {
 
 /** Core SPA contribution — module UI registry concatenates alongside this. */
 export const NAV_ENTRIES: NavEntry[] = [
+  { id: 'board', label: 'Board', path: '/board', order: 8, permission: 'reservations:read' },
   { id: 'arrivals', label: 'Arrivals', path: '/arrivals', order: 10, permission: 'reservations:read' },
   { id: 'in-house', label: 'In-house', path: '/in-house', order: 20, permission: 'reservations:read' },
   { id: 'departures', label: 'Departures', path: '/departures', order: 30, permission: 'reservations:read' },

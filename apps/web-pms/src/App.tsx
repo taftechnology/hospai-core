@@ -4,6 +4,7 @@ import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { asClassified } from './client.js';
 import { BookRoute } from './screens/BookRoute.js';
 import { BoardScreen } from './screens/BoardScreen.js';
+import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
@@ -35,7 +36,8 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppShell />}>
-            <Route index element={<Navigate to="/arrivals" replace />} />
+            <Route index element={<Navigate to="/board" replace />} />
+            <Route path="board" element={<TapeChartScreen />} />
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />

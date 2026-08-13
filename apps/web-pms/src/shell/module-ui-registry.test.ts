@@ -5,6 +5,7 @@ import { NAV_ENTRIES } from './nav.js';
 describe('module UI nav merge', () => {
   it('inserts housekeeping between in-house and departures by order', () => {
     expect(ALL_NAV.map((e) => e.id)).toEqual([
+      'board',
       'arrivals',
       'in-house',
       'housekeeping',

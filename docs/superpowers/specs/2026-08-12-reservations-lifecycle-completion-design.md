@@ -267,6 +267,8 @@ If both are present and differ, the payload wins: run the assign-room conflict c
 
 `assign_room` (the standalone command) additionally rejects `out_of_order` from this chunk (today it does not read `room.status`). Dirty pre-assign remains legal — HK may still be finishing.
 
+Amended: assign/check-in refuse stay ∩ `room_ooo` (not only `room.status === 'out_of_order'`); `tryModifyReservation` re-runs assignability when `room_id` is set and dates or type change; see [room operations & HK completion](./2026-08-12-room-operations-hk-completion-design.md) §4.
+
 Override is an explicit payload flag, same `reservations:write` permission, written to `audit_log` (`afterJson.overrideCleanliness: true`). Not a new permission.
 
 ### 4.3 Why check-in stays `QUEUE_PROVISIONAL`

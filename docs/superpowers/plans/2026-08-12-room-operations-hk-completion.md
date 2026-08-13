@@ -1449,7 +1449,7 @@ EOF
 
 One sentence each, bidirectional to `2026-08-12-room-operations-hk-completion-design.md`. Do not rewrite those specs.
 
-- [ ] **Step 1: Amend**
+- [x] **Step 1: Amend**
 
 Rooms-vertical (`§2.1` / leftover OOO→blocked, around the `PLATFORM_GAPS` bullets):
 
@@ -1469,7 +1469,7 @@ Housekeeping-module §4.2 / leftover assign affordance:
 
 The room-ops spec already points at these four; no change required there unless a cite is stale.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-05-rooms-housekeeping-vertical-design.md \

@@ -47,6 +47,8 @@ ARCHITECTURE §7.1 eventually wants OOO per room to increment `blocked` in the s
 - Intended steady state for each active `room_type`: `COUNT(room) == room_count`. Hard gates on the write paths that would drive permanent divergence (§2.5); a DO test asserts equality after the happy-path create-up-to-count flow. Raising `room_count` without creating rooms is a temporary under-count (allowed); the gates forbid over-count.
 - `rooms.set_ooo_range` and the ARCHITECTURE OOO→`blocked` path remain deferred. Status `out_of_order` is a housekeeping label only in Phase 1 — visible to operators, inert to the ledger. That temporary inconsistency with §7.1 is explicit and bounded by the existing `PLATFORM_GAPS` entry, not invented here.
 
+Superseded: `out_of_order` is no longer a housekeeping label — `rooms.set_ooo_range` writes `room_ooo` and increments `blocked`; see [room operations & HK completion](./2026-08-12-room-operations-hk-completion-design.md).
+
 **Catalog honesty fix required by this decision.** Today `rooms.update_status` declares `events: ['room.status_changed', 'availability.changed']` ([catalog.ts:135](../../../packages/contracts/src/commands/catalog.ts:135)). Emitting `availability.changed` without touching the ledger is a lie that would kick ARI projection consumers for no reason. Drop `availability.changed` from that entry in the same commit that lands this slice. `rooms.bulk_update_status` already emits only `room.status_changed` — leave it.
 
 ### 2.2 `reservations.assign_room` does not commute → `FAIL_CLOSED`

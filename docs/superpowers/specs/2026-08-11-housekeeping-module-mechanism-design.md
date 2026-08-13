@@ -293,6 +293,8 @@ Existing degraded-mode tests (e.g. test 23 `housekeeping.assign`, test 22 room s
 
 No `staff_…` identity source exists until the roster chunk. Board this chunk: read-only + room-status mutations only. Still proves nav contribution, route resolution, permission gating, and the two-read compose path.
 
+Board completion (dropdown trim, roster-error isolation, filters, workload, inventory-gated OOO form) landed in [room operations & HK completion](./2026-08-12-room-operations-hk-completion-design.md) §5; the picker itself remains the roster chunk.
+
 ### 4.3 `assignee_ref` / fixtures
 
 - Unit: reject `''`, `'Alice'`, `'user_abc'`, `'hk_alice'`; accept `staff_alice`.

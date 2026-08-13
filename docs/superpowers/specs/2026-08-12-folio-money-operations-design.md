@@ -31,6 +31,8 @@ The desk can post, authorize, capture, cash, split same-window, and check out be
 | Migration head | `PROPERTY_MIGRATIONS` version **20**. Next free **21**. Real-SQLite tests run `PRAGMA foreign_keys = ON` (`charge-code-migration.sqlite.test.ts`). |
 | Audit writers | `AUDIT_WRITER_COMMAND_IDS.size === 35`. |
 | `PLATFORM_GAPS` | `folio.transfer_charge`, `folio.split_charge_v2` (cross-window remainder), `rooms.set_ooo_range`. |
+
+`PLATFORM_GAPS` no longer lists `rooms.set_ooo_range` (closed by [room operations & HK completion](./2026-08-12-room-operations-hk-completion-design.md)).
 | `allocate` | `packages/money`: weights must be **positive**; remainder policy `LAST` (default) or `FIRST`. |
 
 ### 1.2 Scope in

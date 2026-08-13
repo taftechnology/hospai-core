@@ -878,11 +878,11 @@ EOF
 - Produces: `tryPostDiscount`; `noPost` on create/modify/hold/confirm/`update_status`; night-audit skip
 - Consumes: v21 `no_post` + `DISCOUNT` seed; Task 3 gate
 
-- [ ] **Step 1: Write failing tests** 37, 38, 40, 41.
+- [x] **Step 1: Write failing tests** 37, 38, 40, 41.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `postRoomChargesSync`: `AND COALESCE(no_post, 0) = 0` on the reservation SELECT (or skip in the loop).
 
@@ -892,9 +892,9 @@ Create/modify/hold/confirm: optional `noPost`, fingerprint includes it.
 
 `tryPostDiscount`: spec §7.3. `folio:adjust`. Reason 1–500. Percent via `roundHalfAwayFromZero`. Charge code `DISCOUNT`, `source = 'DESK'`, `split_of` = source. Window OPEN.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \

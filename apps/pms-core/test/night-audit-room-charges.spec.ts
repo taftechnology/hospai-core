@@ -269,4 +269,38 @@ describe('night audit POST_ROOM_CHARGES', () => {
       amountMinor: 15000,
     });
   });
+
+  it('37: no_post=1 skip ROOM; sibling no_post=0 still posted', async () => {
+    const { stub } = await provisionedPropertyStub(`na-nopost-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await seedRate(stub, 'rt_a', businessDate, 10000);
+    await stub.insertReservationForTest({
+      reservationId: 'res_nopost',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 1),
+      status: 'confirmed',
+      noPost: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_posted',
+      roomTypeId: 'rt_a',
+      guestRef: 'g2',
+      piiKeyId: 'p2',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 1),
+      status: 'confirmed',
+    });
+    const result = await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES');
+    expect(result.status).toBe('COMPLETED');
+    expect(
+      (await stub.listFolioLinesForReservation('res_nopost')).filter((l) => l.chargeCode === 'ROOM'),
+    ).toHaveLength(0);
+    expect(
+      (await stub.listFolioLinesForReservation('res_posted')).filter((l) => l.chargeCode === 'ROOM'),
+    ).toHaveLength(1);
+  });
 });

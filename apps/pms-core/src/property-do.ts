@@ -47,6 +47,8 @@ import {
   TRANSFER_CROSS_RESERVATION,
   TRANSFER_SAME_WINDOW,
   LINE_NOT_TRANSFERABLE,
+  LINE_NOT_DISCOUNTABLE,
+  DISCOUNT_REASON_REQUIRED,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -549,6 +551,8 @@ class FolioWindowError extends Error {
       | typeof TRANSFER_CROSS_RESERVATION
       | typeof TRANSFER_SAME_WINDOW
       | typeof LINE_NOT_TRANSFERABLE
+      | typeof LINE_NOT_DISCOUNTABLE
+      | typeof DISCOUNT_REASON_REQUIRED
       | typeof SPLIT_AMOUNT_MISMATCH
       | typeof LINE_NOT_SPLITTABLE,
   ) {
@@ -4726,6 +4730,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return rows[0].amount_minor;
   }
 
+  private applyNoPostIfPresentSync(reservationId: string, noPost: boolean | undefined): void {
+    if (noPost === undefined) return;
+    this.ctx.storage.sql.exec(
+      `UPDATE reservation SET no_post = ? WHERE reservation_id = ?`,
+      noPost ? 1 : 0,
+      reservationId,
+    );
+  }
+
   private snapshotRateNightsSync(
     reservationId: string,
     roomTypeId: string,
@@ -5063,6 +5076,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       ratePlanId?: string;
       confirmBy?: number;
       expiresAt?: number;
+      noPost?: boolean;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -5156,8 +5170,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             `INSERT INTO reservation (
                reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
                status, adults, children, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
-               cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
@@ -5174,6 +5188,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             snapshot.cancelPenaltyBps,
             confirmBy,
             expiresAt,
+            input.noPost === true ? 1 : 0,
             now,
             now,
           );
@@ -5250,7 +5265,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryConfirm(
     actor: ActorContext,
-    input: { reservationId: string; ratePlanId?: string },
+    input: { reservationId: string; ratePlanId?: string; noPost?: boolean },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
@@ -5336,6 +5351,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               input.reservationId,
             );
           }
+          this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
           const ariVersion = fromInquiry ? this.bumpAriVersionSync() : this.readAriVersionSync();
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -5380,7 +5396,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryHold(
     actor: ActorContext,
-    input: { reservationId: string; ratePlanId?: string; confirmBy?: number },
+    input: { reservationId: string; ratePlanId?: string; confirmBy?: number; noPost?: boolean },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
@@ -5458,6 +5474,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.reservationId,
           );
+          this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
           const ariVersion = this.bumpAriVersionSync();
           const fromDate = nights[0]!;
           const toDate = nights[nights.length - 1]!;
@@ -5676,6 +5693,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departureDate: string;
       adults?: number;
       children?: number;
+      noPost?: boolean;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -5860,6 +5878,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.reservationId,
           );
+          this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
 
           if (commitsInventory) {
             this.syncReservationRateNightsOnModifySync(
@@ -6599,7 +6618,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    */
   async tryUpdateFrontOffice(
     actor: ActorContext,
-    input: { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean },
+    input: { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
@@ -6628,7 +6647,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag
+              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag, no_post
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -6638,6 +6657,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: string;
             front_office_comment: string | null;
             vip_flag: number;
+            no_post: number;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -6652,11 +6672,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const nextComment =
             input.frontOfficeComment !== undefined ? input.frontOfficeComment : reservation.front_office_comment;
           const nextVip = input.vipFlag !== undefined ? (input.vipFlag ? 1 : 0) : reservation.vip_flag;
+          const nextNoPost = input.noPost !== undefined ? (input.noPost ? 1 : 0) : reservation.no_post;
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, no_post = ?, updated_at = ? WHERE reservation_id = ?`,
             nextComment,
             nextVip,
+            nextNoPost,
             now,
             input.reservationId,
           );
@@ -6670,6 +6692,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId: reservation.pii_key_id,
               frontOfficeComment: nextComment,
               vipFlag: nextVip === 1,
+              noPost: nextNoPost === 1,
             },
           });
           this.appendAuditLogSync({
@@ -6680,10 +6703,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             beforeJson: {
               frontOfficeComment: reservation.front_office_comment,
               vipFlag: reservation.vip_flag === 1,
+              noPost: reservation.no_post === 1,
             },
             afterJson: {
               frontOfficeComment: nextComment,
               vipFlag: nextVip === 1,
+              noPost: nextNoPost === 1,
             },
             reservationId: input.reservationId,
           });
@@ -9303,6 +9328,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT reservation_id, room_type_id, rate_plan_id
          FROM reservation
          WHERE status IN ('confirmed', 'checked_in')
+           AND COALESCE(no_post, 0) = 0
            AND arrival_date <= ? AND departure_date > ?`,
         businessDate,
         businessDate,
@@ -9508,6 +9534,147 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryPostDiscount(
+    actor: ActorContext,
+    input: {
+      sourceFolioLineId: string;
+      kind: 'percent' | 'fixed';
+      bps?: number;
+      amountMinor?: number;
+      reason: string;
+      folioLineId: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioLineId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof DISCOUNT_REASON_REQUIRED }
+    | { ok: false; error: typeof LINE_NOT_DISCOUNTABLE }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof MONEY_INVALID }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    const reason = input.reason.trim();
+    if (reason.length < 1 || reason.length > 500) {
+      return { ok: false, error: DISCOUNT_REASON_REQUIRED };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const sourceRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+               FROM folio_line WHERE folio_line_id = ?`,
+              input.sourceFolioLineId,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            folio_window_id: string;
+            reservation_id: string;
+            charge_code: string;
+            amount_minor: number;
+            txn_currency: string;
+            ledger_amount_minor: number;
+            fx_rate: string;
+            fx_rate_at: number;
+            source: string | null;
+          }>;
+          const source = sourceRows[0];
+          if (!source) throw new FolioWindowError(NOT_FOUND);
+          const blocked = new Set([
+            'SPLIT_REVERSAL',
+            'TAX',
+            'PAYMENT',
+            'PAYMENT_REFUND',
+            'TRANSFER_REVERSAL',
+            'DISCOUNT',
+          ]);
+          if (blocked.has(source.source ?? '') || blocked.has(source.charge_code)) {
+            throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+          }
+          if (!(source.amount_minor > 0)) throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+          this.assertFolioWindowOpenSync(source.folio_window_id);
+
+          let discountMinor: number;
+          if (input.kind === 'percent') {
+            const bps = input.bps;
+            if (!Number.isInteger(bps) || bps === undefined || bps < 1 || bps > 10000) {
+              throw new Error(MONEY_INVALID);
+            }
+            discountMinor = Number(roundHalfAwayFromZero(BigInt(source.amount_minor) * BigInt(bps), 10000n));
+          } else {
+            const amountMinor = input.amountMinor;
+            if (
+              !Number.isInteger(amountMinor) ||
+              amountMinor === undefined ||
+              amountMinor <= 0 ||
+              amountMinor > source.amount_minor
+            ) {
+              throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+            }
+            discountMinor = amountMinor;
+          }
+          if (discountMinor <= 0) throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+
+          this.assertChargeCodeSync('DISCOUNT', { requireActive: true });
+          const txnCurrency = currencyCode(source.txn_currency);
+          this.insertFolioLineSync({
+            folioLineId: input.folioLineId,
+            folioWindowId: source.folio_window_id,
+            reservationId: source.reservation_id,
+            chargeCode: 'DISCOUNT',
+            posted: {
+              amountMinor: -discountMinor,
+              txnCurrency,
+              ledgerAmountMinor: -discountMinor,
+              fxRate: source.fx_rate,
+              fxRateAt: source.fx_rate_at,
+            },
+            source: 'DESK',
+            splitOf: source.folio_line_id,
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.post_discount',
+            entityType: 'folio_line',
+            entityId: input.folioLineId,
+            beforeJson: null,
+            afterJson: {
+              folioLineId: input.folioLineId,
+              sourceFolioLineId: source.folio_line_id,
+              amountMinor: -discountMinor,
+              reason,
+            },
+            reservationId: source.reservation_id,
+          });
+          return { ok: true as const, folioLineId: input.folioLineId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -11467,6 +11634,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     cancelPenaltyBps?: number | null;
     confirmBy?: number;
     expiresAt?: number;
+    noPost?: boolean;
   }): Promise<void> {
     this.assertUnsafeLocal('insertReservationForTest');
     const now = Date.now();
@@ -11482,7 +11650,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.cancelPenaltyNights !== undefined ||
       input.cancelPenaltyBps !== undefined ||
       input.confirmBy !== undefined ||
-      input.expiresAt !== undefined;
+      input.expiresAt !== undefined ||
+      input.noPost !== undefined;
     if (!hasOptional) {
       this.ctx.storage.sql.exec(
         `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
@@ -11504,8 +11673,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
          reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
          status, room_id, adults, children, front_office_comment, vip_flag, rate_plan_id,
          cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
-         confirm_by, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         confirm_by, expires_at, no_post, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.reservationId,
       input.roomTypeId,
       input.guestRef,
@@ -11525,6 +11694,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.cancelPenaltyBps ?? null,
       input.confirmBy ?? null,
       input.expiresAt ?? null,
+      input.noPost ? 1 : 0,
       now,
       now,
     );

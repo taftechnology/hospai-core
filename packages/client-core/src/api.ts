@@ -534,8 +534,36 @@ export function createClient(opts: {
       );
       return body as { propertyId: string; exceptionCount: number };
     },
-    async getProvisionalExceptions(propertyId: string) {
-      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/provisional-exceptions`);
+    async getProvisionalExceptions(
+      propertyId: string,
+      query?: {
+        resolution?: 'open' | 'resolved' | 'all';
+        commandType?: string;
+        reason?: string;
+        businessDateFrom?: string;
+        businessDateTo?: string;
+        assigned?: 'all' | 'unassigned' | 'assigned';
+        assignedTo?: string;
+        limit?: number;
+        cursor?: string;
+      },
+    ) {
+      const qs = new URLSearchParams();
+      if (query) {
+        if (query.resolution !== undefined) qs.set('resolution', query.resolution);
+        if (query.commandType !== undefined) qs.set('commandType', query.commandType);
+        if (query.reason !== undefined) qs.set('reason', query.reason);
+        if (query.businessDateFrom !== undefined) qs.set('businessDateFrom', query.businessDateFrom);
+        if (query.businessDateTo !== undefined) qs.set('businessDateTo', query.businessDateTo);
+        if (query.assigned !== undefined) qs.set('assigned', query.assigned);
+        if (query.assignedTo !== undefined) qs.set('assignedTo', query.assignedTo);
+        if (query.limit !== undefined) qs.set('limit', String(query.limit));
+        if (query.cursor !== undefined) qs.set('cursor', query.cursor);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions${q ? `?${q}` : ''}`,
+      );
       return body;
     },
     async getOrgEntitlements(orgId: string): Promise<EntitlementSnapshot> {
@@ -1313,6 +1341,55 @@ export function createClient(opts: {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async getProvisionalException(propertyId: string, exceptionId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions/${enc(exceptionId)}`,
+      );
+      return body;
+    },
+    async retryProvisionalException(propertyId: string, exceptionId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions/${enc(exceptionId)}/retry`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async assignProvisionalException(
+      propertyId: string,
+      exceptionId: string,
+      assignedTo: string | null,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions/${enc(exceptionId)}/assign`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ assignedTo, idempotencyKey }),
+        },
+      );
+    },
+    async addProvisionalExceptionNote(
+      propertyId: string,
+      exceptionId: string,
+      input: { noteId: string; text: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions/${enc(exceptionId)}/notes`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ noteId: input.noteId, text: input.text, idempotencyKey }),
         },
       );
     },

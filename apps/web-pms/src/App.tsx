@@ -11,6 +11,12 @@ import { StaffRoute } from './screens/StaffRoute.js';
 import { RosterRoute } from './screens/RosterRoute.js';
 import { NightAuditRoute } from './screens/NightAuditRoute.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
+import { InventoryRoute } from './screens/InventoryRoute.js';
+import { InventoryScreen } from './screens/InventoryScreen.js';
+import { RatesRoute } from './screens/RatesRoute.js';
+import { RatesScreen } from './screens/RatesScreen.js';
+import { SettingsRoute } from './screens/SettingsRoute.js';
+import { SettingsScreen } from './screens/SettingsScreen.js';
 import { AppShell } from './shell/AppShell.js';
 
 const queryClient = new QueryClient({
@@ -38,9 +44,25 @@ export function App() {
             <Route path="shift" element={<ShiftScreen />} />
             <Route path="shift/:shiftId" element={<ShiftScreen />} />
             <Route path="book" element={<BookRoute />} />
+            <Route path="inventory" element={<InventoryRoute />}>
+              <Route index element={<InventoryScreen tab="types" />} />
+              <Route path="rooms" element={<InventoryScreen tab="rooms" />} />
+            </Route>
+            <Route path="rates" element={<RatesRoute />}>
+              <Route index element={<Navigate to="matrix" replace />} />
+              <Route path="plans" element={<RatesScreen tab="plans" />} />
+              <Route path="matrix" element={<RatesScreen tab="matrix" />} />
+              <Route path="restrictions" element={<RatesScreen tab="restrictions" />} />
+            </Route>
             <Route path="staff" element={<StaffRoute />} />
             <Route path="roster" element={<RosterRoute />} />
             <Route path="night-audit" element={<NightAuditRoute />} />
+            <Route path="settings" element={<SettingsRoute />}>
+              <Route index element={<Navigate to="property" replace />} />
+              <Route path="property" element={<SettingsScreen tab="property" />} />
+              <Route path="charges" element={<SettingsScreen tab="charges" />} />
+              <Route path="tax" element={<SettingsScreen tab="tax" />} />
+            </Route>
             <Route path="housekeeping/*" element={<HousekeepingScreen />} />
           </Route>
           <Route path="sign-in" element={<p className="main">Sign in required</p>} />

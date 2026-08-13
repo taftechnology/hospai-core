@@ -39,7 +39,14 @@ describe('me authority helpers', () => {
     };
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
       NAV_ENTRIES.filter(
-        (e) => e.id !== 'staff' && e.id !== 'book' && e.id !== 'roster' && e.id !== 'night-audit',
+        (e) =>
+          e.id !== 'staff' &&
+          e.id !== 'book' &&
+          e.id !== 'roster' &&
+          e.id !== 'night-audit' &&
+          e.id !== 'inventory' &&
+          e.id !== 'rates' &&
+          e.id !== 'settings',
       ),
     );
   });
@@ -77,6 +84,9 @@ describe('me authority helpers', () => {
     expect(filtered.map((e) => e.id)).not.toContain('staff');
     expect(filtered.map((e) => e.id)).not.toContain('roster');
     expect(filtered.map((e) => e.id)).not.toContain('night-audit');
+    expect(filtered.map((e) => e.id)).not.toContain('inventory');
+    expect(filtered.map((e) => e.id)).not.toContain('rates');
+    expect(filtered.map((e) => e.id)).not.toContain('settings');
     expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
   });
 
@@ -102,6 +112,24 @@ describe('me authority helpers', () => {
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).toContain(
       'staff',
     );
+  });
+
+  it('filterNavEntries: admin write/configure grants show Inventory, Rates, Settings', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      role: 'admin',
+      permissions: [
+        'reservations:read',
+        'inventory:write',
+        'rates:write',
+        'settings:configure',
+      ],
+      orgPermissions: ['org:read'],
+    };
+    const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
+    expect(ids).toContain('inventory');
+    expect(ids).toContain('rates');
+    expect(ids).toContain('settings');
   });
 
   it('canShowShellOpen: pending false; unknown true; live needs folio:post', () => {

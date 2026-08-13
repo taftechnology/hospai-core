@@ -12,6 +12,12 @@ enforce boundaries at the platform level — microservice isolation at monolith 
 Distribution is structural from day one on Cloudflare, but keep the Worker count small
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
+> **Revision 2026-08-13.** Prototype-holes decisions closed; INQUIRY/PENDING drift closed;
+> `rooms.set_ooo_range`, `folio.transfer_charge`, and `folio.split_charge_v2` shipped.
+> Multi-currency folio + payments↔folio event contract designed in
+> `docs/superpowers/specs/2026-08-13-multi-currency-folio-design.md`. FX sourcing is
+> staff-entered effective-dated rates (no live feed); it is no longer “still owed.”
+>
 > **Revision 2026-07-27d.** Phase 0 verification follow-ups: tenant-router fails closed on
 > missing jurisdiction; freeze DDL uniqueness/CHECK fixes; command catalog splits payment and
 > inventory paths; check-in/check-out remain `QUEUE_PROVISIONAL` per §4.6 (cancel/no-show are
@@ -49,15 +55,15 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > **Decided:** `held` is reserved in schema now, hold *behaviour* deferred to Phase 3 (§7.6).
 > **Clerk is narrow** — authentication only; all authorization in OrgDO (§13).
 >
-> **Still owed:** FX rate sourcing and its refresh policy; the exception-queue operator UX;
-> per-country fiscalization design for the launch market. The config register and command
-> catalog are now Phase 0 work items rather than open questions (§14).
+> **Still owed:** the exception-queue operator UX; per-country fiscalization design for
+> the launch market. The config register and command catalog are now Phase 0 work items
+> rather than open questions (§14).
 >
-> **Revision 2026-08-12.** Prototype coverage audit (§16.5). Module-level surfaces in §16.1
-> are complete. Remaining holes are unnamed operational fields (DND, additional guests,
-> recurring charges, registration cards, extra HK tabs, global search) plus one
-> architecture-vs-code drift: §7.4 specifies `INQUIRY` / `PENDING` and the shipped
-> reservation machine does not.
+> **Revision 2026-08-12.** Prototype coverage audit (§16.5). Historical: that pass listed
+> unnamed operational fields (DND, additional guests, recurring charges, registration
+> cards, extra HK tabs, global search) and INQUIRY/PENDING drift as remaining; the
+> 2026-08-13 prototype-holes sweep and reservation-lifecycle restore closed those items.
+> This paragraph is a dated record, not an open punch list.
 
 ---
 
@@ -2179,9 +2185,8 @@ The shipped reservation status machine matches that diagram (`inquiry | pending 
 cancelled | checked_in | checked_out | no_show`). The 2026-08-12 reservation-lifecycle chunk
 restored `INQUIRY` and `PENDING`; this paragraph is no longer a disagreement.
 
-Catalogued implementation gaps that this document already designed: `rooms.set_ooo_range`
-(§7.1), `folio.transfer_charge` and `folio.split_charge_v2` (§7.3). They are build debt, not
-spec debt.
+`rooms.set_ooo_range` (§7.1), `folio.transfer_charge` and `folio.split_charge_v2` (§7.3)
+shipped; `PLATFORM_GAPS` is empty. They are not build debt.
 
 #### Still unnamed — product must decide keep, defer, or drop
 

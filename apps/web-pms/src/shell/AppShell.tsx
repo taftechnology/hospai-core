@@ -14,6 +14,7 @@ import { ALL_NAV } from './module-ui-registry.js';
 import { PropertyTimeZoneProvider } from './PropertyTimeZone.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
+import { FrontOfficeLive } from './FrontOfficeLive.js';
 
 type SearchHit = {
   reservationId: string;
@@ -167,6 +168,7 @@ export function AppShell() {
           ) : null}
         </header>
         <ShiftStrip authority={authority} />
+        <FrontOfficeLive authority={authority} />
         <main className="main">
           <Outlet />
         </main>

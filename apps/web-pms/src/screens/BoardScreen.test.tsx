@@ -34,6 +34,7 @@ vi.mock('../shell/PropertyTimeZone.js', () => ({
 }));
 
 import { BoardScreen } from './BoardScreen.js';
+import { FrontOfficeLive } from '../shell/FrontOfficeLive.js';
 
 function SearchProbe() {
   const loc = useLocation();
@@ -210,5 +211,83 @@ describe('BoardScreen folio links', () => {
     renderBoard('in-house');
     await waitFor(() => expect(getInHouse).toHaveBeenCalled());
     expect(getArrivals).not.toHaveBeenCalled();
+  });
+});
+
+describe('BoardScreen live invalidation', () => {
+  afterEach(() => cleanup());
+
+  it('delta invalidates board and refetches arrivals', async () => {
+    const socket: {
+      readyState: number;
+      send: (data: string) => void;
+      close: () => void;
+      onopen: ((ev?: unknown) => void) | null;
+      onmessage: ((ev: { data: string }) => void) | null;
+      onclose: ((ev?: unknown) => void) | null;
+      onerror: ((ev?: unknown) => void) | null;
+    } = {
+      readyState: 1,
+      send() {},
+      close() {},
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    tzState.current = 'UTC';
+    getArrivals.mockResolvedValue({
+      ok: true,
+      items: [item],
+      nextCursor: null,
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'name_pending' } },
+    });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/arrivals?date=2026-08-13']}>
+          <FrontOfficeLive
+            authority={{
+              kind: 'live',
+              me: {
+                ok: true,
+                orgId: 'org_demo',
+                propertyId: 'prop_demo',
+                userId: 'user_x',
+                role: 'staff',
+                permissions: ['reservations:read', 'folio:read'],
+                orgPermissions: ['org:read'],
+              },
+            }}
+            createSocket={() => socket}
+          />
+          <BoardScreen mode="arrivals" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(getArrivals).toHaveBeenCalled());
+    const before = getArrivals.mock.calls.length;
+    socket.onopen?.();
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'delta', asOf: 2, removedBlockIds: ['res_x'] }),
+    });
+    await waitFor(() => expect(getArrivals.mock.calls.length).toBeGreaterThan(before));
   });
 });

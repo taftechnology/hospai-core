@@ -37,6 +37,7 @@ import {
   FOLIO_MONEY_OPS_V21_SQL,
   ROOM_OOO_V22_SQL,
   PROTOTYPE_HOLES_V23_SQL,
+  MULTI_CURRENCY_FOLIO_V24_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -154,6 +155,8 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO folio_line_v21')) return { toArray: () => [] };
     if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO payment_v24')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN dnd_flag')) return { toArray: () => [] };
@@ -178,15 +181,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 23', () => {
+  it('applies property migrations through version 24', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(23);
+    expect(v1).toBe(24);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(23);
-    expect(sql.schemaVersion).toHaveLength(23);
+    expect(v2).toBe(24);
+    expect(sql.schemaVersion).toHaveLength(24);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -566,7 +569,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(23);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(24);
     expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -623,7 +626,9 @@ describe('schema head constants', () => {
   });
 
   it('property schema head is 23 after prototype holes', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(23);
+    expect(Math.max(...PROPERTY_MIGRATIONS.filter((m) => m.version <= 23).map((m) => m.version))).toBe(
+      23,
+    );
     const v23 = PROPERTY_MIGRATIONS.find((m) => m.version === 23);
     expect(v23?.name).toBe('prototype_holes');
     expect(v23?.statements.some((s) => s.includes('dnd_flag'))).toBe(true);
@@ -639,5 +644,31 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(PROTOTYPE_HOLES_V23_SQL.trim());
+  });
+
+  it('property schema head is 24 after multi_currency_folio', () => {
+    expect(PROPERTY_SCHEMA_HEAD).toBe(24);
+    const v24 = PROPERTY_MIGRATIONS.find((m) => m.version === 24);
+    expect(v24?.name).toBe('multi_currency_folio');
+    expect(v24?.statements.some((s) => s.includes('payment_v24'))).toBe(true);
+    expect(v24?.statements.some((s) => s.includes('fx_rate'))).toBe(true);
+    expect(v24?.statements.some((s) => s.includes('payment_event'))).toBe(true);
+    expect(v24?.statements.some((s) => s.includes('payment_dispute'))).toBe(true);
+    expect(v24?.statements.some((s) => s.includes('FX_GAIN'))).toBe(true);
+    expect(v24?.statements.some((s) => s.includes('folio_line_v24'))).toBe(false);
+    expect(v24?.statements[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
+    expect(v24?.statements[v24.statements.length - 1]).toMatch(/PRAGMA foreign_keys = ON/i);
+  });
+
+  it('migrations/do-property/0024_multi_currency_folio.sql matches MULTI_CURRENCY_FOLIO_V24_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0024_multi_currency_folio.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(MULTI_CURRENCY_FOLIO_V24_SQL.trim());
   });
 });

@@ -69,6 +69,7 @@ if (process.argv.includes('--self-test')) {
   let FOLIO_MONEY_OPS_V21_SQL;
   let ROOM_OOO_V22_SQL;
   let PROTOTYPE_HOLES_V23_SQL;
+  let MULTI_CURRENCY_FOLIO_V24_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -105,6 +106,7 @@ if (process.argv.includes('--self-test')) {
       FOLIO_MONEY_OPS_V21_SQL,
       ROOM_OOO_V22_SQL,
       PROTOTYPE_HOLES_V23_SQL,
+      MULTI_CURRENCY_FOLIO_V24_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -346,6 +348,17 @@ const doPropertyTargets = [
 
 `,
     sql: PROTOTYPE_HOLES_V23_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0024_multi_currency_folio.sql'),
+    header: `-- PropertyDO multi-currency folio — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: PRAGMA OFF → payment rebuild → new tables → seeds → PRAGMA ON.
+-- folio_line is not rebuilt (money columns exist since v1).
+
+`,
+    sql: MULTI_CURRENCY_FOLIO_V24_SQL,
   },
 ];
 

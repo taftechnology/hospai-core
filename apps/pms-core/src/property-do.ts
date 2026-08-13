@@ -471,6 +471,9 @@ function mapReservationPreconditionError(e: unknown):
 }
 
 export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
+export const NIGHT_AUDIT_RETRY_STEP_COMMAND = 'night_audit.retry_step' as const;
+export const NIGHT_AUDIT_RESOLVE_HALT_COMMAND = 'night_audit.resolve_halt' as const;
+export const PROVISIONAL_RESOLVE_EXCEPTION_COMMAND = 'provisional.resolve_exception' as const;
 
 /** §8 night-audit step sequence. `ROLL_BUSINESS_DATE` is the only step that mutates `__meta.business_date` / the horizon. */
 export const NIGHT_AUDIT_STEPS = [

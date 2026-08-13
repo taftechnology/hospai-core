@@ -40,6 +40,9 @@ import {
   TAX_RULE_KEY_OVERLAP,
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
+  PENDING_CENSUS_REQUIRED,
+  PENDING_COMMANDS_UNDRAINED,
+  PROVISIONAL_EXCEPTIONS_OPEN,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -108,6 +111,12 @@ describe('fingerprintPayload', () => {
     expect(TAX_RULE_KEY_OVERLAP).toBe('tax_rule_key_overlap');
     expect(TAX_RULE_TYPE_UNSUPPORTED).toBe('tax_rule_type_unsupported');
     expect(TAX_OUTPUT_CODE_TAXABLE).toBe('tax_output_code_taxable');
+  });
+
+  it('night-audit PRE_CHECK wire codes', () => {
+    expect(PENDING_CENSUS_REQUIRED).toBe('pending_census_required');
+    expect(PENDING_COMMANDS_UNDRAINED).toBe('pending_commands_undrained');
+    expect(PROVISIONAL_EXCEPTIONS_OPEN).toBe('provisional_exceptions_open');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

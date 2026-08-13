@@ -134,6 +134,9 @@ export async function handleDomainEvent(
     case 'housekeeping.assigned':
     case 'night_audit.started':
     case 'night_audit.completed':
+    case 'night_audit.step_retried':
+    case 'night_audit.halt_resolved':
+    case 'provisional.exception_resolved':
     case 'folio.payment_authorized':
     case 'folio.payment_captured':
     case 'channel.synced':

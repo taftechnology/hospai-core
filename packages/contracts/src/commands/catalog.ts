@@ -371,6 +371,42 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'night_audit:run',
   },
   {
+    id: 'night_audit.retry_step',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['night_audit.step_retried'],
+    entitlement: 'pms.core',
+    permission: 'night_audit:run',
+    notes:
+      'Operator retry of a FAILED night-audit step. Does not walk later steps. Stale RUNNING 409s — resolve-halt is the recovery.',
+  },
+  {
+    id: 'night_audit.resolve_halt',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['night_audit.halt_resolved'],
+    entitlement: 'pms.core',
+    permission: 'night_audit:run',
+    notes:
+      'Retry FAILED then walk remaining non-COMPLETED steps including stale RUNNING. Never skips. Halt stays derived.',
+  },
+  {
+    id: 'provisional.resolve_exception',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['provisional.exception_resolved'],
+    entitlement: 'pms.core',
+    permission: 'night_audit:run',
+    notes:
+      'Acknowledge a provisional_exception (stamp resolved_at). Not a replay of the original command.',
+  },
+  {
     id: 'channels.sync',
     prototypeAction: 'SYNC_CHANNEL',
     lane: 'BULK',

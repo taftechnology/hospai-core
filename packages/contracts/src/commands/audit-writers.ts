@@ -30,6 +30,9 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'inventory.update_room_type',
   'inventory.delete_room_type',
   'restrictions.upsert_day',
+  'night_audit.retry_step',
+  'night_audit.resolve_halt',
+  'provisional.resolve_exception',
 ]);
 
 /** Entitled commands that deliberately do not write PropertyDO audit_log. */

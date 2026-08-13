@@ -242,7 +242,33 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(30);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(33);
+  });
+
+  it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
+    const retry = COMMAND_CATALOG.find((c) => c.id === 'night_audit.retry_step');
+    const halt = COMMAND_CATALOG.find((c) => c.id === 'night_audit.resolve_halt');
+    const resolve = COMMAND_CATALOG.find((c) => c.id === 'provisional.resolve_exception');
+    const run = COMMAND_CATALOG.find((c) => c.id === 'night_audit.run');
+    for (const c of [retry, halt, resolve]) {
+      expect(c?.lane).toBe('INTERACTIVE');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('night_audit:run');
+      expect(c?.idempotent).toBe(true);
+    }
+    expect(retry?.events).toEqual(['night_audit.step_retried']);
+    expect(halt?.events).toEqual(['night_audit.halt_resolved']);
+    expect(resolve?.events).toEqual(['provisional.exception_resolved']);
+    expect(run?.events).toEqual(['night_audit.started', 'night_audit.completed']);
+    expect(run).not.toHaveProperty('entitlement');
+    expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === 'night_audit.run')?.reason).toMatch(
+      /background alarm path/i,
+    );
+    expect(AUDIT_WRITER_COMMAND_IDS.has('night_audit.retry_step')).toBe(true);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('night_audit.resolve_halt')).toBe(true);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('provisional.resolve_exception')).toBe(true);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('night_audit.run')).toBe(false);
   });
 
   it('PropertyDO source wires every AUDIT_WRITER_COMMAND_IDS literal', () => {

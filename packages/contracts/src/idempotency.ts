@@ -19,6 +19,11 @@ export const BUSINESS_DATE_UNSET = 'business_date_unset' as const;
 /** Replay rejected — operator's believed business date is before the DO open date. */
 export const BUSINESS_DATE_CLOSED = 'business_date_closed' as const;
 
+/** Night-audit PRE_CHECK wire codes */
+export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;
+export const PROVISIONAL_EXCEPTIONS_OPEN = 'provisional_exceptions_open' as const;
+export const PENDING_CENSUS_REQUIRED = 'pending_census_required' as const;
+
 /** Reservations wire codes */
 export const NO_AVAILABILITY = 'no_availability' as const;
 export const UNBOOKABLE = 'unbookable' as const;

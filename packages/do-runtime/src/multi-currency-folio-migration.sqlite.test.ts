@@ -39,6 +39,10 @@ describe('multi-currency folio v24 real sqlite', () => {
                source, created_at, tax_of, tax_rule_id
              ) VALUES ('fl3', 'fw1', 'res1', 'TAX', 10, 'USD', 10, '1', 0, 'TAX', 0, 'fl1', 'tr1')`);
 
+    const folioBefore = db
+      .prepare(`SELECT * FROM folio_line ORDER BY folio_line_id`)
+      .all() as Array<Record<string, unknown>>;
+
     for (const m of PROPERTY_MIGRATIONS.filter((m) => m.version > 23)) {
       execAll(db, m.statements!);
     }
@@ -48,6 +52,15 @@ describe('multi-currency folio v24 real sqlite', () => {
     expect(count('folio_window')).toBe(1);
     expect(count('payment')).toBe(1);
     expect(count('folio_line')).toBe(3);
+
+    const folioAfter = db
+      .prepare(`SELECT * FROM folio_line ORDER BY folio_line_id`)
+      .all() as Array<Record<string, unknown>>;
+    expect(folioAfter).toHaveLength(folioBefore.length);
+    expect(folioAfter).toEqual(folioBefore);
+    expect(folioAfter.find((r) => r.folio_line_id === 'fl2')).toEqual(
+      folioBefore.find((r) => r.folio_line_id === 'fl2'),
+    );
 
     const pay1 = db
       .prepare(

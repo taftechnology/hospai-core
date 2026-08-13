@@ -819,11 +819,17 @@ export const PROTOTYPE_HOLES_V23_STATEMENTS: string[] = [
 export const PROTOTYPE_HOLES_V23_SQL = PROTOTYPE_HOLES_V23_STATEMENTS.join(';\n\n') + ';\n';
 
 /**
- * v24 — multi-currency folio. Rebuilds `payment` only (CHECK + FX columns).
- * Does **not** rebuild `folio_line` (money columns exist since v1).
+ * v24 — multi-currency folio. Rebuilds `payment` (CHECK + FX columns) and copies
+ * `folio_line` byte-identically so the payment DROP is FK-safe.
+ *
+ * PRAGMA foreign_keys is not honored across DO `sql.exec` calls (`migrateSql`
+ * runs each statement as a separate exec, no transaction), so a pragma OFF/ON
+ * wrapper cannot protect `DROP TABLE payment` while `folio_line.payment_id`
+ * still references it. Follow the v21 chain (minus `folio_window`, which stays):
+ * create *_v24 (child FK points at payment_v24), copy (folio_line values
+ * unchanged — not a backfill), drop child-first, rename (rewrites FKs).
  */
 export const MULTI_CURRENCY_FOLIO_V24_STATEMENTS: string[] = [
-  `PRAGMA foreign_keys = OFF`,
   `CREATE TABLE payment_v24 (
   payment_id             TEXT PRIMARY KEY,
   reservation_id         TEXT NOT NULL,
@@ -859,6 +865,28 @@ export const MULTI_CURRENCY_FOLIO_V24_STATEMENTS: string[] = [
   last_payment_event_id  TEXT,
   FOREIGN KEY (folio_window_id) REFERENCES folio_window(folio_window_id)
 )`,
+  `CREATE TABLE folio_line_v24 (
+  folio_line_id         TEXT PRIMARY KEY,
+  folio_window_id       TEXT NOT NULL,
+  reservation_id        TEXT NOT NULL,
+  charge_code           TEXT NOT NULL,
+  amount_minor          INTEGER NOT NULL,
+  txn_currency          TEXT NOT NULL,
+  ledger_amount_minor   INTEGER NOT NULL,
+  fx_rate               TEXT NOT NULL,
+  fx_rate_at            INTEGER NOT NULL,
+  source                TEXT,
+  business_date         TEXT,
+  split_of              TEXT,
+  created_at            INTEGER NOT NULL,
+  payment_id            TEXT,
+  tax_of                TEXT REFERENCES folio_line_v24(folio_line_id),
+  tax_rule_id           TEXT,
+  CHECK (source <> 'NIGHT_AUDIT' OR business_date IS NOT NULL),
+  FOREIGN KEY (folio_window_id) REFERENCES folio_window(folio_window_id),
+  FOREIGN KEY (payment_id) REFERENCES payment_v24(payment_id),
+  FOREIGN KEY (charge_code) REFERENCES charge_code(code)
+)`,
   `INSERT INTO payment_v24 (
      payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
      gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
@@ -871,10 +899,28 @@ export const MULTI_CURRENCY_FOLIO_V24_STATEMENTS: string[] = [
      capture_fingerprint, created_at, updated_at, tender_type, shift_id,
      purpose, refunded_amount_minor, void_fingerprint, refund_fingerprint,
      NULL, NULL, 0, NULL FROM payment`,
+  `INSERT INTO folio_line_v24 (
+     folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id)
+   SELECT folio_line_id, folio_window_id, reservation_id, charge_code,
+     amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+     source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id FROM folio_line`,
+  `DROP TABLE folio_line`,
   `DROP TABLE payment`,
   `ALTER TABLE payment_v24 RENAME TO payment`,
+  `ALTER TABLE folio_line_v24 RENAME TO folio_line`,
   `CREATE UNIQUE INDEX payment_idempotency_uidx ON payment(idempotency_key)`,
   `CREATE INDEX payment_reservation_idx ON payment(reservation_id)`,
+  `CREATE UNIQUE INDEX folio_line_audit_uniq
+  ON folio_line (reservation_id, business_date, charge_code)
+  WHERE source = 'NIGHT_AUDIT'`,
+  `CREATE INDEX folio_line_window_idx ON folio_line (folio_window_id)`,
+  `CREATE UNIQUE INDEX folio_line_payment_uidx
+  ON folio_line(payment_id) WHERE payment_id IS NOT NULL`,
+  `CREATE UNIQUE INDEX folio_line_tax_uniq
+  ON folio_line (tax_of, tax_rule_id) WHERE source = 'TAX'`,
+  `CREATE INDEX folio_line_tax_of_idx ON folio_line (tax_of) WHERE tax_of IS NOT NULL`,
   `CREATE TABLE fx_rate (
   quote_id        TEXT PRIMARY KEY,
   from_currency   TEXT NOT NULL,
@@ -915,7 +961,6 @@ export const MULTI_CURRENCY_FOLIO_V24_STATEMENTS: string[] = [
   ('FX_GAIN', 'FX gain', 'active', 0, 0),
   ('FX_LOSS', 'FX loss', 'active', 0, 0),
   ('CHARGEBACK_FEE', 'Chargeback fee', 'active', 0, 0)`,
-  `PRAGMA foreign_keys = ON`,
 ];
 
 export const MULTI_CURRENCY_FOLIO_V24_SQL = MULTI_CURRENCY_FOLIO_V24_STATEMENTS.join(';\n\n') + ';\n';

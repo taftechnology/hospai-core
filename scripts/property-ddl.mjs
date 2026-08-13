@@ -354,8 +354,8 @@ const doPropertyTargets = [
     header: `-- PropertyDO multi-currency folio — generated from @hospai/do-runtime
 -- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
 -- Regenerate: pnpm generate:ddl
--- ORDER: PRAGMA OFF → payment rebuild → new tables → seeds → PRAGMA ON.
--- folio_line is not rebuilt (money columns exist since v1).
+-- ORDER: create payment_v24 + folio_line_v24 (child FK → payment_v24) → copy (folio_line byte-identical) → drop child-first → rename → indexes → new tables → seeds.
+-- FK-safe: never drops a referenced parent; PRAGMA foreign_keys is not honored across DO sql.exec calls. folio_line copy is not a backfill.
 
 `,
     sql: MULTI_CURRENCY_FOLIO_V24_SQL,

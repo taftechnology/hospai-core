@@ -156,7 +156,9 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO payment_v24')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO folio_line_v24')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_line_v24 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN dnd_flag')) return { toArray: () => [] };
@@ -655,9 +657,17 @@ describe('schema head constants', () => {
     expect(v24?.statements.some((s) => s.includes('payment_event'))).toBe(true);
     expect(v24?.statements.some((s) => s.includes('payment_dispute'))).toBe(true);
     expect(v24?.statements.some((s) => s.includes('FX_GAIN'))).toBe(true);
-    expect(v24?.statements.some((s) => s.includes('folio_line_v24'))).toBe(false);
-    expect(v24?.statements[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
-    expect(v24?.statements[v24.statements.length - 1]).toMatch(/PRAGMA foreign_keys = ON/i);
+    expect(v24?.statements.some((s) => s.includes('folio_line_v24'))).toBe(true);
+    // FK-safe rebuild: no PRAGMA foreign_keys toggle (not honored across DO sql.exec calls).
+    // Child folio_line drops first; payment rename rewrites folio_line_v24's payment FK.
+    expect(v24?.statements.some((s) => /PRAGMA foreign_keys/i.test(s))).toBe(false);
+    const drops = v24!.statements.filter((s) => s.startsWith('DROP TABLE'));
+    expect(drops.map((d) => d.replace('DROP TABLE ', ''))).toEqual(['folio_line', 'payment']);
+    const renames = v24!.statements.filter((s) => s.startsWith('ALTER TABLE') && s.includes('RENAME'));
+    expect(renames).toEqual([
+      'ALTER TABLE payment_v24 RENAME TO payment',
+      'ALTER TABLE folio_line_v24 RENAME TO folio_line',
+    ]);
   });
 
   it('migrations/do-property/0024_multi_currency_folio.sql matches MULTI_CURRENCY_FOLIO_V24_SQL', () => {

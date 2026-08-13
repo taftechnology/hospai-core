@@ -4,7 +4,7 @@
 
 **Goal:** Turn on the existing `folio_line` money columns: staff-entered effective-dated FX rates, foreign payments + optional `folio.add_item`, residual FX as its own line, versioned `payment.*` event seam (`applyPaymentEventSync`), chargebacks, and consistent reversal/split/transfer/tax/`capture_due` currency behaviour.
 
-**Architecture:** Three currencies never collapse. Rate frozen at post (`roundHalfAwayFromZero`, never float). Auth is not money. Apply is idempotent by `(event_id, gateway_reference)`. `event-consumer` allowlists only — does not call PropertyDO. `folio_line` is **not** rebuilt (columns exist since v1). Payments stay `FAIL_CLOSED`. `NIGHT_AUDIT_STEPS` stays 7.
+**Architecture:** Three currencies never collapse. Rate frozen at post (`roundHalfAwayFromZero`, never float). Auth is not money. Apply is idempotent by `(event_id, gateway_reference)`. `event-consumer` allowlists only — does not call PropertyDO. `folio_line` is a **byte-identical copy rebuild** in the v24 payment chain (no backfill; workerd does not honor `PRAGMA foreign_keys` across `sql.exec`). Payments stay `FAIL_CLOSED`. `NIGHT_AUDIT_STEPS` stays 7.
 
 **Tech Stack:** Cloudflare Durable Objects (PropertyDO), `@hospai/contracts`, `@hospai/do-runtime` v24, `@hospai/money` `postToLedger` / `allocate` / new `ledgerToTxn`, vitest + cloudflare:test, React SPA in `apps/web-pms`.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Do **not** rebuild or backfill `folio_line`. Identity rows are already well-formed.
+- Do **not** backfill `folio_line` (no `UPDATE` of money columns). v24 copies it byte-identically as part of the FK-safe payment rebuild (v21 pattern, minus `folio_window`). Do **not** wrap v24 in `PRAGMA foreign_keys`.
 - Do **not** nest FX HTTP under `/folio/payments/` — `GET …/folio/payments/([^/]+)$` (`v1-dispatch.ts` ~5512) would steal `fx-rates`.
 - Route audit **append-only**. `[105] = get_reservation_search` does not move. New rows **106–110** at the **END** of both `V1_HTTP_ROUTE_AUDIT` and `V1_ROUTES` in **identical order**. Task 1 must **not** touch either list (`check:permissions` stays green).
 - Route id for 107 is **`post_fx_rate_supersede`** (POST method). Never `put_fx_rate_supersede`.
@@ -26,7 +26,7 @@
 - **Typecheck fixes go in their own commit**, never mixed into docs commits (Tasks 13, 14, 16).
 - After any `@hospai/contracts` source change, `pnpm --filter @hospai/contracts build` **before** `check:permissions` / pms-core tests (they import dist).
 - pms-core shards: `pnpm --filter @hospai/pms-core exec vitest run --shard=N/4` — **no** `--` before `--shard`.
-- `MemorySql` needs an explicit prefix stub for every new non-generic statement (`INSERT INTO payment_v24`, `DROP TABLE payment`, `ALTER TABLE payment_v24 RENAME`, charge-code `UPDATE` if any). `CREATE TABLE` / `CREATE INDEX` are already generic.
+- `MemorySql` needs an explicit prefix stub for every new non-generic statement (`INSERT INTO payment_v24`, `INSERT INTO folio_line_v24`, `DROP TABLE folio_line`, `DROP TABLE payment`, `ALTER TABLE payment_v24 RENAME`, `ALTER TABLE folio_line_v24 RENAME`, charge-code `UPDATE` if any). `CREATE TABLE` / `CREATE INDEX` are already generic.
 - No either/or forks. Spec §19 locks stand.
 
 ## File map
@@ -258,7 +258,7 @@ EOF
 
 **Interfaces:**
 - Produces: `MULTI_CURRENCY_FOLIO_V24_STATEMENTS` / `_SQL`; `PROPERTY_SCHEMA_HEAD === 24`; `SYSTEM_CHARGE_CODES` length **9**; purge lists include the three tables
-- **Forbidden:** DO command methods, HTTP routes. **Do not rebuild `folio_line`.**
+- **Forbidden:** DO command methods, HTTP routes. **Do not backfill `folio_line`.** Byte-identical copy rebuild is required (FK-safe payment chain).
 
 - [x] **Step 1: Write the failing migrate + sqlite tests**
 
@@ -268,15 +268,18 @@ EOF
 
 ```ts
 if (q.startsWith('INSERT INTO payment_v24')) return { toArray: () => [] };
+if (q.startsWith('INSERT INTO folio_line_v24')) return { toArray: () => [] };
+if (q.startsWith('DROP TABLE folio_line')) return { toArray: () => [] };
 if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
 if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray: () => [] };
+if (q.startsWith('ALTER TABLE folio_line_v24 RENAME TO folio_line')) return { toArray: () => [] };
 ```
 
-`CREATE TABLE fx_rate` / `payment_event` / `payment_dispute` / indexes already match `CREATE TABLE` / `CREATE INDEX`. `INSERT OR IGNORE INTO charge_code` already stubbed. Keep existing `DROP TABLE payment` if v21 already added it — v24 reuses the same prefix (one stub covers both).
+`CREATE TABLE fx_rate` / `payment_event` / `payment_dispute` / indexes already match `CREATE TABLE` / `CREATE INDEX`. `INSERT OR IGNORE INTO charge_code` already stubbed. Keep existing `DROP TABLE folio_line` / `DROP TABLE payment` if v14/v21 already added them — v24 reuses the same prefixes.
 
 2. “applies property migrations through version 23” → **24**; `schemaVersion` length **24**.
 3. Global `PROPERTY_SCHEMA_HEAD` pin **24**. Keep historical “head is 23 after prototype holes” as a `filter version <= 23` assertion if present; change **only** the global pin.
-4. New: `property schema head is 24 after multi_currency_folio`; name `multi_currency_folio`; statements include `payment_v24`, `fx_rate`, `payment_event`, `payment_dispute`, `FX_GAIN`; first/last wrap `PRAGMA foreign_keys = OFF` / `ON`; **no** `folio_line_v24`.
+4. New: `property schema head is 24 after multi_currency_folio`; name `multi_currency_folio`; statements include `payment_v24`, `folio_line_v24`, `fx_rate`, `payment_event`, `payment_dispute`, `FX_GAIN`; **no** `PRAGMA foreign_keys`; DROP order `folio_line` then `payment`; RENAME `payment_v24` then `folio_line_v24`.
 
 `multi-currency-folio-migration.sqlite.test.ts` — follow `folio-money-ops-migration.sqlite.test.ts`:
 
@@ -297,9 +300,9 @@ Expected: FAIL — head 23 / missing file.
 
 - [x] **Step 3: Land v24 statements**
 
-Wrap: first `PRAGMA foreign_keys = OFF`, last `ON`.
+No `PRAGMA foreign_keys` wrapper (not honored across DO `sql.exec`).
 
-`payment_v24` = every v21 column plus `fx_rate`, `fx_rate_at`, `balance_at_risk` DEFAULT 0, `last_payment_event_id`, status CHECK adds `chargeback`. Copy; backfill zeros/nulls. Drop `payment`; rename; recreate `payment_idempotency_uidx`, `payment_reservation_idx`.
+`payment_v24` = every v21 column plus `fx_rate`, `fx_rate_at`, `balance_at_risk` DEFAULT 0, `last_payment_event_id`, status CHECK adds `chargeback`. FK to existing `folio_window`. `folio_line_v24` = identical current `folio_line` schema with `payment_id` → `payment_v24` and `tax_of` → `folio_line_v24`. Copy payment (new cols NULL/0); copy folio_line byte-identically. Drop `folio_line` then `payment`; rename `payment_v24` then `folio_line_v24`; recreate payment indexes plus the v21 folio_line indexes.
 
 Then `CREATE TABLE fx_rate` (spec §4.2), `payment_event` (§7.3), `payment_dispute` (§7.5) + indexes.
 
@@ -314,7 +317,7 @@ Grow `SYSTEM_CHARGE_CODES` to the nine codes.
 
 Export `MULTI_CURRENCY_FOLIO_V24_SQL` from `property-migrations.ts` and `index.ts`.
 
-`scripts/property-ddl.mjs`: destructure the new SQL; append `doPropertyTargets` for `0024_multi_currency_folio.sql` (ORDER: PRAGMA OFF → payment rebuild → new tables → seeds → PRAGMA ON). Header must say **folio_line is not rebuilt**.
+`scripts/property-ddl.mjs`: destructure the new SQL; append `doPropertyTargets` for `0024_multi_currency_folio.sql` (ORDER: create *_v24 → copy → drop child-first → rename → indexes → new tables → seeds). Header must say the folio_line copy is byte-identical / not a backfill, and that PRAGMA is not used.
 
 `property-do.ts` purge list + `countPropertyInventoryRows`: add the three tables in the same relative order as other inventory tables. Literal SQL only.
 
@@ -1021,3 +1024,7 @@ If CI was already green and this file is unchanged, skip — but the intent is t
 | Full CI (37) | 15 |
 | Plan checkbox tick | 16 |
 | Settlement ingest / PCI Worker / partial refund / `currencies_list` | not implemented (leftovers) |
+
+## Post-implementation drift
+
+**v24 FK-safe folio_line copy (post-review).** Task 3 originally locked “do not rebuild `folio_line`” and wrapped the payment DROP in `PRAGMA foreign_keys = OFF/ON`. That is the v21 deploy-blocker class: the pragma is not honored across DO `sql.exec` calls, so `DROP TABLE payment` while `folio_line.payment_id` still references it bricks any store with a captured payment. Spec §9 amended: the lock was “no backfill UPDATE of history,” not “leave the table name untouched.” v24 now follows the v21 chain minus `folio_window` — `folio_line_v24` is a byte-identical copy, child dropped first, no pragma.

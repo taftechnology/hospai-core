@@ -536,7 +536,14 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[118] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[119]).toBeUndefined();
+    expect(V1_HTTP_ROUTE_AUDIT[119]?.id).toBe('get_front_desk_stream');
+    expect(V1_HTTP_ROUTE_AUDIT[119]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[119] ?? {})).toBe(false);
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
     expect(COMMAND_CATALOG).toHaveLength(74);
     expect(PLATFORM_GAPS).toEqual([]);

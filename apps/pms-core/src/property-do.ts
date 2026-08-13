@@ -205,6 +205,67 @@ type PaymentStatus =
   | 'chargeback';
 type CheckOutAutoCapture = 'captured' | 'failed' | 'skipped' | 'disabled';
 
+const FRONT_OFFICE_ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const FRONT_OFFICE_OUTBOX_TYPES = new Set([
+  'reservation.created',
+  'reservation.modified',
+  'reservation.status_changed',
+  'reservation.room_assigned',
+  'reservation.front_office_updated',
+  'room.created',
+  'room.updated',
+  'room.status_changed',
+  'room.ooo_changed',
+]);
+const OCCUPYING_STATUSES = new Set(['pending', 'confirmed', 'checked_in']);
+
+type FrontOfficeAttachment = {
+  propertyId: string;
+  userId: string;
+  fromDate: string | null;
+  toDate: string | null;
+};
+
+type FrontOfficeDelta = {
+  rooms?: Array<{
+    roomId: string;
+    roomTypeId: string;
+    code: string;
+    status: string;
+    floor: string | null;
+  }>;
+  blocks?: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
+  ooo?: Array<{ oooId: string; roomId: string; startDate: string; endDate: string; reason: string | null }>;
+  removedBlockIds?: string[];
+  removedOooIds?: string[];
+};
+
+function isInclusiveTapeWindow(fromDate: string, toDate: string): boolean {
+  if (!FRONT_OFFICE_ISO_DATE.test(fromDate) || !FRONT_OFFICE_ISO_DATE.test(toDate)) return false;
+  if (fromDate > toDate) return false;
+  const maxTo = enumerateFromDate(fromDate, 90)[89];
+  return Boolean(maxTo) && toDate <= maxTo;
+}
+
+function stayOverlapsWindow(
+  fromDate: string,
+  toDate: string,
+  arrivalDate: string,
+  departureDate: string,
+): boolean {
+  return arrivalDate <= toDate && departureDate > fromDate;
+}
+
+function oooOverlapsWindow(
+  fromDate: string,
+  toDate: string,
+  startDate: string,
+  endDate: string,
+): boolean {
+  const toExclusive = enumerateFromDate(toDate, 2)[1];
+  return Boolean(toExclusive) && startDate < toExclusive && endDate > fromDate;
+}
+
 type PaymentRow = {
   payment_id: string;
   reservation_id: string;
@@ -8207,6 +8268,195 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  async fetch(request: Request): Promise<Response> {
+    this.assertRpcAvailable();
+    const url = new URL(request.url);
+    if (!url.pathname.endsWith('/front-desk/stream')) {
+      return Response.json({ error: 'not_found' }, { status: 404 });
+    }
+    const upgrade = request.headers.get('Upgrade');
+    if (upgrade?.toLowerCase() !== 'websocket') {
+      return Response.json({ error: 'expected_websocket' }, { status: 400 });
+    }
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(server, ['front-office']);
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+
+    const fromDate = url.searchParams.get('fromDate');
+    const toDate = url.searchParams.get('toDate');
+    const valid = Boolean(fromDate && toDate && isInclusiveTapeWindow(fromDate, toDate));
+    const attachment: FrontOfficeAttachment = {
+      propertyId: this.getPropertyIdSync() ?? '',
+      userId: request.headers.get('x-hospai-ws-actor') ?? '',
+      fromDate: valid ? fromDate : null,
+      toDate: valid ? toDate : null,
+    };
+    server.serializeAttachment(attachment);
+    if (valid && fromDate && toDate) {
+      const tape = await this.readFrontOfficeTape(fromDate, toDate);
+      server.send(JSON.stringify({ type: 'snapshot', ...tape }));
+    }
+
+    const headers = new Headers();
+    const protocol = request.headers.get('Sec-WebSocket-Protocol');
+    if (protocol) headers.set('Sec-WebSocket-Protocol', protocol);
+    return new Response(null, { status: 101, webSocket: client, headers });
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== 'string') return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(message);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+    const msg = parsed as { type?: unknown; fromDate?: unknown; toDate?: unknown };
+    if (msg.type === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong', asOf: Date.now() }));
+      return;
+    }
+    if (msg.type !== 'subscribe') return;
+    const fromDate = typeof msg.fromDate === 'string' ? msg.fromDate : '';
+    const toDate = typeof msg.toDate === 'string' ? msg.toDate : '';
+    if (!isInclusiveTapeWindow(fromDate, toDate)) {
+      ws.send(JSON.stringify({ type: 'error', error: 'date_range_exceeds_max' }));
+      return;
+    }
+    const prev = (ws.deserializeAttachment() ?? {}) as FrontOfficeAttachment;
+    ws.serializeAttachment({
+      propertyId: prev.propertyId ?? this.getPropertyIdSync() ?? '',
+      userId: prev.userId ?? '',
+      fromDate,
+      toDate,
+    });
+    const tape = await this.readFrontOfficeTape(fromDate, toDate);
+    ws.send(JSON.stringify({ type: 'snapshot', ...tape }));
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {
+    ws.close(code, reason);
+  }
+
+  async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+    try {
+      ws.close(1011, 'error');
+    } catch {
+      /* already closed */
+    }
+  }
+
+  private broadcastFrontOffice(delta: FrontOfficeDelta): void {
+    const sockets = this.ctx.getWebSockets('front-office');
+    if (sockets.length === 0) return;
+    const frame = JSON.stringify({ type: 'delta', asOf: Date.now(), ...delta });
+    for (const ws of sockets) {
+      const att = (ws.deserializeAttachment() ?? null) as FrontOfficeAttachment | null;
+      if (!att?.fromDate || !att.toDate) continue;
+      if (delta.rooms && delta.rooms.length > 0) {
+        ws.send(frame);
+        continue;
+      }
+      if ((delta.removedBlockIds && delta.removedBlockIds.length > 0) || (delta.removedOooIds && delta.removedOooIds.length > 0)) {
+        ws.send(frame);
+        continue;
+      }
+      const blockHit = delta.blocks?.some((b) =>
+        stayOverlapsWindow(att.fromDate!, att.toDate!, b.arrivalDate, b.departureDate),
+      );
+      const oooHit = delta.ooo?.some((o) =>
+        oooOverlapsWindow(att.fromDate!, att.toDate!, o.startDate, o.endDate),
+      );
+      if (blockHit || oooHit) ws.send(frame);
+    }
+  }
+
+  private maybeBroadcastFrontOffice(eventType: string, payload: unknown): void {
+    if (!FRONT_OFFICE_OUTBOX_TYPES.has(eventType)) return;
+    const delta = this.frontOfficeDeltaFromOutbox(eventType, payload);
+    if (!delta) return;
+    this.broadcastFrontOffice(delta);
+  }
+
+  private frontOfficeDeltaFromOutbox(eventType: string, payload: unknown): FrontOfficeDelta | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const p = payload as Record<string, unknown>;
+    if (eventType.startsWith('reservation.')) {
+      const reservationId = typeof p.reservationId === 'string' ? p.reservationId : null;
+      if (!reservationId) return null;
+      const row = this.selectFrontDeskReservationSync(reservationId);
+      if (!row || !OCCUPYING_STATUSES.has(row.status)) {
+        return { removedBlockIds: [reservationId] };
+      }
+      return { blocks: [this.mapFrontDeskListRow(row)] };
+    }
+    if (eventType === 'room.ooo_changed') {
+      const oooId = typeof p.oooId === 'string' ? p.oooId : null;
+      if (!oooId) return null;
+      if (p.action === 'released') {
+        return { removedOooIds: [oooId] };
+      }
+      const roomId = typeof p.roomId === 'string' ? p.roomId : '';
+      const startDate = typeof p.startDate === 'string' ? p.startDate : '';
+      const endDate = typeof p.endDate === 'string' ? p.endDate : '';
+      const reason = typeof p.reason === 'string' || p.reason === null ? (p.reason as string | null) : null;
+      return { ooo: [{ oooId, roomId, startDate, endDate, reason }] };
+    }
+    if (eventType === 'room.created' || eventType === 'room.updated' || eventType === 'room.status_changed') {
+      const roomId = typeof p.roomId === 'string' ? p.roomId : null;
+      if (!roomId) return null;
+      const room = this.selectFrontOfficeRoomSync(roomId);
+      if (!room) return null;
+      return { rooms: [room] };
+    }
+    return null;
+  }
+
+  private selectFrontDeskReservationSync(reservationId: string): Parameters<PropertyDO['mapFrontDeskListRow']>[0] | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+         FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
+    return rows[0] ?? null;
+  }
+
+  private selectFrontOfficeRoomSync(roomId: string): {
+    roomId: string;
+    roomTypeId: string;
+    code: string;
+    status: string;
+    floor: string | null;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_id, room_type_id, code, status, floor FROM room WHERE room_id = ?`,
+        roomId,
+      )
+      .toArray() as Array<{
+      room_id: string;
+      room_type_id: string;
+      code: string;
+      status: string;
+      floor: string | null;
+    }>;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      roomId: r.room_id,
+      roomTypeId: r.room_type_id,
+      code: r.code,
+      status: r.status,
+      floor: r.floor,
+    };
+  }
+
   private countAttributedCashForShiftSync(shiftId: string): number {
     const rows = this.ctx.storage.sql
       .exec(
@@ -14449,6 +14699,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     payload: unknown;
   }): void {
     appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
+    this.maybeBroadcastFrontOffice(row.eventType, row.payload);
   }
 
   private validateFolioLineMoney(

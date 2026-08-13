@@ -4379,6 +4379,29 @@ async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Respon
   }
 }
 
+async function handleGetFrontOfficeStream(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const upgrade = ctx.request.headers.get('Upgrade');
+  if (upgrade?.toLowerCase() !== 'websocket') {
+    return json({ error: 'expected_websocket' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const headers = new Headers(ctx.request.headers);
+  headers.delete('x-hospai-ws-actor');
+  headers.set('x-hospai-ws-actor', ctx.actor.userId);
+  const forward = new Request(ctx.request.url, { method: 'GET', headers });
+  try {
+    return await resolvedCtx.resolved.stub.fetch(forward);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const roomTypeId = decodeURIComponent(ctx.match[2]!);
@@ -6606,6 +6629,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handleGetFrontDeskSummary,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/stream$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontOfficeStream,
   },
 ];
 

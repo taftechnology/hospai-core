@@ -60,6 +60,13 @@ export async function resolveActor(request: Request, env: PmsEnv): Promise<Actor
   if (isDevActorAllowed(env)) {
     const dev = request.headers.get(DEV_ACTOR_HEADER);
     if (dev?.startsWith('user_')) return { userId: dev, source: 'dev' };
+    const protocol = request.headers.get('Sec-WebSocket-Protocol');
+    if (protocol) {
+      const token = protocol.split(',')[0]?.trim() ?? '';
+      if (token.startsWith('hospai.dev-actor.') && token.slice('hospai.dev-actor.'.length).startsWith('user_')) {
+        return { userId: token.slice('hospai.dev-actor.'.length), source: 'dev' };
+      }
+    }
   }
 
   if (!clerkConfigured(env)) {

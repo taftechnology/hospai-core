@@ -807,6 +807,14 @@ WHERE (
 
 export const ROOM_OOO_V22_SQL = ROOM_OOO_V22_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v23 — stay-level DND flag (not a room.status). */
+export const PROTOTYPE_HOLES_V23_STATEMENTS: string[] = [
+  `ALTER TABLE reservation ADD COLUMN dnd_flag INTEGER NOT NULL DEFAULT 0
+  CHECK (dnd_flag IN (0, 1))`,
+];
+
+export const PROTOTYPE_HOLES_V23_SQL = PROTOTYPE_HOLES_V23_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -917,5 +925,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 22,
     name: 'room_ooo',
     statements: ROOM_OOO_V22_STATEMENTS,
+  },
+  {
+    version: 23,
+    name: 'prototype_holes',
+    statements: PROTOTYPE_HOLES_V23_STATEMENTS,
   },
 ] as const;

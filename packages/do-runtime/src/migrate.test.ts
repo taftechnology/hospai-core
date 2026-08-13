@@ -36,6 +36,7 @@ import {
   RESERVATION_LIFECYCLE_V20_SQL,
   FOLIO_MONEY_OPS_V21_SQL,
   ROOM_OOO_V22_SQL,
+  PROTOTYPE_HOLES_V23_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -155,6 +156,7 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN dnd_flag')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO room_ooo')) return { toArray: () => [] };
     if (q.startsWith('UPDATE availability_day')) return { toArray: () => [] };
     if (
@@ -176,15 +178,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 22', () => {
+  it('applies property migrations through version 23', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(22);
+    expect(v1).toBe(23);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(22);
-    expect(sql.schemaVersion).toHaveLength(22);
+    expect(v2).toBe(23);
+    expect(sql.schemaVersion).toHaveLength(23);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -564,7 +566,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(22);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(23);
     expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -601,8 +603,7 @@ describe('schema head constants', () => {
   });
 
   it('property schema head is 22 after room_ooo', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(22);
-    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(22);
+    expect(Math.max(...PROPERTY_MIGRATIONS.filter((m) => m.version <= 22).map((m) => m.version))).toBe(22);
     const v22 = PROPERTY_MIGRATIONS.find((m) => m.version === 22);
     expect(v22?.name).toBe('room_ooo');
     expect(v22?.statements.some((s) => s.includes('CREATE TABLE room_ooo'))).toBe(true);
@@ -619,5 +620,24 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(ROOM_OOO_V22_SQL.trim());
+  });
+
+  it('property schema head is 23 after prototype holes', () => {
+    expect(PROPERTY_SCHEMA_HEAD).toBe(23);
+    const v23 = PROPERTY_MIGRATIONS.find((m) => m.version === 23);
+    expect(v23?.name).toBe('prototype_holes');
+    expect(v23?.statements.some((s) => s.includes('dnd_flag'))).toBe(true);
+  });
+
+  it('migrations/do-property/0023_prototype_holes.sql matches PROTOTYPE_HOLES_V23_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0023_prototype_holes.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PROTOTYPE_HOLES_V23_SQL.trim());
   });
 });

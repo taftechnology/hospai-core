@@ -68,6 +68,7 @@ if (process.argv.includes('--self-test')) {
   let RESERVATION_LIFECYCLE_V20_SQL;
   let FOLIO_MONEY_OPS_V21_SQL;
   let ROOM_OOO_V22_SQL;
+  let PROTOTYPE_HOLES_V23_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -103,6 +104,7 @@ if (process.argv.includes('--self-test')) {
       RESERVATION_LIFECYCLE_V20_SQL,
       FOLIO_MONEY_OPS_V21_SQL,
       ROOM_OOO_V22_SQL,
+      PROTOTYPE_HOLES_V23_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -334,6 +336,16 @@ const doPropertyTargets = [
 
 `,
     sql: ROOM_OOO_V22_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0023_prototype_holes.sql'),
+    header: `-- PropertyDO prototype holes — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: ALTER reservation ADD dnd_flag.
+
+`,
+    sql: PROTOTYPE_HOLES_V23_SQL,
   },
 ];
 

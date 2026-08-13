@@ -1818,8 +1818,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.postRoomChargesSync(businessDate);
         } else if (step === 'CLOSE_CASHIER_SHIFTS') {
           this.forceCloseCashierShiftsSync(businessDate);
+        } else if (step === 'PROCESS_NO_SHOWS') {
+          this.processNoShowsSync(businessDate);
         } else {
-          // PROCESS_NO_SHOWS / SNAPSHOT_REPORTS — still stubs.
+          // SNAPSHOT_REPORTS — still a stub.
         }
 
         const completedAt = Date.now();
@@ -1867,6 +1869,96 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray();
     if (open.length > 0) throw new ProvisionalExceptionsOpenError();
+  }
+
+  /**
+   * `PROCESS_NO_SHOWS` body — sync, inside Txn B. Copies tryNoShow inventory+status
+   * writes. Does not call tryNoShow. Posts no folio lines.
+   */
+  private processNoShowsSync(businessDate: string): void {
+    const auto = this.readConfigValueSync('pms.night_audit.auto_no_show');
+    if (auto === false) return;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
+         FROM reservation
+         WHERE status = 'confirmed' AND arrival_date <= ?`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      guest_ref: string;
+      pii_key_id: string;
+      arrival_date: string;
+      departure_date: string;
+    }>;
+
+    const now = Date.now();
+    for (const reservation of rows) {
+      const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+      for (const stayDate of nights) {
+        const soldRows = this.ctx.storage.sql
+          .exec(
+            `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+            reservation.room_type_id,
+            stayDate,
+          )
+          .toArray() as Array<{ sold: number }>;
+        if (soldRows.length === 0 || soldRows[0]!.sold < 1) {
+          throw new LedgerInconsistentError(stayDate);
+        }
+      }
+      for (const stayDate of nights) {
+        this.ctx.storage.sql.exec(
+          `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+          reservation.room_type_id,
+          stayDate,
+        );
+      }
+      this.ctx.storage.sql.exec(
+        `UPDATE reservation SET status = 'no_show', updated_at = ? WHERE reservation_id = ?`,
+        now,
+        reservation.reservation_id,
+      );
+      const ariVersion = this.bumpAriVersionSync();
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'reservation.status_changed',
+        payload: {
+          propertyId,
+          reservationId: reservation.reservation_id,
+          guestRef: reservation.guest_ref,
+          piiKeyId: reservation.pii_key_id,
+          fromStatus: 'confirmed',
+          toStatus: 'no_show',
+        },
+      });
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'availability.changed',
+        payload: {
+          propertyId,
+          roomTypeId: reservation.room_type_id,
+          fromDate: nights[0]!,
+          toDate: nights[nights.length - 1]!,
+          version: ariVersion,
+        },
+      });
+      this.appendAuditLogSync({
+        actor: 'system:night_audit',
+        commandId: 'night_audit.run',
+        entityType: 'reservation',
+        entityId: reservation.reservation_id,
+        beforeJson: { status: 'confirmed', roomTypeId: reservation.room_type_id },
+        afterJson: { status: 'no_show', roomTypeId: reservation.room_type_id },
+        reservationId: reservation.reservation_id,
+      });
+    }
   }
 
   /**
@@ -8204,6 +8296,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.status ?? 'confirmed',
       now,
       now,
+    );
+  }
+
+  async bumpSoldForTest(roomTypeId: string, stayDate: string, delta: number): Promise<void> {
+    this.assertUnsafeLocal('bumpSoldForTest');
+    const rt = this.ctx.storage.sql
+      .exec(`SELECT room_count FROM room_type WHERE room_type_id = ?`, roomTypeId)
+      .toArray() as Array<{ room_count: number }>;
+    const physical = rt[0]?.room_count ?? 0;
+    const oversell = this.materializedOversellAllowanceSync();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
+       VALUES (?, ?, ?, 0, 0, ?, ?, 1)
+       ON CONFLICT(room_type_id, stay_date) DO UPDATE SET
+         sold = availability_day.sold + excluded.sold,
+         version = availability_day.version + 1`,
+      roomTypeId,
+      stayDate,
+      physical,
+      delta,
+      oversell,
     );
   }
 

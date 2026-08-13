@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -14,6 +14,14 @@ const authorizePayment = vi.fn();
 const checkOut = vi.fn();
 const postGuestsBatch = vi.fn();
 const recordCashPayment = vi.fn();
+const splitFolioLineV2 = vi.fn();
+const closeFolioWindow = vi.fn();
+const transferFolioLine = vi.fn();
+const voidPayment = vi.fn();
+const refundPayment = vi.fn();
+const postDiscount = vi.fn();
+const captureDue = vi.fn();
+const updateFrontOffice = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -40,6 +48,16 @@ vi.mock('../client.js', () => ({
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     capturePayment: vi.fn(),
     splitFolioLine: vi.fn(),
+    splitFolioLineV2: (...args: unknown[]) => splitFolioLineV2(...args),
+    closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
+    reopenFolioWindow: vi.fn(),
+    openFolioWindow: vi.fn(),
+    transferFolioLine: (...args: unknown[]) => transferFolioLine(...args),
+    voidPayment: (...args: unknown[]) => voidPayment(...args),
+    refundPayment: (...args: unknown[]) => refundPayment(...args),
+    postDiscount: (...args: unknown[]) => postDiscount(...args),
+    captureDue: (...args: unknown[]) => captureDue(...args),
+    updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
   },
 }));
 
@@ -85,6 +103,48 @@ const liveReservation = {
   roomId: null,
   createdAt: 1,
   updatedAt: 1,
+};
+
+const ownerMe = {
+  ok: true as const,
+  orgId: 'org_demo',
+  propertyId: 'prop_demo',
+  userId: 'user_owner',
+  role: 'owner' as const,
+  permissions: [
+    'folio:read',
+    'folio:post',
+    'folio:adjust',
+    'reservations:read',
+    'reservations:write',
+  ],
+  orgPermissions: ['org:read'],
+};
+
+const staffMe = {
+  ok: true as const,
+  orgId: 'org_demo',
+  propertyId: 'prop_demo',
+  userId: 'user_staff',
+  role: 'staff' as const,
+  permissions: ['folio:read', 'folio:post', 'reservations:read', 'reservations:write'],
+  orgPermissions: ['org:read'],
+};
+
+const miscLine = {
+  folioLineId: 'line_room',
+  folioWindowId: 'res_1:GUEST',
+  chargeCode: 'MISC',
+  amountMinor: 5000,
+  ledgerAmountMinor: 5000,
+  txnCurrency: 'USD',
+  source: 'DESK',
+  businessDate: '2026-08-08',
+  splitOf: null,
+  createdAt: 1,
+  paymentId: null,
+  taxOf: null,
+  taxRuleId: null,
 };
 
 describe('FolioScreen wiring', () => {
@@ -381,5 +441,241 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(checkOut).toHaveBeenCalled());
     expect(checkOut.mock.calls[0]![3]).toMatchObject({ overrideBalance: true });
     confirm.mockRestore();
+  });
+
+  it('52: closed chip; close disabled on non-zero window balance', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'CLOSED',
+          billedParty: 'Acme',
+          closedAt: 9,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('window-chip-res_1:COMPANY')).toBeTruthy());
+    const closedChip = screen.getByTestId('window-chip-res_1:COMPANY');
+    expect(closedChip.textContent).toMatch(/CLOSED/);
+    expect(closedChip.className).toMatch(/status-informational/);
+    expect(screen.getByTestId('window-chip-res_1:GUEST').className).toMatch(/status-neutral/);
+    expect((screen.getByTestId('close-window-res_1:GUEST') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('53: transfer picker lists other OPEN windows only', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+        {
+          folioWindowId: 'res_1:MASTER',
+          kind: 'MASTER',
+          status: 'CLOSED',
+          billedParty: null,
+          closedAt: 9,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('transfer-dest-line_room')).toBeTruthy());
+    const select = screen.getByTestId('transfer-dest-line_room') as HTMLSelectElement;
+    const values = [...select.options].map((o) => o.value).filter(Boolean);
+    expect(values).toEqual(['res_1:COMPANY']);
+    expect(values).not.toContain('res_1:GUEST');
+    expect(values).not.toContain('res_1:MASTER');
+  });
+
+  it('54: void visible on authorized; refund hidden for staff', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_auth',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'authorized',
+          purpose: 'STAY',
+          gatewayReference: 'gw',
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          paymentId: 'pay_cap',
+          reservationId: 'res_1',
+          amountMinor: 2000,
+          currency: 'USD',
+          status: 'captured',
+          purpose: 'STAY',
+          gatewayReference: 'gw2',
+          capturedAmountMinor: 2000,
+          createdAt: 2,
+          updatedAt: 2,
+        },
+      ],
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('void-payment-pay_auth')).toBeTruthy());
+    expect(screen.queryByTestId('refund-payment-pay_cap')).toBeNull();
+  });
+
+  it('55: discount requires reason before submit', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('post-discount')).toBeTruthy());
+    const btn = screen.getByTestId('post-discount') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+    expect(postDiscount).not.toHaveBeenCalled();
+  });
+
+  it('split dest picker lists OPEN windows and submits split v2', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    splitFolioLineV2.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
+      body: { ok: true },
+    });
+
+    renderFolio();
+    await waitFor(() => {
+      const destA = screen.getByLabelText('split-dest-a') as HTMLSelectElement;
+      expect([...destA.options].map((o) => o.value)).toEqual([
+        'res_1:GUEST',
+        'res_1:COMPANY',
+      ]);
+    });
+
+    fireEvent.change(screen.getByLabelText('split-line-id'), { target: { value: 'line_room' } });
+    fireEvent.change(screen.getByLabelText('split-a'), { target: { value: '30.00' } });
+    fireEvent.change(screen.getByLabelText('split-b'), { target: { value: '20.00' } });
+    screen.getByTestId('split-charge').click();
+    await waitFor(() => expect(splitFolioLineV2).toHaveBeenCalled());
+    expect(splitFolioLineV2.mock.calls[0]![2].splits[0]).toMatchObject({
+      folioWindowId: 'res_1:GUEST',
+    });
+  });
+
+  it('check-out autoCapture failed shows capture-due retry and does not infer from payments', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    checkOut.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
+      body: { ok: true, autoCapture: 'failed' },
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
+    expect(screen.queryByTestId('capture-due')).toBeNull();
+    screen.getByTestId('check-out').click();
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-message').textContent).toMatch(/auto-capture failed/i),
+    );
+    expect(screen.getByTestId('capture-due')).toBeTruthy();
+    expect(getFolioPayments.mock.calls.length).toBeGreaterThan(0);
+    const paymentsCallsAfterCheckout = getFolioPayments.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getFolioPayments.mock.calls.length).toBe(paymentsCallsAfterCheckout);
   });
 });

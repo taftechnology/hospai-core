@@ -35,11 +35,22 @@ export type PropertyRead = {
   propertyDo?: 'unreachable';
 };
 
+export type FolioWindowSummary = {
+  folioWindowId: string;
+  kind: string;
+  status: string;
+  billedParty: string | null;
+  closedAt: number | null;
+  balanceMinor: number;
+};
+
 export type FolioRead = {
   ok: true;
-  window: { folioWindowId: string; kind: string; status: string } | null;
+  window: { folioWindowId: string; kind: string; status: string; closedAt?: number | null } | null;
+  windows?: FolioWindowSummary[];
   lines: FolioLine[];
   balanceMinor: number;
+  noPost?: boolean;
 };
 
 export type ReservationRead = {
@@ -67,6 +78,7 @@ export type FolioPaymentRow = {
   amountMinor: number;
   currency: string;
   status: string;
+  purpose?: 'STAY' | 'DAMAGE';
   gatewayReference: string | null;
   capturedAmountMinor: number | null;
   createdAt: number;
@@ -575,6 +587,136 @@ export function createClient(opts: {
         },
       );
     },
+    async splitFolioLineV2(
+      propertyId: string,
+      sourceFolioLineId: string,
+      input: {
+        splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split-v2`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ splits: input.splits, idempotencyKey }),
+        },
+      );
+    },
+    async openFolioWindow(
+      propertyId: string,
+      reservationId: string,
+      input: { kind: 'COMPANY' | 'MASTER'; billedParty?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/windows`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+    async closeFolioWindow(propertyId: string, folioWindowId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/windows/${enc(folioWindowId)}/close`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async reopenFolioWindow(propertyId: string, folioWindowId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/windows/${enc(folioWindowId)}/reopen`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async transferFolioLine(
+      propertyId: string,
+      sourceFolioLineId: string,
+      input: { destinationFolioWindowId: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/transfer`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            destinationFolioWindowId: input.destinationFolioWindowId,
+            idempotencyKey,
+          }),
+        },
+      );
+    },
+    async voidPayment(propertyId: string, paymentId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/payments/${enc(paymentId)}/void`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async refundPayment(propertyId: string, paymentId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/payments/${enc(paymentId)}/refund`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async postDiscount(
+      propertyId: string,
+      sourceFolioLineId: string,
+      input: {
+        kind: 'percent' | 'fixed';
+        bps?: number;
+        amountMinor?: number;
+        reason: string;
+        folioLineId: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/discount`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+    async captureDue(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/capture-due`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
     async splitFolioPayment(
       propertyId: string,
       sourceFolioLineId: string,
@@ -716,7 +858,7 @@ export function createClient(opts: {
       propertyId: string,
       reservationId: string,
       opId: string,
-      extra: { frontOfficeComment?: string; vipFlag?: boolean },
+      extra: { frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean },
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(

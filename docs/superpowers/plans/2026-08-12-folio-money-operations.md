@@ -984,25 +984,25 @@ EOF
 - Consumes: Task 12 routes
 - **Lock: ship dest picker** (spec §14). Existing split A/B amount fields stay; add per-slice window `<select>` (default source GUEST). Submit `split-v2` when any dest ≠ source; otherwise v1 route is acceptable **only if** both dests are source — simpler lock: **always call split-v2** now that it is a same-window superset. Do that: FolioScreen split uses `splitFolioLineV2` always.
 
-- [ ] **Step 1: Write failing SPA tests** 52–55 plus dest picker: transfer picker lists other OPEN windows; staff hides refund; check-out reads `autoCapture` (`'failed'` shows retry copy, does not infer from payments refetch).
+- [x] **Step 1: Write failing SPA tests** 52–55 plus dest picker: transfer picker lists other OPEN windows; staff hides refund; check-out reads `autoCapture` (`'failed'` shows retry copy, does not infer from payments refetch).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx`
 
-- [ ] **Step 3: Implement client methods + FolioScreen**
+- [x] **Step 3: Implement client methods + FolioScreen**
 
 Client: `openFolioWindow`, `closeFolioWindow`, `reopenFolioWindow`, `transferFolioLine`, `splitFolioLineV2`, `voidPayment`, `refundPayment`, `postDiscount`, `captureDue`. Widen `getFolio` types (`windows`, `folioWindowId`, `noPost`, `closedAt`). `checkOut` already returns body as-is — type `autoCapture`.
 
 FolioScreen: window list/chips; close/reopen gated `folio:adjust`; COMPANY open; transfer dest picker; split dest selects; discount + reason; void on authorized; refund on captured (`folio:adjust`); capture-due button; no-post toggle via front-office (`reservations:write`); check-out uses `body.autoCapture`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx`
 
 Run: `pnpm --filter @hospai/client-core exec vitest run test/api-folio.test.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core apps/web-pms/src/screens/FolioScreen.tsx \

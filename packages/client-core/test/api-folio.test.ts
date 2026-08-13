@@ -83,6 +83,42 @@ describe('folio API', () => {
     ).rejects.toMatchObject({ classified: { class: 'not_configured' } });
   });
 
+  it('splitFolioLineV2 posts split-v2 with idempotency key', async () => {
+    let seen = '';
+    let body = '';
+    const { client } = clientWith(async (path, init) => {
+      seen = path;
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.splitFolioLineV2(
+      'p',
+      'line_1',
+      {
+        splits: [
+          { folioLineId: 'a', amountMinor: 60, folioWindowId: 'res_1:COMPANY' },
+          { folioLineId: 'b', amountMinor: 40 },
+        ],
+      },
+      'op-split-v2',
+    );
+    expect(seen).toBe('/v1/properties/p/folio/lines/line_1/split-v2');
+    expect(JSON.parse(body).splits[0].folioWindowId).toBe('res_1:COMPANY');
+    expect(JSON.parse(body).idempotencyKey).toBeTruthy();
+  });
+
+  it('closeFolioWindow and captureDue hit money-ops routes', async () => {
+    const paths: string[] = [];
+    const { client } = clientWith(async (path) => {
+      paths.push(path);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.closeFolioWindow('p', 'res_1:GUEST', 'op-close');
+    await client.captureDue('p', 'res_1', 'op-cap');
+    expect(paths[0]).toBe('/v1/properties/p/folio/windows/res_1%3AGUEST/close');
+    expect(paths[1]).toBe('/v1/properties/p/reservations/res_1/folio/capture-due');
+  });
+
   it('splitFolioLine 403 bare body is forbidden', async () => {
     const { client } = clientWith(
       () => new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }),

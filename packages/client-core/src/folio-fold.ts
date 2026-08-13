@@ -1,5 +1,6 @@
 export type FolioLine = {
   folioLineId: string;
+  folioWindowId?: string;
   chargeCode: string;
   amountMinor: number;
   ledgerAmountMinor: number;

@@ -470,7 +470,7 @@ async tryHold(
 
 Fingerprint create: add `status`, `adults`, `children`, `ratePlanId`, `confirmBy`, `expiresAt` to the existing allowlist. Confirm: `{ reservationId, ratePlanId }`. Hold: `{ reservationId, ratePlanId, confirmBy }`.
 
-- [ ] **Step 1: Write failing lifecycle tests 1–8, 9, 12, 12a, 12b**
+- [x] **Step 1: Write failing lifecycle tests 1–8, 9, 12, 12a, 12b**
 
 In `reservations-lifecycle.spec.ts` use `provisionedPropertyStub` + `createGuest` + `tryCreateReservation` (not the test insert) for sold-accounting tests. For 12/12a/12b, create pending then `UPDATE reservation SET confirm_by = ?` via a tiny `setConfirmByForTest` **or** pass `confirmBy` as an ISO instant in the past on create.
 
@@ -498,13 +498,13 @@ it('12b: expire-then-cancel → ok, single release, no penalty, no second events
 
 Test 9: check-in from live pending → `INVALID_STATUS_TRANSITION` (not expired).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts`
 
 Expected: FAIL — no `tryConfirm` / create ignores `status`.
 
-- [ ] **Step 3: Implement create branch, expireIfDueSync, tryConfirm, tryHold**
+- [x] **Step 3: Implement create branch, expireIfDueSync, tryConfirm, tryHold**
 
 `expireIfDueSync` (private, inside the caller’s `transactionSync`):
 
@@ -545,13 +545,13 @@ Map `HoldExpiredError` / `InquiryExpiredError` in `mapReservationPreconditionErr
 
 `tryNoShow` in this commit: call `expireIfDueSync` first so 12a passes. Do not add folio posting yet.
 
-- [ ] **Step 4: Run lifecycle tests**
+- [x] **Step 4: Run lifecycle tests**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts test/reservations.spec.ts test/reservations-routes.spec.ts`
 
 Expected: PASS. Existing create-as-confirmed tests still pass (default status).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/reservations-lifecycle.spec.ts

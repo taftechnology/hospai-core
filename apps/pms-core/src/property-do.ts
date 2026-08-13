@@ -10,6 +10,9 @@ import {
   getConfigEntry,
   requiredPermissionForKey,
   IDEM_KEY_REUSED,
+  HOLD_EXPIRED,
+  INQUIRY_EXPIRED,
+  OCCUPANCY_EXCEEDED,
   NOT_FOUND,
   NO_AVAILABILITY,
   OVERSELL,
@@ -456,6 +459,34 @@ class RoomNotFoundError extends Error {
   }
 }
 
+class OccupancyExceededError extends Error {
+  constructor() {
+    super(OCCUPANCY_EXCEEDED);
+    this.name = 'OccupancyExceededError';
+  }
+}
+
+class HoldExpiredError extends Error {
+  constructor() {
+    super(HOLD_EXPIRED);
+    this.name = 'HoldExpiredError';
+  }
+}
+
+class InquiryExpiredError extends Error {
+  constructor() {
+    super(INQUIRY_EXPIRED);
+    this.name = 'InquiryExpiredError';
+  }
+}
+
+class RoomOutOfOrderError extends Error {
+  constructor() {
+    super('Room is out of order');
+    this.name = 'RoomOutOfOrderError';
+  }
+}
+
 const STAY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function mapReservationPreconditionError(e: unknown):
@@ -472,6 +503,10 @@ function mapReservationPreconditionError(e: unknown):
       required?: number;
     }
   | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+  | { ok: false; error: typeof HOLD_EXPIRED }
+  | { ok: false; error: typeof INQUIRY_EXPIRED }
+  | { ok: false; error: typeof OCCUPANCY_EXCEEDED }
+  | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -492,6 +527,10 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof LedgerInconsistentError) {
     return { ok: false, error: LEDGER_INCONSISTENT, date: e.date };
   }
+  if (e instanceof HoldExpiredError) return { ok: false, error: HOLD_EXPIRED };
+  if (e instanceof InquiryExpiredError) return { ok: false, error: INQUIRY_EXPIRED };
+  if (e instanceof OccupancyExceededError) return { ok: false, error: OCCUPANCY_EXCEEDED };
+  if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
   return null;
 }
 
@@ -4062,6 +4101,187 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return readAssignments(this.ctx.storage.sql, { businessDate });
   }
 
+  private assertOccupancySync(roomTypeId: string, adults: number, children: number): void {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT max_occupancy, max_adults FROM room_type WHERE room_type_id = ?`, roomTypeId)
+      .toArray() as Array<{ max_occupancy: number; max_adults: number }>;
+    const rt = rows[0];
+    if (!rt) throw new RoomTypeNotFoundError();
+    if (adults > rt.max_adults || adults + children > rt.max_occupancy) {
+      throw new OccupancyExceededError();
+    }
+  }
+
+  private snapshotPenaltyFromPlanSync(ratePlanId: string): {
+    cancelPenaltyType: string;
+    cancelGraceHours: number;
+    cancelPenaltyNights: number | null;
+    cancelPenaltyBps: number | null;
+  } {
+    this.assertActiveRatePlanSync(ratePlanId);
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps
+         FROM rate_plan WHERE rate_plan_id = ?`,
+        ratePlanId,
+      )
+      .toArray() as Array<{
+      cancel_penalty_type: string;
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
+    }>;
+    const row = rows[0];
+    if (!row) throw new RatePlanNotFoundError();
+    return {
+      cancelPenaltyType: row.cancel_penalty_type,
+      cancelGraceHours: row.cancel_grace_hours,
+      cancelPenaltyNights: row.cancel_penalty_nights,
+      cancelPenaltyBps: row.cancel_penalty_bps,
+    };
+  }
+
+  private commitSoldNightsSync(roomTypeId: string, arrivalDate: string, departureDate: string, nights: string[]): void {
+    const rowsByDate = new Map<string, AvailabilitySnapshot>();
+    for (const stayDate of nights) {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+          roomTypeId,
+          stayDate,
+        )
+        .toArray() as Array<{
+        physical: number;
+        blocked: number;
+        held: number;
+        sold: number;
+        oversell: number;
+      }>;
+      if (rows.length === 0) {
+        throw new UnbookableError(stayDate);
+      }
+      const row = rows[0]!;
+      rowsByDate.set(stayDate, {
+        stayDate,
+        physical: row.physical,
+        blocked: row.blocked,
+        held: row.held,
+        sold: row.sold,
+        oversell: row.oversell,
+      });
+    }
+    const unavailable = firstUnavailableNight(nights, rowsByDate);
+    if (unavailable) {
+      throw new NoAvailabilityError(unavailable);
+    }
+    this.restrictionFailureSync(roomTypeId, arrivalDate, departureDate, nights);
+    for (const stayDate of nights) {
+      this.ctx.storage.sql.exec(
+        `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+        roomTypeId,
+        stayDate,
+      );
+    }
+  }
+
+  private releaseSoldNightsSync(roomTypeId: string, nights: string[]): void {
+    for (const stayDate of nights) {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+          roomTypeId,
+          stayDate,
+        )
+        .toArray() as Array<{ sold: number }>;
+      if (rows.length === 0 || rows[0]!.sold < 1) {
+        throw new LedgerInconsistentError(stayDate);
+      }
+    }
+    for (const stayDate of nights) {
+      this.ctx.storage.sql.exec(
+        `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+        roomTypeId,
+        stayDate,
+      );
+    }
+  }
+
+  /** Lazy expiry: due pending/inquiry → cancelled. Pending releases sold. Returns the expired kind. */
+  private expireIfDueSync(
+    reservationId: string,
+    nowMs: number,
+  ): { kind: 'pending' | 'inquiry'; ariVersion: number; fromDate: string; toDate: string } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT status, confirm_by, expires_at, room_type_id, arrival_date, departure_date, guest_ref, pii_key_id
+         FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      status: string;
+      confirm_by: number | null;
+      expires_at: number | null;
+      room_type_id: string;
+      arrival_date: string;
+      departure_date: string;
+      guest_ref: string;
+      pii_key_id: string;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    const pendingDue = row.status === 'pending' && row.confirm_by != null && row.confirm_by <= nowMs;
+    const inquiryDue =
+      row.status === 'inquiry' && row.expires_at != null && row.expires_at <= nowMs;
+    if (!pendingDue && !inquiryDue) return null;
+
+    const nights = enumerateStayDates(row.arrival_date, row.departure_date);
+    const fromDate = nights[0]!;
+    const toDate = nights[nights.length - 1]!;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    if (pendingDue) {
+      this.releaseSoldNightsSync(row.room_type_id, nights);
+    }
+
+    this.ctx.storage.sql.exec(
+      `UPDATE reservation SET status = 'cancelled', updated_at = ? WHERE reservation_id = ?`,
+      nowMs,
+      reservationId,
+    );
+
+    const ariVersion = pendingDue ? this.bumpAriVersionSync() : this.readAriVersionSync();
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'reservation.status_changed',
+      payload: {
+        propertyId,
+        reservationId,
+        guestRef: row.guest_ref,
+        piiKeyId: row.pii_key_id,
+        fromStatus: row.status,
+        toStatus: 'cancelled',
+        reason: 'expired',
+      },
+    });
+    if (pendingDue) {
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'availability.changed',
+        payload: { propertyId, roomTypeId: row.room_type_id, fromDate, toDate, version: ariVersion },
+      });
+    }
+    return { kind: pendingDue ? 'pending' : 'inquiry', ariVersion, fromDate, toDate };
+  }
+
+  private expiredWire(
+    expired: { kind: 'pending' | 'inquiry' } | null,
+  ): { ok: false; error: typeof HOLD_EXPIRED } | { ok: false; error: typeof INQUIRY_EXPIRED } | null {
+    if (expired?.kind === 'pending') return { ok: false, error: HOLD_EXPIRED };
+    if (expired?.kind === 'inquiry') return { ok: false, error: INQUIRY_EXPIRED };
+    return null;
+  }
+
   /**
    * Create a confirmed reservation and increment `sold` on every stay night in one atomic
    * write. Implements catalog `reservations.create` / platform gap `availability.book`.
@@ -4076,6 +4296,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       guestRef: string;
       arrivalDate: string;
       departureDate: string;
+      status?: 'inquiry' | 'pending' | 'confirmed';
+      adults?: number;
+      children?: number;
+      ratePlanId?: string;
+      confirmBy?: number;
+      expiresAt?: number;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -4127,80 +4353,74 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const status = input.status ?? 'confirmed';
+          if (status !== 'inquiry' && status !== 'pending' && status !== 'confirmed') {
+            throw new Error('invalid_status');
+          }
+          const adults = input.adults ?? 1;
+          const children = input.children ?? 0;
+          const ratePlanId = input.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
+          const now = Date.now();
+
           const roomRows = this.ctx.storage.sql
             .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
             .toArray() as Array<{ status: string }>;
           if (!roomRows[0] || roomRows[0].status !== 'active') {
             throw new RoomTypeNotFoundError();
           }
+          this.assertOccupancySync(input.roomTypeId, adults, children);
+          this.assertActiveRatePlanSync(ratePlanId);
 
-          const rowsByDate = new Map<string, AvailabilitySnapshot>();
-          for (const stayDate of nights) {
-            const rows = this.ctx.storage.sql
-              .exec(
-                `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-                input.roomTypeId,
-                stayDate,
-              )
-              .toArray() as Array<{
-              physical: number;
-              blocked: number;
-              held: number;
-              sold: number;
-              oversell: number;
-            }>;
-            if (rows.length === 0) {
-              throw new UnbookableError(stayDate);
-            }
-            const row = rows[0]!;
-            rowsByDate.set(stayDate, {
-              stayDate,
-              physical: row.physical,
-              blocked: row.blocked,
-              held: row.held,
-              sold: row.sold,
-              oversell: row.oversell,
-            });
+          const commitsInventory = status === 'pending' || status === 'confirmed';
+          if (commitsInventory) {
+            this.commitSoldNightsSync(input.roomTypeId, input.arrivalDate, input.departureDate, nights);
           }
 
-          const unavailable = firstUnavailableNight(nights, rowsByDate);
-          if (unavailable) {
-            throw new NoAvailabilityError(unavailable);
-          }
-
-          this.restrictionFailureSync(
-            input.roomTypeId,
-            input.arrivalDate,
-            input.departureDate,
-            nights,
-          );
-
-          const now = Date.now();
-          for (const stayDate of nights) {
-            this.ctx.storage.sql.exec(
-              `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-              input.roomTypeId,
-              stayDate,
-            );
-          }
+          const snapshot = commitsInventory
+            ? this.snapshotPenaltyFromPlanSync(ratePlanId)
+            : {
+                cancelPenaltyType: 'none',
+                cancelGraceHours: 0,
+                cancelPenaltyNights: null as number | null,
+                cancelPenaltyBps: null as number | null,
+              };
+          const holdHours = Number(this.readConfigValueSync('pms.reservations.pending_hold_hours') ?? 24);
+          const ttlDays = Number(this.readConfigValueSync('pms.reservations.inquiry_ttl_days') ?? 7);
+          const confirmBy =
+            status === 'pending' ? (input.confirmBy ?? now + holdHours * 3600_000) : null;
+          const expiresAt =
+            status === 'inquiry' ? (input.expiresAt ?? now + ttlDays * 86_400_000) : null;
 
           this.ctx.storage.sql.exec(
-            `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+            `INSERT INTO reservation (
+               reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
+               status, adults, children, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
+               cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
             piiKeyId,
             input.arrivalDate,
             input.departureDate,
+            status,
+            adults,
+            children,
+            ratePlanId,
+            snapshot.cancelPenaltyType,
+            snapshot.cancelGraceHours,
+            snapshot.cancelPenaltyNights,
+            snapshot.cancelPenaltyBps,
+            confirmBy,
+            expiresAt,
             now,
             now,
           );
           this.ensureGuestFolioWindowSync(input.reservationId);
 
-          const ariVersion = this.bumpAriVersionSync();
           const fromDate = nights[0]!;
           const toDate = nights[nights.length - 1]!;
+          const ariVersion = commitsInventory ? this.bumpAriVersionSync() : this.readAriVersionSync();
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -4213,19 +4433,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               piiKeyId,
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
-              status: 'confirmed',
+              status,
             },
           });
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'availability.changed',
-            payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
-          });
+          if (commitsInventory) {
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+            });
+          }
 
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'reservations.create',
-            // Wired in Task 3: 'reservations.confirm' 'reservations.hold'
             entityType: 'reservation',
             entityId: input.reservationId,
             beforeJson: null,
@@ -4234,7 +4455,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomTypeId: input.roomTypeId,
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
-              status: 'confirmed',
+              status,
             },
             reservationId: input.reservationId,
           });
@@ -4256,6 +4477,246 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           date: e.date,
           ariVersion: this.readAriVersionSync(),
         };
+      }
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryConfirm(
+    actor: ActorContext,
+    input: { reservationId: string; ratePlanId?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: typeof NOT_FOUND | typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED | typeof INVALID_STATUS_TRANSITION | typeof NO_AVAILABILITY; date?: string; ariVersion?: number }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const expired = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredErr = this.expiredWire(expired);
+          if (expiredErr) return expiredErr;
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, adults, children
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+            rate_plan_id: string;
+            adults: number;
+            children: number;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'inquiry' && reservation.status !== 'pending') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+          const ratePlanId = input.ratePlanId ?? reservation.rate_plan_id;
+          const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+          const fromDate = nights[0]!;
+          const toDate = nights[nights.length - 1]!;
+          const now = Date.now();
+          const fromInquiry = reservation.status === 'inquiry';
+          if (fromInquiry) {
+            this.assertOccupancySync(reservation.room_type_id, reservation.adults, reservation.children);
+            this.commitSoldNightsSync(
+              reservation.room_type_id,
+              reservation.arrival_date,
+              reservation.departure_date,
+              nights,
+            );
+            const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET status = 'confirmed', rate_plan_id = ?, cancel_penalty_type = ?,
+               cancel_grace_hours = ?, cancel_penalty_nights = ?, cancel_penalty_bps = ?,
+               confirm_by = NULL, expires_at = NULL, updated_at = ? WHERE reservation_id = ?`,
+              ratePlanId,
+              snapshot.cancelPenaltyType,
+              snapshot.cancelGraceHours,
+              snapshot.cancelPenaltyNights,
+              snapshot.cancelPenaltyBps,
+              now,
+              input.reservationId,
+            );
+          } else {
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET status = 'confirmed', confirm_by = NULL, updated_at = ? WHERE reservation_id = ?`,
+              now,
+              input.reservationId,
+            );
+          }
+          const ariVersion = fromInquiry ? this.bumpAriVersionSync() : this.readAriVersionSync();
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: reservation.status,
+              toStatus: 'confirmed',
+            },
+          });
+          if (fromInquiry) {
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: { propertyId, roomTypeId: reservation.room_type_id, fromDate, toDate, version: ariVersion },
+            });
+          }
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.confirm',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: reservation.status },
+            afterJson: { status: 'confirmed' },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, reservationId: input.reservationId, ariVersion, fromDate, toDate };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof NoAvailabilityError) {
+        return { ok: false, error: NO_AVAILABILITY, date: e.date, ariVersion: this.readAriVersionSync() };
+      }
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryHold(
+    actor: ActorContext,
+    input: { reservationId: string; ratePlanId?: string; confirmBy?: number },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
+    | { ok: false; error: typeof NOT_FOUND | typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED | typeof INVALID_STATUS_TRANSITION | typeof NO_AVAILABILITY; date?: string; ariVersion?: number }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const expired = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredErr = this.expiredWire(expired);
+          if (expiredErr) return expiredErr;
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, adults, children
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+            rate_plan_id: string;
+            adults: number;
+            children: number;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'inquiry') {
+            return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+          const ratePlanId = input.ratePlanId ?? reservation.rate_plan_id;
+          const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+          this.assertOccupancySync(reservation.room_type_id, reservation.adults, reservation.children);
+          this.commitSoldNightsSync(
+            reservation.room_type_id,
+            reservation.arrival_date,
+            reservation.departure_date,
+            nights,
+          );
+          const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+          const now = Date.now();
+          const holdHours = Number(this.readConfigValueSync('pms.reservations.pending_hold_hours') ?? 24);
+          const confirmBy = input.confirmBy ?? now + holdHours * 3600_000;
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET status = 'pending', rate_plan_id = ?, cancel_penalty_type = ?,
+             cancel_grace_hours = ?, cancel_penalty_nights = ?, cancel_penalty_bps = ?,
+             confirm_by = ?, expires_at = NULL, updated_at = ? WHERE reservation_id = ?`,
+            ratePlanId,
+            snapshot.cancelPenaltyType,
+            snapshot.cancelGraceHours,
+            snapshot.cancelPenaltyNights,
+            snapshot.cancelPenaltyBps,
+            confirmBy,
+            now,
+            input.reservationId,
+          );
+          const ariVersion = this.bumpAriVersionSync();
+          const fromDate = nights[0]!;
+          const toDate = nights[nights.length - 1]!;
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'inquiry',
+              toStatus: 'pending',
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'availability.changed',
+            payload: { propertyId, roomTypeId: reservation.room_type_id, fromDate, toDate, version: ariVersion },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.hold',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { status: 'inquiry' },
+            afterJson: { status: 'pending' },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, reservationId: input.reservationId, ariVersion, fromDate, toDate };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof NoAvailabilityError) {
+        return { ok: false, error: NO_AVAILABILITY, date: e.date, ariVersion: this.readAriVersionSync() };
       }
       const mapped = mapReservationPreconditionError(e);
       if (mapped) return mapped;
@@ -4292,6 +4753,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const expired = this.expireIfDueSync(input.reservationId, Date.now());
+          if (expired) {
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'reservations.cancel',
+              entityType: 'reservation',
+              entityId: input.reservationId,
+              beforeJson: { status: expired.kind },
+              afterJson: { status: 'cancelled', reason: 'expired' },
+              reservationId: input.reservationId,
+            });
+            return {
+              ok: true as const,
+              reservationId: input.reservationId,
+              ariVersion: expired.ariVersion,
+              fromDate: expired.fromDate,
+              toDate: expired.toDate,
+            };
+          }
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
@@ -4307,30 +4787,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
-          if (reservation.status !== 'confirmed') {
+          if (
+            reservation.status !== 'confirmed' &&
+            reservation.status !== 'pending' &&
+            reservation.status !== 'inquiry'
+          ) {
             return { ok: false as const, error: ALREADY_CANCELLED };
           }
 
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
-          for (const stayDate of nights) {
-            const rows = this.ctx.storage.sql
-              .exec(
-                `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-                reservation.room_type_id,
-                stayDate,
-              )
-              .toArray() as Array<{ sold: number }>;
-            if (rows.length === 0 || rows[0]!.sold < 1) {
-              throw new LedgerInconsistentError(stayDate);
-            }
-          }
-
-          for (const stayDate of nights) {
-            this.ctx.storage.sql.exec(
-              `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-              reservation.room_type_id,
-              stayDate,
-            );
+          const commitsInventory = reservation.status === 'confirmed' || reservation.status === 'pending';
+          if (commitsInventory) {
+            this.releaseSoldNightsSync(reservation.room_type_id, nights);
           }
 
           const now = Date.now();
@@ -4340,7 +4808,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.reservationId,
           );
 
-          const ariVersion = this.bumpAriVersionSync();
+          const ariVersion = commitsInventory ? this.bumpAriVersionSync() : this.readAriVersionSync();
           const fromDate = nights[0]!;
           const toDate = nights[nights.length - 1]!;
 
@@ -4352,28 +4820,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               reservationId: input.reservationId,
               guestRef: reservation.guest_ref,
               piiKeyId: reservation.pii_key_id,
-              fromStatus: 'confirmed',
+              fromStatus: reservation.status,
               toStatus: 'cancelled',
             },
           });
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'availability.changed',
-            payload: {
-              propertyId,
-              roomTypeId: reservation.room_type_id,
-              fromDate,
-              toDate,
-              version: ariVersion,
-            },
-          });
+          if (commitsInventory) {
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: {
+                propertyId,
+                roomTypeId: reservation.room_type_id,
+                fromDate,
+                toDate,
+                version: ariVersion,
+              },
+            });
+          }
 
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'reservations.cancel',
             entityType: 'reservation',
             entityId: input.reservationId,
-            beforeJson: { status: 'confirmed', roomTypeId: reservation.room_type_id },
+            beforeJson: { status: reservation.status, roomTypeId: reservation.room_type_id },
             afterJson: { status: 'cancelled', roomTypeId: reservation.room_type_id },
             reservationId: input.reservationId,
           });
@@ -4716,6 +5186,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
+          const expiredTouch = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredTouchErr = this.expiredWire(expiredTouch);
+          if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -4792,6 +5265,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
+          const expiredTouch = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredTouchErr = this.expiredWire(expiredTouch);
+          if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -4868,6 +5344,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
+          const expiredTouch = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredTouchErr = this.expiredWire(expiredTouch);
+          if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT guest_ref, pii_key_id, status FROM reservation WHERE reservation_id = ?`,
@@ -4947,6 +5426,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          const expiredNs = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredNsErr = this.expiredWire(expiredNs);
+          if (expiredNsErr) return expiredNsErr;
           const resRows = this.ctx.storage.sql
             .exec(
               `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
@@ -5065,6 +5547,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           departureDate: string;
           status: string;
           roomId: string | null;
+          ratePlanId: string;
+          cancelPenaltyType: string;
+          confirmBy: number | null;
+          expiresAt: number | null;
           createdAt: number;
           updatedAt: number;
         };
@@ -5073,7 +5559,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   > {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id, rate_plan_id, cancel_penalty_type, confirm_by, expires_at, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
       .toArray() as Array<{
@@ -5085,6 +5571,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departure_date: string;
       status: string;
       room_id: string | null;
+      rate_plan_id: string;
+      cancel_penalty_type: string;
+      confirm_by: number | null;
+      expires_at: number | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -5101,6 +5591,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         departureDate: row.departure_date,
         status: row.status,
         roomId: row.room_id,
+        ratePlanId: row.rate_plan_id,
+        cancelPenaltyType: row.cancel_penalty_type,
+        confirmBy: row.confirm_by,
+        expiresAt: row.expires_at,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },

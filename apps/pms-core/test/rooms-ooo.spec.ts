@@ -140,16 +140,16 @@ describe('rooms.set_ooo_range', () => {
     expect(first).toMatchObject({ ok: true });
     const audit1 = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 500 });
     expect(audit1.ok).toBe(true);
-    const oooAudits1 = audit1.ok
-      ? audit1.rows.filter((r) => r.commandId === 'rooms.set_ooo_range')
-      : [];
+    const oooAudits1 = (
+      audit1 as unknown as { ok: true; rows: Array<{ commandId: string }> }
+    ).rows.filter((r) => r.commandId === 'rooms.set_ooo_range');
     const events1 = (await stub.listOutboxEventTypes()).length;
     const second = await setOoo(stub, input, 'ooo-2');
     expect(second).toMatchObject({ ok: true, alreadyApplied: true });
     const audit2 = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 500 });
-    const oooAudits2 = audit2.ok
-      ? audit2.rows.filter((r) => r.commandId === 'rooms.set_ooo_range')
-      : [];
+    const oooAudits2 = (
+      audit2 as unknown as { ok: true; rows: Array<{ commandId: string }> }
+    ).rows.filter((r) => r.commandId === 'rooms.set_ooo_range');
     expect(oooAudits2).toHaveLength(oooAudits1.length);
     expect((await stub.listOutboxEventTypes()).length).toBe(events1);
     expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(1);
@@ -841,7 +841,12 @@ describe('rooms.set_ooo_range', () => {
     ).toMatchObject({ ok: true });
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 500 });
     expect(audit.ok).toBe(true);
-    const rows = audit.ok ? audit.rows.filter((r) => r.commandId === 'rooms.update_status') : [];
+    const rows = (
+      audit as unknown as {
+        ok: true;
+        rows: Array<{ commandId: string; beforeJson: unknown; afterJson: unknown }>;
+      }
+    ).rows.filter((r) => r.commandId === 'rooms.update_status');
     expect(rows.some((r) => JSON.stringify(r.afterJson).includes('clean'))).toBe(true);
     expect(rows.some((r) => JSON.stringify(r.beforeJson).includes('dirty'))).toBe(true);
     expect(AUDIT_WRITER_COMMAND_IDS.has('rooms.update_status')).toBe(false);

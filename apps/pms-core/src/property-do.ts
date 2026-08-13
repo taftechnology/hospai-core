@@ -911,7 +911,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'reservation',
   'reservation_rate_night',
   'restriction_day',
-  'room',
+      'room',
+  'room_ooo',
   'room_type',
   'shift',
   'tax_rule',
@@ -943,6 +944,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM reservation_rate_night) +
       (SELECT COUNT(*) FROM restriction_day) +
       (SELECT COUNT(*) FROM room) +
+      (SELECT COUNT(*) FROM room_ooo) +
       (SELECT COUNT(*) FROM room_type) +
       (SELECT COUNT(*) FROM shift) +
       (SELECT COUNT(*) FROM tax_rule) AS n`,
@@ -4567,7 +4569,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (prior[0]!.request_fingerprint !== idem.fingerprint) {
             throw new IdempotencyKeyReused(idem.key);
           }
-          const cached = JSON.parse(prior[0]!.response) as { ok?: boolean };
+          const cached = JSON.parse(prior[0]!.response) as
+            | { ok: true; roomId: string; oooId: string }
+            | { ok: false; error: string; reservationId?: string; date?: string };
           if (cached.ok === true) {
             return { ...cached, alreadyApplied: true as const };
           }

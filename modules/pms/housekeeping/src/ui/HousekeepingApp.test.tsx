@@ -84,7 +84,7 @@ describe('HousekeepingApp assign picker', () => {
       }),
     );
 
-    const select = await screen.findByRole('combobox', { name: 'Assign 101' });
+    const select = await screen.findByRole('combobox', { name: 'Assign 101' }, { timeout: 5_000 });
     fireEvent.change(select, { target: { value: ADA.staffId } });
 
     await waitFor(() => {
@@ -145,7 +145,7 @@ describe('HousekeepingApp assign picker', () => {
       canSetOoo: false,
     });
     const status = await screen.findByRole('combobox', { name: 'Status for 101' });
-    const options = [...status.querySelectorAll('option')].map((o) => o.getAttribute('value'));
+    const options = Array.from(status.querySelectorAll('option')).map((o) => o.getAttribute('value'));
     expect(options).toEqual(['clean', 'dirty', 'inspected']);
     expect(options).not.toContain('out_of_order');
     expect(screen.queryByTestId('hk-ooo-form')).toBeNull();

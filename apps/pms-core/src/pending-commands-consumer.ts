@@ -54,6 +54,16 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
     invoke: (stub, payload, idem, ctx) =>
       stub.tryCancelCheckIn(REPLAY_ACTOR, payload as { reservationId: string }, idem, ctx),
   },
+  'reservations.update_status': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, payload, idem, ctx) =>
+      stub.tryUpdateFrontOffice(
+        REPLAY_ACTOR,
+        payload as { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean },
+        idem,
+        ctx,
+      ),
+  },
   'folio.add_item': {
     fingerprintInput: (p) => p,
     invoke: (stub, payload, idem, ctx) =>

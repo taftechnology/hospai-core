@@ -719,4 +719,260 @@ describe('reservations vertical HTTP routes', () => {
     );
     expect(checkInAllowed.status).toBe(200);
   });
+
+  it('46/50: POST confirm, hold, front-office; GET returns occupancy and plan', async () => {
+    const actor = 'user_res_owner46';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+
+    const quoteRes = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          reservationId: 'res_quote_46',
+          roomTypeId: 'rt_king',
+          guestRef,
+          arrivalDate: arrival,
+          departureDate: departure,
+          status: 'inquiry',
+          adults: 2,
+          idempotencyKey: `idem-quote-46-${crypto.randomUUID()}`,
+        }),
+      }),
+      env,
+    );
+    expect(quoteRes.status).toBe(201);
+
+    const holdRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_quote_46/hold`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ idempotencyKey: `idem-hold-46-${crypto.randomUUID()}` }),
+        },
+      ),
+      env,
+    );
+    expect(holdRes.status).toBe(200);
+
+    const confirmRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_quote_46/confirm`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ idempotencyKey: `idem-confirm-46-${crypto.randomUUID()}` }),
+        },
+      ),
+      env,
+    );
+    expect(confirmRes.status).toBe(200);
+
+    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    await resolved!.stub.flushOutbox();
+
+    const foRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_quote_46/front-office`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            idempotencyKey: `idem-fo-46-${crypto.randomUUID()}`,
+            frontOfficeComment: 'VIP arrival',
+            vipFlag: true,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(foRes.status).toBe(200);
+
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_quote_46`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(getRes.status).toBe(200);
+    expect(await getRes.json()).toMatchObject({
+      reservationId: 'res_quote_46',
+      status: 'confirmed',
+      adults: 2,
+      vipFlag: true,
+      frontOfficeComment: 'VIP arrival',
+      ratePlanId: 'BAR',
+    });
+
+    const arrivals = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/arrivals?date=${encodeURIComponent(arrival)}`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(arrivals.status).toBe(200);
+    const arrivalBody = (await arrivals.json()) as { items: Array<Record<string, unknown>> };
+    expect(arrivalBody.items.find((i) => i.reservationId === 'res_quote_46')).toMatchObject({
+      vipFlag: true,
+      frontOfficeComment: 'VIP arrival',
+      adults: 2,
+    });
+
+    const resolvedAfter = await resolvePropertyFromRegistry(env, propertyId);
+    const foEvents = (await resolvedAfter!.stub.listOutboxPayloads()).filter((e) =>
+      e.eventType === 'reservation.front_office_updated' || e.eventType === 'reservation.status_changed',
+    );
+    expect(foEvents.some((e) => e.eventType === 'reservation.front_office_updated')).toBe(true);
+    expect(
+      foEvents.filter((e) => e.eventType === 'reservation.status_changed').length,
+    ).toBe(0);
+  });
+
+  it('47: front-office on checked_out → 422 not_modifiable', async () => {
+    const actor = 'user_res_owner47';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              reservationId: 'res_fo_out',
+              roomTypeId: 'rt_king',
+              guestRef,
+              arrivalDate: arrival,
+              departureDate: departure,
+              idempotencyKey: `idem-fo-out-book-${crypto.randomUUID()}`,
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    await assignCleanRoom(propertyId, actor, 'res_fo_out', 'rm_fo_out', '193');
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_fo_out/check-in`,
+            {
+              method: 'POST',
+              headers: { 'x-dev-actor': actor, 'x-idempotency-key': `idem-fo-ci-${crypto.randomUUID()}` },
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_fo_out/check-out`,
+            {
+              method: 'POST',
+              headers: { 'x-dev-actor': actor, 'x-idempotency-key': `idem-fo-co-${crypto.randomUUID()}` },
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+
+    const foRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_fo_out/front-office`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            idempotencyKey: `idem-fo-late-${crypto.randomUUID()}`,
+            frontOfficeComment: 'too late',
+          }),
+        },
+      ),
+      env,
+    );
+    expect(foRes.status).toBe(422);
+    expect(await foRes.json()).toMatchObject({ ok: false, error: 'not_modifiable' });
+  });
+
+  it('33: kill-switch blocks confirm, still allows check-in', async () => {
+    const actor = 'user_res_owner33';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              reservationId: 'res_ks_pend',
+              roomTypeId: 'rt_king',
+              guestRef,
+              arrivalDate: arrival,
+              departureDate: departure,
+              status: 'pending',
+              confirmBy: Date.now() + 86_400_000,
+              idempotencyKey: `idem-ks-pend-${crypto.randomUUID()}`,
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await worker.fetch(
+          new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              reservationId: 'res_ks_ci33',
+              roomTypeId: 'rt_king',
+              guestRef,
+              arrivalDate: arrival,
+              departureDate: departure,
+              idempotencyKey: `idem-ks-ci33-book-${crypto.randomUUID()}`,
+            }),
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(201);
+    await assignCleanRoom(propertyId, actor, 'res_ks_ci33', 'rm_ks_ci33', '194');
+    await setKillSwitch(env, 'pms.core', true);
+
+    const confirmBlocked = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_ks_pend/confirm`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ idempotencyKey: `idem-ks-confirm-${crypto.randomUUID()}` }),
+        },
+      ),
+      env,
+    );
+    expect(confirmBlocked.status).toBe(503);
+
+    const checkInAllowed = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/res_ks_ci33/check-in`,
+        {
+          method: 'POST',
+          headers: { 'x-dev-actor': actor, 'x-idempotency-key': `idem-ks-ci33-${crypto.randomUUID()}` },
+        },
+      ),
+      env,
+    );
+    expect(checkInAllowed.status).toBe(200);
+  });
 });

@@ -110,6 +110,44 @@ describe('PropertyDO front-desk reads', () => {
     expect(result.items[0]).not.toHaveProperty('piiKeyId');
   });
 
+  it('48: arrivals include pending and confirmed, exclude inquiry', async () => {
+    const { stub } = await provisionedPropertyWithGuest('fd_arrivals_pending');
+    const date = '2026-08-10';
+    await stub.insertReservationForTest({
+      reservationId: 'res_conf_d',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest_fd_arrivals_pending',
+      piiKeyId: 'key1',
+      arrivalDate: date,
+      departureDate: '2026-08-12',
+      status: 'confirmed',
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_pend_d',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest_fd_arrivals_pending',
+      piiKeyId: 'key1',
+      arrivalDate: date,
+      departureDate: '2026-08-12',
+      status: 'pending',
+      confirmBy: Date.now() + 86_400_000,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_inq_d',
+      roomTypeId: 'rt_king',
+      guestRef: 'guest_fd_arrivals_pending',
+      piiKeyId: 'key1',
+      arrivalDate: date,
+      departureDate: '2026-08-12',
+      status: 'inquiry',
+    });
+    const result = await stub.listArrivals(date, { limit: 50 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.items.map((i) => i.reservationId).sort()).toEqual(['res_conf_d', 'res_pend_d']);
+    expect(result.items.find((i) => i.reservationId === 'res_pend_d')?.status).toBe('pending');
+  });
+
   it('listInHouse includes overstay sorted by departure_date', async () => {
     const { stub } = await provisionedPropertyWithGuest('fd_inhouse');
     await stub.insertReservationForTest({

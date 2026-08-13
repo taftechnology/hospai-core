@@ -57,6 +57,12 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  HOLD_EXPIRED,
+  INQUIRY_EXPIRED,
+  ROOM_REQUIRED,
+  ROOM_NOT_READY,
+  ROOM_OUT_OF_ORDER,
+  OCCUPANCY_EXCEEDED,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -244,6 +250,12 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_ALREADY_ASSIGNED ||
     error === ROOM_NOT_ASSIGNABLE ||
     error === BALANCE_DUE ||
+    error === HOLD_EXPIRED ||
+    error === INQUIRY_EXPIRED ||
+    error === ROOM_REQUIRED ||
+    error === ROOM_NOT_READY ||
+    error === ROOM_OUT_OF_ORDER ||
+    error === OCCUPANCY_EXCEEDED ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||
@@ -323,6 +335,22 @@ function requireIdempotencyHeader(request: Request): string | Response {
   const key = request.headers.get('x-idempotency-key');
   if (!key) return json({ error: 'invalid_body' }, 400);
   return key;
+}
+
+async function readOptionalJsonBody(request: Request): Promise<Record<string, unknown> | null> {
+  const contentType = request.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) return null;
+  const text = await request.text();
+  if (!text.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function logAriRejectOnCommit(
@@ -1460,6 +1488,12 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     departureDate: string;
     idempotencyKey: string;
     quoteAriVersion?: number;
+    status?: 'inquiry' | 'pending' | 'confirmed';
+    adults?: number;
+    children?: number;
+    ratePlanId?: string;
+    confirmBy?: number;
+    expiresAt?: number;
   };
   if (
     !body.reservationId ||
@@ -1481,6 +1515,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
     guestRef: body.guestRef,
+    status: body.status,
   });
 
   const commandPayload = {
@@ -1489,6 +1524,12 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     guestRef: body.guestRef,
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
+    ...(body.status !== undefined ? { status: body.status } : {}),
+    ...(body.adults !== undefined ? { adults: body.adults } : {}),
+    ...(body.children !== undefined ? { children: body.children } : {}),
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+    ...(body.confirmBy !== undefined ? { confirmBy: body.confirmBy } : {}),
+    ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
   };
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
@@ -1594,6 +1635,9 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     departureDate: string;
     idempotencyKey: string;
     quoteAriVersion?: number;
+    adults?: number;
+    children?: number;
+    ratePlanId?: string;
   };
   if (!body.roomTypeId || !body.arrivalDate || !body.departureDate || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
@@ -1607,6 +1651,9 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     roomTypeId: body.roomTypeId,
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
+    adults: body.adults,
+    children: body.children,
+    ratePlanId: body.ratePlanId,
   });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
@@ -1614,6 +1661,9 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     roomTypeId: body.roomTypeId,
     arrivalDate: body.arrivalDate,
     departureDate: body.departureDate,
+    ...(body.adults !== undefined ? { adults: body.adults } : {}),
+    ...(body.children !== undefined ? { children: body.children } : {}),
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryModifyReservation']>>>({
@@ -1723,6 +1773,165 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   return json(result, 200);
 }
 
+async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { idempotencyKey: string; ratePlanId?: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    reservationId,
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryConfirm']>>>({
+    env: ctx.env,
+    commandId: 'reservations.confirm',
+    routeId: 'post_reservation_confirm',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryConfirm(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === NO_AVAILABILITY) {
+      const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
+      return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
+    }
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    ratePlanId?: string;
+    confirmBy?: number;
+  };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    reservationId,
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+    ...(body.confirmBy !== undefined ? { confirmBy: body.confirmBy } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryHold']>>>({
+    env: ctx.env,
+    commandId: 'reservations.hold',
+    routeId: 'post_reservation_hold',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryHold(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === NO_AVAILABILITY) {
+      const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
+      return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
+    }
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
+async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    frontOfficeComment?: string;
+    vipFlag?: boolean;
+  };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    reservationId,
+    ...(body.frontOfficeComment !== undefined ? { frontOfficeComment: body.frontOfficeComment } : {}),
+    ...(body.vipFlag !== undefined ? { vipFlag: body.vipFlag } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateFrontOffice']>>>({
+    env: ctx.env,
+    commandId: 'reservations.update_status',
+    routeId: 'post_reservation_front_office',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryUpdateFrontOffice(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+  }
+  return json(result, 200);
+}
+
 async function handlePostReservationStatusAction(
   ctx: V1DispatchContext,
   reservationId: string,
@@ -1780,24 +1989,93 @@ async function handlePostReservationStatusAction(
 
 async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(
-    ctx,
-    reservationId,
-    'reservations.check_in',
-    'post_reservation_check_in',
-    (stub, actor, idem) => stub.tryCheckIn(actor, { reservationId }, idem),
-  );
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const extra = await readOptionalJsonBody(ctx.request);
+  const roomId = typeof extra?.roomId === 'string' ? extra.roomId : undefined;
+  const overrideCleanliness = typeof extra?.overrideCleanliness === 'boolean' ? extra.overrideCleanliness : undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId, ...(roomId !== undefined ? { roomId } : {}), ...(overrideCleanliness !== undefined ? { overrideCleanliness } : {}) };
+  const fingerprint = await fingerprintPayload({ reservationId, roomId, overrideCleanliness });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo({
+    env: ctx.env,
+    commandId: 'reservations.check_in',
+    routeId: 'post_reservation_check_in',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCheckIn(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
 }
 
 async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
-  return handlePostReservationStatusAction(
-    ctx,
-    reservationId,
-    'reservations.check_out',
-    'post_reservation_check_out',
-    (stub, actor, idem) => stub.tryCheckOut(actor, { reservationId }, idem),
-  );
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const extra = await readOptionalJsonBody(ctx.request);
+  const overrideBalance = typeof extra?.overrideBalance === 'boolean' ? extra.overrideBalance : undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId, ...(overrideBalance !== undefined ? { overrideBalance } : {}) };
+  const fingerprint = await fingerprintPayload({ reservationId, overrideBalance });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo({
+    env: ctx.env,
+    commandId: 'reservations.check_out',
+    routeId: 'post_reservation_check_out',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCheckOut(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
 }
 
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
@@ -2903,6 +3181,11 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     code: string;
     name: string;
     idempotencyKey: string;
+    cancelPenaltyType?: string;
+    cancelGraceHours?: number;
+    cancelPenaltyNights?: number | null;
+    cancelPenaltyBps?: number | null;
+    cancelPolicyText?: string | null;
   };
   if (!body?.ratePlanId || !body.code || !body.name || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
@@ -2915,6 +3198,11 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     ratePlanId: body.ratePlanId,
     code: body.code,
     name: body.name,
+    ...(body.cancelPenaltyType !== undefined ? { cancelPenaltyType: body.cancelPenaltyType } : {}),
+    ...(body.cancelGraceHours !== undefined ? { cancelGraceHours: body.cancelGraceHours } : {}),
+    ...(body.cancelPenaltyNights !== undefined ? { cancelPenaltyNights: body.cancelPenaltyNights } : {}),
+    ...(body.cancelPenaltyBps !== undefined ? { cancelPenaltyBps: body.cancelPenaltyBps } : {}),
+    ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
   };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -2955,15 +3243,38 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     code?: string;
     name?: string;
     idempotencyKey: string;
+    cancelPenaltyType?: string;
+    cancelGraceHours?: number;
+    cancelPenaltyNights?: number | null;
+    cancelPenaltyBps?: number | null;
+    cancelPolicyText?: string | null;
   };
-  if (!body?.idempotencyKey || (body.code === undefined && body.name === undefined)) {
+  if (
+    !body?.idempotencyKey ||
+    (body.code === undefined &&
+      body.name === undefined &&
+      body.cancelPenaltyType === undefined &&
+      body.cancelGraceHours === undefined &&
+      body.cancelPenaltyNights === undefined &&
+      body.cancelPenaltyBps === undefined &&
+      body.cancelPolicyText === undefined)
+  ) {
     return json({ error: 'invalid_body' }, 400);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const commandPayload = { ratePlanId, code: body.code, name: body.name };
+  const commandPayload = {
+    ratePlanId,
+    code: body.code,
+    name: body.name,
+    ...(body.cancelPenaltyType !== undefined ? { cancelPenaltyType: body.cancelPenaltyType } : {}),
+    ...(body.cancelGraceHours !== undefined ? { cancelGraceHours: body.cancelGraceHours } : {}),
+    ...(body.cancelPenaltyNights !== undefined ? { cancelPenaltyNights: body.cancelPenaltyNights } : {}),
+    ...(body.cancelPenaltyBps !== undefined ? { cancelPenaltyBps: body.cancelPenaltyBps } : {}),
+    ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
+  };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -4989,6 +5300,32 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'provisional.resolve_exception',
     entitlement: 'pms.core',
     handler: handlePostProvisionalExceptionResolve,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/confirm$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.confirm',
+    entitlement: 'pms.core',
+    handler: handlePostReservationConfirm,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/hold$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.hold',
+    entitlement: 'pms.core',
+    handler: handlePostReservationHold,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/front-office$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.update_status',
+    handler: handlePostReservationFrontOffice,
   },
 ];
 

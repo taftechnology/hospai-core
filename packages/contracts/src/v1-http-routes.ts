@@ -499,4 +499,24 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'provisional.resolve_exception',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_reservation_confirm',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.confirm',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_reservation_hold',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.hold',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_reservation_front_office',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.update_status',
+  },
 ];

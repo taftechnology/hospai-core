@@ -907,7 +907,7 @@ EOF
 - Produces: routes 92–94; `tryUpdateFrontOffice(actor, { reservationId, frontOfficeComment?, vipFlag? }, idem, provisional?)`
 - Consumes: Task 3–6 DO methods
 
-- [ ] **Step 1: Write failing route + list tests**
+- [x] **Step 1: Write failing route + list tests**
 
 `register.test.ts`:
 
@@ -922,13 +922,13 @@ expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_reservation_front_office');
 
 `reservations-routes.spec.ts`: POST confirm/hold/front-office; GET reservation returns `adults`, `vipFlag`, `ratePlanId`; kill-switch 402 on confirm, 200 on check-in (33); front-office on `checked_out` → 422 `not_modifiable`.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts && pnpm check:permissions`
 
 Expected: FAIL — audit length mismatch / missing pins.
 
-- [ ] **Step 3: Implement routes + handlers + list SQL + tryUpdateFrontOffice**
+- [x] **Step 3: Implement routes + handlers + list SQL + tryUpdateFrontOffice**
 
 Append audit rows 92–94 (spec §10). Matching `V1_ROUTES` at the **end** of the array.
 
@@ -944,13 +944,13 @@ Append audit rows 92–94 (spec §10). Matching `V1_ROUTES` at the **end** of th
 
 Create/patch handlers: pass through new optional body fields; create fingerprint must include `status` (wizard remint).
 
-- [ ] **Step 4: Run routes + front-desk + permissions**
+- [x] **Step 4: Run routes + front-desk + permissions**
 
 Run: `pnpm check:permissions && pnpm --filter @hospai/pms-core exec vitest run test/reservations-routes.spec.ts test/front-desk-reads.spec.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts apps/pms-core/src/v1-dispatch.ts apps/pms-core/src/property-do.ts apps/pms-core/src/pending-commands-consumer.ts apps/pms-core/test/reservations-routes.spec.ts apps/pms-core/test/front-desk-reads.spec.ts

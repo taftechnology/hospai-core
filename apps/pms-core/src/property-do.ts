@@ -5435,6 +5435,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       roomTypeId: string;
       arrivalDate: string;
       departureDate: string;
+      adults?: number;
+      children?: number;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -5607,10 +5609,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET room_type_id = ?, arrival_date = ?, departure_date = ?, updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET room_type_id = ?, arrival_date = ?, departure_date = ?,
+             adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
+             WHERE reservation_id = ?`,
             input.roomTypeId,
             input.arrivalDate,
             input.departureDate,
+            input.adults ?? null,
+            input.children ?? null,
             now,
             input.reservationId,
           );
@@ -6267,6 +6273,110 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * Front-office comment + VIP flag. Implements catalog `reservations.update_status`.
+   * Fingerprint: `{ reservationId, frontOfficeComment?, vipFlag? }`. QUEUE_PROVISIONAL, ungated.
+   */
+  async tryUpdateFrontOffice(
+    actor: ActorContext,
+    input: { reservationId: string; frontOfficeComment?: string; vipFlag?: boolean },
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; reservationId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof NOT_MODIFIABLE }
+    | { ok: false; error: typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
+          const expired = this.expireIfDueSync(input.reservationId, Date.now());
+          const expiredErr = this.expiredWire(expired);
+          if (expiredErr) return expiredErr;
+
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            guest_ref: string;
+            pii_key_id: string;
+            status: string;
+            front_office_comment: string | null;
+            vip_flag: number;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (
+            reservation.status === 'cancelled' ||
+            reservation.status === 'no_show' ||
+            reservation.status === 'checked_out'
+          ) {
+            return { ok: false as const, error: NOT_MODIFIABLE };
+          }
+
+          const nextComment =
+            input.frontOfficeComment !== undefined ? input.frontOfficeComment : reservation.front_office_comment;
+          const nextVip = input.vipFlag !== undefined ? (input.vipFlag ? 1 : 0) : reservation.vip_flag;
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, updated_at = ? WHERE reservation_id = ?`,
+            nextComment,
+            nextVip,
+            now,
+            input.reservationId,
+          );
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.front_office_updated',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              frontOfficeComment: nextComment,
+              vipFlag: nextVip === 1,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.update_status',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: {
+              frontOfficeComment: reservation.front_office_comment,
+              vipFlag: reservation.vip_flag === 1,
+            },
+            afterJson: {
+              frontOfficeComment: nextComment,
+              vipFlag: nextVip === 1,
+            },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, reservationId: input.reservationId };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   /** Read a single reservation row. No idempotency — plain read RPC. */
   async readReservation(reservationId: string): Promise<
     | {
@@ -6280,6 +6390,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           departureDate: string;
           status: string;
           roomId: string | null;
+          adults: number;
+          children: number;
+          frontOfficeComment: string | null;
+          vipFlag: boolean;
           ratePlanId: string;
           cancelPenaltyType: string;
           confirmBy: number | null;
@@ -6292,7 +6406,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   > {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id, rate_plan_id, cancel_penalty_type, confirm_by, expires_at, created_at, updated_at FROM reservation WHERE reservation_id = ?`,
+        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
+                adults, children, front_office_comment, vip_flag, rate_plan_id, cancel_penalty_type,
+                confirm_by, expires_at, created_at, updated_at
+         FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
       .toArray() as Array<{
@@ -6304,6 +6421,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departure_date: string;
       status: string;
       room_id: string | null;
+      adults: number;
+      children: number;
+      front_office_comment: string | null;
+      vip_flag: number;
       rate_plan_id: string;
       cancel_penalty_type: string;
       confirm_by: number | null;
@@ -6324,6 +6445,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         departureDate: row.departure_date,
         status: row.status,
         roomId: row.room_id,
+        adults: row.adults,
+        children: row.children,
+        frontOfficeComment: row.front_office_comment,
+        vipFlag: row.vip_flag === 1,
         ratePlanId: row.rate_plan_id,
         cancelPenaltyType: row.cancel_penalty_type,
         confirmBy: row.confirm_by,
@@ -6348,6 +6473,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     departure_date: string;
     status: string;
     room_id: string | null;
+    adults: number;
+    children: number;
+    front_office_comment: string | null;
+    vip_flag: number;
+    confirm_by: number | null;
+    rate_plan_id: string;
   }) {
     return {
       reservationId: row.reservation_id,
@@ -6357,6 +6488,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departureDate: row.departure_date,
       status: row.status,
       roomId: row.room_id,
+      adults: row.adults,
+      children: row.children,
+      frontOfficeComment: row.front_office_comment,
+      vipFlag: row.vip_flag === 1,
+      confirmBy: row.confirm_by,
+      ratePlanId: row.rate_plan_id,
     };
   }
 
@@ -6374,6 +6511,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           departureDate: string;
           status: string;
           roomId: string | null;
+          adults: number;
+          children: number;
+          frontOfficeComment: string | null;
+          vipFlag: boolean;
+          confirmBy: number | null;
+          ratePlanId: string;
         }>;
         nextCursor: { reservationId: string } | null;
       }
@@ -6385,14 +6528,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
-             WHERE arrival_date = ? AND status = 'confirmed' AND reservation_id > ?
+             WHERE arrival_date = ? AND status IN ('confirmed', 'pending') AND reservation_id > ?
              ORDER BY reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
-             WHERE arrival_date = ? AND status = 'confirmed'
+             WHERE arrival_date = ? AND status IN ('confirmed', 'pending')
              ORDER BY reservation_id ASC
              LIMIT ?`,
         ...(cursor ? [date, cursor.reservationId, limit] : [date, limit]),
@@ -6405,6 +6550,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departure_date: string;
       status: string;
       room_id: string | null;
+      adults: number;
+      children: number;
+      front_office_comment: string | null;
+      vip_flag: number;
+      confirm_by: number | null;
+      rate_plan_id: string;
     }>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const nextCursor =
@@ -6428,6 +6579,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           departureDate: string;
           status: string;
           roomId: string | null;
+          adults: number;
+          children: number;
+          frontOfficeComment: string | null;
+          vipFlag: boolean;
+          confirmBy: number | null;
+          ratePlanId: string;
         }>;
         nextCursor: { status: string; reservationId: string } | null;
       }
@@ -6439,13 +6596,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE departure_date = ?
                AND (status > ? OR (status = ? AND reservation_id > ?))
              ORDER BY status ASC, reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE departure_date = ?
              ORDER BY status ASC, reservation_id ASC
@@ -6462,6 +6621,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departure_date: string;
       status: string;
       room_id: string | null;
+      adults: number;
+      children: number;
+      front_office_comment: string | null;
+      vip_flag: number;
+      confirm_by: number | null;
+      rate_plan_id: string;
     }>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const last = items[items.length - 1];
@@ -6483,6 +6648,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           departureDate: string;
           status: string;
           roomId: string | null;
+          adults: number;
+          children: number;
+          frontOfficeComment: string | null;
+          vipFlag: boolean;
+          confirmBy: number | null;
+          ratePlanId: string;
         }>;
         nextCursor: { departureDate: string; reservationId: string } | null;
       }
@@ -6494,13 +6665,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE status = 'checked_in'
                AND (departure_date > ? OR (departure_date = ? AND reservation_id > ?))
              ORDER BY departure_date ASC, reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id
+          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                    adults, children, front_office_comment, vip_flag, confirm_by, rate_plan_id
              FROM reservation
              WHERE status = 'checked_in'
              ORDER BY departure_date ASC, reservation_id ASC
@@ -6517,6 +6690,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departure_date: string;
       status: string;
       room_id: string | null;
+      adults: number;
+      children: number;
+      front_office_comment: string | null;
+      vip_flag: number;
+      confirm_by: number | null;
+      rate_plan_id: string;
     }>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const last = items[items.length - 1];

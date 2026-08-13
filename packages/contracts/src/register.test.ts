@@ -431,6 +431,9 @@ describe('command catalog', () => {
       commandId: 'provisional.resolve_exception',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[92]?.id).toBe('post_reservation_confirm');
+    expect(V1_HTTP_ROUTE_AUDIT[93]?.id).toBe('post_reservation_hold');
+    expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_reservation_front_office');
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

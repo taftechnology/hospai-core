@@ -573,7 +573,7 @@ Fingerprint allowlist: `{ roomId, startDate, endDate, oooId? }` (omit `oooId` wh
 
 **Throw vs return inside `runIdempotent`:** `runIdempotent` caches every returned value, including `{ ok: false }`. Spec §4.6 (and the same retry story for OOO after a room-move): throw `OooRoomAssignedError` / `OooRangeOverlapError` / `OooInvalidRangeError` / `LedgerInconsistentError` **inside** the callback so the idempotency row is not written. Map them in the outer `catch` (extend `mapReservationPreconditionError`). `NOT_FOUND` may throw `RoomNotFoundError` / `RoomTypeNotFoundError` as today.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apps/pms-core/test/rooms-ooo.spec.ts`. Copy the local `addRoomType` / `createRoom` / `bookConfirmed` helpers from `reservations-check-in.spec.ts`. Shared setup:
 
@@ -614,7 +614,7 @@ Staff 403 / HTTP 503 / kill-switch (tests 9–11) wait for Task 6. DO-level `gat
 
 Test 20 in `night-audit-reports.spec.ts`: clone the existing occupancy snapshot test; add one OOO covering `d`; expect `blocked === 1`, `physical` unchanged, `inHouseCount` unchanged vs the control; occupancy keys unchanged (`businessDate`, `physical`, `sold`, `blocked`, `held`, `inHouseCount`, `confirmedCount`, `noShowCount`, `pendingCount`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo.spec.ts test/night-audit-reports.spec.ts
@@ -622,7 +622,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo.spec.ts test/night
 
 Expected: FAIL — `trySetOooRange` is not a function / blocked stays 0.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `property-do.ts`:
 
@@ -867,7 +867,7 @@ if (insertedCount > 0) {
 
 `SNAPSHOT_REPORTS` is unchanged (already sums `blocked`).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/rooms-ooo.spec.ts test/night-audit-reports.spec.ts
@@ -876,7 +876,7 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
 
 Expected: PASS. Source-scan still finds `'rooms.set_ooo_range'` (now as a live `commandId` literal).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \

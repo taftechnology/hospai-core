@@ -29,6 +29,9 @@ import {
   RESTRICTION_VIOLATED,
   RATE_MISSING,
   ROOM_OUT_OF_ORDER,
+  OOO_ROOM_ASSIGNED,
+  OOO_RANGE_OVERLAP,
+  OOO_INVALID_RANGE,
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
   ROOM_UNITS_EXCEED_COUNT,
@@ -511,6 +514,27 @@ class RoomOutOfOrderError extends Error {
   }
 }
 
+class OooInvalidRangeError extends Error {
+  constructor() {
+    super(OOO_INVALID_RANGE);
+    this.name = 'OooInvalidRangeError';
+  }
+}
+
+class OooRangeOverlapError extends Error {
+  constructor() {
+    super(OOO_RANGE_OVERLAP);
+    this.name = 'OooRangeOverlapError';
+  }
+}
+
+class OooRoomAssignedError extends Error {
+  constructor(public readonly reservationId?: string) {
+    super(OOO_ROOM_ASSIGNED);
+    this.name = 'OooRoomAssignedError';
+  }
+}
+
 class RoomRequiredError extends Error {
   constructor() {
     super(ROOM_REQUIRED);
@@ -676,6 +700,9 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
   | { ok: false; error: typeof RATE_MISSING; date: string }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
+  | { ok: false; error: typeof OOO_INVALID_RANGE }
+  | { ok: false; error: typeof OOO_RANGE_OVERLAP }
+  | { ok: false; error: typeof OOO_ROOM_ASSIGNED; reservationId?: string }
   | { ok: false; error: typeof ROOM_REQUIRED }
   | { ok: false; error: typeof ROOM_NOT_READY }
   | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
@@ -707,6 +734,11 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
   if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
+  if (e instanceof OooInvalidRangeError) return { ok: false, error: OOO_INVALID_RANGE };
+  if (e instanceof OooRangeOverlapError) return { ok: false, error: OOO_RANGE_OVERLAP };
+  if (e instanceof OooRoomAssignedError) {
+    return { ok: false, error: OOO_ROOM_ASSIGNED, reservationId: e.reservationId };
+  }
   if (e instanceof RoomRequiredError) return { ok: false, error: ROOM_REQUIRED };
   if (e instanceof RoomNotReadyError) return { ok: false, error: ROOM_NOT_READY };
   if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
@@ -772,12 +804,29 @@ export function reconcileHorizon(
 
     for (const stayDate of required) {
       if (existingDates.has(stayDate)) continue;
+      const blockedBorn = Number(
+        (
+          sql
+            .exec(
+              `SELECT COUNT(*) AS c FROM room_ooo ooo
+                 JOIN room r ON r.room_id = ooo.room_id
+                WHERE r.room_type_id = ?
+                  AND ooo.start_date <= ?
+                  AND ooo.end_date > ?`,
+              rt.room_type_id,
+              stayDate,
+              stayDate,
+            )
+            .toArray() as Array<{ c: number }>
+        )[0]?.c ?? 0,
+      );
       sql.exec(
         `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
-         VALUES (?, ?, ?, 0, 0, 0, ?, 1)`,
+         VALUES (?, ?, ?, ?, 0, 0, ?, 1)`,
         rt.room_type_id,
         stayDate,
         rt.room_count,
+        blockedBorn,
         ledgerOversell,
       );
       insertedCount += 1;
@@ -2916,6 +2965,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       newBusinessDate,
       this.materializedOversellAllowanceSync(),
     );
+    this.syncOooStatusAllRoomsSync();
     if (insertedCount > 0) {
       const propertyId = this.getPropertyIdSync();
       const ariVersion = this.bumpAriVersionSync();
@@ -4291,6 +4341,423 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
       if (e instanceof RoomCodeExistsError) return { ok: false, error: ROOM_CODE_EXISTS };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private oooNights(startDate: string, endDate: string): string[] {
+    return enumerateStayDates(startDate, endDate);
+  }
+
+  private setDifference(a: string[], b: string[]): string[] {
+    const drop = new Set(b);
+    return a.filter((d) => !drop.has(d));
+  }
+
+  private placeholderStatusBeforeSync(roomId: string, liveStatus: string): string {
+    if (liveStatus === 'clean' || liveStatus === 'dirty' || liveStatus === 'inspected') return liveStatus;
+    const openDate = this.readBusinessDateSync();
+    if (!openDate) return 'clean';
+    const covering = this.ctx.storage.sql
+      .exec(
+        `SELECT status_before FROM room_ooo
+          WHERE room_id = ? AND start_date <= ? AND end_date > ?
+          LIMIT 1`,
+        roomId,
+        openDate,
+        openDate,
+      )
+      .toArray() as Array<{ status_before: string }>;
+    return covering[0]?.status_before ?? 'clean';
+  }
+
+  private applyBlockedDeltaSync(
+    roomTypeId: string,
+    nightsToAdd: string[],
+    nightsToRemove: string[],
+  ): { fromDate: string; toDate: string } | null {
+    const openDate = this.readBusinessDateSync();
+    if (!openDate) throw new Error(BUSINESS_DATE_UNSET);
+    const horizon = enumerateFromDate(openDate, HORIZON_DAYS);
+    const horizonEnd = horizon[horizon.length - 1]!;
+    const touched: string[] = [];
+    for (const d of nightsToAdd) {
+      if (d < openDate) throw new OooInvalidRangeError();
+      if (d > horizonEnd) continue;
+      const row = this.ctx.storage.sql
+        .exec(
+          `SELECT blocked FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+          roomTypeId,
+          d,
+        )
+        .toArray() as Array<{ blocked: number }>;
+      if (!row[0]) throw new LedgerInconsistentError(d);
+      this.ctx.storage.sql.exec(
+        `UPDATE availability_day SET blocked = blocked + 1, version = version + 1
+          WHERE room_type_id = ? AND stay_date = ?`,
+        roomTypeId,
+        d,
+      );
+      touched.push(d);
+    }
+    for (const d of nightsToRemove) {
+      if (d < openDate || d > horizonEnd) continue;
+      const row = this.ctx.storage.sql
+        .exec(
+          `SELECT blocked FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+          roomTypeId,
+          d,
+        )
+        .toArray() as Array<{ blocked: number }>;
+      if (!row[0] || row[0].blocked < 1) throw new LedgerInconsistentError(d);
+      this.ctx.storage.sql.exec(
+        `UPDATE availability_day SET blocked = blocked - 1, version = version + 1
+          WHERE room_type_id = ? AND stay_date = ?`,
+        roomTypeId,
+        d,
+      );
+      touched.push(d);
+    }
+    if (touched.length === 0) return null;
+    touched.sort();
+    return { fromDate: touched[0]!, toDate: touched[touched.length - 1]! };
+  }
+
+  private syncOooStatusForRoomSync(roomId: string, releasedStatusBefore?: string): void {
+    const openDate = this.readBusinessDateSync();
+    if (!openDate) return;
+    const room = this.ctx.storage.sql
+      .exec(`SELECT status, room_type_id FROM room WHERE room_id = ?`, roomId)
+      .toArray() as Array<{ status: string; room_type_id: string }>;
+    if (!room[0]) return;
+    const covering = this.ctx.storage.sql
+      .exec(
+        `SELECT ooo_id, status_before FROM room_ooo
+          WHERE room_id = ? AND start_date <= ? AND end_date > ?
+          LIMIT 1`,
+        roomId,
+        openDate,
+        openDate,
+      )
+      .toArray() as Array<{ ooo_id: string; status_before: string }>;
+    const desiredOoo = covering.length > 0;
+    const currentlyOoo = room[0].status === 'out_of_order';
+    const propertyId = this.getPropertyIdSync();
+    const now = Date.now();
+    if (desiredOoo && !currentlyOoo) {
+      this.ctx.storage.sql.exec(
+        `UPDATE room_ooo SET status_before = ?, updated_at = ? WHERE ooo_id = ?`,
+        room[0].status,
+        now,
+        covering[0]!.ooo_id,
+      );
+      this.ctx.storage.sql.exec(
+        `UPDATE room SET status = 'out_of_order', updated_at = ? WHERE room_id = ?`,
+        now,
+        roomId,
+      );
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'room.status_changed',
+        payload: {
+          propertyId,
+          roomId,
+          fromStatus: room[0].status,
+          toStatus: 'out_of_order',
+        },
+      });
+    } else if (!desiredOoo && currentlyOoo) {
+      let restore = releasedStatusBefore;
+      if (restore == null) {
+        const justEnded = this.ctx.storage.sql
+          .exec(
+            `SELECT status_before FROM room_ooo
+              WHERE room_id = ? AND start_date <= ?
+              ORDER BY end_date DESC
+              LIMIT 1`,
+            roomId,
+            openDate,
+          )
+          .toArray() as Array<{ status_before: string }>;
+        restore = justEnded[0]?.status_before ?? 'clean';
+      }
+      this.ctx.storage.sql.exec(
+        `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
+        restore,
+        now,
+        roomId,
+      );
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'room.status_changed',
+        payload: { propertyId, roomId, fromStatus: 'out_of_order', toStatus: restore },
+      });
+    }
+  }
+
+  private syncOooStatusAllRoomsSync(): void {
+    const rows = this.ctx.storage.sql.exec(`SELECT room_id FROM room`).toArray() as Array<{ room_id: string }>;
+    for (const r of rows) this.syncOooStatusForRoomSync(r.room_id);
+  }
+
+  /**
+   * Create / edit / release a per-room OOO range. Implements `rooms.set_ooo_range`.
+   * Fingerprint allowlist: `{ roomId, startDate, endDate, oooId? }`.
+   * FAIL_CLOSED — inventory:write + pms.core.
+   */
+  async trySetOooRange(
+    actor: ActorContext,
+    input: {
+      roomId: string;
+      startDate: string;
+      endDate: string;
+      oooId?: string;
+      reason?: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomId: string; oooId: string; alreadyApplied?: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof OOO_INVALID_RANGE }
+    | { ok: false; error: typeof OOO_RANGE_OVERLAP }
+    | { ok: false; error: typeof OOO_ROOM_ASSIGNED; reservationId?: string }
+    | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
+    | { ok: false; error: typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const prior = this.ctx.storage.sql
+          .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+          .toArray() as Array<{ request_fingerprint: string; response: string }>;
+        if (prior.length > 0) {
+          if (prior[0]!.request_fingerprint !== idem.fingerprint) {
+            throw new IdempotencyKeyReused(idem.key);
+          }
+          const cached = JSON.parse(prior[0]!.response) as { ok?: boolean };
+          if (cached.ok === true) {
+            return { ...cached, alreadyApplied: true as const };
+          }
+          return cached;
+        }
+        return runIdempotent(this.ctx.storage.sql, idem, () => {
+          const openDate = this.readBusinessDateSync();
+          if (!openDate) throw new Error(BUSINESS_DATE_UNSET);
+          if (!STAY_DATE_RE.test(input.startDate) || !STAY_DATE_RE.test(input.endDate)) {
+            throw new OooInvalidRangeError();
+          }
+
+          const roomRows = this.ctx.storage.sql
+            .exec(
+              `SELECT r.room_id, r.room_type_id, r.status, t.status AS type_status
+               FROM room r JOIN room_type t ON t.room_type_id = r.room_type_id
+               WHERE r.room_id = ?`,
+              input.roomId,
+            )
+            .toArray() as Array<{
+            room_id: string;
+            room_type_id: string;
+            status: string;
+            type_status: string;
+          }>;
+          const room = roomRows[0];
+          if (!room || room.type_status !== 'active') throw new RoomNotFoundError();
+
+          let reason: string | null = null;
+          if (input.reason !== undefined) {
+            const trimmed = input.reason.trim();
+            if (trimmed.length > 256) throw new OooInvalidRangeError();
+            reason = trimmed.length === 0 ? null : trimmed;
+          }
+
+          type OooRow = {
+            ooo_id: string;
+            room_id: string;
+            start_date: string;
+            end_date: string;
+            reason: string | null;
+            status_before: string;
+          };
+          let old: OooRow | null = null;
+          let oooId = input.oooId;
+          const isEdit = Boolean(input.oooId);
+          if (isEdit) {
+            const existing = this.ctx.storage.sql
+              .exec(`SELECT ooo_id, room_id, start_date, end_date, reason, status_before FROM room_ooo WHERE ooo_id = ?`, input.oooId)
+              .toArray() as OooRow[];
+            if (!existing[0] || existing[0].room_id !== input.roomId) throw new RoomNotFoundError();
+            old = existing[0];
+            oooId = old.ooo_id;
+          } else {
+            oooId = `ooo_${crypto.randomUUID()}`;
+          }
+
+          const isRelease = isEdit && input.startDate >= input.endDate;
+          if (!isEdit && input.startDate >= input.endDate) throw new OooInvalidRangeError();
+          if (!isEdit && input.startDate < openDate) throw new OooInvalidRangeError();
+
+          const nextReason = input.reason !== undefined ? reason : (old?.reason ?? null);
+          const oldNights = old ? this.oooNights(old.start_date, old.end_date) : [];
+          const newNights = isRelease ? [] : this.oooNights(input.startDate, input.endDate);
+          const nightsToAdd = this.setDifference(newNights, oldNights);
+          const nightsToRemove = this.setDifference(oldNights, newNights);
+
+          if (
+            old &&
+            !isRelease &&
+            old.start_date === input.startDate &&
+            old.end_date === input.endDate
+          ) {
+            return { ok: true as const, roomId: input.roomId, oooId: oooId!, alreadyApplied: true as const };
+          }
+
+          if (!isRelease) {
+            const overlap = this.ctx.storage.sql
+              .exec(
+                `SELECT ooo_id FROM room_ooo
+                  WHERE room_id = ?
+                    AND ooo_id != ?
+                    AND start_date < ?
+                    AND end_date > ?
+                  LIMIT 1`,
+                input.roomId,
+                oooId,
+                input.endDate,
+                input.startDate,
+              )
+              .toArray();
+            if (overlap.length > 0) throw new OooRangeOverlapError();
+          }
+
+          if (nightsToAdd.length > 0) {
+            const added = [...nightsToAdd].sort();
+            const addStart = added[0]!;
+            const addEnd = enumerateFromDate(added[added.length - 1]!, 2)[1]!;
+            const assigned = this.ctx.storage.sql
+              .exec(
+                `SELECT reservation_id FROM reservation
+                  WHERE room_id = ?
+                    AND status IN ('pending', 'confirmed', 'checked_in')
+                    AND arrival_date < ?
+                    AND departure_date > ?
+                  LIMIT 1`,
+                input.roomId,
+                addEnd,
+                addStart,
+              )
+              .toArray() as Array<{ reservation_id: string }>;
+            if (assigned[0]) throw new OooRoomAssignedError(assigned[0].reservation_id);
+          }
+
+          const span = this.applyBlockedDeltaSync(room.room_type_id, nightsToAdd, nightsToRemove);
+          const now = Date.now();
+          const oldJson = old
+            ? { oooId: old.ooo_id, startDate: old.start_date, endDate: old.end_date, reason: old.reason }
+            : null;
+          let action: 'created' | 'updated' | 'released';
+          let releasedStatusBefore: string | undefined;
+
+          if (isRelease) {
+            releasedStatusBefore = old!.status_before;
+            this.ctx.storage.sql.exec(`DELETE FROM room_ooo WHERE ooo_id = ?`, oooId);
+            action = 'released';
+          } else if (old) {
+            this.ctx.storage.sql.exec(
+              `UPDATE room_ooo SET start_date = ?, end_date = ?, reason = ?, updated_at = ? WHERE ooo_id = ?`,
+              input.startDate,
+              input.endDate,
+              nextReason,
+              now,
+              oooId,
+            );
+            action = 'updated';
+          } else {
+            const placeholder = this.placeholderStatusBeforeSync(input.roomId, room.status);
+            this.ctx.storage.sql.exec(
+              `INSERT INTO room_ooo (ooo_id, room_id, start_date, end_date, reason, status_before, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              oooId,
+              input.roomId,
+              input.startDate,
+              input.endDate,
+              nextReason,
+              placeholder,
+              now,
+              now,
+            );
+            action = 'created';
+          }
+
+          this.syncOooStatusForRoomSync(input.roomId, releasedStatusBefore);
+
+          if (span) {
+            const ariVersion = this.bumpAriVersionSync();
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: {
+                propertyId,
+                roomTypeId: room.room_type_id,
+                fromDate: span.fromDate,
+                toDate: span.toDate,
+                version: ariVersion,
+              },
+            });
+          }
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'room.ooo_changed',
+            payload: {
+              propertyId,
+              roomId: input.roomId,
+              roomTypeId: room.room_type_id,
+              oooId,
+              startDate: isRelease ? old!.start_date : input.startDate,
+              endDate: isRelease ? old!.end_date : input.endDate,
+              action,
+              reason: nextReason,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rooms.set_ooo_range',
+            entityType: 'room',
+            entityId: input.roomId,
+            beforeJson: oldJson,
+            afterJson: isRelease
+              ? null
+              : { oooId, startDate: input.startDate, endDate: input.endDate, reason: nextReason },
+          });
+
+          return { ok: true as const, roomId: input.roomId, oooId: oooId! };
+        });
+      });
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

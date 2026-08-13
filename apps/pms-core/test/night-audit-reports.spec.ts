@@ -183,4 +183,34 @@ describe('night audit SNAPSHOT_REPORTS / ARCHIVE', () => {
       'revenue',
     ]);
   });
+
+  it('20. SNAPSHOT occupancy blocked is 1 with OOO covering D; physical unchanged', async () => {
+    const propertyId = `na-ooo-20-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA', 5);
+    await seedRate(stub, 'rt_a', d, 10000);
+    const room = { roomId: 'rm_20', roomTypeId: 'rt_a', code: '201' };
+    expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor('rm20', room))).toMatchObject({
+      ok: true,
+    });
+    const ooo = { roomId: 'rm_20', startDate: d, endDate: addDays(d, 1) };
+    expect(await stub.trySetOooRange(TEST_OWNER_ACTOR, ooo, await idemFor('ooo20', ooo))).toMatchObject({
+      ok: true,
+    });
+    const snap = await stub.runAuditStep(d, 'SNAPSHOT_REPORTS');
+    expect(snap.status).toBe('COMPLETED');
+    const occupancy = await readReportJson(propertyId, d, 'occupancy');
+    expect(occupancy).toMatchObject({
+      businessDate: d,
+      blocked: 1,
+      inHouseCount: 0,
+    });
+    expect(occupancy.physical).toBe(5);
+    expect(occupancy).toHaveProperty('sold');
+    expect(occupancy).toHaveProperty('held');
+    expect(occupancy).toHaveProperty('confirmedCount');
+    expect(occupancy).toHaveProperty('noShowCount');
+    expect(occupancy).toHaveProperty('pendingCount');
+  });
 });

@@ -4,6 +4,8 @@
 **Status:** Revised (v3 — `readFolio` is read-only: balance keyed on `folio_line.reservation_id`, `window` optional/`null`; `ensureGuestFolioWindowSync` stays at three write call sites; `gateCoreEntitlement` explicit in `tryAddFolioLine` restructure; test 3/11a/17 construction fixes; §2.4 step 5 blocker corrected to async/`gatePermission` inside sync `execute()`)
 **Sources:** ARCHITECTURE.md §4.6 (degraded mode), §7.3 (multi-currency / folio contract), §8 (night-audit step sequence), §14 (Phase 1 sequencing — folio depends on degraded mode); [command catalog](../../../packages/contracts/src/commands/catalog.ts); [degraded-mode server slice](./2026-08-04-degraded-mode-server-design.md) (§7.1 actor/`gatePermission` signature pattern this spec extends to folio; §7.4 replay dispatch registry); [reservations vertical](./2026-08-04-reservations-vertical-design.md) (status-machine `try*` shape this mirrors)
 
+**Amended by:** [multi-currency folio](./2026-08-13-multi-currency-folio-design.md) (2026-08-13) — §2.3 identity-rate / `CROSS_CURRENCY_UNSUPPORTED` is lifted for payments and optional `folio.add_item`; the constant remains for ledger-only surfaces.
+
 ---
 
 ## 1. Context & Motivation

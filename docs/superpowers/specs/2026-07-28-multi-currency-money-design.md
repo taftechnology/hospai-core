@@ -4,6 +4,8 @@
 **Status:** Approved for implementation  
 **Sources:** ARCHITECTURE.md §7.3, §14; freeze-gate `folio_line`; config `pms.money.currency_code`
 
+**Amended by:** [multi-currency folio](./2026-08-13-multi-currency-folio-design.md) (2026-08-13) — FX sourcing, residual FX gain/loss, and `payment.*` handlers, which this spec left to Phase 1, are specified there.
+
 ## Purpose
 
 Pin the **ledger shape** for money before folio and cashiering commands land in Phase 1. The PropertyDO schema already stores transaction + ledger amounts and a frozen FX rate per line (freeze gate §14); `packages/money` is still a 27-line single-currency helper with no cross-currency guard, no FX validation, and no structured-clone contract.

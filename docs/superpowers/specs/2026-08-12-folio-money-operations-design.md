@@ -8,6 +8,8 @@
 
 **Amends:** [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md) leftover 4 (window-stays-OPEN is now the **default**, overridable by config — not silently reversed); leftover 2 (penalty / ROOM price source becomes the snapshot); leftover 5 (capture seam specified here); [payments ledger simulate](./2026-08-06-payments-ledger-simulate-design.md) §2.3 wire-lie (`window.status` becomes a real discriminator) and leftovers voids/refunds / closed-window reject; [charge-code registry](./2026-08-07-charge-code-registry-design.md) leftover “window routing rules table” (still not this body — auto-transfer deferred, §13). Bidirectional pointer: one sentence in those specs when this chunk lands.
 
+**Amended by:** [multi-currency folio](./2026-08-13-multi-currency-folio-design.md) (2026-08-13) — leftover 4 chargebacks shipped; partial refunds remain; the identity-rate rule is no longer unchanged.
+
 ---
 
 ## 1. Context & Motivation
@@ -49,12 +51,12 @@ The desk can post, authorize, capture, cash, split same-window, and check out be
 
 - City ledger / AR (§7.3: structurally distinct). `billed_party` is a label, not an AR account.
 - Real PSP / PCI Worker. Simulate adapter stays; gains void + refund methods.
-- Multi-currency conversion (already shipped; Phase 1 identity-rate rule unchanged).
+- Multi-currency conversion (already shipped; identity-rate lifted for payments and optional add_item — see [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 - Promo codes (§7.4 — deferred with reasons).
 - Group/master **billing engine** (cutoff, wash, pickup). `MASTER` windows may exist as transfer targets; no group aggregate.
 - Night-audit **auto-transfer** (§13 — deferred; do not grow `NIGHT_AUDIT_STEPS`).
 - Routing-rules table (charge-code leftover; auto-transfer’s input).
-- Partial refunds, chargebacks, authorization expiry, `unknown` reconciliation exit.
+- Partial refunds, authorization expiry, `unknown` reconciliation exit.
 - Recurring incidentals / breakfast_rule engine (night-audit leftover).
 
 ---
@@ -794,7 +796,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 1. **Night-audit auto-transfer** — needs routing-rules table + an allowed change to `NIGHT_AUDIT_STEPS` (or an architecture amendment naming the owning step). Key remains `(reservation_id, business_date, rule_id)`.
 2. **Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.
 3. **`unknown` reconciliation exit** (payments leftover, unchanged).
-4. **Partial refunds** and **chargebacks** (`payment.chargeback_received`).
+4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 5. **Taxable discounts** / tax restamp on discount.
 6. **Stay-level discount** (no source line).
 7. **Promo codes** — §7.4.

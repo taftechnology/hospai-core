@@ -15,6 +15,7 @@ import { PropertyTimeZoneProvider } from './PropertyTimeZone.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
+import { GuestNameLink } from '../screens/guest-row.js';
 
 type SearchHit = {
   reservationId: string;
@@ -92,8 +93,18 @@ function ReservationSearch() {
         <ul data-testid="reservation-search-results">
           {items.map((hit) => (
             <li key={hit.reservationId}>
+              {hit.guestRef ? (
+                <GuestNameLink
+                  state={
+                    hit.displayName
+                      ? { kind: 'resolved', displayName: hit.displayName }
+                      : undefined
+                  }
+                  guestRef={hit.guestRef}
+                />
+              ) : null}{' '}
               <button type="button" onClick={() => goFolio(hit.reservationId)}>
-                {hit.displayName ?? hit.guestRef ?? hit.reservationId} · {hit.reservationId}
+                {hit.reservationId}
                 {hit.arrivalDate && hit.departureDate
                   ? ` · ${hit.arrivalDate} → ${hit.departureDate}`
                   : ''}

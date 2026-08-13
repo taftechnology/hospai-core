@@ -17,7 +17,7 @@ import {
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
 import { statusClass } from '../status/status-class.js';
-import { guestLabel } from './guest-row.js';
+import { GuestNameLink } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
@@ -719,7 +719,7 @@ export function FolioScreen() {
       </p>
       <h1>Folio</h1>
       <p>
-        {guestRef ? guestLabel(guestState, guestRef) : reservationId}
+        {guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : reservationId}
         {reservationQ.data
           ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationQ.data.status}`
           : null}

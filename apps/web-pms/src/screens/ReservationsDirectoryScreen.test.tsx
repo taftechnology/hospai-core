@@ -149,6 +149,7 @@ describe('ReservationsDirectoryScreen', () => {
     expect(screen.getByRole('link', { name: /res_dir_1/ }).getAttribute('href')).toBe(
       '/folio/res_dir_1',
     );
+    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
     fireEvent.click(screen.getByRole('button', { name: 'Active' }));
     await waitFor(() =>
       expect(
@@ -200,5 +201,6 @@ describe('ReservationsDirectoryScreen', () => {
       getFrontOfficeDirectory.mock.calls.every((c) => !('q' in ((c[1] as object) ?? {}))),
     ).toBe(true);
     await waitFor(() => expect(screen.getByText(/res_hit/)).toBeTruthy());
+    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
   });
 });

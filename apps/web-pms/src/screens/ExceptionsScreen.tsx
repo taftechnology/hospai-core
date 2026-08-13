@@ -11,6 +11,7 @@ import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
+import { GuestNameLink } from './guest-row.js';
 
 const REPLAY_COMMAND_IDS = [
   'reservations.check_in',
@@ -222,15 +223,6 @@ export function ExceptionsScreen() {
     const extra = rows.map((r) => r.commandType).filter(Boolean);
     return [...new Set([...REPLAY_COMMAND_IDS, ...extra])];
   }, [rows]);
-
-  function guestLabel(guestRef: string | null): string {
-    if (!guestRef) return '';
-    const state = guestsQ.data?.states?.[guestRef];
-    if (state && typeof state === 'object' && (state as { kind?: string }).kind === 'resolved') {
-      return (state as { displayName?: string }).displayName ?? guestRef;
-    }
-    return guestRef;
-  }
 
   async function runBatch(kind: 'retry' | 'resolve', ids: string[]) {
     const capped = ids.slice(0, 50);
@@ -483,7 +475,10 @@ export function ExceptionsScreen() {
                     {row.affected?.guestRef ? (
                       <>
                         {' '}
-                        <span translate="no">{guestLabel(row.affected.guestRef)}</span>
+                        <GuestNameLink
+                          state={guestsQ.data?.states?.[row.affected.guestRef]}
+                          guestRef={row.affected.guestRef}
+                        />
                       </>
                     ) : null}
                   </td>

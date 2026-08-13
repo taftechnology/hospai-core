@@ -147,6 +147,7 @@ describe('BoardScreen folio links', () => {
       const link = screen.getByRole('link', { name: /Book for guest/i });
       expect(link.getAttribute('href')).toBe('/book?guestRef=g1');
     });
+    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
   });
 
   it('VIP and DND badges on the guest cell', async () => {

@@ -725,6 +725,7 @@ describe('FolioScreen wiring', () => {
     const card = screen.getByTestId('reg-card');
     expect(card.textContent).toMatch(/res_1/);
     expect(card.textContent).toMatch(/Ada Lovelace/);
+    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
     expect(card.textContent).toMatch(/2026-08-08/);
     expect(card.textContent).toMatch(/2026-08-10/);
     expect(card.textContent).toMatch(/Adults 2/);

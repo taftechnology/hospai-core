@@ -22,6 +22,26 @@ function bodyErrorCode(body: unknown): string | null {
   return null;
 }
 
+type GuestSearchHit = {
+  guestId: string;
+  profile: { displayName: string };
+};
+
+function asGuestSearchPage(result: unknown): GuestSearchHit[] {
+  if (!result || typeof result !== 'object') return [];
+  const rec = result as {
+    body?: { items?: unknown };
+    items?: unknown;
+  };
+  const raw = Array.isArray(rec.items) ? rec.items : rec.body?.items;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((row): row is GuestSearchHit => {
+    if (!row || typeof row !== 'object') return false;
+    const r = row as { guestId?: unknown; profile?: { displayName?: unknown } };
+    return typeof r.guestId === 'string' && typeof r.profile?.displayName === 'string';
+  });
+}
+
 function bodyField(body: unknown, key: string): string | undefined {
   if (body && typeof body === 'object' && key in body) {
     const v = (body as Record<string, unknown>)[key];
@@ -53,6 +73,8 @@ export function BookingScreen() {
   const [guestCreated, setGuestCreated] = useState(false);
   const [contextGuestRef, setContextGuestRef] = useState<string | null>(urlGuestRef);
   const [contextDisplayName, setContextDisplayName] = useState<string | null>(null);
+  const [findQ, setFindQ] = useState('');
+  const [debouncedFind, setDebouncedFind] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,6 +87,11 @@ export function BookingScreen() {
 
   const contextMode = contextGuestRef != null && contextGuestRef.length > 0;
   const guestRef = contextMode ? contextGuestRef! : guestId;
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedFind(findQ.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [findQ]);
 
   const dateCapBlocked =
     arrivalDate.length > 0 &&
@@ -120,6 +147,15 @@ export function BookingScreen() {
     enabled: contextMode,
     retry: false,
   });
+
+  const findQry = useQuery({
+    queryKey: ['guests-search', propertyId, debouncedFind],
+    queryFn: () => api.searchGuests(propertyId, { q: debouncedFind }),
+    enabled: !contextMode && debouncedFind.length > 0,
+    retry: false,
+  });
+
+  const findHits = asGuestSearchPage(findQry.data);
 
   useEffect(() => {
     if (!contextMode || !contextBatchQ.isSuccess || contextDisplayName != null) return;
@@ -407,6 +443,33 @@ export function BookingScreen() {
           </p>
         ) : (
           <>
+            <label>
+              Find existing{' '}
+              <input
+                data-testid="guest-find"
+                type="search"
+                autoComplete="off"
+                value={findQ}
+                onChange={(e) => setFindQ(e.target.value)}
+              />
+            </label>
+            {findHits.length > 0 ? (
+              <ul>
+                {findHits.map((hit) => (
+                  <li key={hit.guestId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextGuestRef(hit.guestId);
+                        setContextDisplayName(hit.profile.displayName);
+                      }}
+                    >
+                      {hit.profile.displayName}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <label>
               Name{' '}
               <input

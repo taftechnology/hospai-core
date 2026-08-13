@@ -120,6 +120,7 @@ describe('AppShell reservation search', () => {
     fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Ada' } });
     await waitFor(() => expect(searchReservations).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText(/res_hit/)).toBeTruthy());
+    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
     fireEvent.click(screen.getByText(/res_hit/));
     await waitFor(() => {
       expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/folio/res_hit');

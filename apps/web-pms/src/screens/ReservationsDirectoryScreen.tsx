@@ -11,7 +11,7 @@ import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
-import { guestLabel } from './guest-row.js';
+import { GuestNameLink } from './guest-row.js';
 
 type DirWindow = 'today' | 'tomorrow' | 'week' | 'all';
 const ACTIVE_STATUS = 'inquiry,pending,confirmed,checked_in';
@@ -212,7 +212,20 @@ export function ReservationsDirectoryScreen() {
                     {hit.reservationId}
                   </Link>
                 </td>
-                <td>{hit.displayName ?? hit.guestRef ?? ''}</td>
+                <td>
+                  {hit.guestRef ? (
+                    <GuestNameLink
+                      state={
+                        hit.displayName
+                          ? { kind: 'resolved', displayName: hit.displayName }
+                          : undefined
+                      }
+                      guestRef={hit.guestRef}
+                    />
+                  ) : (
+                    (hit.displayName ?? '')
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -242,7 +255,9 @@ export function ReservationsDirectoryScreen() {
               <td translate="no">
                 <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
               </td>
-              <td>{guestLabel(states[row.guestRef], row.guestRef)}</td>
+              <td>
+                <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
+              </td>
               <td>{row.status}</td>
               <td className="tabular-nums">
                 {row.arrivalDate} → {row.departureDate}

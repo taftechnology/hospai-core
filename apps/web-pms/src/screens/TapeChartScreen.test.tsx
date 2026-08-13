@@ -203,8 +203,11 @@ describe('TapeChartScreen', () => {
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
     await waitFor(() => {
       const link = screen.getByRole('link', { name: /Ada Lovelace/i });
-      expect(link.getAttribute('href')).toBe('/folio/res_tape_1');
+      expect(link.getAttribute('href')).toBe('/guests/g1');
     });
+    expect(screen.getByRole('link', { name: /^Folio$/i }).getAttribute('href')).toBe(
+      '/folio/res_tape_1',
+    );
     expect(screen.getByTestId('badge-vip')).toBeTruthy();
     expect(screen.getByTestId('badge-dnd')).toBeTruthy();
   });

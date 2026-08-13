@@ -17,7 +17,7 @@ import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
-import { guestLabel } from './guest-row.js';
+import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
 
 export type { BoardMode };
@@ -114,7 +114,7 @@ function BoardTable({
                 {overstay ? ' (overstay)' : ''}
               </td>
               <td className={statusClass(guestSev)}>
-                {guestLabel(guestState, row.guestRef)}
+                <GuestNameLink state={guestState} guestRef={row.guestRef} />
                 {row.vipFlag === true ? (
                   <span data-testid="badge-vip"> VIP</span>
                 ) : null}

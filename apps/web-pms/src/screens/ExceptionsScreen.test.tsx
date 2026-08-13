@@ -152,7 +152,7 @@ describe('ExceptionsScreen', () => {
     await waitFor(() => expect(resolveProvisionalException).toHaveBeenCalled());
   });
 
-  it('Folio link for a check-in row; no guest CRM href', async () => {
+  it('Folio link for a check-in row; guest CRM href when guestRef is set', async () => {
     getMe.mockResolvedValue(ownerMe);
     renderScreen();
     await waitFor(() => expect(screen.getByRole('link', { name: /^folio$/i })).toBeTruthy());
@@ -160,7 +160,6 @@ describe('ExceptionsScreen', () => {
     expect(screen.getByRole('link', { name: /^check-in$/i }).getAttribute('href')).toBe(
       '/check-in/res_1',
     );
-    expect(screen.queryByRole('link', { name: /guest/i })).toBeNull();
-    expect(document.querySelector('a[href*="/guests"]')).toBeNull();
+    expect(document.querySelector('a[href="/guests/g1"]')).toBeTruthy();
   });
 });

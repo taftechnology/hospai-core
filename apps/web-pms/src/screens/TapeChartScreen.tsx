@@ -18,7 +18,7 @@ import { boardRowSeverity } from '../status/board-row-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
-import { guestLabel } from './guest-row.js';
+import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
@@ -105,18 +105,18 @@ function StayBlock({
     block.departureDate < today;
   const sev = status ? tapeBlockSeverity(status, overstay) : 'informational';
   return (
-    <Link
-      to={`/folio/${encodeURIComponent(block.reservationId)}`}
+    <div
       className={`tape-block min-w-0 truncate ${statusClass(sev)}`}
       style={{
         ['--tape-col-start' as string]: String(colStart),
         ['--tape-col-end' as string]: String(colEnd),
       }}
     >
-      <span className="truncate">{guestLabel(state, block.guestRef)}</span>
+      <GuestNameLink state={state} guestRef={block.guestRef} />
+      <Link to={`/folio/${encodeURIComponent(block.reservationId)}`}>Folio</Link>
       {block.vipFlag === true ? <span data-testid="badge-vip"> VIP</span> : null}
       {block.dndFlag === true ? <span data-testid="badge-dnd"> DND</span> : null}
-    </Link>
+    </div>
   );
 }
 

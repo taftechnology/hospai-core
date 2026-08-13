@@ -9,6 +9,7 @@ const createGuest = vi.fn();
 const createReservation = vi.fn();
 const postGuestsBatch = vi.fn();
 const listRoomTypes = vi.fn();
+const searchGuests = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -27,6 +28,7 @@ vi.mock('../client.js', () => ({
     createReservation: (...a: unknown[]) => createReservation(...a),
     postGuestsBatch: (...a: unknown[]) => postGuestsBatch(...a),
     listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
+    searchGuests: (...a: unknown[]) => searchGuests(...a),
   },
 }));
 
@@ -134,6 +136,10 @@ describe('BookingScreen', () => {
     createGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createReservation.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
+    searchGuests.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { items: [], nextCursor: null },
+    });
   });
 
   afterEach(() => {
@@ -204,6 +210,55 @@ describe('BookingScreen', () => {
       expect(loc.getAttribute('data-search')).toContain('date=2026-08-11');
       expect(loc.getAttribute('data-state')).toMatch(/createdReservationId/);
     });
+  });
+
+  it('find existing Ada: pick uses guestRef; no createGuest', async () => {
+    searchGuests.mockResolvedValue({
+      classified: { class: 'live' },
+      body: {
+        items: [
+          {
+            guestId: 'g_ada',
+            erased: false,
+            profile: { displayName: 'Ada Lovelace', email: 'ada@ex.com' },
+            createdAt: 1,
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: { g_ada: { ok: true, profile: { displayName: 'Ada Lovelace' } } },
+      states: { g_ada: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    fireEvent.change(screen.getByTestId('guest-find'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(searchGuests).toHaveBeenCalled());
+    expect(searchGuests.mock.calls.some((c) => (c[1] as { q: string }).q === 'Ada')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Ada Lovelace/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId('context-guest').textContent).toMatch(/Ada Lovelace/),
+    );
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    expect(createGuest).not.toHaveBeenCalled();
+    const resArg = createReservation.mock.calls[0]![1] as { guestRef: string };
+    expect(resArg.guestRef).toBe('g_ada');
+  });
+
+  it('skip search + type a new name still create-defaults', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    expect(screen.getByTestId('guest-find')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createGuest).toHaveBeenCalled());
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    expect(searchGuests).not.toHaveBeenCalled();
   });
 
   it('context guestRef: batch hydrate; no createGuest', async () => {

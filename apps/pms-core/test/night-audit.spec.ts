@@ -245,9 +245,10 @@ describe('PropertyDO night audit', () => {
     expect(await stub.readBusinessDate()).toBe(originalBusinessDate);
 
     const events = await stub.listOutboxEventTypes();
-    expect(events[0]).toBe('night_audit.started');
+    // ARCHIVE flushes the run's prior outbox (started, availability.changed) onto
+    // the queue, then Txn B appends night_audit.completed as the remaining unacked row.
+    expect(events).toContain('night_audit.completed');
     expect(events[events.length - 1]).toBe('night_audit.completed');
-    expect(events).toContain('availability.changed');
 
     // Every step for this business_date is COMPLETED.
     for (const step of NIGHT_AUDIT_STEPS) {

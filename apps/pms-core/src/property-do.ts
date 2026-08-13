@@ -152,6 +152,7 @@ import {
 } from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
+import { hasEventLogR2, reportObjectKey } from './event-log.js';
 
 type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown';
 
@@ -693,6 +694,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /** Vitest only — DO bindings always have simulate on; force the production refuse path. */
   private forcePspUnavailableForTest = false;
   private auditAppendFaultForTest = false;
+  private reportsR2UnboundForTest = false;
+  private snapshotFailureAfterPutForTest: string | null = null;
+  private reportPutCountForTest = 0;
+  /**
+   * Keyed by businessDate. A Workflow retry and an operator retry of SNAPSHOT can
+   * interleave; the outcome is benign (deterministic keys + INSERT OR REPLACE).
+   */
+  private pendingReportPuts = new Map<
+    string,
+    Array<{ reportId: string; r2Key: string; sha256: string; generatedAt: number }>
+  >();
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -1806,22 +1818,28 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
 
     try {
+      if (step === 'SNAPSHOT_REPORTS') {
+        await this.snapshotReportsAsync(businessDate);
+      } else if (step === 'ARCHIVE') {
+        await this.archiveAsync(businessDate);
+      }
+
       // Txn B — step body plus its COMPLETED marker: all of it, or none of it.
       return this.ctx.storage.transactionSync(() => {
         if (step === 'PRE_CHECK') {
           this.runPreCheckSync(businessDate, census);
         } else if (step === 'ROLL_BUSINESS_DATE') {
           this.runRollStepSync(businessDate);
-        } else if (step === 'ARCHIVE') {
-          // No-op stub in this slice — real archival content is future work.
         } else if (step === 'POST_ROOM_CHARGES') {
           this.postRoomChargesSync(businessDate);
         } else if (step === 'CLOSE_CASHIER_SHIFTS') {
           this.forceCloseCashierShiftsSync(businessDate);
         } else if (step === 'PROCESS_NO_SHOWS') {
           this.processNoShowsSync(businessDate);
-        } else {
-          // SNAPSHOT_REPORTS — still a stub.
+        } else if (step === 'SNAPSHOT_REPORTS') {
+          this.indexReportPutsSync(businessDate);
+        } else if (step === 'ARCHIVE') {
+          this.indexManifestSync(businessDate);
         }
 
         const completedAt = Date.now();
@@ -1961,6 +1979,206 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private assertReportsR2Bound(): R2Bucket {
+    if (this.reportsR2UnboundForTest || !hasEventLogR2(this.env) || !this.env.EVENT_LOG_R2) {
+      throw new Error('reports_r2_unbound');
+    }
+    return this.env.EVENT_LOG_R2;
+  }
+
+  private async sha256Hex(bytes: Uint8Array): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  private async putReportObject(
+    bucket: R2Bucket,
+    propertyId: string,
+    businessDate: string,
+    reportId: string,
+    body: unknown,
+    generatedAt: number,
+  ): Promise<{ reportId: string; r2Key: string; sha256: string; generatedAt: number }> {
+    const encoded = new TextEncoder().encode(JSON.stringify(body));
+    const sha256 = await this.sha256Hex(encoded);
+    const r2Key = reportObjectKey(propertyId, businessDate, reportId);
+    await bucket.put(r2Key, encoded);
+    this.reportPutCountForTest += 1;
+    return { reportId, r2Key, sha256, generatedAt };
+  }
+
+  private async snapshotReportsAsync(businessDate: string): Promise<void> {
+    const bucket = this.assertReportsR2Bound();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+    const generatedAt = Date.now();
+
+    const occupancyAgg = this.ctx.storage.sql
+      .exec(
+        `SELECT
+           COALESCE(SUM(a.physical), 0) AS physical,
+           COALESCE(SUM(a.sold), 0) AS sold,
+           COALESCE(SUM(a.blocked), 0) AS blocked,
+           COALESCE(SUM(a.held), 0) AS held
+         FROM availability_day a
+         JOIN room_type rt ON rt.room_type_id = a.room_type_id
+         WHERE a.stay_date = ? AND rt.status = 'active'`,
+        businessDate,
+      )
+      .toArray() as Array<{ physical: number; sold: number; blocked: number; held: number }>;
+    const occ = occupancyAgg[0] ?? { physical: 0, sold: 0, blocked: 0, held: 0 };
+    const inHouseCount = Number(
+      (
+        this.ctx.storage.sql
+          .exec(`SELECT COUNT(*) AS n FROM reservation WHERE status = 'checked_in'`)
+          .toArray() as Array<{ n: number }>
+      )[0]?.n ?? 0,
+    );
+    const confirmedCount = Number(
+      (
+        this.ctx.storage.sql
+          .exec(
+            `SELECT COUNT(*) AS n FROM reservation
+             WHERE status = 'confirmed' AND arrival_date <= ? AND departure_date > ?`,
+            businessDate,
+            businessDate,
+          )
+          .toArray() as Array<{ n: number }>
+      )[0]?.n ?? 0,
+    );
+    const noShowCount = Number(
+      (
+        this.ctx.storage.sql
+          .exec(
+            `SELECT COUNT(*) AS n FROM reservation WHERE status = 'no_show' AND arrival_date <= ?`,
+            businessDate,
+          )
+          .toArray() as Array<{ n: number }>
+      )[0]?.n ?? 0,
+    );
+
+    const occupancy = {
+      businessDate,
+      physical: Number(occ.physical),
+      sold: Number(occ.sold),
+      blocked: Number(occ.blocked),
+      held: Number(occ.held),
+      inHouseCount,
+      confirmedCount,
+      noShowCount,
+    };
+
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    const revenueRows = this.ctx.storage.sql
+      .exec(
+        `SELECT charge_code, source, COALESCE(SUM(ledger_amount_minor), 0) AS total
+         FROM folio_line WHERE business_date = ?
+         GROUP BY charge_code, source`,
+        businessDate,
+      )
+      .toArray() as Array<{ charge_code: string; source: string | null; total: number }>;
+    const roomNet = revenueRows
+      .filter((r) => r.charge_code === 'ROOM' && r.source === 'NIGHT_AUDIT')
+      .reduce((sum, r) => sum + Number(r.total), 0);
+    const taxTotal = revenueRows
+      .filter((r) => r.source === 'TAX')
+      .reduce((sum, r) => sum + Number(r.total), 0);
+    const revenue = {
+      businessDate,
+      currency: ledgerCurrency,
+      roomNet,
+      taxTotal,
+      byChargeCodeAndSource: revenueRows.map((r) => ({
+        chargeCode: r.charge_code,
+        source: r.source,
+        ledgerAmountMinor: Number(r.total),
+      })),
+    };
+
+    const shiftRows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift_id, cashier_user_id, status, opening_float, closing_count, variance
+         FROM shift WHERE business_date = ?`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      shift_id: string;
+      cashier_user_id: string;
+      status: string;
+      opening_float: number;
+      closing_count: number | null;
+      variance: number | null;
+    }>;
+    const cashier = {
+      businessDate,
+      unattributedCashCount: this.countUnattributedCashForBusinessDateSync(businessDate),
+      shifts: shiftRows.map((s) => ({
+        shiftId: s.shift_id,
+        cashierUserId: s.cashier_user_id,
+        status: s.status,
+        openingFloat: s.opening_float,
+        closingCount: s.closing_count,
+        variance: s.variance,
+      })),
+    };
+
+    const pending = [
+      await this.putReportObject(bucket, propertyId, businessDate, 'occupancy', occupancy, generatedAt),
+      await this.putReportObject(bucket, propertyId, businessDate, 'revenue', revenue, generatedAt),
+      await this.putReportObject(bucket, propertyId, businessDate, 'cashier', cashier, generatedAt),
+    ];
+    this.pendingReportPuts.set(businessDate, pending);
+    if (this.snapshotFailureAfterPutForTest) {
+      throw new Error(this.snapshotFailureAfterPutForTest);
+    }
+  }
+
+  private async archiveAsync(businessDate: string): Promise<void> {
+    const bucket = this.assertReportsR2Bound();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+    const outboxFlushedAt = Date.now();
+    await this.flushOutboxToQueue();
+    const archivedAt = Date.now();
+    const reportKeys = [
+      reportObjectKey(propertyId, businessDate, 'occupancy'),
+      reportObjectKey(propertyId, businessDate, 'revenue'),
+      reportObjectKey(propertyId, businessDate, 'cashier'),
+    ];
+    const manifest = {
+      businessDate,
+      rolledTo: this.readBusinessDateSync(),
+      reportKeys,
+      outboxFlushedAt,
+      archivedAt,
+    };
+    const pending = [
+      await this.putReportObject(bucket, propertyId, businessDate, 'manifest', manifest, archivedAt),
+    ];
+    this.pendingReportPuts.set(businessDate, pending);
+  }
+
+  private indexReportPutsSync(businessDate: string): void {
+    const pending = this.pendingReportPuts.get(businessDate) ?? [];
+    for (const p of pending) {
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO night_audit_report
+           (business_date, report_id, r2_key, sha256, generated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        businessDate,
+        p.reportId,
+        p.r2Key,
+        p.sha256,
+        p.generatedAt,
+      );
+    }
+    this.pendingReportPuts.delete(businessDate);
+  }
+
+  private indexManifestSync(businessDate: string): void {
+    this.indexReportPutsSync(businessDate);
+  }
+
   /**
    * Test helper (unsafe-local only): arm a mid-roll failure. `runRollStepSync` will throw
    * with `message` *after* writing the advanced `__meta.business_date` and before
@@ -1974,6 +2192,74 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setPostRoomChargesFailureAfterCountForTest(count: number | null): Promise<void> {
     this.assertUnsafeLocal('setPostRoomChargesFailureAfterCountForTest');
     this.postRoomChargesFailureAfterCountForTest = count;
+  }
+
+  async setReportsR2UnboundForTest(unbound: boolean): Promise<void> {
+    this.assertUnsafeLocal('setReportsR2UnboundForTest');
+    this.reportsR2UnboundForTest = unbound;
+  }
+
+  async setSnapshotFailureAfterPutForTest(message: string | null): Promise<void> {
+    this.assertUnsafeLocal('setSnapshotFailureAfterPutForTest');
+    this.snapshotFailureAfterPutForTest = message;
+  }
+
+  async countReportPutsForTest(): Promise<number> {
+    this.assertUnsafeLocal('countReportPutsForTest');
+    return this.reportPutCountForTest;
+  }
+
+  async listNightAuditReportsForTest(
+    businessDate: string,
+  ): Promise<Array<{ reportId: string; r2Key: string; sha256: string; generatedAt: number }>> {
+    this.assertUnsafeLocal('listNightAuditReportsForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT report_id, r2_key, sha256, generated_at FROM night_audit_report WHERE business_date = ?`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      report_id: string;
+      r2_key: string;
+      sha256: string;
+      generated_at: number;
+    }>;
+    return rows.map((r) => ({
+      reportId: r.report_id,
+      r2Key: r.r2_key,
+      sha256: r.sha256,
+      generatedAt: r.generated_at,
+    }));
+  }
+
+  async insertFolioLineRawForTest(input: {
+    folioLineId: string;
+    folioWindowId: string;
+    reservationId: string;
+    chargeCode: string;
+    amountMinor: number;
+    source: string;
+    businessDate: string;
+  }): Promise<void> {
+    this.assertUnsafeLocal('insertFolioLineRawForTest');
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO folio_line (
+         folio_line_id, folio_window_id, reservation_id, charge_code,
+         amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
+         source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
+       ) VALUES (?, ?, ?, ?, ?, 'USD', ?, '1', ?, ?, ?, NULL, ?, NULL, NULL, NULL)`,
+      input.folioLineId,
+      input.folioWindowId,
+      input.reservationId,
+      input.chargeCode,
+      input.amountMinor,
+      input.amountMinor,
+      now,
+      input.source,
+      input.businessDate,
+      now,
+    );
   }
 
   /**

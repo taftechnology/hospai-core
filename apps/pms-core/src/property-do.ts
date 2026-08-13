@@ -7924,6 +7924,289 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ok: true, items: rows.map((row) => this.mapFrontDeskListRow(row)), mode: 'name' };
   }
 
+  async readFrontOfficeTape(
+    fromDate: string,
+    toDate: string,
+    roomTypeId?: string,
+  ): Promise<{
+    ok: true;
+    fromDate: string;
+    toDate: string;
+    asOf: number;
+    rooms: Array<{
+      roomId: string;
+      roomTypeId: string;
+      code: string;
+      status: string;
+      floor: string | null;
+    }>;
+    blocks: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
+    ooo: Array<{ oooId: string; roomId: string; startDate: string; endDate: string; reason: string | null }>;
+  }> {
+    this.assertRpcAvailable();
+    const typeId = roomTypeId ?? null;
+    const roomRows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_id, room_type_id, code, status, floor
+         FROM room
+         WHERE (? IS NULL OR room_type_id = ?)
+         ORDER BY code`,
+        typeId,
+        typeId,
+      )
+      .toArray() as Array<{
+      room_id: string;
+      room_type_id: string;
+      code: string;
+      status: string;
+      floor: string | null;
+    }>;
+    const blockRows = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+         FROM reservation
+         WHERE status IN ('pending', 'confirmed', 'checked_in')
+           AND arrival_date <= ?
+           AND departure_date > ?`,
+        toDate,
+        fromDate,
+      )
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
+    const toExclusive = enumerateFromDate(toDate, 2)[1]!;
+    const oooRows = this.ctx.storage.sql
+      .exec(
+        `SELECT ooo_id, room_id, start_date, end_date, reason
+         FROM room_ooo
+         WHERE start_date < ? AND end_date > ?`,
+        toExclusive,
+        fromDate,
+      )
+      .toArray() as Array<{
+      ooo_id: string;
+      room_id: string;
+      start_date: string;
+      end_date: string;
+      reason: string | null;
+    }>;
+    return {
+      ok: true,
+      fromDate,
+      toDate,
+      asOf: Date.now(),
+      rooms: roomRows.map((r) => ({
+        roomId: r.room_id,
+        roomTypeId: r.room_type_id,
+        code: r.code,
+        status: r.status,
+        floor: r.floor,
+      })),
+      blocks: blockRows.map((row) => this.mapFrontDeskListRow(row)),
+      ooo: oooRows.map((o) => ({
+        oooId: o.ooo_id,
+        roomId: o.room_id,
+        startDate: o.start_date,
+        endDate: o.end_date,
+        reason: o.reason,
+      })),
+    };
+  }
+
+  async listFrontOfficeDirectory(q: {
+    window: 'today' | 'tomorrow' | 'week' | 'all';
+    date?: string;
+    statuses?: string[];
+    limit?: number;
+    cursor?: { arrivalDate: string; reservationId: string } | null;
+  }): Promise<
+    | {
+        ok: true;
+        items: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
+        nextCursor: { arrivalDate: string; reservationId: string } | null;
+      }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    const win = q.window;
+    if (win !== 'today' && win !== 'tomorrow' && win !== 'week' && win !== 'all') {
+      return { ok: false, error: 'invalid_window' };
+    }
+    if (win !== 'all' && (!q.date || !/^\d{4}-\d{2}-\d{2}$/.test(q.date))) {
+      return { ok: false, error: 'invalid_date' };
+    }
+    const limit = this.clampFrontDeskLimit(q.limit);
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (win === 'today') {
+      where.push('arrival_date = ?');
+      params.push(q.date);
+    } else if (win === 'tomorrow') {
+      where.push(`arrival_date = date(?, '+1 day')`);
+      params.push(q.date);
+    } else if (win === 'week') {
+      where.push(`arrival_date >= ? AND arrival_date <= date(?, '+6 days')`);
+      params.push(q.date, q.date);
+    }
+    if (q.statuses && q.statuses.length > 0) {
+      where.push(`status IN (${q.statuses.map(() => '?').join(',')})`);
+      params.push(...q.statuses);
+    }
+    if (q.cursor) {
+      where.push('(arrival_date < ? OR (arrival_date = ? AND reservation_id < ?))');
+      params.push(q.cursor.arrivalDate, q.cursor.arrivalDate, q.cursor.reservationId);
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+         FROM reservation
+         ${whereSql}
+         ORDER BY arrival_date DESC, reservation_id DESC
+         LIMIT ?`,
+        ...params,
+        limit,
+      )
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
+    const items = rows.map((row) => this.mapFrontDeskListRow(row));
+    const last = items[items.length - 1];
+    const nextCursor =
+      items.length === limit && last
+        ? { arrivalDate: last.arrivalDate, reservationId: last.reservationId }
+        : null;
+    return { ok: true, items, nextCursor };
+  }
+
+  async listAvailableRooms(q: {
+    fromDate: string;
+    toDate: string;
+    roomTypeId?: string;
+  }): Promise<{
+    ok: true;
+    fromDate: string;
+    toDate: string;
+    asOf: number;
+    rooms: Array<{
+      roomId: string;
+      roomTypeId: string;
+      code: string;
+      status: string;
+      floor: string | null;
+    }>;
+  }> {
+    this.assertRpcAvailable();
+    const typeId = q.roomTypeId ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_id, room_type_id, code, status, floor
+         FROM room
+         WHERE (? IS NULL OR room_type_id = ?)
+           AND status != 'out_of_order'
+           AND room_id NOT IN (
+             SELECT room_id FROM reservation
+             WHERE room_id IS NOT NULL
+               AND status IN ('pending', 'confirmed', 'checked_in')
+               AND arrival_date < ?
+               AND departure_date > ?
+           )
+           AND room_id NOT IN (
+             SELECT room_id FROM room_ooo
+             WHERE start_date < ? AND end_date > ?
+           )
+         ORDER BY code`,
+        typeId,
+        typeId,
+        q.toDate,
+        q.fromDate,
+        q.toDate,
+        q.fromDate,
+      )
+      .toArray() as Array<{
+      room_id: string;
+      room_type_id: string;
+      code: string;
+      status: string;
+      floor: string | null;
+    }>;
+    return {
+      ok: true,
+      fromDate: q.fromDate,
+      toDate: q.toDate,
+      asOf: Date.now(),
+      rooms: rows.map((r) => ({
+        roomId: r.room_id,
+        roomTypeId: r.room_type_id,
+        code: r.code,
+        status: r.status,
+        floor: r.floor,
+      })),
+    };
+  }
+
+  async readFrontOfficeSummary(date: string): Promise<{
+    ok: true;
+    date: string;
+    asOf: number;
+    arrivals: number;
+    departuresDue: number;
+    departed: number;
+    inHouse: number;
+    overstay: number;
+    occupancy: { occupiedRooms: number; sellableRooms: number };
+  }> {
+    this.assertRpcAvailable();
+    const count = (sql: string, ...bind: unknown[]): number => {
+      const rows = this.ctx.storage.sql.exec(sql, ...bind).toArray() as Array<{ n: number }>;
+      return Number(rows[0]?.n ?? 0);
+    };
+    const arrivals = count(
+      `SELECT COUNT(*) AS n FROM reservation
+       WHERE arrival_date = ? AND status IN ('confirmed', 'pending')`,
+      date,
+    );
+    const departuresDue = count(
+      `SELECT COUNT(*) AS n FROM reservation WHERE departure_date = ? AND status = 'checked_in'`,
+      date,
+    );
+    const departed = count(
+      `SELECT COUNT(*) AS n FROM reservation WHERE departure_date = ? AND status = 'checked_out'`,
+      date,
+    );
+    const inHouse = count(`SELECT COUNT(*) AS n FROM reservation WHERE status = 'checked_in'`);
+    const overstay = count(
+      `SELECT COUNT(*) AS n FROM reservation WHERE status = 'checked_in' AND departure_date < ?`,
+      date,
+    );
+    const occupiedRooms = count(
+      `SELECT COUNT(DISTINCT room_id) AS n FROM reservation
+       WHERE status IN ('pending', 'confirmed', 'checked_in')
+         AND arrival_date <= ?
+         AND departure_date > ?
+         AND room_id IS NOT NULL`,
+      date,
+      date,
+    );
+    const sellableRooms = count(
+      `SELECT COUNT(*) AS n FROM room
+       WHERE room_id NOT IN (
+         SELECT room_id FROM room_ooo WHERE start_date <= ? AND end_date > ?
+       )`,
+      date,
+      date,
+    );
+    return {
+      ok: true,
+      date,
+      asOf: Date.now(),
+      arrivals,
+      departuresDue,
+      departed,
+      inHouse,
+      overstay,
+      occupancy: { occupiedRooms, sellableRooms },
+    };
+  }
+
   private countAttributedCashForShiftSync(shiftId: string): number {
     const rows = this.ctx.storage.sql
       .exec(

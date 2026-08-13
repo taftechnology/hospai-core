@@ -504,6 +504,39 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[114] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[115]?.id).toBe('get_front_desk_tape');
+    expect(V1_HTTP_ROUTE_AUDIT[115]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[115] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[116]?.id).toBe('get_front_desk_directory');
+    expect(V1_HTTP_ROUTE_AUDIT[116]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[116] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[117]?.id).toBe('get_front_desk_available_rooms');
+    expect(V1_HTTP_ROUTE_AUDIT[117]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[117] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[118]?.id).toBe('get_front_desk_summary');
+    expect(V1_HTTP_ROUTE_AUDIT[118]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[118] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[119]).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
     expect(COMMAND_CATALOG).toHaveLength(74);
     expect(PLATFORM_GAPS).toEqual([]);

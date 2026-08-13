@@ -89,6 +89,7 @@ import {
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
+  RESERVATION_STATUSES,
   validateTenantId,
   type Permission,
   type IdempotencyKey,
@@ -4246,6 +4247,138 @@ async function handleGetDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   }
 }
 
+const DIRECTORY_WINDOWS = new Set(['today', 'tomorrow', 'week', 'all']);
+const RESERVATION_STATUS_SET = new Set<string>(RESERVATION_STATUSES);
+
+async function handleGetFrontDeskTape(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const fromDate = ctx.url.searchParams.get('fromDate');
+  const toDate = ctx.url.searchParams.get('toDate');
+  const rangeErr = inclusiveDateRangeError(fromDate, toDate);
+  if (rangeErr) return rangeErr;
+  const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readFrontOfficeTape(fromDate!, toDate!, roomTypeId);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskDirectory(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const url = new URL(ctx.request.url);
+  const windowRaw = url.searchParams.get('window');
+  if (!windowRaw || !DIRECTORY_WINDOWS.has(windowRaw)) {
+    return json({ error: 'invalid_window' }, 400);
+  }
+  const window = windowRaw as 'today' | 'tomorrow' | 'week' | 'all';
+  const date = url.searchParams.get('date');
+  if (window !== 'all' && (!date || !ISO_DATE_RE.test(date))) {
+    return json({ error: 'invalid_date' }, 400);
+  }
+
+  const statusRaw = url.searchParams.get('status');
+  let statuses: string[] | undefined;
+  if (statusRaw != null && statusRaw !== '') {
+    const tokens = statusRaw.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+    if (tokens.length === 0 || tokens.some((t) => !RESERVATION_STATUS_SET.has(t))) {
+      return json({ error: 'invalid_status' }, 400);
+    }
+    statuses = tokens;
+  }
+
+  const cursorRaw = url.searchParams.get('cursor');
+  const decoded = decodeFrontDeskCursor<{ arrivalDate: string; reservationId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
+  if (
+    decoded &&
+    (typeof decoded.arrivalDate !== 'string' || typeof decoded.reservationId !== 'string')
+  ) {
+    return json({ error: 'invalid_cursor' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listFrontOfficeDirectory({
+      window,
+      date: date ?? undefined,
+      statuses,
+      limit: parseOptionalFrontDeskLimit(url),
+      cursor: decoded,
+    });
+    if (!result.ok) {
+      const status = result.error === 'invalid_window' || result.error === 'invalid_date' ? 400 : 422;
+      return json({ error: result.error }, status);
+    }
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskAvailableRooms(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const fromDate = ctx.url.searchParams.get('fromDate');
+  const toDate = ctx.url.searchParams.get('toDate');
+  const rangeErr = inclusiveDateRangeError(fromDate, toDate);
+  if (rangeErr) return rangeErr;
+  const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listAvailableRooms({
+      fromDate: fromDate!,
+      toDate: toDate!,
+      roomTypeId,
+    });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const date = ctx.url.searchParams.get('date');
+  if (!date || !ISO_DATE_RE.test(date)) {
+    return json({ error: 'invalid_date' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readFrontOfficeSummary(date);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const roomTypeId = decodeURIComponent(ctx.match[2]!);
@@ -6441,6 +6574,38 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'settings:configure',
     entitlement: 'pms.core',
     handler: handleGetDomainConfig,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/tape$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskTape,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/directory$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskDirectory,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/available-rooms$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskAvailableRooms,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/summary$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontDeskSummary,
   },
 ];
 

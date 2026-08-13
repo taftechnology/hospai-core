@@ -2868,6 +2868,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       closing_count: number | null;
       variance: number | null;
     }>;
+    const tenderRows = this.ctx.storage.sql
+      .exec(
+        `SELECT txn_currency, source, amount_minor
+         FROM folio_line
+         WHERE business_date = ? AND charge_code = 'PAYMENT'`,
+        businessDate,
+      )
+      .toArray() as Array<{ txn_currency: string; source: string | null; amount_minor: number }>;
+    const tenders = new Map<string, { currency: string; capturedMinor: number; refundedMinor: number }>();
+    for (const row of tenderRows) {
+      const currency = row.txn_currency;
+      const bucket = tenders.get(currency) ?? { currency, capturedMinor: 0, refundedMinor: 0 };
+      if (row.source === 'PAYMENT_REFUND' || row.source === 'CHARGEBACK') {
+        bucket.refundedMinor += Math.abs(row.amount_minor);
+      } else if (row.amount_minor < 0) {
+        bucket.capturedMinor += Math.abs(row.amount_minor);
+      }
+      tenders.set(currency, bucket);
+    }
     const cashier = {
       businessDate,
       unattributedCashCount: this.countUnattributedCashForBusinessDateSync(businessDate),
@@ -2879,6 +2898,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         closingCount: s.closing_count,
         variance: s.variance,
       })),
+      tendersByCurrency: [...tenders.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
     };
 
     const pending = [
@@ -11487,6 +11507,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           posted,
           source: 'PAYMENT',
           paymentId: event.payload.paymentId,
+          businessDate: this.resolvePostingBusinessDateSync(),
         });
       }
       return { applied: true, folioLineId };
@@ -11532,6 +11553,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         source: 'PAYMENT_REFUND',
         splitOf: capture.folio_line_id,
         paymentId: null,
+        businessDate: this.resolvePostingBusinessDateSync(),
       });
       this.ctx.storage.sql.exec(
         `UPDATE payment SET status = 'refunded', last_payment_event_id = ?, updated_at = ? WHERE payment_id = ?`,
@@ -11586,6 +11608,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           source: 'CHARGEBACK',
           splitOf: capture.folio_line_id,
           paymentId: null,
+          businessDate: this.resolvePostingBusinessDateSync(),
         });
       }
       const feeLedgerMinor = event.payload.feeLedgerMinor ?? 0;
@@ -11611,6 +11634,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             fxRateAt: now,
           },
           source: 'CHARGEBACK',
+          businessDate: this.resolvePostingBusinessDateSync(),
         });
       }
       const existingDispute = this.ctx.storage.sql

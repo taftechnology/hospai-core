@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
+import { fingerprintPayload } from '@hospai/contracts';
 import { describe, expect, it } from 'vitest';
 import { reportObjectKey } from '../src/event-log.js';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
@@ -212,5 +213,84 @@ describe('night audit SNAPSHOT_REPORTS / ARCHIVE', () => {
     expect(occupancy).toHaveProperty('confirmedCount');
     expect(occupancy).toHaveProperty('noShowCount');
     expect(occupancy).toHaveProperty('pendingCount');
+  });
+
+  it('32/33: revenue stays ledger-only; cashier tendersByCurrency splits EUR capture and USD cash', async () => {
+    const propertyId = `na-fx-rev-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await seedRate(stub, 'rt_a', d, 10000);
+    await stub.insertReservationForTest({
+      reservationId: 'res_fx_rev',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addDays(d, 1),
+      status: 'checked_in',
+    });
+    const rate = {
+      quoteId: crypto.randomUUID(),
+      fromCurrency: 'EUR',
+      toCurrency: 'USD',
+      rate: '1.10',
+      effectiveFrom: Date.now(),
+    };
+    expect(await stub.tryCreateFxRate(TEST_OWNER_ACTOR, rate, await idemFor(`fx-${rate.quoteId}`, rate))).toMatchObject({
+      ok: true,
+    });
+    const eurPay = `pay_eur_${crypto.randomUUID()}`;
+    const eurBody = { paymentId: eurPay, reservationId: 'res_fx_rev', amountMinor: 10000, currency: 'EUR' };
+    expect(
+      await stub.tryAuthorizePayment(TEST_OWNER_ACTOR, {
+        paymentId: eurPay,
+        reservationId: 'res_fx_rev',
+        amountMinor: 10000,
+        currency: 'EUR',
+        idempotencyKey: `idem-${eurPay}`,
+        requestFingerprint: await fingerprintPayload(eurBody),
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCapturePayment(TEST_OWNER_ACTOR, {
+        paymentId: eurPay,
+        amountMinor: 10000,
+        idempotencyKey: `cap-${eurPay}`,
+        captureFingerprint: await fingerprintPayload({ paymentId: eurPay, amountMinor: 10000 }),
+      }),
+    ).toMatchObject({ ok: true });
+    const usdCash = `pay_usd_${crypto.randomUUID()}`;
+    const cashBody = { paymentId: usdCash, reservationId: 'res_fx_rev', amountMinor: 2500 };
+    expect(
+      await stub.tryRecordCashPayment(TEST_OWNER_ACTOR, {
+        paymentId: usdCash,
+        reservationId: 'res_fx_rev',
+        amountMinor: 2500,
+        idempotencyKey: `cash-${usdCash}`,
+        requestFingerprint: await fingerprintPayload(cashBody),
+      }),
+    ).toMatchObject({ ok: true });
+
+    expect((await stub.runAuditStep(d, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    expect((await stub.runAuditStep(d, 'SNAPSHOT_REPORTS')).status).toBe('COMPLETED');
+
+    const revenue = await readReportJson(propertyId, d, 'revenue');
+    expect(revenue.currency).toBe('USD');
+    expect(revenue.roomNet).toBe(10000);
+    expect(revenue.roomNet).not.toBe(20000);
+    const byCode = revenue.byChargeCodeAndSource as Array<{ chargeCode: string; ledgerAmountMinor: number }>;
+    expect(byCode.find((r) => r.chargeCode === 'ROOM')?.ledgerAmountMinor).toBe(10000);
+    expect(byCode.filter((r) => r.chargeCode === 'PAYMENT').reduce((s, r) => s + r.ledgerAmountMinor, 0)).toBe(
+      -11000 + -2500,
+    );
+
+    const cashier = await readReportJson(propertyId, d, 'cashier');
+    expect(cashier.tendersByCurrency).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ currency: 'EUR', capturedMinor: 10000 }),
+        expect.objectContaining({ currency: 'USD', capturedMinor: 2500 }),
+      ]),
+    );
   });
 });

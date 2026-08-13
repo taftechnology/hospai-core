@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
+import { NIGHT_AUDIT_STEPS } from '../src/property-do.js';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
@@ -302,5 +303,52 @@ describe('night audit POST_ROOM_CHARGES', () => {
     expect(
       (await stub.listFolioLinesForReservation('res_posted')).filter((l) => l.chargeCode === 'ROOM'),
     ).toHaveLength(1);
+  });
+
+  it('31: POST_ROOM_CHARGES stays ledger identity; night-audit step count is 7', async () => {
+    expect(NIGHT_AUDIT_STEPS).toHaveLength(7);
+    const { stub } = await provisionedPropertyStub(`na-fx-31-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await seedRate(stub, 'rt_a', businessDate, 10000);
+    const taxInput = {
+      taxRuleId: `tr_${crypto.randomUUID()}`,
+      ruleKey: `room_sales_${crypto.randomUUID()}`,
+      name: 'Room tax',
+      ruleType: 'PERCENTAGE',
+      rate: '0.10',
+      taxGroup: 'ROOM',
+      outputChargeCode: 'TAX',
+      validFrom: businessDate,
+    };
+    expect(
+      (await stub.tryCreateTaxRule(TEST_OWNER_ACTOR, taxInput, await idemFor(`tax-${taxInput.taxRuleId}`, taxInput)))
+        .ok,
+    ).toBe(true);
+    await stub.insertReservationForTest({
+      reservationId: 'res_31',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 1),
+      status: 'checked_in',
+    });
+    expect((await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES')).status).toBe('COMPLETED');
+    const folio = await stub.readFolio('res_31');
+    expect(folio.ok).toBe(true);
+    if (!folio.ok) throw new Error('folio');
+    expect(folio.lines.find((l) => l.chargeCode === 'ROOM')).toMatchObject({
+      amountMinor: 10000,
+      ledgerAmountMinor: 10000,
+      txnCurrency: 'USD',
+      fxRate: '1',
+    });
+    expect(folio.lines.find((l) => l.source === 'TAX')).toMatchObject({
+      amountMinor: 1000,
+      ledgerAmountMinor: 1000,
+      txnCurrency: 'USD',
+      fxRate: '1',
+    });
   });
 });

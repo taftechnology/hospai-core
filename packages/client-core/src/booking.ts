@@ -29,9 +29,13 @@ export function bookingReservationOpId(input: {
   departureDate: string;
   guestRef: string;
   status?: 'inquiry' | 'pending' | 'confirmed';
+  adults?: number;
+  children?: number;
 }): string {
   const status = input.status ?? 'confirmed';
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}`;
+  const adults = input.adults ?? 1;
+  const children = input.children ?? 0;
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}`;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  IDEM_KEY_REUSED,
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
   NO_SHOW_BEFORE_ARRIVAL,
@@ -1118,5 +1119,48 @@ describe('reservations vertical HTTP routes', () => {
     );
     expect(folioRes.status).toBe(200);
     expect(await folioRes.json()).toMatchObject({ noPost: true });
+  });
+
+  it('10. create fingerprint includes adults; same key adults=2 → IDEM_KEY_REUSED', async () => {
+    const actor = 'user_res_owner_fp';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = `res_fp_${crypto.randomUUID()}`;
+    const idempotencyKey = `idem-fp-${crypto.randomUUID()}`;
+    const first = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          reservationId,
+          roomTypeId: 'rt_king',
+          guestRef,
+          arrivalDate: arrival,
+          departureDate: departure,
+          adults: 1,
+          idempotencyKey,
+        }),
+      }),
+      env,
+    );
+    expect(first.status).toBe(201);
+    const replay = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          reservationId,
+          roomTypeId: 'rt_king',
+          guestRef,
+          arrivalDate: arrival,
+          departureDate: departure,
+          adults: 2,
+          idempotencyKey,
+        }),
+      }),
+      env,
+    );
+    expect(replay.status).toBe(409);
+    expect(await replay.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
   });
 });

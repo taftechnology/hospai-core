@@ -6361,7 +6361,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id, adults, children FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -6373,6 +6373,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: string;
             rate_plan_id: string;
             room_id: string | null;
+            adults: number;
+            children: number;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -6384,11 +6386,73 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: NOT_MODIFIABLE };
           }
 
+          const nextAdults = input.adults ?? reservation.adults;
+          const nextChildren = input.children ?? reservation.children;
+          this.assertOccupancySync(input.roomTypeId, nextAdults, nextChildren);
+
+          if (
+            reservation.room_type_id === input.roomTypeId &&
+            reservation.arrival_date === input.arrivalDate &&
+            reservation.departure_date === input.departureDate &&
+            nextAdults === reservation.adults &&
+            nextChildren === reservation.children
+          ) {
+            const nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+            return {
+              ok: true as const,
+              reservationId: input.reservationId,
+              ariVersion: this.readAriVersionSync(),
+              fromDate: nights[0]!,
+              toDate: nights[nights.length - 1]!,
+            };
+          }
+
           if (
             reservation.room_type_id === input.roomTypeId &&
             reservation.arrival_date === input.arrivalDate &&
             reservation.departure_date === input.departureDate
           ) {
+            const nowParty = Date.now();
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET adults = ?, children = ?, updated_at = ? WHERE reservation_id = ?`,
+              nextAdults,
+              nextChildren,
+              nowParty,
+              input.reservationId,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'reservation.modified',
+              payload: {
+                propertyId,
+                reservationId: input.reservationId,
+                guestRef: reservation.guest_ref,
+                piiKeyId: reservation.pii_key_id,
+                from: {
+                  roomTypeId: reservation.room_type_id,
+                  arrivalDate: reservation.arrival_date,
+                  departureDate: reservation.departure_date,
+                  adults: reservation.adults,
+                  children: reservation.children,
+                },
+                to: {
+                  roomTypeId: input.roomTypeId,
+                  arrivalDate: input.arrivalDate,
+                  departureDate: input.departureDate,
+                  adults: nextAdults,
+                  children: nextChildren,
+                },
+              },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'reservations.modify',
+              entityType: 'reservation',
+              entityId: input.reservationId,
+              beforeJson: { adults: reservation.adults, children: reservation.children },
+              afterJson: { adults: nextAdults, children: nextChildren },
+              reservationId: input.reservationId,
+            });
             const nights = enumerateStayDates(input.arrivalDate, input.departureDate);
             return {
               ok: true as const,
@@ -6671,7 +6735,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status, room_id, room_type_id, arrival_date, departure_date
+              `SELECT guest_ref, pii_key_id, status, room_id, room_type_id, arrival_date, departure_date, adults, children
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -6683,6 +6747,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             room_type_id: string;
             arrival_date: string;
             departure_date: string;
+            adults: number;
+            children: number;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -6719,6 +6785,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               },
             });
           }
+
+          this.assertOccupancySync(reservation.room_type_id, reservation.adults, reservation.children);
 
           const roomRows = this.ctx.storage.sql
             .exec(`SELECT status FROM room WHERE room_id = ?`, resolvedRoomId)

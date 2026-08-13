@@ -858,3 +858,154 @@ describe('prototype holes front-office DND', () => {
   });
 });
 
+describe('prototype holes occupancy remainder', () => {
+  it('6. create adults=2 within cap succeeds', async () => {
+    const name = `occ-6-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const create = {
+      reservationId: `res_${crypto.randomUUID()}`,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 2,
+      children: 0,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c6', create)),
+    ).toMatchObject({ ok: true });
+    const read = await stub.readReservation(create.reservationId);
+    expect(read.ok && read.reservation.adults).toBe(2);
+  });
+
+  it('7. check-in rejects when type cap dropped below party', async () => {
+    const name = `occ-7-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const roomId = `rm_${crypto.randomUUID()}`;
+    const room = { roomId, roomTypeId: 'rt_king', code: '101' };
+    expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({
+      ok: true,
+    });
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 2,
+      children: 0,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c7', create)),
+    ).toMatchObject({ ok: true });
+    const update = { roomTypeId: 'rt_king', maxOccupancy: 1, maxAdults: 1 };
+    expect(
+      await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, update, await idemFor('u7', update)),
+    ).toMatchObject({ ok: true });
+    const ci = await stub.tryCheckIn(
+      TEST_OWNER_ACTOR,
+      { reservationId, roomId },
+      await idemFor('ci7', { reservationId, roomId }),
+    );
+    expect(ci).toMatchObject({ ok: false, error: OCCUPANCY_EXCEEDED });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.status).toBe('confirmed');
+  });
+
+  it('8. modify to smaller-cap type with existing party → OCCUPANCY_EXCEEDED; sold unchanged', async () => {
+    const name = `occ-8-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const twin = {
+      roomTypeId: 'rt_twin',
+      code: 'TWIN',
+      name: 'Twin',
+      roomCount: 5,
+      maxOccupancy: 1,
+      maxAdults: 1,
+    };
+    const twinAdded = await stub.tryAddRoomType(TEST_OWNER_ACTOR, twin, await idemFor('add-twin', twin));
+    expect(twinAdded.ok).toBe(true);
+    if (!twinAdded.ok) throw new Error('add twin failed');
+    await stub.flushOutbox();
+    await seedBarRatesForHorizon(stub, 'rt_twin', twinAdded.fromDate);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 2,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c8', create)),
+    ).toMatchObject({ ok: true });
+    const soldBefore = (await stub.readAvailabilityDay('rt_king', arrival))?.sold;
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_twin',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m8', modify)),
+    ).toMatchObject({ ok: false, error: OCCUPANCY_EXCEEDED });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(soldBefore);
+  });
+
+  it('9. party-only modify updates adults; no availability.changed; over-cap rejected', async () => {
+    const name = `occ-9-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 1,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c9', create)),
+    ).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 2,
+      children: 0,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m9', modify)),
+    ).toMatchObject({ ok: true });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.adults).toBe(2);
+    expect(await stub.listOutboxEventTypes()).toEqual(['reservation.modified']);
+    const over = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      adults: 3,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, over, await idemFor('m9over', over)),
+    ).toMatchObject({ ok: false, error: OCCUPANCY_EXCEEDED });
+  });
+});
+

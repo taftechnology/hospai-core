@@ -1552,6 +1552,8 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     departureDate: body.departureDate,
     guestRef: body.guestRef,
     status: body.status,
+    adults: body.adults,
+    children: body.children,
   });
 
   const commandPayload = {

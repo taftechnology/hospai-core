@@ -1489,7 +1489,7 @@ EOF
 
 **Spec:** §17 tests 42, §20 last bullet, §21.
 
-- [ ] **Step 1: Run the `checks` job commands in order**
+- [x] **Step 1: Run the `checks` job commands in order**
 
 ```bash
 pnpm build
@@ -1518,7 +1518,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1529,11 +1529,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Expected: all four exit 0.
 
-- [ ] **Step 3: Tick living checkboxes on this plan**
+- [x] **Step 3: Tick living checkboxes on this plan**
 
 Mark Tasks 1–9 steps `- [x]` in this file. Same PR as the last implementation commit, or a docs commit in that PR. **Not** before merge.
 
-- [ ] **Step 4: Commit only if Step 3 left docs dirty**
+- [x] **Step 4: Commit only if Step 3 left docs dirty**
 
 ```bash
 git add docs/superpowers/plans/2026-08-12-room-operations-hk-completion.md

@@ -637,11 +637,11 @@ Check-out: inside the **same** status txn, if `readConfigValueSync('pms.folio.cl
 
 `createFolioWindow`: first line `this.assertUnsafeLocal('createFolioWindow')`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-windows.spec.ts test/reservations-check-out.spec.ts`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-windows.spec.ts
@@ -666,13 +666,13 @@ EOF
 - Produces: `tryTransferCharge`, `trySplitChargeV2`; `splitFolioLineSync` gains per-split `folioWindowId?`
 - Consumes: Task 3 CLOSED gate; Task 6 dest windows; `allocate`
 
-- [ ] **Step 1: Write the failing tests** 15–25 (transfer ROOM+tax, CLOSED dest, cross-reservation, TAX reject, idempotent transfer, v1 regression, v2 same-window, v2 cross-window, CLOSED dest abort, foot mismatch, PLATFORM_GAPS already dropped in Task 1 — assert catalog ids exist).
+- [x] **Step 1: Write the failing tests** 15–25 (transfer ROOM+tax, CLOSED dest, cross-reservation, TAX reject, idempotent transfer, v1 regression, v2 same-window, v2 cross-window, CLOSED dest abort, foot mismatch, PLATFORM_GAPS already dropped in Task 1 — assert catalog ids exist).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-transfer-split.spec.ts`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Transfer: spec §4.2. Deterministic ids `${sourceFolioLineId}:xfer-rev:${destWindowId}` and `:xfer:`. Reverse `source = 'TRANSFER_REVERSAL'`; dest `source = 'TRANSFER'` (never `NIGHT_AUDIT`). Tax: reverse in source, `stampTaxForChargeSync` on dest parent. `payment_id` NULL on reverse/dest. Event `folio.charge_transferred`.
 
@@ -680,13 +680,13 @@ Split v2: extend helper so each child uses `split.folioWindowId ?? source.folio_
 
 One txn; any CLOSED → `WINDOW_CLOSED`, nothing written.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-transfer-split.spec.ts test/folio-routes.spec.ts`
 
 Expected: v1 split Test 6 still green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-transfer-split.spec.ts

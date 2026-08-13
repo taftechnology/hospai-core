@@ -44,6 +44,9 @@ import {
   WINDOW_NOT_REOPENABLE,
   WINDOW_NOT_OPENABLE,
   GUEST_WINDOW_NOT_OPENABLE,
+  TRANSFER_CROSS_RESERVATION,
+  TRANSFER_SAME_WINDOW,
+  LINE_NOT_TRANSFERABLE,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -534,7 +537,12 @@ class FolioWindowError extends Error {
       | typeof WINDOW_NOT_REOPENABLE
       | typeof WINDOW_NOT_OPENABLE
       | typeof GUEST_WINDOW_NOT_OPENABLE
-      | typeof NOT_FOUND,
+      | typeof NOT_FOUND
+      | typeof TRANSFER_CROSS_RESERVATION
+      | typeof TRANSFER_SAME_WINDOW
+      | typeof LINE_NOT_TRANSFERABLE
+      | typeof SPLIT_AMOUNT_MISMATCH
+      | typeof LINE_NOT_SPLITTABLE,
   ) {
     super(code);
     this.name = 'FolioWindowError';
@@ -9063,6 +9071,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Reverse + N children. Source row untouched. Caller owns rejects for PAYMENT / SPLIT_REVERSAL.
    * Returns inserted line ids (reverse first, then children).
    */
+  private assertFolioWindowOpenSync(folioWindowId: string): {
+    folioWindowId: string;
+    reservationId: string;
+    status: string;
+  } {
+    const window = this.readFolioWindowRowSync(folioWindowId);
+    if (!window) throw new FolioWindowError(NOT_FOUND);
+    if (window.status !== 'OPEN') throw new WindowClosedError();
+    return window;
+  }
+
   private splitFolioLineSync(
     source: {
       folio_line_id: string;
@@ -9076,10 +9095,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       fx_rate_at: number;
       source: string | null;
     },
-    splits: Array<{ folioLineId: string; amountMinor: number }>,
+    splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>,
+    opts?: { reverseId?: string },
   ): string[] {
+    this.assertFolioWindowOpenSync(source.folio_window_id);
+    for (const split of splits) {
+      const destWindowId = split.folioWindowId ?? source.folio_window_id;
+      if (destWindowId === source.folio_window_id) continue;
+      const dest = this.assertFolioWindowOpenSync(destWindowId);
+      if (dest.reservationId !== source.reservation_id) {
+        throw new FolioWindowError(TRANSFER_CROSS_RESERVATION);
+      }
+    }
+
     const txnCurrency = currencyCode(source.txn_currency);
-    const childSource = source.source === 'NIGHT_AUDIT' ? null : source.source;
     const folioLineIds: string[] = [];
 
     this.assertChargeCodeSync(source.charge_code, { requireActive: false });
@@ -9098,7 +9127,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       ledger_amount_minor: number;
     }>;
 
-    const reverseId = `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
+    const reverseId = opts?.reverseId ?? `${source.folio_line_id}:rev:${crypto.randomUUID()}`;
     this.insertFolioLineSync({
       folioLineId: reverseId,
       folioWindowId: source.folio_window_id,
@@ -9139,9 +9168,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
 
     for (const split of splits) {
+      const destWindowId = split.folioWindowId ?? source.folio_window_id;
+      const childSource =
+        destWindowId !== source.folio_window_id
+          ? 'TRANSFER'
+          : source.source === 'NIGHT_AUDIT'
+            ? null
+            : source.source;
       this.insertFolioLineSync({
         folioLineId: split.folioLineId,
-        folioWindowId: source.folio_window_id,
+        folioWindowId: destWindowId,
         reservationId: source.reservation_id,
         chargeCode: source.charge_code,
         posted: {
@@ -9158,16 +9194,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       folioLineIds.push(split.folioLineId);
     }
 
-    const childAmounts = splits.map((s) => s.amountMinor);
+    const absWeights = splits.map((s) => Math.abs(s.amountMinor));
     for (const tax of taxLines) {
-      const portions = allocate(tax.amount_minor, childAmounts, { policy: 'LAST' });
+      const taxSign = tax.amount_minor < 0 ? -1 : 1;
+      const portions = allocate(Math.abs(tax.amount_minor), absWeights, { policy: 'LAST' });
       for (let i = 0; i < splits.length; i++) {
-        const portion = portions[i]!;
+        const portion = taxSign * portions[i]!;
         if (portion === 0) continue;
         const childLineId = splits[i]!.folioLineId;
+        const destWindowId = splits[i]!.folioWindowId ?? source.folio_window_id;
         this.insertFolioLineSync({
           folioLineId: `${childLineId}:tax:${tax.tax_rule_id}`,
-          folioWindowId: source.folio_window_id,
+          folioWindowId: destWindowId,
           reservationId: source.reservation_id,
           chargeCode: tax.charge_code,
           posted: {
@@ -9488,6 +9526,289 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryTransferCharge(
+    actor: ActorContext,
+    input: { sourceFolioLineId: string; destinationFolioWindowId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reverseFolioLineId: string; destFolioLineId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
+    | { ok: false; error: typeof TRANSFER_SAME_WINDOW }
+    | { ok: false; error: typeof LINE_NOT_TRANSFERABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const sourceRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+               FROM folio_line WHERE folio_line_id = ?`,
+              input.sourceFolioLineId,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            folio_window_id: string;
+            reservation_id: string;
+            charge_code: string;
+            amount_minor: number;
+            txn_currency: string;
+            ledger_amount_minor: number;
+            fx_rate: string;
+            fx_rate_at: number;
+            source: string | null;
+          }>;
+          const source = sourceRows[0];
+          if (!source) throw new FolioWindowError(NOT_FOUND);
+          if (
+            source.source === 'TAX' ||
+            source.source === 'SPLIT_REVERSAL' ||
+            source.source === 'TRANSFER_REVERSAL'
+          ) {
+            throw new FolioWindowError(LINE_NOT_TRANSFERABLE);
+          }
+          if (source.folio_window_id === input.destinationFolioWindowId) {
+            throw new FolioWindowError(TRANSFER_SAME_WINDOW);
+          }
+
+          this.assertFolioWindowOpenSync(source.folio_window_id);
+          const destWindow = this.assertFolioWindowOpenSync(input.destinationFolioWindowId);
+          if (destWindow.reservationId !== source.reservation_id) {
+            throw new FolioWindowError(TRANSFER_CROSS_RESERVATION);
+          }
+
+          const destFolioLineId = `${source.folio_line_id}:xfer:${input.destinationFolioWindowId}`;
+          const reverseFolioLineId = `${source.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`;
+          const existingDest = this.ctx.storage.sql
+            .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, destFolioLineId)
+            .toArray();
+          if (existingDest.length > 0) {
+            return { ok: true as const, reverseFolioLineId, destFolioLineId };
+          }
+
+          const txnCurrency = currencyCode(source.txn_currency);
+          this.insertFolioLineSync({
+            folioLineId: reverseFolioLineId,
+            folioWindowId: source.folio_window_id,
+            reservationId: source.reservation_id,
+            chargeCode: source.charge_code,
+            posted: {
+              amountMinor: -source.amount_minor,
+              txnCurrency,
+              ledgerAmountMinor: -source.ledger_amount_minor,
+              fxRate: source.fx_rate,
+              fxRateAt: source.fx_rate_at,
+            },
+            source: 'TRANSFER_REVERSAL',
+            splitOf: source.folio_line_id,
+            paymentId: null,
+          });
+
+          const taxLines = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor
+               FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
+              source.folio_line_id,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            amount_minor: number;
+            tax_rule_id: string;
+            charge_code: string;
+            ledger_amount_minor: number;
+          }>;
+          for (const tax of taxLines) {
+            this.insertFolioLineSync({
+              folioLineId: `${tax.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`,
+              folioWindowId: source.folio_window_id,
+              reservationId: source.reservation_id,
+              chargeCode: tax.charge_code,
+              posted: {
+                amountMinor: -tax.amount_minor,
+                txnCurrency,
+                ledgerAmountMinor: -tax.ledger_amount_minor,
+                fxRate: source.fx_rate,
+                fxRateAt: source.fx_rate_at,
+              },
+              source: 'TRANSFER_REVERSAL',
+              splitOf: tax.folio_line_id,
+              paymentId: null,
+            });
+          }
+
+          this.insertFolioLineSync({
+            folioLineId: destFolioLineId,
+            folioWindowId: input.destinationFolioWindowId,
+            reservationId: source.reservation_id,
+            chargeCode: source.charge_code,
+            posted: {
+              amountMinor: source.amount_minor,
+              txnCurrency,
+              ledgerAmountMinor: source.ledger_amount_minor,
+              fxRate: source.fx_rate,
+              fxRateAt: source.fx_rate_at,
+            },
+            source: 'TRANSFER',
+            splitOf: source.folio_line_id,
+            paymentId: null,
+          });
+
+          this.stampTaxForChargeSync({
+            parentLineId: destFolioLineId,
+            parentAmountMinor: source.amount_minor,
+            parentSource: 'TRANSFER',
+            chargeCode: source.charge_code,
+            reservationId: source.reservation_id,
+            folioWindowId: input.destinationFolioWindowId,
+            postingDate: this.resolvePostingBusinessDateSync(),
+            posted: {
+              amountMinor: source.amount_minor,
+              txnCurrency,
+              ledgerAmountMinor: source.ledger_amount_minor,
+              fxRate: source.fx_rate,
+              fxRateAt: source.fx_rate_at,
+            },
+          });
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.charge_transferred',
+            payload: {
+              propertyId,
+              reservationId: source.reservation_id,
+              sourceFolioLineId: source.folio_line_id,
+              sourceWindowId: source.folio_window_id,
+              destWindowId: input.destinationFolioWindowId,
+              destFolioLineId,
+              amountMinor: source.amount_minor,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.transfer_charge',
+            entityType: 'folio_line',
+            entityId: source.folio_line_id,
+            beforeJson: { folioWindowId: source.folio_window_id },
+            afterJson: {
+              destWindowId: input.destinationFolioWindowId,
+              destFolioLineId,
+              reverseFolioLineId,
+            },
+            reservationId: source.reservation_id,
+          });
+          return { ok: true as const, reverseFolioLineId, destFolioLineId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async trySplitChargeV2(
+    actor: ActorContext,
+    input: {
+      sourceFolioLineId: string;
+      splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioLineIds: string[] }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
+    | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const sourceRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+               FROM folio_line WHERE folio_line_id = ?`,
+              input.sourceFolioLineId,
+            )
+            .toArray() as Array<{
+            folio_line_id: string;
+            folio_window_id: string;
+            reservation_id: string;
+            charge_code: string;
+            amount_minor: number;
+            txn_currency: string;
+            ledger_amount_minor: number;
+            fx_rate: string;
+            fx_rate_at: number;
+            source: string | null;
+          }>;
+          const source = sourceRows[0];
+          if (!source) throw new FolioWindowError(NOT_FOUND);
+          if (source.source === 'SPLIT_REVERSAL' || source.source === 'TAX') {
+            throw new FolioWindowError(LINE_NOT_SPLITTABLE);
+          }
+          const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
+          if (splitTotal !== source.amount_minor) {
+            throw new FolioWindowError(SPLIT_AMOUNT_MISMATCH);
+          }
+
+          const folioLineIds = this.splitFolioLineSync(source, input.splits, {
+            reverseId: `${source.folio_line_id}:v2-rev`,
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.split_charge_v2',
+            entityType: 'folio_line',
+            entityId: input.sourceFolioLineId,
+            beforeJson: { amountMinor: source.amount_minor },
+            afterJson: { sourceFolioLineId: input.sourceFolioLineId, folioLineIds },
+            reservationId: source.reservation_id,
+          });
+          return { ok: true as const, folioLineIds };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

@@ -1008,6 +1008,75 @@ export function createClient(opts: {
       });
     },
 
+    async listGuests(propertyId: string, query?: { cursor?: string; limit?: number }) {
+      const qs = new URLSearchParams();
+      if (query?.cursor) qs.set('cursor', query.cursor);
+      if (query?.limit != null) qs.set('limit', String(query.limit));
+      const q = qs.toString();
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/guests${q ? `?${q}` : ''}`);
+      return body;
+    },
+
+    async searchGuests(
+      propertyId: string,
+      input: { q: string; cursor?: string; limit?: number },
+    ) {
+      return getJson(`/v1/properties/${enc(propertyId)}/guests-search`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+    },
+
+    async listGuestStays(
+      propertyId: string,
+      guestId: string,
+      query?: { cursor?: string; limit?: number },
+    ) {
+      const qs = new URLSearchParams();
+      if (query?.cursor) qs.set('cursor', query.cursor);
+      if (query?.limit != null) qs.set('limit', String(query.limit));
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}/stays${q ? `?${q}` : ''}`,
+      );
+      return body;
+    },
+
+    async getGuest(propertyId: string, guestId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}`);
+      return body;
+    },
+
+    async updateGuest(
+      propertyId: string,
+      guestId: string,
+      input: { displayName: string; email?: string; phone?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const payload: Record<string, unknown> = {
+        displayName: input.displayName,
+        idempotencyKey,
+      };
+      if (input.email !== undefined) payload.email = input.email;
+      if (input.phone !== undefined) payload.phone = input.phone;
+      return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    },
+
+    async eraseGuest(propertyId: string, guestId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}/erase`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey }),
+      });
+    },
+
     async createReservation(
       propertyId: string,
       input: {

@@ -711,11 +711,11 @@ EOF
 - Produces: `simulateVoid`, `simulateRefund`; `PspSimulateOutcome` gains `void?` / `refund?`
 - Consumes: existing `simulateAuthorize` shape
 
-- [ ] **Step 1: Write failing unit tests** — default approve; lever `declined` / `timeout`; `failAfterAdapter` is still a DO concern (do not implement it here).
+- [x] **Step 1: Write failing unit tests** — default approve; lever `declined` / `timeout`; `failAfterAdapter` is still a DO concern (do not implement it here).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 export async function simulateVoid(
@@ -731,9 +731,9 @@ export async function simulateRefund(
 
 Mirror `simulateCapture` for refund so timeout/decline exist. Extend `PspSimulateOutcome`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/psp-simulate.ts apps/pms-core/src/psp-simulate.test.ts

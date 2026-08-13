@@ -11,6 +11,8 @@ export type PspCaptureResult =
 export type PspSimulateOutcome = {
   authorize?: 'approved' | 'declined' | 'timeout';
   capture?: 'approved' | 'declined' | 'timeout';
+  void?: 'approved' | 'declined' | 'timeout';
+  refund?: 'approved' | 'declined' | 'timeout';
   captureAmountMinor?: number;
   /** After adapter returns, before DO txn 2 — leaves payment `pending` (spec test 20). */
   failAfterAdapter?: boolean;
@@ -51,5 +53,32 @@ export async function simulateCapture(
     outcome: 'approved',
     gatewayReference: input.gatewayReference,
     capturedAmountMinor,
+  };
+}
+
+export async function simulateVoid(
+  input: { paymentId: string; gatewayReference: string },
+  outcome: PspSimulateOutcome | null,
+): Promise<PspAuthorizeResult> {
+  void input.paymentId;
+  const mode = outcome?.void ?? 'approved';
+  if (mode === 'declined') return { outcome: 'declined', reason: 'simulated_decline' };
+  if (mode === 'timeout') return { outcome: 'timeout' };
+  return { outcome: 'approved', gatewayReference: input.gatewayReference };
+}
+
+export async function simulateRefund(
+  input: { paymentId: string; amountMinor: number; gatewayReference: string; currency: string },
+  outcome: PspSimulateOutcome | null,
+): Promise<PspCaptureResult> {
+  void input.paymentId;
+  void input.currency;
+  const mode = outcome?.refund ?? 'approved';
+  if (mode === 'declined') return { outcome: 'declined', reason: 'simulated_decline' };
+  if (mode === 'timeout') return { outcome: 'timeout' };
+  return {
+    outcome: 'approved',
+    gatewayReference: input.gatewayReference,
+    capturedAmountMinor: input.amountMinor,
   };
 }

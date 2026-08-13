@@ -67,6 +67,7 @@ if (process.argv.includes('--self-test')) {
   let NIGHT_AUDIT_E2E_V19_SQL;
   let RESERVATION_LIFECYCLE_V20_SQL;
   let FOLIO_MONEY_OPS_V21_SQL;
+  let ROOM_OOO_V22_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -101,6 +102,7 @@ if (process.argv.includes('--self-test')) {
       NIGHT_AUDIT_E2E_V19_SQL,
       RESERVATION_LIFECYCLE_V20_SQL,
       FOLIO_MONEY_OPS_V21_SQL,
+      ROOM_OOO_V22_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -321,6 +323,16 @@ const doPropertyTargets = [
 
 `,
     sql: FOLIO_MONEY_OPS_V21_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0022_room_ooo.sql'),
+    header: `-- PropertyDO room OOO ranges — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE room_ooo → index → label-era backfill INSERT → blocked increment.
+
+`,
+    sql: ROOM_OOO_V22_SQL,
   },
 ];
 

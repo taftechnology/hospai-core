@@ -35,6 +35,7 @@ import {
   NIGHT_AUDIT_E2E_V19_SQL,
   RESERVATION_LIFECYCLE_V20_SQL,
   FOLIO_MONEY_OPS_V21_SQL,
+  ROOM_OOO_V22_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -152,6 +153,8 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO room_ooo')) return { toArray: () => [] };
+    if (q.startsWith('UPDATE availability_day')) return { toArray: () => [] };
     if (
       q.startsWith('ALTER TABLE member ADD COLUMN updated_at') ||
       q.startsWith('ALTER TABLE member ADD COLUMN updated_by') ||
@@ -171,15 +174,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 21', () => {
+  it('applies property migrations through version 22', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(21);
+    expect(v1).toBe(22);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(21);
-    expect(sql.schemaVersion).toHaveLength(21);
+    expect(v2).toBe(22);
+    expect(sql.schemaVersion).toHaveLength(22);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -559,7 +562,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(21);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(22);
     expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -579,13 +582,33 @@ describe('schema head constants', () => {
   });
 
   it('property schema head is 21 after folio money ops', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(21);
-    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(21);
+    expect(Math.max(...PROPERTY_MIGRATIONS.filter((m) => m.version <= 21).map((m) => m.version))).toBe(21);
     const v21 = PROPERTY_MIGRATIONS.find((m) => m.version === 21);
     expect(v21?.name).toBe('folio_money_ops');
     expect(v21?.statements.some((s) => s.includes('folio_window_v21'))).toBe(true);
     expect(v21?.statements.some((s) => s.includes('reservation_rate_night'))).toBe(true);
     expect(v21?.statements[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
     expect(v21?.statements.at(-1)).toMatch(/PRAGMA foreign_keys = ON/i);
+  });
+
+  it('property schema head is 22 after room_ooo', () => {
+    expect(PROPERTY_SCHEMA_HEAD).toBe(22);
+    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(22);
+    const v22 = PROPERTY_MIGRATIONS.find((m) => m.version === 22);
+    expect(v22?.name).toBe('room_ooo');
+    expect(v22?.statements.some((s) => s.includes('CREATE TABLE room_ooo'))).toBe(true);
+    expect(v22?.statements.some((s) => s.includes('ooo_backfill_'))).toBe(true);
+  });
+
+  it('migrations/do-property/0022_room_ooo.sql matches ROOM_OOO_V22_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0022_room_ooo.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ROOM_OOO_V22_SQL.trim());
   });
 });

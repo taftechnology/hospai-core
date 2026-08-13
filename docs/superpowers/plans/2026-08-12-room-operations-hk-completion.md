@@ -280,7 +280,7 @@ Never stage `package.json`.
 - Consumes: Task 1 (nothing runtime)
 - Forbidden: DO methods, HTTP routes
 
-- [ ] **Step 1: Write the failing migrate + sqlite tests**
+- [x] **Step 1: Write the failing migrate + sqlite tests**
 
 In `packages/do-runtime/src/migrate.test.ts` `schema head constants`:
 
@@ -395,7 +395,7 @@ describe('room_ooo v22 real sqlite', () => {
 
 Adjust `room_type` / `room` INSERT column lists to match v11 DDL if the sqlite test fails on NOT NULL columns — read `ROOM_AND_HOUSEKEEPING_V11_SQL` and copy the live column set. Do not invent columns.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/room-ooo-migration.sqlite.test.ts
@@ -403,7 +403,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/room-oo
 
 Expected: FAIL — head still 21 / missing file / missing statements.
 
-- [ ] **Step 3: Implement v22**
+- [x] **Step 3: Implement v22**
 
 In `packages/do-runtime/src/property-migrations.ts` append (no PRAGMA wrap — this is CREATE + DML, not a table rebuild):
 
@@ -498,7 +498,7 @@ pnpm generate:ddl
 
 If `room_type` INSERT in the sqlite test is missing columns, fix the **test seed**, not the migration.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/room-ooo-migration.sqlite.test.ts
@@ -507,7 +507,7 @@ pnpm check:ddl
 
 Expected: all exit 0. `PROPERTY_SCHEMA_HEAD === 22`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts \

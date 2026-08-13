@@ -88,8 +88,13 @@ import {
 } from './invoke-property-do.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
-import type { PropertyDO } from './property-do.js';
+import { NIGHT_AUDIT_HALTED, NIGHT_AUDIT_STEPS, type NightAuditStep, type PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
+import { countPendingOpen } from './night-audit-census.js';
+import {
+  getOrCreateNightAuditWorkflow,
+  mapNightAuditInstanceHttp,
+} from './night-audit-http.js';
 import { guestPurgeWorkflowId, closeOrgForPurge, nextOrgPurgeWorkflowId, reopenOrg } from './purge-certificate.js';
 import { ensurePurgeWorkflowInstance } from './purge-workflow-create.js';
 import { createOrg, getOrg, getProperty, assertTenantActive, updatePropertyName } from './registry.js';
@@ -435,11 +440,13 @@ async function resolveTenant(
 
 function entitlementForRoute(route: V1RouteDef): FeatureKey | undefined {
   if (route.scope !== 'org' && route.scope !== 'property') return undefined;
-  if ('commandId' in route && route.commandId) {
-    return requireCatalogEntry(route.commandId).entitlement;
-  }
+  // Route-declared entitlement wins so operator HTTP can gate pms.core while
+  // `night_audit.run` stays catalog-opt-out for the alarm path.
   if ('entitlement' in route && route.entitlement) {
     return route.entitlement;
+  }
+  if ('commandId' in route && route.commandId) {
+    return requireCatalogEntry(route.commandId).entitlement;
   }
   return undefined;
 }
@@ -3991,6 +3998,271 @@ async function handleGetFolioPayments(ctx: V1DispatchContext): Promise<Response>
   }
 }
 
+async function handleGetNightAudit(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const status = await resolvedCtx.resolved.stub.readNightAuditStatus();
+    if (!status.ok) return json({ ok: false, error: status.error }, 422);
+    const pendingOpenCount = await countPendingOpen(ctx.env.PLATFORM_DB, propertyId);
+    return json({ ...status, pendingOpenCount }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetNightAuditReport(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const businessDate = decodeURIComponent(ctx.match[2]!);
+  const reportId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const index = await resolvedCtx.resolved.stub.readNightAuditReportIndex(businessDate, reportId);
+    if (!index) return json({ error: 'not_found' }, 404);
+    const obj = await ctx.env.EVENT_LOG_R2?.get(index.r2Key);
+    if (!obj) return json({ error: 'not_found' }, 404);
+    return new Response(await obj.text(), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const status = await resolvedCtx.resolved.stub.readNightAuditStatus();
+  if (!status.ok) return json({ ok: false, error: status.error }, 422);
+  const businessDate = status.businessDate;
+  const fingerprint = await fingerprintPayload({ propertyId, businessDate });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryStartNightAudit']>>>({
+    env: ctx.env,
+    commandId: 'night_audit.run',
+    routeId: 'post_night_audit_run',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { propertyId, businessDate },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryStartNightAudit(actor, {
+        key: body.idempotencyKey!,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    if (result.error === 'forbidden') {
+      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
+    }
+    if (result.error === NIGHT_AUDIT_HALTED || result.error === 'night_audit_not_due') {
+      return json({ error: result.error }, 409);
+    }
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    return json({ ok: false, error: result.error }, 422);
+  }
+
+  const created = await getOrCreateNightAuditWorkflow(
+    ctx.env.NIGHT_AUDIT_WORKFLOW,
+    propertyId,
+    result.businessDate,
+  );
+  if (created.created) {
+    return json(
+      { workflowId: created.workflowId, businessDate: result.businessDate, instanceStatus: 'queued' },
+      202,
+    );
+  }
+  const mapped = mapNightAuditInstanceHttp(
+    created.workflowId,
+    result.businessDate,
+    created.instanceStatus,
+  );
+  if (mapped.status === 409 && mapped.body.error === 'night_audit_workflow_exists') {
+    if (await resolvedCtx.resolved.stub.isNightAuditHalted()) {
+      return json({ error: NIGHT_AUDIT_HALTED }, 409);
+    }
+  }
+  return json(mapped.body, mapped.status);
+}
+
+async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey?: string;
+    businessDate?: string;
+    step?: string;
+  };
+  if (!body?.idempotencyKey || !body.businessDate || !body.step) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!(NIGHT_AUDIT_STEPS as readonly string[]).includes(body.step)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const step = body.step as NightAuditStep;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({
+    propertyId,
+    businessDate: body.businessDate,
+    step,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const census = { pendingOpenCount: await countPendingOpen(ctx.env.PLATFORM_DB, propertyId) };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRetryAuditStep']>>>({
+    env: ctx.env,
+    commandId: 'night_audit.retry_step',
+    routeId: 'post_night_audit_retry',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { propertyId, businessDate: body.businessDate, step },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryRetryAuditStep(
+        actor,
+        { businessDate: body.businessDate!, step },
+        { key: body.idempotencyKey!, fingerprint },
+        census,
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    if (result.error === 'forbidden') {
+      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
+    }
+    if (result.error === 'night_audit_step_not_failed') {
+      return json({ error: result.error }, 409);
+    }
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    return json({ ok: false, error: result.error }, 422);
+  }
+  return json({ status: result.status, error: result.error }, 200);
+}
+
+async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey?: string; businessDate?: string };
+  if (!body?.idempotencyKey || !body.businessDate) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ propertyId, businessDate: body.businessDate });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const census = { pendingOpenCount: await countPendingOpen(ctx.env.PLATFORM_DB, propertyId) };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryResolveHalt']>>>({
+    env: ctx.env,
+    commandId: 'night_audit.resolve_halt',
+    routeId: 'post_night_audit_resolve_halt',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { propertyId, businessDate: body.businessDate },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryResolveHalt(
+        actor,
+        { businessDate: body.businessDate! },
+        { key: body.idempotencyKey!, fingerprint },
+        census,
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    if (result.error === 'forbidden') {
+      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
+    }
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    return json({ ok: false, error: result.error }, 422);
+  }
+  return json({ status: result.status, error: result.error, halted: result.halted }, 200);
+}
+
+async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ propertyId, exceptionId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryResolveProvisionalException']>>
+  >({
+    env: ctx.env,
+    commandId: 'provisional.resolve_exception',
+    routeId: 'post_provisional_exception_resolve',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload: { propertyId, exceptionId },
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryResolveProvisionalException(
+        actor,
+        { exceptionId },
+        { key: body.idempotencyKey!, fingerprint },
+      ),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    if (result.error === 'forbidden') {
+      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
+    }
+    if (result.error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    return json({ ok: false, error: result.error }, 422);
+  }
+  if (result.alreadyResolved) {
+    return json({ ok: true, alreadyResolved: true }, 200);
+  }
+  return json({ ok: true }, 200);
+}
+
 export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'bootstrap',
@@ -4663,6 +4935,58 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'roster.exit',
     entitlement: 'pms.core',
     handler: handlePostRosterExit,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit$/,
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    handler: handleGetNightAudit,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/reports\/([^/]+)\/([^/]+)$/,
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    handler: handleGetNightAuditReport,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/run$/,
+    permission: 'night_audit:run',
+    commandId: 'night_audit.run',
+    entitlement: 'pms.core',
+    handler: handlePostNightAuditRun,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/retry$/,
+    permission: 'night_audit:run',
+    commandId: 'night_audit.retry_step',
+    entitlement: 'pms.core',
+    handler: handlePostNightAuditRetry,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/resolve-halt$/,
+    permission: 'night_audit:run',
+    commandId: 'night_audit.resolve_halt',
+    entitlement: 'pms.core',
+    handler: handlePostNightAuditResolveHalt,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/resolve$/,
+    permission: 'night_audit:run',
+    commandId: 'provisional.resolve_exception',
+    entitlement: 'pms.core',
+    handler: handlePostProvisionalExceptionResolve,
   },
 ];
 

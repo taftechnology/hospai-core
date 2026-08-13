@@ -2591,6 +2591,174 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return JSON.parse(prior[0]!.response) as T;
   }
 
+  async readNightAuditStatus(): Promise<
+    | {
+        ok: true;
+        businessDate: string;
+        timelineDate: string;
+        halted: boolean;
+        closingExceptionCount: number;
+        steps: Array<{
+          step: NightAuditStep;
+          status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+          attempt: number;
+          startedAt: number | null;
+          completedAt: number | null;
+          error: string | null;
+        }>;
+        reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
+      }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+
+    const currentRows = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM night_audit_run WHERE business_date = ? LIMIT 1`, businessDate)
+      .toArray();
+    let timelineDate = businessDate;
+    if (currentRows.length === 0) {
+      const maxRows = this.ctx.storage.sql
+        .exec(`SELECT MAX(business_date) AS d FROM night_audit_run`)
+        .toArray() as Array<{ d: string | null }>;
+      timelineDate = maxRows[0]?.d ?? businessDate;
+    }
+
+    const runRows = this.ctx.storage.sql
+      .exec(
+        `SELECT step, status, attempt, started_at, completed_at, error
+         FROM night_audit_run WHERE business_date = ?`,
+        timelineDate,
+      )
+      .toArray() as Array<{
+      step: string;
+      status: string;
+      attempt: number;
+      started_at: number | null;
+      completed_at: number | null;
+      error: string | null;
+    }>;
+    const byStep = new Map(runRows.map((r) => [r.step, r]));
+    const steps = NIGHT_AUDIT_STEPS.map((step) => {
+      const row = byStep.get(step);
+      if (!row) {
+        return {
+          step,
+          status: 'PENDING' as const,
+          attempt: 0,
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        };
+      }
+      return {
+        step,
+        status: row.status as 'RUNNING' | 'COMPLETED' | 'FAILED',
+        attempt: row.attempt,
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+        error: row.error,
+      };
+    });
+
+    const closingExceptionCount = Number(
+      (
+        this.ctx.storage.sql
+          .exec(
+            `SELECT COUNT(*) AS n FROM provisional_exception
+             WHERE business_date = ? AND resolved_at IS NULL`,
+            businessDate,
+          )
+          .toArray() as Array<{ n: number }>
+      )[0]?.n ?? 0,
+    );
+
+    const reportRows = this.ctx.storage.sql
+      .exec(
+        `SELECT report_id, business_date, generated_at FROM night_audit_report ORDER BY business_date, report_id`,
+      )
+      .toArray() as Array<{ report_id: string; business_date: string; generated_at: number }>;
+
+    return {
+      ok: true,
+      businessDate,
+      timelineDate,
+      halted: await this.isNightAuditHalted(),
+      closingExceptionCount,
+      steps,
+      reports: reportRows.map((r) => ({
+        reportId: r.report_id,
+        businessDate: r.business_date,
+        generatedAt: r.generated_at,
+      })),
+    };
+  }
+
+  async readNightAuditReportIndex(
+    businessDate: string,
+    reportId: string,
+  ): Promise<{ r2Key: string } | null> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT r2_key FROM night_audit_report WHERE business_date = ? AND report_id = ?`,
+        businessDate,
+        reportId,
+      )
+      .toArray() as Array<{ r2_key: string }>;
+    const row = rows[0];
+    return row ? { r2Key: row.r2_key } : null;
+  }
+
+  async tryStartNightAudit(
+    actor: ActorContext,
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; businessDate: string }
+    | { ok: false; error: typeof NIGHT_AUDIT_HALTED | 'night_audit_not_due' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    if (await this.isNightAuditHalted()) {
+      return { ok: false, error: NIGHT_AUDIT_HALTED };
+    }
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+    if (businessDate >= today) {
+      return { ok: false, error: 'night_audit_not_due' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'night_audit.run',
+            entityType: 'night_audit_run',
+            entityId: businessDate,
+            afterJson: { businessDate, started: true },
+          });
+          return { ok: true as const, businessDate };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   /** Sync — safe to call inside `transactionSync`/`runIdempotent` execute callbacks. */
   private bumpAriVersionSync(): number {
     const next = this.readAriVersionSync() + 1;

@@ -401,6 +401,32 @@ describe('command catalog', () => {
     });
   });
 
+  it('night-audit HTTP routes append at 86–91', () => {
+    expect(V1_HTTP_ROUTE_AUDIT[85]?.id).toBe('post_roster_exit');
+    expect(V1_HTTP_ROUTE_AUDIT[86]?.id).toBe('get_night_audit');
+    expect(V1_HTTP_ROUTE_AUDIT[87]?.id).toBe('get_night_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT[88]?.id).toBe('post_night_audit_run');
+    expect(V1_HTTP_ROUTE_AUDIT[89]?.id).toBe('post_night_audit_retry');
+    expect(V1_HTTP_ROUTE_AUDIT[90]?.id).toBe('post_night_audit_resolve_halt');
+    expect(V1_HTTP_ROUTE_AUDIT[91]?.id).toBe('post_provisional_exception_resolve');
+    expect(V1_HTTP_ROUTE_AUDIT[86]).toMatchObject({
+      scope: 'property',
+      permission: 'night_audit:run',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[86] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[88]).toMatchObject({
+      commandId: 'night_audit.run',
+      entitlement: 'pms.core',
+      permission: 'night_audit:run',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[91]).toMatchObject({
+      commandId: 'provisional.resolve_exception',
+      entitlement: 'pms.core',
+    });
+  });
+
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');

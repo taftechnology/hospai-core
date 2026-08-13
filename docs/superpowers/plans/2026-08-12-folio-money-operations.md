@@ -87,7 +87,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any `/folio/windows` handler, any DO method body.
 
-- [ ] **Step 1: Write the failing register + idempotency tests**
+- [x] **Step 1: Write the failing register + idempotency tests**
 
 In `packages/contracts/src/idempotency.test.ts` add:
 
@@ -166,13 +166,13 @@ Remove/replace the existing `PLATFORM_GAPS.find((g) => g.id === 'folio.split_cha
 
 Also assert config keys `pms.folio.close_window_on_check_out` and `pms.folio.auto_capture_on_check_out` exist, DOMAIN, default `false`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts`
 
 Expected: FAIL — missing exports / size 35 / PLATFORM_GAPS still lists the two ids.
 
-- [ ] **Step 3: Add wire codes, catalog rows, audit writers, config, event-consumer cases**
+- [x] **Step 3: Add wire codes, catalog rows, audit writers, config, event-consumer cases**
 
 `packages/contracts/src/idempotency.ts` (with the other wire codes):
 
@@ -211,7 +211,7 @@ case 'folio.payment_refunded':
 
 `folio.charge_transferred` should `assertStringField` `propertyId`, `reservationId`, `sourceFolioLineId` (spec payload). Others can share the payment-authorized presence branch.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts`
 
@@ -221,7 +221,7 @@ Run: `pnpm --filter @hospai/pms-core exec vitest run test/events-queue.spec.ts`
 
 Expected: PASS. Catalog events allowlist includes the six new types.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts \

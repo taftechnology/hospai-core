@@ -43,6 +43,21 @@ export const ROOM_OUT_OF_ORDER = 'room_out_of_order' as const;
 export const BALANCE_DUE = 'balance_due' as const;
 export const OCCUPANCY_EXCEEDED = 'occupancy_exceeded' as const;
 
+/** Folio money-ops wire codes */
+export const WINDOW_CLOSED = 'window_closed' as const;
+export const WINDOW_NOT_CLOSABLE = 'window_not_closable' as const;
+export const WINDOW_BALANCE_DUE = 'window_balance_due' as const;
+export const WINDOW_NOT_REOPENABLE = 'window_not_reopenable' as const;
+export const WINDOW_NOT_OPENABLE = 'window_not_openable' as const;
+export const GUEST_WINDOW_NOT_OPENABLE = 'guest_window_not_openable' as const;
+export const TRANSFER_CROSS_RESERVATION = 'transfer_cross_reservation' as const;
+export const TRANSFER_SAME_WINDOW = 'transfer_same_window' as const;
+export const LINE_NOT_TRANSFERABLE = 'line_not_transferable' as const;
+export const LINE_NOT_DISCOUNTABLE = 'line_not_discountable' as const;
+export const PAYMENT_NOT_VOIDABLE = 'payment_not_voidable' as const;
+export const PAYMENT_NOT_REFUNDABLE = 'payment_not_refundable' as const;
+export const DISCOUNT_REASON_REQUIRED = 'discount_reason_required' as const;
+
 /** Payment wire codes */
 export const PSP_UNAVAILABLE = 'psp_unavailable' as const;
 export const PAYMENT_NOT_CAPTURABLE = 'payment_not_capturable' as const;

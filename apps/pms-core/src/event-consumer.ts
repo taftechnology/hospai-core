@@ -117,6 +117,12 @@ export async function handleDomainEvent(
       }
       break;
     }
+    case 'folio.charge_transferred': {
+      assertStringField(payload, 'propertyId', message.eventType);
+      assertStringField(payload, 'reservationId', message.eventType);
+      assertStringField(payload, 'sourceFolioLineId', message.eventType);
+      break;
+    }
     case 'reservation.front_office_updated':
     case 'folio.balance_due': {
       assertStringField(payload, 'propertyId', message.eventType);
@@ -145,6 +151,11 @@ export async function handleDomainEvent(
     case 'provisional.exception_resolved':
     case 'folio.payment_authorized':
     case 'folio.payment_captured':
+    case 'folio.window_opened':
+    case 'folio.window_closed':
+    case 'folio.window_reopened':
+    case 'folio.payment_voided':
+    case 'folio.payment_refunded':
     case 'channel.synced':
     case 'channel.mapping.created':
     case 'property.updated':

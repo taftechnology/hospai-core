@@ -195,6 +195,22 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     consumersExempt: true,
   }),
   entry({
+    key: 'pms.folio.close_window_on_check_out',
+    prototypeKey: 'pms_folio_close_on_checkout',
+    class: 'DOMAIN',
+    schema: bool,
+    default: false,
+    consumersExempt: true,
+  }),
+  entry({
+    key: 'pms.folio.auto_capture_on_check_out',
+    prototypeKey: 'pms_folio_auto_capture_checkout',
+    class: 'DOMAIN',
+    schema: bool,
+    default: false,
+    consumersExempt: true,
+  }),
+  entry({
     key: 'pms.reservations.pending_hold_hours',
     prototypeKey: 'pms_res_pending_hold_hours',
     class: 'DOMAIN',

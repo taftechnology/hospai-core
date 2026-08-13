@@ -1660,6 +1660,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /**
    * Sync — must be called inside the mutation's transactionSync.
    * Never silently prune audit_log; ARCHIVE owns future purge.
+   *
+   * Folio money-ops audit writers (methods land in later tasks):
+   * 'folio.open_window' 'folio.close_window' 'folio.reopen_window'
+   * 'folio.transfer_charge' 'folio.split_charge_v2' 'folio.void'
+   * 'folio.refund' 'folio.post_discount' 'folio.capture_due'
    */
   private appendAuditLogSync(input: {
     at?: number;

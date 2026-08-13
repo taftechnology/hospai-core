@@ -50,6 +50,19 @@ import {
   ROOM_OUT_OF_ORDER,
   BALANCE_DUE,
   OCCUPANCY_EXCEEDED,
+  WINDOW_CLOSED,
+  WINDOW_NOT_CLOSABLE,
+  WINDOW_BALANCE_DUE,
+  WINDOW_NOT_REOPENABLE,
+  WINDOW_NOT_OPENABLE,
+  GUEST_WINDOW_NOT_OPENABLE,
+  TRANSFER_CROSS_RESERVATION,
+  TRANSFER_SAME_WINDOW,
+  LINE_NOT_TRANSFERABLE,
+  LINE_NOT_DISCOUNTABLE,
+  PAYMENT_NOT_VOIDABLE,
+  PAYMENT_NOT_REFUNDABLE,
+  DISCOUNT_REASON_REQUIRED,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -134,6 +147,22 @@ describe('fingerprintPayload', () => {
     expect(ROOM_OUT_OF_ORDER).toBe('room_out_of_order');
     expect(BALANCE_DUE).toBe('balance_due');
     expect(OCCUPANCY_EXCEEDED).toBe('occupancy_exceeded');
+  });
+
+  it('folio money-ops wire codes', () => {
+    expect(WINDOW_CLOSED).toBe('window_closed');
+    expect(WINDOW_NOT_CLOSABLE).toBe('window_not_closable');
+    expect(WINDOW_BALANCE_DUE).toBe('window_balance_due');
+    expect(WINDOW_NOT_REOPENABLE).toBe('window_not_reopenable');
+    expect(WINDOW_NOT_OPENABLE).toBe('window_not_openable');
+    expect(GUEST_WINDOW_NOT_OPENABLE).toBe('guest_window_not_openable');
+    expect(TRANSFER_CROSS_RESERVATION).toBe('transfer_cross_reservation');
+    expect(TRANSFER_SAME_WINDOW).toBe('transfer_same_window');
+    expect(LINE_NOT_TRANSFERABLE).toBe('line_not_transferable');
+    expect(LINE_NOT_DISCOUNTABLE).toBe('line_not_discountable');
+    expect(PAYMENT_NOT_VOIDABLE).toBe('payment_not_voidable');
+    expect(PAYMENT_NOT_REFUNDABLE).toBe('payment_not_refundable');
+    expect(DISCOUNT_REASON_REQUIRED).toBe('discount_reason_required');
   });
 
   it('treats undefined object values as absent, matching JSON.stringify semantics', async () => {

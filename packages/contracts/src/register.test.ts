@@ -21,7 +21,7 @@ import {
   requiredPermissionForKey,
 } from './index.js';
 
-/** Expected prototype config keys (94) — must match register.prototypeKey set. */
+/** Expected prototype config keys (96) — must match register.prototypeKey set. */
 const EXPECTED_PROTOTYPE_KEYS = [
   'pms_amenities_checklist',
   'pms_booking_engine_settings',
@@ -50,6 +50,8 @@ const EXPECTED_PROTOTYPE_KEYS = [
   'pms_finance_statement_desc',
   'pms_finance_suggest_store_cc',
   'pms_finance_terminals',
+  'pms_folio_auto_capture_checkout',
+  'pms_folio_close_on_checkout',
   'pms_folio_configs',
   'pms_guest_settings',
   'pms_inv_allow_pending',
@@ -124,8 +126,8 @@ describe('config register', () => {
     expect(() => assertRegisterInvariants()).not.toThrow();
   });
 
-  it('classifies all 94 prototype config keys', () => {
-    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(94);
+  it('classifies all 96 prototype config keys', () => {
+    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(96);
     expect(PROTOTYPE_CONFIG_KEYS).toEqual([...EXPECTED_PROTOTYPE_KEYS].sort());
     for (const k of EXPECTED_PROTOTYPE_KEYS) {
       expect(PROTOTYPE_CONFIG_KEYS).toContain(k);
@@ -248,7 +250,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(35);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(44);
   });
 
   it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
@@ -482,7 +484,7 @@ describe('command catalog', () => {
   it('documents platform gaps', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('availability.book');
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('config.put_domain');
-    expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(3);
+    expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(1);
   });
 
   it('inventory.delete_room_type emits availability.changed', () => {
@@ -682,9 +684,65 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[47]?.id).toBe('post_folio_split_payment');
     expect(V1_HTTP_ROUTE_AUDIT[48]?.id).toBe('get_folio_payment');
     expect(V1_HTTP_ROUTE_AUDIT[49]?.id).toBe('get_folio_payments');
-    expect(PLATFORM_GAPS.find((g) => g.id === 'folio.split_charge_v2')?.reason).toMatch(
-      /window|transfer/i,
-    );
+  });
+
+  it('folio money-ops commands are entitled FAIL_CLOSED INTERACTIVE', () => {
+    const rows: Array<{
+      id: string;
+      permission: 'folio:adjust' | 'folio:post';
+      events: string[];
+    }> = [
+      { id: 'folio.open_window', permission: 'folio:adjust', events: ['folio.window_opened'] },
+      { id: 'folio.close_window', permission: 'folio:adjust', events: ['folio.window_closed'] },
+      { id: 'folio.reopen_window', permission: 'folio:adjust', events: ['folio.window_reopened'] },
+      {
+        id: 'folio.transfer_charge',
+        permission: 'folio:adjust',
+        events: ['folio.line_posted', 'folio.charge_transferred'],
+      },
+      { id: 'folio.split_charge_v2', permission: 'folio:adjust', events: ['folio.line_posted'] },
+      { id: 'folio.void', permission: 'folio:post', events: ['folio.payment_voided'] },
+      {
+        id: 'folio.refund',
+        permission: 'folio:adjust',
+        events: ['folio.payment_refunded', 'folio.line_posted'],
+      },
+      { id: 'folio.post_discount', permission: 'folio:adjust', events: ['folio.line_posted'] },
+      {
+        id: 'folio.capture_due',
+        permission: 'folio:post',
+        events: ['folio.payment_captured', 'folio.line_posted'],
+      },
+    ];
+    for (const row of rows) {
+      const c = COMMAND_CATALOG.find((x) => x.id === row.id);
+      expect(c?.lane).toBe('INTERACTIVE');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.idempotent).toBe(true);
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe(row.permission);
+      expect(c?.events).toEqual(row.events);
+      expect(AUDIT_WRITER_COMMAND_IDS.has(row.id)).toBe(true);
+      expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.some((e) => e.id === row.id)).toBe(false);
+    }
+  });
+
+  it('PLATFORM_GAPS no longer lists transfer_charge or split_charge_v2', () => {
+    expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.transfer_charge');
+    expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.split_charge_v2');
+    expect(PLATFORM_GAPS.map((g) => g.id)).toContain('rooms.set_ooo_range');
+  });
+
+  it('folio money-ops config keys are DOMAIN bool default false', () => {
+    for (const key of [
+      'pms.folio.close_window_on_check_out',
+      'pms.folio.auto_capture_on_check_out',
+    ] as const) {
+      const e = CONFIG_REGISTER.find((x) => x.key === key);
+      expect(e?.class).toBe('DOMAIN');
+      expect(e?.default).toBe(false);
+      expect(e?.consumersExempt).toBe(true);
+    }
   });
 
   it('cashiering commands are FAIL_CLOSED with folio:post and shift.changed / payment events', () => {

@@ -98,7 +98,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any DO method body, any SPA, any migration, `AUDIT_WRITER_COMMAND_IDS` membership, new catalog ids, sibling ops keys, `pms.night_audit.auto_extend`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `packages/contracts/src/register.test.ts`, add next to the existing `assertRegisterInvariants` test:
 
@@ -120,7 +120,7 @@ it('pms.ops.auto_assign_rooms is DOMAIN + consumersExempt (property-setup SPA)',
 
 Import `getConfigEntry` if not already imported (it is). Do **not** add `[111]` assertions this commit (`[110]` stays `post_folio_fx_adjustment`; `[111]` is undefined until Task 2). Size pins stay **74** / **49**.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
@@ -128,7 +128,7 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
 
 Expected: FAIL — `class` is still `'OPERATIONAL'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the `pms.ops.auto_assign_rooms` entry **in place** (keep it in the OPERATIONAL comment block; GET order is register order):
 
@@ -145,7 +145,7 @@ entry({
 
 Same family as `pms.folio.close_window_on_check_out`. Default stays `true`. Do not add `consumers`. Do not touch sibling ops keys.
 
-- [ ] **Step 4: Rebuild contracts, re-run tests, check:permissions**
+- [x] **Step 4: Rebuild contracts, re-run tests, check:permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -156,7 +156,7 @@ pnpm check:entitlements
 
 Expected: all exit 0. `check:permissions` still reports the current `V1_HTTP_ROUTE_AUDIT.length` (no new route). `assertRegisterInvariants` stays green via `consumersExempt`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/config/register.ts packages/contracts/src/register.test.ts
@@ -225,7 +225,7 @@ cancelPolicyText: string | null
 
 HTTP bodies wrap as `{ ok: true, roomTypes }` / `{ ok: true, days }` / `{ ok: true, keys }` / existing `{ ok: true, plans }`.
 
-- [ ] **Step 1: Write the failing register pins**
+- [x] **Step 1: Write the failing register pins**
 
 In the existing route-audit `it` that already pins `[110]`, append:
 
@@ -268,7 +268,7 @@ expect(COMMAND_CATALOG).toHaveLength(74);
 expect(PLATFORM_GAPS).toEqual([]);
 ```
 
-- [ ] **Step 2: Write failing HTTP tests** (`apps/pms-core/test/property-setup-reads.spec.ts`)
+- [x] **Step 2: Write failing HTTP tests** (`apps/pms-core/test/property-setup-reads.spec.ts`)
 
 Copy provision helpers from `domain-config-routes.spec.ts` / `rate-plans-routes.spec.ts` (`postOrg`, `postProperty`, `crypto.randomUUID()` ids, `ensurePlatformSchema` / `setKillSwitch` in `beforeEach`/`afterEach`, `org.ensureMember(staff, 'staff')`).
 
@@ -313,7 +313,7 @@ expect('cancelPenaltyBps' in (bar ?? {})).toBe(true);
 expect('cancelPolicyText' in (bar ?? {})).toBe(true);
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -323,7 +323,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/property-setup-reads.spec.ts
 
 Expected: FAIL — missing audit rows / handlers / extra plan columns / auto_assign PUT still class-gated (if Task 1 dist is built, PUT may already succeed; the GET tests still fail).
 
-- [ ] **Step 4: Implement DO RPCs**
+- [x] **Step 4: Implement DO RPCs**
 
 `listRoomTypes` — `assertRpcAvailable`; `status` default `'active'`; `WHERE (? = 'all' OR status = ?)`; `ORDER BY code`. Map snake_case columns.
 
@@ -350,7 +350,7 @@ Include `permission: entry.permission` and `consumersExempt: Boolean(entry.consu
 
 Widen `listRatePlans` SELECT to add `cancel_penalty_type`, `cancel_grace_hours`, `cancel_penalty_nights`, `cancel_penalty_bps`, `cancel_policy_text`. Still `WHERE status = 'active'`.
 
-- [ ] **Step 5: Implement HTTP handlers + append routes**
+- [x] **Step 5: Implement HTTP handlers + append routes**
 
 Copy `handleGetRatePlans` / `handleGetRooms` (resolvePropertyContext, `degradedFailClosedReadResponse` on `isPropertyDoTransportFailure`).
 
@@ -418,7 +418,7 @@ GET  /^\/v1\/properties\/([^/]+)\/config\/domain$/
 
 Do **not** add `GET …/room-types/:id`. Do **not** add `GET …/room-types/:id/rates`. Do **not** put config GET at `/config` without `/domain`.
 
-- [ ] **Step 6: Rebuild and run**
+- [x] **Step 6: Rebuild and run**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -429,7 +429,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/property-setup-reads.spec.ts
 
 Expected: all exit 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts \
@@ -515,7 +515,7 @@ HTTP paths (existing writers):
 | GET/POST | `/v1/properties/:pid/tax-rules` |
 | PUT | `/v1/properties/:pid/tax-rules/:id/supersede` |
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 `packages/client-core/test/api-property-setup.test.ts` — reuse `mockTransport` / `createClient` from `api.test.ts`. Assert:
 
@@ -525,7 +525,7 @@ HTTP paths (existing writers):
 - `putDomainConfig` PUTs `{ key, value, reason, idempotencyKey }`
 - 503 `{ degraded: 'FAIL_CLOSED' }` on `listDomainConfig` throws `ClassifiedError` and does **not** append the queued-command log
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-property-setup.test.ts
@@ -533,11 +533,11 @@ pnpm --filter @hospai/client-core exec vitest run test/api-property-setup.test.t
 
 Expected: FAIL — methods missing.
 
-- [ ] **Step 3: Implement methods on `createClient`**
+- [x] **Step 3: Implement methods on `createClient`**
 
 Follow `listRooms` / `openShift`. Encode ids with existing `enc()`.
 
-- [ ] **Step 4: Run + rebuild**
+- [x] **Step 4: Run + rebuild**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-property-setup.test.ts
@@ -546,7 +546,7 @@ pnpm --filter @hospai/client-core build
 
 Expected: exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts packages/client-core/test/api-property-setup.test.ts
@@ -576,7 +576,7 @@ EOF
 - Consumes: `hasPropertyPermission` / `meShellStateFromQuery` (StaffRoute)
 - Produces: nav ids `inventory` / `rates` / `settings`; gates that do not mount the screen without the grant
 
-- [ ] **Step 1: Write failing nav + gate tests**
+- [x] **Step 1: Write failing nav + gate tests**
 
 `nav.ts` additions (core SPA, **not** `module-ui-registry.ts`):
 
@@ -600,7 +600,7 @@ Add an admin-shaped test: permissions include `inventory:write`, `rates:write`, 
 
 Copy `StaffRoute.test.tsx` three times: without grant → `/arrivals` and `queryByTestId('inventory-screen')` null; with grant → screen mounts. Same for rates / settings.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/auth/me.test.ts src/screens/InventoryRoute.test.tsx src/screens/RatesRoute.test.tsx src/screens/SettingsRoute.test.tsx
@@ -608,7 +608,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/auth/me.test.ts src/screens/In
 
 Expected: FAIL — ids missing / files missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Copy `StaffRoute.tsx` to `InventoryRoute` / `RatesRoute` / `SettingsRoute`. Swap permission to `inventory:write` / `rates:write` / `settings:configure`. Use `<Outlet />` so nested tabs work:
 
@@ -646,7 +646,7 @@ Unknown authority → fail open (`<Outlet />`), same as Staff.
 
 Stub screens: `<div data-testid="inventory-screen">` (and rates/settings). No `ROLE_GRANTS`. No `role === 'admin'` (fails `check:web-pms-me-gating`).
 
-- [ ] **Step 4: Rebuild client-core if needed, run tests + me-gating**
+- [x] **Step 4: Rebuild client-core if needed, run tests + me-gating**
 
 ```bash
 pnpm --filter @hospai/client-core build
@@ -656,7 +656,7 @@ pnpm check:web-pms-me-gating
 
 Expected: exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/nav.ts apps/web-pms/src/auth/me.test.ts apps/web-pms/src/App.tsx \
@@ -686,7 +686,7 @@ EOF
 - Consumes: `api.listRoomTypes`, `createRoomType`, `updateRoomType`, `archiveRoomType`, `listRooms`, `createRoom`, `updateRoom`
 - Produces: `/inventory` types table + `/inventory/rooms` grouped rooms
 
-- [ ] **Step 1: Write failing screen tests**
+- [x] **Step 1: Write failing screen tests**
 
 `InventoryScreen.test.tsx` — mock `../client.js` like `StaffScreen.test.tsx`. Cases:
 
@@ -703,7 +703,7 @@ EOF
 - No delete control (`queryByRole('button', { name: /delete/i })` null).
 - No photos / amenities / virtual UI.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
@@ -712,7 +712,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/InventoryScreen.test.t
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `use-unsaved-changes.ts`:
 
@@ -745,7 +745,7 @@ Inventory screen:
 - Degraded: screen-level error, keep the form, do not invent rows.
 - Existing tokens only (`check:web-pms-colors`). No Tailwind, no prototype palette.
 
-- [ ] **Step 4: Run tests + colors**
+- [x] **Step 4: Run tests + colors**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/InventoryScreen.test.tsx src/screens/InventoryRoute.test.tsx
@@ -754,7 +754,7 @@ pnpm check:web-pms-colors
 
 Expected: exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/InventoryScreen.tsx apps/web-pms/src/screens/InventoryScreen.test.tsx \
@@ -780,7 +780,7 @@ EOF
 - Consumes: `listRoomTypes`, `listRatePlans`, `listRateDays`, `putRateDay`, `bulkUpdateRates`, `listRestrictionDays`, `putRestrictionDay`, `listDomainConfig` (ledger chrome only)
 - Default matrix window: `propertyLocalToday(tz)` → +13 nights (14-day inclusive). URL query: `from`, `to`, `plan`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Empty types → “Create a room type first.”
 - Fill one cell (major `150.00`) → `putRateDay` with `amountMinor: 15000` (integer) and stored ledger currency from domain config; no float on the wire.
@@ -792,14 +792,14 @@ EOF
 - No yield / competitor / forecast tabs. No plan-scoped restriction column.
 - Restrictions and matrix are separate tabs (do not write `restriction_day` from the matrix).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/web-pms exec vitest run src/screens/RatesScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Plans tab: list active; create/edit Code, Name, cancel penalty `<select>` (`none` | `first_night` | `nights` | `percent` | `full`), grace hours, nights/bps when needed, optional policy textarea. Archive with confirmation except BAR. No inclusions field.
 
@@ -811,14 +811,14 @@ Restrictions: same date chrome. Per cell Min LOS, Max LOS, CTA, CTD, Stop sell. 
 
 Tabs via `<Link>`. `useUnsavedChanges` on dirty plan forms.
 
-- [ ] **Step 4: Run**
+- [x] **Step 4: Run**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/RatesScreen.test.tsx src/screens/RatesRoute.test.tsx
 pnpm check:web-pms-colors
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/RatesScreen.tsx apps/web-pms/src/screens/RatesScreen.test.tsx
@@ -843,7 +843,7 @@ EOF
 - Consumes: `listDomainConfig`, `putDomainConfig`, `updatePropertyDetails`, charge-code + tax methods
 - Local `SYSTEM_CHARGE_CODES` copy (do **not** import `@hospai/do-runtime` from web-pms): `ROOM`, `PAYMENT`, `CANCEL`, `NO_SHOW`, `DISCOUNT`, `DAMAGE`, `FX_GAIN`, `FX_LOSS`, `CHARGEBACK_FEE`. Hide Archive when `code` is in that set. `MISC` is not system — Archive stays.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - Toggle `pms.night_audit.auto_extend` → `putDomainConfig` with `{ key: 'pms.night_audit.auto_extend', value: false, reason }` (reason required).
 - `pms.ops.auto_assign_rooms` checkbox present; copy “Stored for later. Check-in still requires an explicit room.”
@@ -858,14 +858,14 @@ EOF
 - FAIL_CLOSED → “Property unreachable — cannot load settings.”
 - `reason` placeholder “Why this change…”
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/web-pms exec vitest run src/screens/SettingsScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement Property / Charges / Tax tabs**
+- [x] **Step 3: Implement Property / Charges / Tax tabs**
 
 Group DOMAIN keys under headings (do not dump a raw table):
 
@@ -891,7 +891,7 @@ Tax: `listTaxRules`. Create POST body; `rate` stays a decimal **string**. `ruleT
 
 FX Rates panel (Property tab): the spec copy + Link. Do not call `listFxRates` / create / supersede.
 
-- [ ] **Step 4: Run**
+- [x] **Step 4: Run**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/SettingsScreen.test.tsx src/screens/SettingsRoute.test.tsx
@@ -899,7 +899,7 @@ pnpm check:web-pms-colors
 pnpm check:web-pms-me-gating
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/SettingsScreen.tsx apps/web-pms/src/screens/SettingsScreen.test.tsx
@@ -920,7 +920,7 @@ EOF
 - Modify: `apps/web-pms/src/screens/BookingScreen.tsx` + `BookingScreen.test.tsx`
 - Modify: `apps/web-pms/src/screens/BoardScreen.tsx` + `BoardScreen.test.tsx`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Booking (`BookingScreen.test.tsx`):
 
@@ -943,17 +943,17 @@ vi.mock('../shell/PropertyTimeZone.js', () => ({
 - In-house does **not** wait on date (`getInHouse` called while arrivals would still be gated).
 - Source: `todayUtc` is gone (`grep` the file in the test via a comment assertion — or simply stop exporting/using it).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx src/screens/BoardScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement labels**
+- [x] **Step 3: Implement labels**
 
 After (or in parallel with) availability, `api.listRoomTypes(propertyId, { status: 'active' })`. Label = `{name} ({code})`. Fallback: keep `roomTypeId`. Confirm still requires `quoteAriVersion`. Add `listRoomTypes` to the existing `api` mock in `BookingScreen.test.tsx` (default resolved empty/matching fixture).
 
-- [ ] **Step 4: Implement Board date seed**
+- [x] **Step 4: Implement Board date seed**
 
 Lock:
 
@@ -966,7 +966,7 @@ Lock:
 
 Update existing Board tests if they assumed a date on first paint — `waitFor` the arrivals mock. UTC mock keeps `propertyLocalToday('UTC') ===` previous `todayUtc()` after the effect.
 
-- [ ] **Step 5: Run**
+- [x] **Step 5: Run**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx src/screens/BoardScreen.test.tsx
@@ -974,7 +974,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx
 
 Expected: exit 0. `rg todayUtc apps/web-pms/src/screens/BoardScreen.tsx` is empty.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/BookingScreen.tsx apps/web-pms/src/screens/BookingScreen.test.tsx \
@@ -1011,9 +1011,9 @@ Exact sentences (one each; do not close leftovers that this chunk did not close)
 - Rate-plans: `GET /rate-days` added by [property setup SPA](./2026-08-13-property-setup-spa-design.md). Plan-scoped `rate_plan_id ≠ '*'` restrictions stay out.
 - Multi-currency leftover 2: `pms.money.currencies_list` may appear on Settings; it is still not the FX allowlist ([property setup SPA](./2026-08-13-property-setup-spa-design.md)).
 
-- [ ] **Step 1: Edit the six specs (+ optional ARCHITECTURE sentence)**
+- [x] **Step 1: Edit the six specs (+ optional ARCHITECTURE sentence)**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-11-booking-wizard-design.md \
@@ -1038,7 +1038,7 @@ If `ARCHITECTURE.md` is unchanged, omit it from `git add`.
 
 **Spec:** §2 invariant 7, §20.1–20.4, §21 heads. Final verification task — not a subset.
 
-- [ ] **Step 1: Hygiene — `generate:ddl` must be a no-op**
+- [x] **Step 1: Hygiene — `generate:ddl` must be a no-op**
 
 ```bash
 pnpm generate:ddl
@@ -1055,7 +1055,7 @@ git diff --exit-code -- scripts/class-denylist.mjs
 
 `PROPERTY_SCHEMA_HEAD` stays 24 (`packages/do-runtime` migrate test). `NIGHT_AUDIT_STEPS.length === 7`. `PROPERTY_PURGE_INVENTORY_TABLES` list unchanged (still includes `fx_rate` / `payment_event` / `payment_dispute`; still no new table).
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -1087,7 +1087,7 @@ Expected: all exit 0.
 
 Pins after build: `AUDIT_WRITER_COMMAND_IDS.size === 49`; `COMMAND_CATALOG.length === 74`; `PLATFORM_GAPS` `[]`; `NIGHT_AUDIT_STEPS.length === 7`; `SYSTEM_CHARGE_CODES` length 9; `PROPERTY_SCHEMA_HEAD === 24`; `[110]=post_folio_fx_adjustment`; `[111]=get_room_types`; `[112]=get_rate_days`; `[113]=get_restriction_days`; `[114]=get_domain_config`.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1106,9 +1106,9 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–11 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
+- [x] **Step 1: Mark checkboxes**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-property-setup-spa.md

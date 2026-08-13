@@ -981,19 +981,19 @@ EOF
 - Consumes: Task 8 HTTP
 - Produces: `createReservation({ status? })`; `confirmReservation`; `holdReservation`; `updateFrontOffice`; `checkIn(..., { roomId?, overrideCleanliness? })`; `checkOut(..., { overrideBalance? })`
 
-- [ ] **Step 1: Write failing SPA tests 52–54**
+- [x] **Step 1: Write failing SPA tests 52–54**
 
 52: Booking Hold vs Confirm — assert `createReservation` called with `status: 'pending'` vs omitted/`confirmed`, and opId contains the status (inspect the mock’s idempotency/opId argument).
 53: CheckInScreen — Check-in button disabled without a room; on `ROOM_NOT_READY` show override checkbox.
 54: FolioScreen — confirm dialog yes → `checkOut` called with `overrideBalance: true`; dismiss → `checkOut` not called. Delete the “does not require settlement” copy (assert it is gone).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 Run: `pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx src/screens/CheckInScreen.test.tsx src/screens/FolioScreen.test.tsx`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement client-core + screens**
+- [x] **Step 3: Implement client-core + screens**
 
 Wizard: secondary Hold/Quote buttons; extend `bookingReservationOpId`'s composition with `status` so Hold vs Confirm vs Quote remint the key.
 
@@ -1001,13 +1001,13 @@ CheckInScreen: require room (pre-assigned from `getReservation` or input); remov
 
 FolioScreen: `window.confirm` → `overrideBalance: true`; remove settlement copy.
 
-- [ ] **Step 4: Run web-pms tests + me-gating / colors if screens add classes**
+- [x] **Step 4: Run web-pms tests + me-gating / colors if screens add classes**
 
 Run: `pnpm --filter @hospai/web-pms exec vitest run && pnpm --filter @hospai/client-core exec vitest run && pnpm check:web-pms-colors && pnpm check:web-pms-me-gating`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts apps/web-pms

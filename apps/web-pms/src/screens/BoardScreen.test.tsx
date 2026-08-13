@@ -7,6 +7,7 @@ const getArrivals = vi.fn();
 const getDepartures = vi.fn();
 const getInHouse = vi.fn();
 const postGuestsBatch = vi.fn();
+const confirmReservation = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -21,6 +22,7 @@ vi.mock('../client.js', () => ({
     getDepartures: (...args: unknown[]) => getDepartures(...args),
     getInHouse: (...args: unknown[]) => getInHouse(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
+    confirmReservation: (...args: unknown[]) => confirmReservation(...args),
   },
 }));
 
@@ -84,6 +86,7 @@ describe('BoardScreen folio links', () => {
       guests: {},
       states: { g1: { kind: 'name_pending' } },
     });
+    confirmReservation.mockResolvedValue({ reservationId: 'res_pend', status: 'confirmed' });
   });
 
   afterEach(() => cleanup());
@@ -120,5 +123,18 @@ describe('BoardScreen folio links', () => {
       const link = screen.getByRole('link', { name: /Book for guest/i });
       expect(link.getAttribute('href')).toBe('/book?guestRef=g1');
     });
+  });
+
+  it('55: pending arrival is attention and shows Confirm', async () => {
+    getArrivals.mockResolvedValue({
+      ok: true,
+      items: [{ ...item, reservationId: 'res_pend', status: 'pending' as const }],
+      nextCursor: null,
+    });
+    renderBoard('arrivals');
+    await waitFor(() => expect(screen.getByText('res_pend')).toBeTruthy());
+    expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy();
+    const row = screen.getByText('res_pend').closest('tr');
+    expect(row?.className).toMatch(/status-attention/);
   });
 });

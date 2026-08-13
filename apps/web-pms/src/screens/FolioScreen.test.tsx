@@ -355,4 +355,31 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/^Checked out\.?$/);
     expect(screen.getByText(/checked_in/i)).toBeTruthy();
   });
+
+  it('54: confirm dialog yes sends overrideBalance; dismiss does not check out', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
+    expect(screen.queryByText(/does not require settlement/i)).toBeNull();
+
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    screen.getByTestId('check-out').click();
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(checkOut).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    screen.getByTestId('check-out').click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+    expect(checkOut.mock.calls[0]![3]).toMatchObject({ overrideBalance: true });
+    confirm.mockRestore();
+  });
 });

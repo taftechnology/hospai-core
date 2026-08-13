@@ -28,8 +28,10 @@ export function bookingReservationOpId(input: {
   arrivalDate: string;
   departureDate: string;
   guestRef: string;
+  status?: 'inquiry' | 'pending' | 'confirmed';
 }): string {
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}`;
+  const status = input.status ?? 'confirmed';
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}`;
 }
 
 /**

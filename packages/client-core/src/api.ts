@@ -51,6 +51,12 @@ export type ReservationRead = {
   departureDate: string;
   status: string;
   roomId: string | null;
+  adults?: number;
+  children?: number;
+  frontOfficeComment?: string | null;
+  vipFlag?: boolean;
+  ratePlanId?: string;
+  confirmBy?: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -424,7 +430,12 @@ export function createClient(opts: {
         },
       );
     },
-    async checkIn(propertyId: string, reservationId: string, opId: string) {
+    async checkIn(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      extra?: { roomId?: string; overrideCleanliness?: boolean },
+    ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
         `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/check-in`,
@@ -434,7 +445,12 @@ export function createClient(opts: {
             'content-type': 'application/json',
             'x-idempotency-key': idempotencyKey,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            ...(extra?.roomId !== undefined ? { roomId: extra.roomId } : {}),
+            ...(extra?.overrideCleanliness !== undefined
+              ? { overrideCleanliness: extra.overrideCleanliness }
+              : {}),
+          }),
         },
         { reservationId },
       );
@@ -575,7 +591,12 @@ export function createClient(opts: {
         },
       );
     },
-    async checkOut(propertyId: string, reservationId: string, opId: string) {
+    async checkOut(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      extra?: { overrideBalance?: boolean },
+    ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
         `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/check-out`,
@@ -585,7 +606,9 @@ export function createClient(opts: {
             'content-type': 'application/json',
             'x-idempotency-key': idempotencyKey,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            ...(extra?.overrideBalance !== undefined ? { overrideBalance: extra.overrideBalance } : {}),
+          }),
         },
         { reservationId },
       );
@@ -638,6 +661,7 @@ export function createClient(opts: {
         arrivalDate: string;
         departureDate: string;
         quoteAriVersion: number;
+        status?: 'inquiry' | 'pending' | 'confirmed';
       },
       opId: string,
     ) {
@@ -652,9 +676,60 @@ export function createClient(opts: {
           arrivalDate: input.arrivalDate,
           departureDate: input.departureDate,
           quoteAriVersion: input.quoteAriVersion,
+          ...(input.status !== undefined ? { status: input.status } : {}),
           idempotencyKey,
         }),
       });
+    },
+    async confirmReservation(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/confirm`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async holdReservation(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      extra?: { ratePlanId?: string; confirmBy?: number },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/hold`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            idempotencyKey,
+            ...(extra?.ratePlanId !== undefined ? { ratePlanId: extra.ratePlanId } : {}),
+            ...(extra?.confirmBy !== undefined ? { confirmBy: extra.confirmBy } : {}),
+          }),
+        },
+      );
+    },
+    async updateFrontOffice(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      extra: { frontOfficeComment?: string; vipFlag?: boolean },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/front-office`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            idempotencyKey,
+            ...extra,
+          }),
+        },
+      );
     },
     async listRooms(
       propertyId: string,

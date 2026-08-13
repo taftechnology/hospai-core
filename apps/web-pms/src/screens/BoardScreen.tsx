@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
@@ -50,6 +50,30 @@ function partitionDepartures(items: FrontDeskItem[]) {
   return { dueOut, departed, other };
 }
 
+function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
+  const queryClient = useQueryClient();
+  const confirm = useMutation({
+    mutationFn: () =>
+      api.confirmReservation(
+        tenant.propertyId,
+        reservationId,
+        `confirm:${reservationId}`,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['arrivals'] });
+    },
+  });
+  return (
+    <button
+      type="button"
+      disabled={confirm.isPending}
+      onClick={() => confirm.mutate()}
+    >
+      Confirm
+    </button>
+  );
+}
+
 function BoardTable({
   mode,
   items,
@@ -94,7 +118,10 @@ function BoardTable({
               </td>
               <td className={statusClass(guestSev)}>{guestLabel(guestState, row.guestRef)}</td>
               <td>
-                {mode === 'arrivals' ? (
+                {mode === 'arrivals' && status === 'pending' ? (
+                  <ConfirmPendingButton reservationId={row.reservationId} />
+                ) : null}
+                {mode === 'arrivals' && status !== 'pending' ? (
                   <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
                 ) : null}{' '}
                 <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}

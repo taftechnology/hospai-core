@@ -22,8 +22,26 @@ describe('bookingReservationOpId', () => {
       departureDate: '2026-08-12',
       guestRef: 'g1',
     });
-    expect(a).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1');
+    expect(a).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed');
     expect(a).not.toBe(b);
+  });
+
+  it('status remints Hold vs Confirm vs Quote', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+    };
+    const confirm = bookingReservationOpId({ ...base, status: 'confirmed' });
+    const hold = bookingReservationOpId({ ...base, status: 'pending' });
+    const quote = bookingReservationOpId({ ...base, status: 'inquiry' });
+    expect(confirm).not.toBe(hold);
+    expect(hold).not.toBe(quote);
+    expect(confirm).toContain(':confirmed');
+    expect(hold).toContain(':pending');
+    expect(quote).toContain(':inquiry');
   });
 });
 

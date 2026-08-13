@@ -530,4 +530,32 @@ describe('BookingScreen', () => {
     expect(getAvailability.mock.calls.length).toBe(3);
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('52: Hold vs Confirm remint opId and send status', async () => {
+    createReservation.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+
+    async function fillStayAndClick(testId: string) {
+      renderBook();
+      await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+      fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+      fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+      fireEvent.click(screen.getByTestId(testId));
+    }
+
+    await fillStayAndClick('confirm-book');
+    await waitFor(() => expect(createReservation).toHaveBeenCalledTimes(1));
+    const confirmInput = createReservation.mock.calls[0]![1] as { status?: string };
+    const confirmOp = createReservation.mock.calls[0]![2] as string;
+    expect(confirmInput.status === undefined || confirmInput.status === 'confirmed').toBe(true);
+    expect(confirmOp).toContain(':confirmed');
+
+    cleanup();
+    await fillStayAndClick('hold-book');
+    await waitFor(() => expect(createReservation).toHaveBeenCalledTimes(2));
+    const holdInput = createReservation.mock.calls[1]![1] as { status?: string };
+    const holdOp = createReservation.mock.calls[1]![2] as string;
+    expect(holdInput.status).toBe('pending');
+    expect(holdOp).toContain(':pending');
+    expect(holdOp).not.toBe(confirmOp);
+  });
 });

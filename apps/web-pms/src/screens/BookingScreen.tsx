@@ -126,6 +126,7 @@ export function BookingScreen() {
 
   const confirmEnabled =
     quoteAriVersion != null && roomTypeId != null && guestResolved && !dateCapBlocked;
+  const quoteEnabled = roomTypeId != null && guestResolved && !dateCapBlocked;
 
   const availErrorClassified = availQ.isError ? asClassified(availQ.error) : null;
   const availDateRangeExceeded =
@@ -133,8 +134,11 @@ export function BookingScreen() {
     bodyErrorCode(availErrorClassified.body) === 'date_range_exceeds_max';
 
   const bookMutation = useMutation({
-    mutationFn: async () => {
-      if (quoteAriVersion == null || roomTypeId == null) {
+    mutationFn: async (status: 'inquiry' | 'pending' | 'confirmed') => {
+      if (roomTypeId == null) {
+        throw new Error('confirm_precondition');
+      }
+      if (status !== 'inquiry' && quoteAriVersion == null) {
         throw new Error('confirm_precondition');
       }
       if (!contextMode && !guestCreated) {
@@ -156,6 +160,7 @@ export function BookingScreen() {
         arrivalDate,
         departureDate,
         guestRef,
+        status,
       });
       return api.createReservation(
         propertyId,
@@ -165,7 +170,8 @@ export function BookingScreen() {
           guestRef,
           arrivalDate,
           departureDate,
-          quoteAriVersion,
+          quoteAriVersion: quoteAriVersion ?? 0,
+          ...(status === 'confirmed' ? {} : { status }),
         },
         opId,
       );
@@ -368,9 +374,25 @@ export function BookingScreen() {
         type="button"
         data-testid="confirm-book"
         disabled={!confirmEnabled || bookMutation.isPending}
-        onClick={() => bookMutation.mutate()}
+        onClick={() => bookMutation.mutate('confirmed')}
       >
         Confirm booking
+      </button>
+      <button
+        type="button"
+        data-testid="hold-book"
+        disabled={!confirmEnabled || bookMutation.isPending}
+        onClick={() => bookMutation.mutate('pending')}
+      >
+        Hold
+      </button>
+      <button
+        type="button"
+        data-testid="quote-book"
+        disabled={!quoteEnabled || bookMutation.isPending}
+        onClick={() => bookMutation.mutate('inquiry')}
+      >
+        Quote
       </button>
       {message ? (
         <p className="error" role="alert" data-testid="book-message">

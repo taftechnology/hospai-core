@@ -311,16 +311,22 @@ export function FolioScreen() {
     },
     mutationFn: () => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
+      const overrideBalance =
+        typeof balanceMinor === 'number' && balanceMinor !== 0;
       if (
-        typeof balanceMinor === 'number' &&
-        balanceMinor !== 0 &&
+        overrideBalance &&
         !window.confirm(
-          `Depart with open balance ${formatMinor(balanceMinor)}? Checkout does not require settlement.`,
+          `Depart with open balance ${formatMinor(balanceMinor)}? This posts checkout with a balance override.`,
         )
       ) {
         throw new Error('checkout_cancelled');
       }
-      return api.checkOut(propertyId, reservationId, `checkout:${reservationId}`);
+      return api.checkOut(
+        propertyId,
+        reservationId,
+        `checkout:${reservationId}`,
+        overrideBalance ? { overrideBalance: true } : undefined,
+      );
     },
     onSuccess: (result) => {
       if (result.classified.class === 'provisional') {

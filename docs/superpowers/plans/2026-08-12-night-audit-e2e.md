@@ -81,7 +81,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any `/night-audit` or resolve-exception handler. `check:permissions` stays green because audit length still matches dispatcher.
 
-- [ ] **Step 1: Write the failing register + idempotency tests**
+- [x] **Step 1: Write the failing register + idempotency tests**
 
 In `packages/contracts/src/idempotency.ts` the constants do not exist yet. Add to `packages/contracts/src/idempotency.test.ts`:
 
@@ -131,13 +131,13 @@ it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', 
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts`
 
 Expected: FAIL — missing exports / size 30 / missing catalog ids.
 
-- [ ] **Step 3: Add wire codes, catalog rows, audit writers, event-consumer cases, PropertyDO id constants**
+- [x] **Step 3: Add wire codes, catalog rows, audit writers, event-consumer cases, PropertyDO id constants**
 
 `packages/contracts/src/idempotency.ts` (with the other wire codes):
 
@@ -206,7 +206,7 @@ case 'night_audit.halt_resolved':
 case 'provisional.exception_resolved':
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 
@@ -219,7 +219,7 @@ pnpm check:permissions
 
 Expected: PASS. `check:permissions` still matches 86 dispatcher routes to 86 audit rows.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts packages/contracts/src/idempotency.ts packages/contracts/src/idempotency.test.ts packages/contracts/src/commands/audit-writers.ts packages/contracts/src/register.test.ts apps/pms-core/src/event-consumer.ts apps/pms-core/src/property-do.ts
@@ -257,7 +257,7 @@ EOF
   ```
 - `ensurePlatformSchema` applies the new table because it is in `PLATFORM_ALL_STATEMENTS`.
 
-- [ ] **Step 1: Write the failing census tests**
+- [x] **Step 1: Write the failing census tests**
 
 Create `apps/pms-core/test/night-audit-census.spec.ts`:
 
@@ -302,13 +302,13 @@ If `vi.spyOn(env.PENDING_COMMANDS_QUEUE, 'send')` is not configurable on the wor
 
 A second test in the same file (test 5) drives `handlePendingCommandsBatch` with a property_not_found message (acked, no DO) and asserts the D1 row is gone. Seed the row with `insertPendingOpen` first.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-census.spec.ts`
 
 Expected: FAIL — `night-audit-census.ts` not found / table missing.
 
-- [ ] **Step 3: Schema + helpers + enqueue/delete**
+- [x] **Step 3: Schema + helpers + enqueue/delete**
 
 `packages/do-runtime/src/platform-migrations.ts`:
 
@@ -432,7 +432,7 @@ export async function enqueueProvisionalCommand(
 
 In `handlePendingCommandsBatch`, after every `msg.ack()` (property_not_found, tenant_not_active, unknown_command, fingerprint mismatch, applied, already-applied, domain-exception), call `deletePendingOpen`. Do **not** delete on `msg.retry()` (`org_unreachable`, transport failure, replay_error).
 
-- [ ] **Step 4: Run tests + ddl check**
+- [x] **Step 4: Run tests + ddl check**
 
 Run:
 
@@ -444,7 +444,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-census.spec.ts t
 
 Expected: PASS. Existing degraded-mode enqueue tests still pass (they now also write D1).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/platform-migrations.ts packages/do-runtime/src/index.ts scripts/property-ddl.mjs migrations/d1-platform/0005_pending_command_open.sql apps/pms-core/src/night-audit-census.ts apps/pms-core/src/provisional-queue.ts apps/pms-core/src/pending-commands-consumer.ts apps/pms-core/test/night-audit-census.spec.ts
@@ -472,7 +472,7 @@ EOF
 - Produces: `PROPERTY_MIGRATIONS` version 19; `PROPERTY_SCHEMA_HEAD === 19`
 - Consumes: nothing from Task 2
 
-- [ ] **Step 1: Write the failing schema-head assertion**
+- [x] **Step 1: Write the failing schema-head assertion**
 
 In `packages/do-runtime/src/migrate.test.ts` (or `schema-head` coverage already implied by `PROPERTY_SCHEMA_HEAD`), add:
 
@@ -486,13 +486,13 @@ it('property schema head is 19 after night-audit e2e', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts`
 
 Expected: FAIL — head is 18.
 
-- [ ] **Step 3: Add v19 statements + generate DDL**
+- [x] **Step 3: Add v19 statements + generate DDL**
 
 ```ts
 export const NIGHT_AUDIT_E2E_V19_STATEMENTS: string[] = [
@@ -519,13 +519,13 @@ Export `NIGHT_AUDIT_E2E_V19_SQL` from `packages/do-runtime/src/index.ts`. Add `s
 
 Run `pnpm --filter @hospai/do-runtime build && pnpm generate:ddl`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts && pnpm check:ddl`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts packages/do-runtime/src/index.ts packages/do-runtime/src/migrate.test.ts scripts/property-ddl.mjs migrations/do-property/0019_night_audit_e2e.sql
@@ -569,7 +569,7 @@ EOF
   ```
 - `listProvisionalExceptions` / `countProvisionalExceptions` default to `resolved_at IS NULL`. Payload gains `resolvedAt` / `resolvedBy` (null on open rows).
 
-- [ ] **Step 1: Write the failing PRE_CHECK / resolve tests**
+- [x] **Step 1: Write the failing PRE_CHECK / resolve tests**
 
 Create `apps/pms-core/test/night-audit-precheck.spec.ts`. Use `provisionedPropertyStub` + `crypto.randomUUID()`. `EMPTY_CENSUS = { pendingOpenCount: 0 }`.
 
@@ -658,13 +658,13 @@ Update existing `night-audit.spec.ts` callers now, in the same failing-test step
 - `startNightAudit()` → `startNightAudit({ pendingOpenCount: 0 })`
 - `runAuditStep(startDate, 'PRE_CHECK')` (the COMPLETED path in test 11) → pass `{ pendingOpenCount: 0 }`
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-precheck.spec.ts test/night-audit.spec.ts`
 
 Expected: FAIL — PRE_CHECK still a stub / census ignored / `startNightAudit` arity.
 
-- [ ] **Step 3: Implement PRE_CHECK, resolve, retry, resolve-halt, Workflow census**
+- [x] **Step 3: Implement PRE_CHECK, resolve, retry, resolve-halt, Workflow census**
 
 Error classes next to `RateMissingError`:
 
@@ -743,13 +743,13 @@ const { status } = await step.do(auditStep, async () => {
 
 Do not add a sibling `step.do('census')` — a Workflow retry of PRE_CHECK must re-read D1.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-precheck.spec.ts test/night-audit.spec.ts`
 
 Expected: PASS. Existing full-pass tests still COMPLETE PRE_CHECK because they now pass census 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/night-audit-workflow.ts apps/pms-core/test/night-audit.spec.ts apps/pms-core/test/night-audit-precheck.spec.ts
@@ -775,7 +775,7 @@ EOF
 - Consumes: `runAuditStep` from Task 4; `readConfigValueSync('pms.night_audit.auto_no_show')` (default `true` from the register)
 - Produces: `processNoShowsSync(businessDate: string): void` — sync, inside Txn B. Does **not** call `tryNoShow`. Zero new `folio_line` rows. Actor `system:night_audit`, `command_id: 'night_audit.run'`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 it('7: confirmed arrival_date = D → no_show, sold released, status_changed + availability.changed, no new folio_line', async () => {
@@ -855,13 +855,13 @@ it('10: leftover confirmed arrival_date < D → also no_show', async () => {
 
 Dates: `arrivalDate` / `departureDate` derived from `readBusinessDate()`, never machine-local literals.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-no-shows.spec.ts`
 
 Expected: FAIL — step still a stub, status stays `confirmed`.
 
-- [ ] **Step 3: Implement `processNoShowsSync`**
+- [x] **Step 3: Implement `processNoShowsSync`**
 
 Call from Txn B: `else if (step === 'PROCESS_NO_SHOWS') this.processNoShowsSync(businessDate);`
 
@@ -980,13 +980,13 @@ async bumpSoldForTest(roomTypeId: string, stayDate: string, delta: number): Prom
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-no-shows.spec.ts test/night-audit-room-charges.spec.ts`
 
 Expected: PASS. Room-charges tests still post ROOM for `confirmed` (predicate unchanged).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/night-audit-no-shows.spec.ts
@@ -1020,7 +1020,7 @@ export function reportObjectKey(propertyId: string, businessDate: string, report
 }
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `night-audit-reports.spec.ts`:
 
@@ -1060,13 +1060,13 @@ it('16: night-audit ROOM + applicable tax rule → TAX line; COMPLETED retry doe
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-reports.spec.ts test/night-audit-double-post.spec.ts`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Async window + bodies + test helpers**
+- [x] **Step 3: Async window + bodies + test helpers**
 
 Reshape `runAuditStep` after Txn A:
 
@@ -1123,13 +1123,13 @@ Helpers (unsafe-local): `setReportsR2UnboundForTest`, `setSnapshotFailureAfterPu
 
 SHA-256: `crypto.subtle.digest('SHA-256', encoded)` → hex.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/night-audit-reports.spec.ts test/night-audit-double-post.spec.ts test/night-audit.spec.ts test/night-audit-room-charges.spec.ts test/tax-posting.spec.ts`
 
 Expected: PASS. Test 14 proves short-circuit (no second put) and overwrite-on-retry-after-put.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/event-log.ts apps/pms-core/test/night-audit-reports.spec.ts apps/pms-core/test/night-audit-double-post.spec.ts
@@ -1159,7 +1159,7 @@ EOF
 - Consumes: Task 4 `try*` + census; Task 2 `countPendingOpen`; Task 6 report index + R2
 - Produces: `V1_HTTP_ROUTE_AUDIT[86] = get_night_audit` … `[91] = post_provisional_exception_resolve`. `[85]` stays `post_roster_exit`. Append only.
 
-- [ ] **Step 1: Write the failing route-audit + HTTP tests**
+- [x] **Step 1: Write the failing route-audit + HTTP tests**
 
 `register.test.ts`:
 
@@ -1210,13 +1210,13 @@ Also unit-test `mapNightAuditInstanceHttp` in the same file (or `night-audit-htt
 | complete | 200 `{ instanceStatus: 'complete' }` |
 | errored / terminated | 409 `{ error: 'night_audit_workflow_exists', instanceStatus }` |
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts` and the routes spec.
 
 Expected: FAIL — audit length 86, handlers missing.
 
-- [ ] **Step 3: Implement helpers, DO reads, handlers, both route tables**
+- [x] **Step 3: Implement helpers, DO reads, handlers, both route tables**
 
 `apps/pms-core/src/night-audit-http.ts`:
 
@@ -1294,7 +1294,7 @@ Handlers (append to `V1_ROUTES` in this exact order, matching audit ids):
 
 `V1_HTTP_ROUTE_AUDIT` rows 86–91 as specified in the spec table. Mutations: `commandId` + `entitlement: 'pms.core'`. GETs: `degradedRead: 'FAIL_CLOSED'`, no `commandId`.
 
-- [ ] **Step 4: Run tests + permission/degraded/transport checks**
+- [x] **Step 4: Run tests + permission/degraded/transport checks**
 
 Run:
 
@@ -1310,7 +1310,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-routes.spec.ts
 
 Expected: PASS. Route count 92 (indices 0–91).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts apps/pms-core/src/night-audit-http.ts apps/pms-core/src/v1-dispatch.ts apps/pms-core/src/property-do.ts apps/pms-core/test/night-audit-routes.spec.ts
@@ -1365,7 +1365,7 @@ async resolveProvisionalException(propertyId: string, exceptionId: string, opId:
 
 `opId` values: `night-audit:run:${propertyId}:${businessDate}`, `night-audit:retry:${propertyId}:${businessDate}:${step}`, `night-audit:resolve-halt:${propertyId}:${businessDate}`, `provisional:resolve:${propertyId}:${exceptionId}`.
 
-- [ ] **Step 1: Write the failing SPA tests**
+- [x] **Step 1: Write the failing SPA tests**
 
 `NightAuditRoute.test.tsx` (copy `RosterRoute.test.tsx`): live `/me` without `night_audit:run` → redirect to `/arrivals`; screen never mounts.
 
@@ -1383,13 +1383,13 @@ async resolveProvisionalException(propertyId: string, exceptionId: string, opId:
 
 `module-ui-registry.test.ts`: expected `ALL_NAV` ids gain `'night-audit'` after `'roster'`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/web-pms exec vitest run src/screens/NightAuditRoute.test.tsx src/screens/NightAuditScreen.test.tsx src/shell/module-ui-registry.test.ts`
 
 Expected: FAIL — files missing / nav order.
 
-- [ ] **Step 3: Implement client, nav, route, screen, panel**
+- [x] **Step 3: Implement client, nav, route, screen, panel**
 
 `NightAuditRoute`: same gate as `RosterRoute` with `hasPropertyPermission(..., 'night_audit:run')`.
 
@@ -1409,7 +1409,7 @@ Expected: FAIL — files missing / nav order.
 
 Wire `<Route path="night-audit" element={<NightAuditRoute />} />` in `App.tsx`.
 
-- [ ] **Step 4: Run tests + me-gating / colors checks**
+- [x] **Step 4: Run tests + me-gating / colors checks**
 
 Run:
 
@@ -1421,7 +1421,7 @@ pnpm check:web-pms-colors
 
 Expected: PASS. No ad-hoc hex colours.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts apps/web-pms/src/shell/nav.ts apps/web-pms/src/App.tsx apps/web-pms/src/shell/module-ui-registry.test.ts apps/web-pms/src/screens/NightAuditRoute.tsx apps/web-pms/src/screens/NightAuditScreen.tsx apps/web-pms/src/screens/NightAuditRoute.test.tsx apps/web-pms/src/screens/NightAuditScreen.test.tsx apps/web-pms/src/screens/ExceptionsPanel.tsx apps/web-pms/src/screens/ExceptionsPanel.test.tsx apps/web-pms/src/status/night-audit-severity.ts
@@ -1450,7 +1450,7 @@ EOF
 - Consumes: `reportsPrefixForProperty`; `snapshot.propertyIds`
 - Produces: org `PURGE_R2` deletes `events/{do}/{id}/` **and** `reports/property/{propertyId}/`. Org D1 purge `DELETE FROM pending_command_open WHERE property_id IN (...)`.
 
-- [ ] **Step 1: Write the failing purge tests**
+- [x] **Step 1: Write the failing purge tests**
 
 In `purge-workflow.spec.ts`:
 
@@ -1466,13 +1466,13 @@ it('org purge deletes reports/property/{propertyId}/ objects and pending_command
 
 Extend the existing R2 verify loop expectation: leftover reports objects must `HaltError('verify_r2_residue')`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/purge-workflow.spec.ts`
 
 Expected: FAIL — reports objects and census rows survive.
 
-- [ ] **Step 3: Implement purge deletes + spec sentences**
+- [x] **Step 3: Implement purge deletes + spec sentences**
 
 In `runOrgPlan` `purge-r2` step, after event-log prefixes:
 
@@ -1502,13 +1502,13 @@ Event-log R2 spec — add one sentence under the org-purge / prefix section: *Or
 
 Purge-workflow spec — add one sentence: *Org D1 purge deletes `pending_command_open` rows for the org’s properties (night-audit PRE_CHECK census; see night-audit E2E spec leftover 11).*
 
-- [ ] **Step 4: Run tests + check:purge**
+- [x] **Step 4: Run tests + check:purge**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/purge-workflow.spec.ts && pnpm check:purge`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/event-log.ts apps/pms-core/src/purge-workflow.ts apps/pms-core/test/purge-workflow.spec.ts docs/superpowers/specs/2026-08-12-event-log-r2-design.md docs/superpowers/specs/2026-08-12-purge-workflow-design.md
@@ -1528,7 +1528,7 @@ EOF
 
 **Files:** none expected. Fix anything this sequence turns red.
 
-- [ ] **Step 1: Run the `checks` job locally, in this order**
+- [x] **Step 1: Run the `checks` job locally, in this order**
 
 ```
 pnpm build
@@ -1557,7 +1557,7 @@ pnpm lint
 
 Expected: all exit 0. `check:class-denylist` stays green because PropertyDO still has no `PLATFORM_DB`. `check:pms-core-test-dates` stays green because new tests derive dates from `readBusinessDate()`.
 
-- [ ] **Step 2: Run the pms-core shard matrix**
+- [x] **Step 2: Run the pms-core shard matrix**
 
 ```
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1568,11 +1568,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Do not put `--` before `--shard`. Expected: all four exit 0.
 
-- [ ] **Step 3: Tick living checkboxes on this plan**
+- [x] **Step 3: Tick living checkboxes on this plan**
 
 In this file, mark Tasks 1–10 `- [x]` on the task headings’ completed steps (or the task-level boxes you used). Same PR as the last implementation commit, or a docs commit in that PR. Do not backfill other plans.
 
-- [ ] **Step 4: Commit only if Step 3 left docs dirty**
+- [x] **Step 4: Commit only if Step 3 left docs dirty**
 
 ```bash
 git add docs/superpowers/plans/2026-08-12-night-audit-e2e.md

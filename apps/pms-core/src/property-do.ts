@@ -6932,12 +6932,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ok: true, totalMinor: quoted.totalMinor, currency };
   }
 
-  /** Test helper: confirmed reservation count covering a ledger night. */
-  async countConfirmedReservationsCovering(roomTypeId: string, stayDate: string): Promise<number> {
+  /** Test helper: sold-holding reservation count covering a ledger night. */
+  async countSoldHoldingReservationsCovering(roomTypeId: string, stayDate: string): Promise<number> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT COUNT(*) AS c FROM reservation
-         WHERE room_type_id = ? AND status = 'confirmed'
+         WHERE room_type_id = ? AND status IN ('pending', 'confirmed', 'checked_in', 'checked_out')
            AND arrival_date <= ? AND departure_date > ?`,
         roomTypeId,
         stayDate,
@@ -7194,14 +7194,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const reservations = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id
+        `SELECT reservation_id, room_type_id, rate_plan_id
          FROM reservation
          WHERE status IN ('confirmed', 'checked_in')
            AND arrival_date <= ? AND departure_date > ?`,
         businessDate,
         businessDate,
       )
-      .toArray() as Array<{ reservation_id: string; room_type_id: string }>;
+      .toArray() as Array<{ reservation_id: string; room_type_id: string; rate_plan_id: string }>;
 
     let postedCount = 0;
     for (const reservation of reservations) {
@@ -7210,7 +7210,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           `SELECT amount_minor FROM rate_day
            WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
           reservation.room_type_id,
-          DEFAULT_RATE_PLAN_ID,
+          reservation.rate_plan_id,
           businessDate,
         )
         .toArray() as Array<{ amount_minor: number }>;
@@ -8738,12 +8738,57 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     arrivalDate: string;
     departureDate: string;
     status?: string;
+    roomId?: string;
+    adults?: number;
+    children?: number;
+    frontOfficeComment?: string;
+    vipFlag?: boolean;
+    ratePlanId?: string;
+    cancelPenaltyType?: string;
+    cancelGraceHours?: number;
+    cancelPenaltyNights?: number | null;
+    cancelPenaltyBps?: number | null;
+    confirmBy?: number;
+    expiresAt?: number;
   }): Promise<void> {
     this.assertUnsafeLocal('insertReservationForTest');
     const now = Date.now();
+    const hasOptional =
+      input.roomId !== undefined ||
+      input.adults !== undefined ||
+      input.children !== undefined ||
+      input.frontOfficeComment !== undefined ||
+      input.vipFlag !== undefined ||
+      input.ratePlanId !== undefined ||
+      input.cancelPenaltyType !== undefined ||
+      input.cancelGraceHours !== undefined ||
+      input.cancelPenaltyNights !== undefined ||
+      input.cancelPenaltyBps !== undefined ||
+      input.confirmBy !== undefined ||
+      input.expiresAt !== undefined;
+    if (!hasOptional) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        input.reservationId,
+        input.roomTypeId,
+        input.guestRef,
+        input.piiKeyId,
+        input.arrivalDate,
+        input.departureDate,
+        input.status ?? 'confirmed',
+        now,
+        now,
+      );
+      return;
+    }
     this.ctx.storage.sql.exec(
-      `INSERT INTO reservation (reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO reservation (
+         reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
+         status, room_id, adults, children, front_office_comment, vip_flag, rate_plan_id,
+         cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
+         confirm_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.reservationId,
       input.roomTypeId,
       input.guestRef,
@@ -8751,6 +8796,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.arrivalDate,
       input.departureDate,
       input.status ?? 'confirmed',
+      input.roomId ?? null,
+      input.adults ?? 1,
+      input.children ?? 0,
+      input.frontOfficeComment ?? null,
+      input.vipFlag ? 1 : 0,
+      input.ratePlanId ?? 'BAR',
+      input.cancelPenaltyType ?? 'none',
+      input.cancelGraceHours ?? 0,
+      input.cancelPenaltyNights ?? null,
+      input.cancelPenaltyBps ?? null,
+      input.confirmBy ?? null,
+      input.expiresAt ?? null,
       now,
       now,
     );

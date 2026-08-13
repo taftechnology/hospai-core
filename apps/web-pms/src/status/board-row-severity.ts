@@ -20,7 +20,10 @@ export function boardRowSeverity(input: {
         return 'informational';
       case 'no_show':
       case 'confirmed':
+      case 'pending':
         return 'attention';
+      case 'inquiry':
+        return 'informational';
       default: {
         const _exhaustive: never = status;
         return _exhaustive;
@@ -32,6 +35,9 @@ export function boardRowSeverity(input: {
     switch (status) {
       case 'confirmed':
         return 'neutral';
+      case 'pending':
+        return 'attention';
+      case 'inquiry':
       case 'cancelled':
       case 'checked_in':
       case 'checked_out':
@@ -51,6 +57,8 @@ export function boardRowSeverity(input: {
     case 'cancelled':
     case 'checked_out':
     case 'no_show':
+    case 'inquiry':
+    case 'pending':
       return 'informational';
     default: {
       const _exhaustive: never = status;

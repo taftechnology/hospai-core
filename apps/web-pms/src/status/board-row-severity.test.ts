@@ -26,6 +26,18 @@ describe('boardRowSeverity', () => {
       boardRowSeverity({ mode: 'arrivals', status: 'confirmed', overstay: false }),
     ).toBe('neutral');
     expect(
+      boardRowSeverity({ mode: 'arrivals', status: 'pending', overstay: false }),
+    ).toBe('attention');
+    expect(
+      boardRowSeverity({ mode: 'arrivals', status: 'inquiry', overstay: false }),
+    ).toBe('informational');
+    expect(
+      boardRowSeverity({ mode: 'in-house', status: 'pending', overstay: false }),
+    ).toBe('informational');
+    expect(
+      boardRowSeverity({ mode: 'departures', status: 'inquiry', overstay: false }),
+    ).toBe('informational');
+    expect(
       boardRowSeverity({ mode: 'in-house', status: 'checked_in', overstay: false }),
     ).toBe('neutral');
   });

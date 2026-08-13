@@ -36,7 +36,7 @@ async function assertSoldMatchesReservations(stub: DurableObjectStub<PropertyDO>
     const stayDate = addDays(fromDate, i);
     const row = await stub.readAvailabilityDay(roomTypeId, stayDate);
     if (!row) continue;
-    const expected = await stub.countConfirmedReservationsCovering(roomTypeId, stayDate);
+    const expected = await stub.countSoldHoldingReservationsCovering(roomTypeId, stayDate);
     expect(row.sold).toBe(expected);
   }
 }

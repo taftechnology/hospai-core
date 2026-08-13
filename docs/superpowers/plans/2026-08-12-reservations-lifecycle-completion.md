@@ -321,7 +321,7 @@ CREATE INDEX reservation_pending_expiry_idx ON reservation (confirm_by) WHERE st
 CREATE INDEX reservation_inquiry_expiry_idx ON reservation (expires_at) WHERE status = 'inquiry'
 ```
 
-- [ ] **Step 1: Write the failing migrate + status-sync tests**
+- [x] **Step 1: Write the failing migrate + status-sync tests**
 
 In `migrate.test.ts` change the version pin **first** (it will fail until statements exist):
 
@@ -362,13 +362,13 @@ export const RESERVATION_STATUSES = [
 ] as const;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/reservation-status-sync.test.ts`
 
 Expected: FAIL — no v20 / CHECK still 5 statuses.
 
-- [ ] **Step 3: Implement v20 statements, generate DDL, POST lookup, helper, board exhaustiveness**
+- [x] **Step 3: Implement v20 statements, generate DDL, POST lookup, helper, board exhaustiveness**
 
 `RESERVATION_LIFECYCLE_V20_STATEMENTS` order:
 
@@ -417,13 +417,13 @@ Rename `countConfirmedReservationsCovering` → `countSoldHoldingReservationsCov
 
 `boardRowSeverity.ts`: add `case 'pending': return 'attention'` in arrivals; `case 'inquiry':` and `case 'pending':` in the other switches as spec §7.4 (`informational` except arrivals pending = `attention`). Update `board-row-severity.test.ts`.
 
-- [ ] **Step 4: Run do-runtime + room-charges + ledger property + board severity**
+- [x] **Step 4: Run do-runtime + room-charges + ledger property + board severity**
 
 Run: `pnpm --filter @hospai/do-runtime exec vitest run && pnpm check:ddl && pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spec.ts test/reservations-ledger.property.spec.ts && pnpm --filter @hospai/web-pms exec vitest run src/status/board-row-severity.test.ts`
 
 Expected: PASS. Room-charges still BAR (default `rate_plan_id`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime packages/contracts/src/reservation-status.ts apps/web-pms/src/status/board-row-severity.ts apps/web-pms/src/status/board-row-severity.test.ts scripts/property-ddl.mjs migrations/do-property/0020_reservation_lifecycle.sql apps/pms-core/src/property-do.ts apps/pms-core/test/reservations-ledger.property.spec.ts

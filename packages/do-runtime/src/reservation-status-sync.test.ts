@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { RESERVATION_STATUSES } from '@hospai/contracts/reservation-status';
-import { RESERVATION_V8_SQL } from './property-migrations.js';
+import { RESERVATION_LIFECYCLE_V20_SQL } from './property-migrations.js';
 
 describe('RESERVATION_STATUSES ↔ SQL CHECK', () => {
-  it('every status appears in the v8 CHECK and the set is exact', () => {
-    const match = RESERVATION_V8_SQL.match(/CHECK \(status IN \(([^)]+)\)\)/);
+  it('every status appears in the v20 CHECK and the set is exact', () => {
+    const match = RESERVATION_LIFECYCLE_V20_SQL.match(/CHECK \(status IN \(([^)]+)\)\)/);
     const list = match?.[1];
     expect(list).toBeTruthy();
     if (!list) return;

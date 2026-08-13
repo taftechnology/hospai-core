@@ -65,6 +65,7 @@ if (process.argv.includes('--self-test')) {
   let AUDIT_LOG_V17_SQL;
   let FRONT_DESK_READS_V18_SQL;
   let NIGHT_AUDIT_E2E_V19_SQL;
+  let RESERVATION_LIFECYCLE_V20_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -97,6 +98,7 @@ if (process.argv.includes('--self-test')) {
       AUDIT_LOG_V17_SQL,
       FRONT_DESK_READS_V18_SQL,
       NIGHT_AUDIT_E2E_V19_SQL,
+      RESERVATION_LIFECYCLE_V20_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -297,6 +299,16 @@ const doPropertyTargets = [
 
 `,
     sql: NIGHT_AUDIT_E2E_V19_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0020_reservation_lifecycle.sql'),
+    header: `-- PropertyDO reservation lifecycle — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: rate_plan ALTERs → CANCEL/NO_SHOW seed → reservation rebuild + indexes.
+
+`,
+    sql: RESERVATION_LIFECYCLE_V20_SQL,
   },
 ];
 

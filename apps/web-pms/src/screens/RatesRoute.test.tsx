@@ -9,6 +9,17 @@ vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
   api: {
     getMe: (...a: unknown[]) => getMe(...a),
+    listRoomTypes: async () => ({ ok: true, roomTypes: [] }),
+    listRatePlans: async () => ({
+      ok: true,
+      plans: [{ ratePlanId: 'BAR', code: 'BAR', name: 'BAR', status: 'active' }],
+    }),
+    listRateDays: async () => ({ ok: true, days: [] }),
+    listRestrictionDays: async () => ({ ok: true, days: [] }),
+    listDomainConfig: async () => ({
+      ok: true,
+      keys: [{ key: 'pms.money.currency_code', value: 'USD', source: 'stored' }],
+    }),
   },
   asClassified: () => ({
     class: 'server_error' as const,

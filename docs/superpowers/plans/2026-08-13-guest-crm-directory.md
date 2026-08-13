@@ -1,6 +1,6 @@
 # Guest CRM Directory Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > Do **not** start implementing until the parent reviewer approves this plan. Do not commit this file in the same turn it is written.
 
@@ -133,7 +133,7 @@ export async function blindIndexRows(
 
 **Forbidden this commit:** `org-migrations.ts`, `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, `org-do.ts`, any SPA, `CLASS_DENYLIST`, new `export class`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `blind-index.test.ts` use the same fixture hex as `vault.test.ts`:
 
@@ -152,7 +152,7 @@ Cover spec §15.4–15.6:
 
 Also: `importBlindIndexKeyHex('nope')` throws the same class of error as a bad master hex (reuse `HEX_RE`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/crypto-shredding exec vitest run src/blind-index.test.ts
@@ -160,13 +160,13 @@ pnpm --filter @hospai/crypto-shredding exec vitest run src/blind-index.test.ts
 
 Expected: fail (module missing).
 
-- [ ] **Step 3: Implement helpers**
+- [x] **Step 3: Implement helpers**
 
 Functions only. Reuse `HEX_RE` by exporting it from `master-key.ts` **or** duplicate the 64-hex check in `blind-index.ts` — do **not** change `importMasterKeyHex` usages. Prefer exporting `HEX_RE` from `master-key.ts` if that file already has it as a module-local; if exporting it risks a public-API debate, duplicate the regex in `blind-index.ts`.
 
 Do not add a class. Do not persist keys.
 
-- [ ] **Step 4: Re-export and build**
+- [x] **Step 4: Re-export and build**
 
 ```bash
 pnpm --filter @hospai/crypto-shredding exec vitest run src/blind-index.test.ts
@@ -175,7 +175,7 @@ pnpm --filter @hospai/crypto-shredding build
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/crypto-shredding/src/blind-index.ts \
@@ -240,7 +240,7 @@ export const ORG_GUEST_BLIND_INDEX_SQL =
 
 **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, `org-do.ts` writer bodies, PropertyDO, SPA, `CLASS_DENYLIST`, any PropertyDO migration.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `migrate.test.ts`:
 
@@ -257,7 +257,7 @@ Real SQLite (`guest-blind-index-migration.sqlite.test.ts`), `PRAGMA foreign_keys
 4. `INSERT … kind='passport'` fails CHECK.
 5. `INSERT … guest_id='missing'` fails FK.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/guest-blind-index-migration.sqlite.test.ts
@@ -265,7 +265,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/guest-b
 
 Expected: head still 6 / file missing.
 
-- [ ] **Step 3: Implement migration + generator target**
+- [x] **Step 3: Implement migration + generator target**
 
 Add statements + `ORG_MIGRATIONS` row. Export from `index.ts`. In `scripts/property-ddl.mjs`: destructure `ORG_GUEST_BLIND_INDEX_SQL` next to `ORG_ROSTER_SQL`; append a `targets` entry for `migrations/do-org/0007_guest_blind_index.sql` with the same header style as `0006_roster.sql`.
 
@@ -278,7 +278,7 @@ Expected: new `0007` file; **no** PropertyDO file changes (`git diff -- migratio
 
 If MemorySql throws `Unhandled SQL` on `CREATE TABLE guest_blind_index` / `CREATE INDEX guest_blind_index_lookup`, add the prefixes the same way other CREATE TABLE/INDEX paths are accepted (generic handlers already cover these — only add prefixes if the test throws).
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/guest-blind-index-migration.sqlite.test.ts
@@ -287,7 +287,7 @@ pnpm check:ddl
 
 Expected: pass. `ORG_SCHEMA_HEAD === 7`. `PROPERTY_SCHEMA_HEAD === 25`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/org-migrations.ts \
@@ -439,7 +439,7 @@ async listReservationsByGuestRef(
 
 **Forbidden this commit:** SPA, client-core, `CLASS_DENYLIST`, PropertyDO schema, catalog new ids, `GET …/guests?q=`, OrgDO call from stays handler.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `register.test.ts` next to the `[123]` pin (add after the exception-note assertions):
 
@@ -484,7 +484,7 @@ for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests
 - Two reservations for `g1`, one for `g2`. `GET …/guests/g1/stays` returns two, newest `arrival_date` first, no `displayName` / `piiKeyId`, `scope: 'this_property'`. Cursor pages. Unknown id → `{ items: [] }` 200. Erase `g1` (OrgDO) → stays still 200.
 - PropertyDO transport block → 503. Handler source: `handleGetGuestStays` must not reference `resolveOrgStub` / `readGuest`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -494,7 +494,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/guests-routes.spec.ts test/g
 
 Expected: route pins fail; new HTTP cases 404.
 
-- [ ] **Step 3: Implement RPCs + handlers + routes**
+- [x] **Step 3: Implement RPCs + handlers + routes**
 
 Follow spec §5.3–§8. After contracts edit:
 
@@ -505,7 +505,7 @@ pnpm --filter @hospai/crypto-shredding build
 
 Then implement. `pnpm check:permissions` must stay green (audit zip = `V1_ROUTES` order).
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm check:permissions
@@ -516,7 +516,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/guests-routes.spec.ts test/g
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts \
@@ -568,26 +568,26 @@ async eraseGuest(propertyId: string, guestId: string, opId: string)
 
 Use existing `getJson` + `enc`. Types: inline or next to `GuestRowState` — do not invent a `packages/ui-kit` type.
 
-- [ ] **Step 1: Write the failing client tests** (fetch mock / existing api test pattern — copy `api-exception-workbench.test.ts` or `api-front-office-board.test.ts`)
+- [x] **Step 1: Write the failing client tests** (fetch mock / existing api test pattern — copy `api-exception-workbench.test.ts` or `api-front-office-board.test.ts`)
   - `listGuests` hits `GET …/guests` with cursor query, not POST.
   - `searchGuests` hits `POST …/guests-search` with `{ q }` in the body; URL has no `q=`.
   - `listGuestStays` / `getGuest` are GETs.
   - `updateGuest` / `eraseGuest` send `idempotencyKey` from `stableKeyForOperation`.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-guest-crm.test.ts
 ```
 
-- [ ] **Step 3: Implement + build**
+- [x] **Step 3: Implement + build**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-guest-crm.test.ts
 pnpm --filter @hospai/client-core build
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts packages/client-core/test/api-guest-crm.test.ts
@@ -637,21 +637,21 @@ EOF
 
 **Forbidden this commit:** chip-link sweep on board/tape (Task 6), wizard find box (Task 6), leftover spec pointers, `ui-kit`.
 
-- [ ] **Step 1: Write the failing SPA tests**
+- [x] **Step 1: Write the failing SPA tests**
   - `me.test.ts`: staff with `guests:read` sees `guests` order 36 between `reservations` and `book`; without grant, absent.
   - Directory: empty state; type “Ada” calls `searchGuests` not `listGuests`; click name → `/guests/g1`.
   - Profile: contact + stay folio link + Book href; erase confirm then tombstone; queryByText `/merge/i` and `/consent/i` null.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/web-pms exec vitest run src/auth/me.test.ts src/screens/GuestsDirectoryScreen.test.tsx src/screens/GuestProfileScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement screens + nav + routes**
-- [ ] **Step 4: Re-run tests**
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement screens + nav + routes**
+- [x] **Step 4: Re-run tests**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/nav.ts apps/web-pms/src/App.tsx \
@@ -686,8 +686,8 @@ Omit `AppShell.boot.test.tsx` if unchanged.
 
 **Forbidden:** merge UI, consent UI, changing `[105]` reservation-search, WebSocket work.
 
-- [ ] **Step 1: Write / flip the failing tests**
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 1: Write / flip the failing tests**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -700,9 +700,9 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/screens/BookingScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement links + wizard find**
-- [ ] **Step 4: Re-run tests**
-- [ ] **Step 5: Commit**
+- [x] **Step 3: Implement links + wizard find**
+- [x] **Step 4: Re-run tests**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/guest-row.tsx \
@@ -749,8 +749,8 @@ Pointer sentence example:
 **Closed 2026-08-13** by [guest CRM directory](./2026-08-13-guest-crm-directory-design.md).
 ```
 
-- [ ] **Step 1: Edit pointers**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Edit pointers**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md \
@@ -773,7 +773,7 @@ Omit `ARCHITECTURE.md` if you skip the optional §16.3 sentence.
 
 **Spec:** §2 invariants, §15.1–3, §15.19–20, §17.
 
-- [ ] **Step 1: Hygiene pins**
+- [x] **Step 1: Hygiene pins**
 
 ```bash
 pnpm --filter @hospai/do-runtime build
@@ -784,7 +784,7 @@ git diff --exit-code -- tooling/eslint-plugin-hospai/src/class-denylist.ts
 
 Expected: PropertyDO ddl no-op. Org `0007` already committed in Task 2 (no further drift). `PROPERTY_SCHEMA_HEAD === 25`. `ORG_SCHEMA_HEAD === 7`. `NIGHT_AUDIT_STEPS.length === 7`. `PROPERTY_PURGE_INVENTORY_TABLES` unchanged. `PROPERTY_GUEST_PII_COLUMNS` only `billed_party`. `COMMAND_CATALOG.length === 77`. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `[123]=post_provisional_exception_note`; `[124]`–`[126]` as spec. `CLASS_DENYLIST` untouched.
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -814,7 +814,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -833,8 +833,8 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–9 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Mark checkboxes**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-guest-crm-directory.md
@@ -849,21 +849,21 @@ EOF
 
 ## Spec §18 acceptance / reviewer checklist (copied; implementation must satisfy)
 
-- [ ] Verified-current-state table matches the tree (route **124**, catalog **77**, org head **6→7**, property head **25**, no new commands).
-- [ ] Normative invariants include integer money, append-only folio, schema-freeze (no PropertyDO PII table), Rule 3/events-by-ref, no new `export class`, no new PropertyDO purge table, route audit append-only.
-- [ ] Command decision is explicit: existing reads/writes suffice; `guests.search` / `get_profile` are HTTP-only; `merge` / `update_consent` deferred.
-- [ ] Blind index is OrgDO HMAC only; PropertyDO stays `guest_ref`; erase deletes hashes.
-- [ ] Routes **124–126** named with method, path, permission, entitlement, `FAIL_CLOSED`.
-- [ ] Scope-out names every required exclusion (virtual types, derived rates, `rooms.delete`, tape/WS, property setup, `ui-kit`, city ledger / invoices / auto-transfer / recurring / partial refunds, PCI, `READ_STALE` reclass, PropertyDO PII tables, guest portal).
-- [ ] Folded leftovers named (spec §11). Deferred leftovers named (spec §12).
-- [ ] Acceptance / reviewer checklist present.
-- [ ] Three routes appended at **124–126** only; `[123]` / `[39]`–`[42]` / `[65]` unmoved.
-- [ ] Catalog **77**; no `guests.search` / `merge` / `update_consent` / `get_profile` command ids; audit writers **52**; `PLATFORM_GAPS` [].
-- [ ] Org v7 `guest_blind_index` only; **no PropertyDO table**; purge list unchanged; `NIGHT_AUDIT_STEPS` 7; no new `export class`.
-- [ ] Search is POST-body equality + tokens; list is GET cursor; stays are PropertyDO-only; `[42]` reused for contact.
-- [ ] Nav Guests `/guests` order 36. Profile compose. Chip links. Wizard find-existing. Exception href flipped.
-- [ ] Guest reads `FAIL_CLOSED`. No `READ_STALE` reclass. No WebSocket work. No ui-kit. No merge / consent UI.
-- [ ] Tests spec §15 green. Pointers Task 7 landed.
+- [x] Verified-current-state table matches the tree (route **124**, catalog **77**, org head **6→7**, property head **25**, no new commands).
+- [x] Normative invariants include integer money, append-only folio, schema-freeze (no PropertyDO PII table), Rule 3/events-by-ref, no new `export class`, no new PropertyDO purge table, route audit append-only.
+- [x] Command decision is explicit: existing reads/writes suffice; `guests.search` / `get_profile` are HTTP-only; `merge` / `update_consent` deferred.
+- [x] Blind index is OrgDO HMAC only; PropertyDO stays `guest_ref`; erase deletes hashes.
+- [x] Routes **124–126** named with method, path, permission, entitlement, `FAIL_CLOSED`.
+- [x] Scope-out names every required exclusion (virtual types, derived rates, `rooms.delete`, tape/WS, property setup, `ui-kit`, city ledger / invoices / auto-transfer / recurring / partial refunds, PCI, `READ_STALE` reclass, PropertyDO PII tables, guest portal).
+- [x] Folded leftovers named (spec §11). Deferred leftovers named (spec §12).
+- [x] Acceptance / reviewer checklist present.
+- [x] Three routes appended at **124–126** only; `[123]` / `[39]`–`[42]` / `[65]` unmoved.
+- [x] Catalog **77**; no `guests.search` / `merge` / `update_consent` / `get_profile` command ids; audit writers **52**; `PLATFORM_GAPS` [].
+- [x] Org v7 `guest_blind_index` only; **no PropertyDO table**; purge list unchanged; `NIGHT_AUDIT_STEPS` 7; no new `export class`.
+- [x] Search is POST-body equality + tokens; list is GET cursor; stays are PropertyDO-only; `[42]` reused for contact.
+- [x] Nav Guests `/guests` order 36. Profile compose. Chip links. Wizard find-existing. Exception href flipped.
+- [x] Guest reads `FAIL_CLOSED`. No `READ_STALE` reclass. No WebSocket work. No ui-kit. No merge / consent UI.
+- [x] Tests spec §15 green. Pointers Task 7 landed.
 
 ---
 

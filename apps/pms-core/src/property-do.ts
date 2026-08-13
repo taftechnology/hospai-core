@@ -164,6 +164,7 @@ import {
   assertPostedMatches,
   computeTax,
   currencyCode,
+  ledgerToTxn,
   money,
   postToLedger,
   InvalidFxRateError,
@@ -12465,26 +12466,47 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const holds = this.ctx.storage.sql
       .exec(
-        `SELECT payment_id, amount_minor FROM payment
+        `SELECT payment_id, amount_minor, currency FROM payment
          WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY' AND tender_type = 'CARD'
          ORDER BY created_at ASC, payment_id ASC`,
         reservationId,
       )
-      .toArray() as Array<{ payment_id: string; amount_minor: number }>;
+      .toArray() as Array<{ payment_id: string; amount_minor: number; currency: string }>;
+
+    const ledger = this.readStoredLedgerCurrencySync();
+    if (!ledger) throw new Error(CURRENCY_UNSET);
 
     const captured: string[] = [];
     for (const hold of holds) {
       if (remaining <= 0) break;
-      const amountMinor = Math.min(hold.amount_minor, remaining);
+      const now = Date.now();
+      const txnCurrency = currencyCode(hold.currency);
+      const rate =
+        txnCurrency === ledger
+          ? '1'
+          : this.lookupFxRateSync(txnCurrency, ledger, now)?.rate;
+      if (!rate) continue;
+      const availableLedger = postToLedger(
+        money(hold.amount_minor, txnCurrency),
+        ledger,
+        rate,
+        now,
+      ).ledgerAmountMinor;
+      const takeLedger = Math.min(availableLedger, remaining);
+      const takeTxn =
+        takeLedger === availableLedger
+          ? hold.amount_minor
+          : ledgerToTxn(takeLedger, txnCurrency, ledger, rate);
+      if (takeTxn <= 0) continue;
       const result = await this.tryCapturePayment(
         actor,
         {
           paymentId: hold.payment_id,
-          amountMinor,
+          amountMinor: takeTxn,
           idempotencyKey: `capture-due:${hold.payment_id}`,
           captureFingerprint: await fingerprintPayload({
             paymentId: hold.payment_id,
-            amountMinor,
+            amountMinor: takeTxn,
             source: 'capture_due',
           }),
         },
@@ -12492,7 +12514,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
       if (result.ok) {
         captured.push(hold.payment_id);
-        remaining -= result.capturedAmountMinor;
+        const posted = this.ctx.storage.sql
+          .exec(
+            `SELECT ledger_amount_minor FROM folio_line WHERE folio_line_id = ?`,
+            `${hold.payment_id}:capture`,
+          )
+          .toArray() as Array<{ ledger_amount_minor: number }>;
+        remaining -= Math.abs(Number(posted[0]?.ledger_amount_minor ?? 0));
       } else if (opts?.throwOnFailure) {
         throw new Error(result.error);
       }

@@ -314,4 +314,54 @@ describe('folio FX payments — authorize / capture / cash / refund', () => {
     const folio = await stub.readFolio(reservationId);
     expect(folio.ok && folio.lines.filter((l) => l.folioLineId === `${paymentId}:capture`)).toHaveLength(1);
   });
+
+  it('17: capture_due takes a partial EUR hold against ledger remaining', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    await createEurRate(stub);
+    const room = {
+      folioLineId: crypto.randomUUID(),
+      reservationId,
+      chargeCode: 'ROOM',
+      amountMinor: 5000,
+    };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, room, await idemFor('room-due', room))).toMatchObject({
+      ok: true,
+    });
+    const stayId = `pay_${crypto.randomUUID()}`;
+    const damageId = `pay_${crypto.randomUUID()}`;
+    expect(await authorizeEur(stub, reservationId, stayId, 10000)).toMatchObject({ ok: true });
+    const damageBody = {
+      paymentId: damageId,
+      reservationId,
+      amountMinor: 8000,
+      currency: 'EUR',
+      purpose: 'DAMAGE' as const,
+    };
+    expect(
+      await stub.tryAuthorizePayment(TEST_OWNER_ACTOR, {
+        ...damageBody,
+        idempotencyKey: `idem-${damageId}`,
+        requestFingerprint: await fingerprintPayload(damageBody),
+      }),
+    ).toMatchObject({ ok: true });
+
+    expect(
+      await stub.tryCaptureDueHolds(
+        TEST_OWNER_ACTOR,
+        { reservationId },
+        await idemFor(`due-${reservationId}`, { reservationId }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok).toBe(true);
+    if (!folio.ok) throw new Error('folio');
+    expect(Math.abs(folio.balanceMinor)).toBeLessThanOrEqual(1);
+    const stay = await stub.readPayment(stayId);
+    expect(stay.ok && stay.payment.status).toBe('captured');
+    const damage = await stub.readPayment(damageId);
+    expect(damage.ok && damage.payment.status).toBe('authorized');
+  });
 });

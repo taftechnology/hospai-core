@@ -307,6 +307,99 @@ describe('reservation check-out', () => {
     const pay = await stub.readPayment('pay_34ac');
     expect(pay.ok && pay.payment.status).toBe('authorized');
   });
+
+  it('18: auto_capture on, foreign STAY hold covers balance → captured; provisional stays skipped', async () => {
+    const name = `co-18-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    await stayCheckedIn(stub, guestRef, 'res_18fx', 'rm_18fx', arrival, departure);
+    await enableAutoCaptureAllowBalance(stub, '18fx');
+    const rate = {
+      quoteId: crypto.randomUUID(),
+      fromCurrency: 'EUR',
+      toCurrency: 'USD',
+      rate: '1.10',
+      effectiveFrom: Date.now(),
+    };
+    expect(await stub.tryCreateFxRate(TEST_OWNER_ACTOR, rate, await idemFor(`fx-${rate.quoteId}`, rate))).toMatchObject({
+      ok: true,
+    });
+    const line = {
+      folioLineId: 'fl_18fx',
+      reservationId: 'res_18fx',
+      chargeCode: 'MISC',
+      amountMinor: 11000,
+    };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('fl18fx', line))).toMatchObject({
+      ok: true,
+    });
+    const authBody = {
+      paymentId: 'pay_18fx',
+      reservationId: 'res_18fx',
+      amountMinor: 10000,
+      currency: 'EUR',
+    };
+    expect(
+      await stub.tryAuthorizePayment(TEST_OWNER_ACTOR, {
+        ...authBody,
+        idempotencyKey: 'idem-pay_18fx',
+        requestFingerprint: await fingerprintPayload(authBody),
+        purpose: 'STAY',
+      }),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    const idem = await idemFor('co18fx', { reservationId: 'res_18fx' });
+    const result = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_18fx' }, idem);
+    expect(result).toMatchObject({ ok: true, autoCapture: 'captured' });
+    const pay = await stub.readPayment('pay_18fx');
+    expect(pay.ok && pay.payment.status).toBe('captured');
+    const replay = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_18fx' }, idem);
+    expect(replay).toMatchObject({ ok: true, autoCapture: 'captured' });
+
+    const nameProv = `co-18p-${crypto.randomUUID()}`;
+    const { stub: stubP, guestRef: guestP } = await provisionedPropertyWithGuest(nameProv);
+    const addedP = await addRoomType(stubP, 'rt_king', 5);
+    const arrivalP = addedP.fromDate;
+    await stayCheckedIn(stubP, guestP, 'res_18p', 'rm_18p', arrivalP, addCalendarDays(arrivalP, 1));
+    await enableAutoCaptureAllowBalance(stubP, '18p');
+    expect(
+      await stubP.tryCreateFxRate(TEST_OWNER_ACTOR, rate, await idemFor(`fxp-${rate.quoteId}`, rate)),
+    ).toMatchObject({ ok: true });
+    const lineP = {
+      folioLineId: 'fl_18p',
+      reservationId: 'res_18p',
+      chargeCode: 'MISC',
+      amountMinor: 11000,
+    };
+    expect(await stubP.tryAddFolioLine(TEST_OWNER_ACTOR, lineP, await idemFor('fl18p', lineP))).toMatchObject({
+      ok: true,
+    });
+    const authP = {
+      paymentId: 'pay_18p',
+      reservationId: 'res_18p',
+      amountMinor: 10000,
+      currency: 'EUR',
+    };
+    expect(
+      await stubP.tryAuthorizePayment(TEST_OWNER_ACTOR, {
+        ...authP,
+        idempotencyKey: 'idem-pay_18p',
+        requestFingerprint: await fingerprintPayload(authP),
+        purpose: 'STAY',
+      }),
+    ).toMatchObject({ ok: true });
+    const prov = await stubP.tryCheckOut(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_18p' },
+      await idemFor('co18p', { reservationId: 'res_18p' }),
+      { issuedAt: new Date().toISOString(), businessDate: arrivalP },
+    );
+    expect(prov).toMatchObject({ ok: true, autoCapture: 'skipped' });
+    const payP = await stubP.readPayment('pay_18p');
+    expect(payP.ok && payP.payment.status).toBe('authorized');
+  });
 });
 
 async function enableAutoCaptureAllowBalance(

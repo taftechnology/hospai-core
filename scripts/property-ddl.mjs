@@ -66,6 +66,7 @@ if (process.argv.includes('--self-test')) {
   let FRONT_DESK_READS_V18_SQL;
   let NIGHT_AUDIT_E2E_V19_SQL;
   let RESERVATION_LIFECYCLE_V20_SQL;
+  let FOLIO_MONEY_OPS_V21_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -99,6 +100,7 @@ if (process.argv.includes('--self-test')) {
       FRONT_DESK_READS_V18_SQL,
       NIGHT_AUDIT_E2E_V19_SQL,
       RESERVATION_LIFECYCLE_V20_SQL,
+      FOLIO_MONEY_OPS_V21_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -309,6 +311,16 @@ const doPropertyTargets = [
 
 `,
     sql: RESERVATION_LIFECYCLE_V20_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0021_folio_money_ops.sql'),
+    header: `-- PropertyDO folio money ops — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: PRAGMA OFF → folio_window rebuild → payment rebuild → no_post → reservation_rate_night → seeds → PRAGMA ON.
+
+`,
+    sql: FOLIO_MONEY_OPS_V21_SQL,
   },
 ];
 

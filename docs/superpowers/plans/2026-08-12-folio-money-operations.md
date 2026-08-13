@@ -257,7 +257,7 @@ EOF
 - Consumes: Task 1 (nothing runtime — schema only)
 - **Forbidden:** DO command methods, HTTP routes.
 
-- [ ] **Step 1: Write the failing head + sqlite tests**
+- [x] **Step 1: Write the failing head + sqlite tests**
 
 `migrate.test.ts`:
 
@@ -309,13 +309,13 @@ it('v21 CHECKs accept voided/CLOSED and reject BOGUS', () => {
 
 Payment insert must include NOT NULL columns after rebuild (`purpose` defaults `STAY`; `tender_type` defaults `CARD`). Adjust the INSERT list to match the rebuilt table.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/folio-money-ops-migration.sqlite.test.ts`
 
 Expected: FAIL — head still 20 / missing file.
 
-- [ ] **Step 3: Land v21 statements**
+- [x] **Step 3: Land v21 statements**
 
 Keep the wrap **exactly** as spec §9: first statement `PRAGMA foreign_keys = OFF`, last `PRAGMA foreign_keys = ON`.
 
@@ -344,7 +344,7 @@ Export `FOLIO_MONEY_OPS_V21_SQL` from `property-migrations.ts` and `index.ts`.
 
 `scripts/property-ddl.mjs`: destructure `FOLIO_MONEY_OPS_V21_SQL`; append a `doPropertyTargets` row for `migrations/do-property/0021_folio_money_ops.sql` (header ORDER: PRAGMA OFF → folio_window rebuild → payment rebuild → no_post → reservation_rate_night → seeds → PRAGMA ON).
 
-- [ ] **Step 4: generate DDL and run tests**
+- [x] **Step 4: generate DDL and run tests**
 
 ```bash
 pnpm --filter @hospai/do-runtime build
@@ -355,7 +355,7 @@ pnpm check:ddl
 
 Expected: PASS. On-disk `0021_*.sql` matches `FOLIO_MONEY_OPS_V21_SQL`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts \

@@ -34,6 +34,7 @@ import {
   FRONT_DESK_READS_V18_SQL,
   NIGHT_AUDIT_E2E_V19_SQL,
   RESERVATION_LIFECYCLE_V20_SQL,
+  FOLIO_MONEY_OPS_V21_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -143,6 +144,14 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO reservation_v20')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation_v20 RENAME TO reservation')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE rate_plan ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('PRAGMA foreign_keys')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO folio_window_v21')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE folio_window')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_window_v21 RENAME TO folio_window')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO payment_v21')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE payment')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE payment_v21 RENAME TO payment')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (
       q.startsWith('ALTER TABLE member ADD COLUMN updated_at') ||
       q.startsWith('ALTER TABLE member ADD COLUMN updated_by') ||
@@ -162,15 +171,15 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 20', () => {
+  it('applies property migrations through version 21', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(20);
+    expect(v1).toBe(21);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(20);
-    expect(sql.schemaVersion).toHaveLength(20);
+    expect(v2).toBe(21);
+    expect(sql.schemaVersion).toHaveLength(21);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -381,6 +390,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(RESERVATION_LIFECYCLE_V20_SQL.trim());
   });
 
+  it('migrations/do-property/0021_folio_money_ops.sql matches FOLIO_MONEY_OPS_V21_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0021_folio_money_ops.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(FOLIO_MONEY_OPS_V21_SQL.trim());
+  });
+
   it('migrations/do-property/0019_night_audit_e2e.sql matches NIGHT_AUDIT_E2E_V19_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/do-property/0019_night_audit_e2e.sql');
@@ -538,7 +559,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(20);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(21);
     expect(ORG_SCHEMA_HEAD).toBe(6);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -551,10 +572,20 @@ describe('schema head constants', () => {
   });
 
   it('property schema head is 20 after reservation lifecycle', () => {
-    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(20);
     const v20 = PROPERTY_MIGRATIONS.find((m) => m.version === 20);
     expect(v20?.name).toBe('reservation_lifecycle');
     expect(v20?.statements.some((s) => s.includes('reservation_v20'))).toBe(true);
     expect(v20?.statements.some((s) => s.includes('CANCEL'))).toBe(true);
+  });
+
+  it('property schema head is 21 after folio money ops', () => {
+    expect(PROPERTY_SCHEMA_HEAD).toBe(21);
+    expect(Math.max(...PROPERTY_MIGRATIONS.map((m) => m.version))).toBe(21);
+    const v21 = PROPERTY_MIGRATIONS.find((m) => m.version === 21);
+    expect(v21?.name).toBe('folio_money_ops');
+    expect(v21?.statements.some((s) => s.includes('folio_window_v21'))).toBe(true);
+    expect(v21?.statements.some((s) => s.includes('reservation_rate_night'))).toBe(true);
+    expect(v21?.statements[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
+    expect(v21?.statements.at(-1)).toMatch(/PRAGMA foreign_keys = ON/i);
   });
 });

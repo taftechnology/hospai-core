@@ -12,6 +12,7 @@ import {
   ORG_PROPERTY_MEMBER_SQL,
   ORG_MEMBER_AUDIT_COLUMNS_SQL,
   ORG_ROSTER_SQL,
+  ORG_GUEST_BLIND_INDEX_SQL,
   ORG_SCHEMA_HEAD,
   ORG_SPINE_SQL,
   PLATFORM_REGISTRY_SQL,
@@ -535,6 +536,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_ROSTER_SQL.trim());
   });
 
+  it('migrations/do-org/0007_guest_blind_index.sql matches ORG_GUEST_BLIND_INDEX_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0007_guest_blind_index.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_GUEST_BLIND_INDEX_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -571,7 +584,7 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(6);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(7);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -585,7 +598,7 @@ describe('freeAvailability', () => {
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(25);
-    expect(ORG_SCHEMA_HEAD).toBe(6);
+    expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 

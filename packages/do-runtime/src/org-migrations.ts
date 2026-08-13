@@ -168,6 +168,21 @@ END`,
 
 export const ORG_ROSTER_SQL = ORG_ROSTER_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ORG_GUEST_BLIND_INDEX_STATEMENTS: string[] = [
+  `CREATE TABLE guest_blind_index (
+  guest_id    TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('name', 'name_token', 'email', 'phone')),
+  index_hash  BLOB NOT NULL,
+  PRIMARY KEY (kind, index_hash, guest_id),
+  FOREIGN KEY (guest_id) REFERENCES guest(guest_id)
+)`,
+
+  `CREATE INDEX guest_blind_index_lookup
+  ON guest_blind_index (kind, index_hash)`,
+];
+
+export const ORG_GUEST_BLIND_INDEX_SQL = ORG_GUEST_BLIND_INDEX_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -198,5 +213,10 @@ export const ORG_MIGRATIONS = [
     version: 6,
     name: '0006_roster',
     statements: ORG_ROSTER_STATEMENTS,
+  },
+  {
+    version: 7,
+    name: '0007_guest_blind_index',
+    statements: ORG_GUEST_BLIND_INDEX_STATEMENTS,
   },
 ] as const;

@@ -12,6 +12,7 @@ describe('module UI nav merge', () => {
       'book',
       'staff',
       'roster',
+      'night-audit',
     ]);
     expect(NAV_ENTRIES.every((e) => typeof e.order === 'number')).toBe(true);
   });

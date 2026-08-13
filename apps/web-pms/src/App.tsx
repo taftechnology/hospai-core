@@ -9,6 +9,7 @@ import { FolioScreen } from './screens/FolioScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
 import { StaffRoute } from './screens/StaffRoute.js';
 import { RosterRoute } from './screens/RosterRoute.js';
+import { NightAuditRoute } from './screens/NightAuditRoute.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
 import { AppShell } from './shell/AppShell.js';
 
@@ -39,6 +40,7 @@ export function App() {
             <Route path="book" element={<BookRoute />} />
             <Route path="staff" element={<StaffRoute />} />
             <Route path="roster" element={<RosterRoute />} />
+            <Route path="night-audit" element={<NightAuditRoute />} />
             <Route path="housekeeping/*" element={<HousekeepingScreen />} />
           </Route>
           <Route path="sign-in" element={<p className="main">Sign in required</p>} />

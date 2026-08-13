@@ -38,6 +38,8 @@ export {
   type ReservationRead,
   type FolioPaymentRow,
   type AvailabilityRead,
+  type NightAuditStatus,
+  type NightAuditStepStatus,
 } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
 export { permissionForForbidden } from './permission-copy.js';

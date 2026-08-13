@@ -86,6 +86,26 @@ export type AvailabilityRead = {
   }>;
 };
 
+export type NightAuditStepStatus = {
+  step: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  attempt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  error: string | null;
+};
+
+export type NightAuditStatus = {
+  ok: true;
+  businessDate: string;
+  timelineDate: string;
+  halted: boolean;
+  pendingOpenCount: number;
+  closingExceptionCount: number;
+  steps: NightAuditStepStatus[];
+  reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
+};
+
 function enc(s: string): string {
   return encodeURIComponent(s);
 }
@@ -812,6 +832,59 @@ export function createClient(opts: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ idempotencyKey }),
       });
+    },
+    async getNightAudit(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/night-audit`);
+      return body as NightAuditStatus;
+    },
+    async getNightAuditReport(propertyId: string, businessDate: string, reportId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/night-audit/reports/${enc(businessDate)}/${enc(reportId)}`,
+      );
+      return body as Record<string, unknown>;
+    },
+    async runNightAudit(propertyId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/night-audit/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey }),
+      });
+    },
+    async retryNightAuditStep(
+      propertyId: string,
+      input: { businessDate: string; step: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/night-audit/retry`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          idempotencyKey,
+          businessDate: input.businessDate,
+          step: input.step,
+        }),
+      });
+    },
+    async resolveNightAuditHalt(propertyId: string, businessDate: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/night-audit/resolve-halt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey, businessDate }),
+      });
+    },
+    async resolveProvisionalException(propertyId: string, exceptionId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/provisional-exceptions/${enc(exceptionId)}/resolve`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
     },
     async assignHousekeeping(
       propertyId: string,

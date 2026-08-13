@@ -240,9 +240,11 @@ button {
   margin-bottom: 1rem;
 }
 
-.board-title {
-  margin: 0;
-  text-transform: capitalize;
+.board-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: center;
 }
 
 .board-group {

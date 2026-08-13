@@ -1,0 +1,34 @@
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { shouldRetry, retryDelay } from '@hospai/client-core';
+import { api, asClassified, tenant } from '../client.js';
+import { statusClass } from '../status/status-class.js';
+
+export function BoardSummary({ date }: { date: string | null }) {
+  const summaryQ = useQuery({
+    queryKey: ['front-desk-summary', tenant.propertyId, date],
+    queryFn: () => api.getFrontOfficeSummary(tenant.propertyId, date!),
+    enabled: date != null,
+    retry: (n, err) => n < 2 && shouldRetry(asClassified(err)),
+    retryDelay: (n, err) => retryDelay(asClassified(err), n),
+  });
+
+  if (!date || !summaryQ.data) return null;
+  const s = summaryQ.data;
+
+  return (
+    <div data-testid="board-summary" className="board-summary tabular-nums">
+      <Link to={`/arrivals?date=${encodeURIComponent(date)}`}>Arrivals {s.arrivals}</Link>
+      <Link to={`/departures?date=${encodeURIComponent(date)}`}>Due out {s.departuresDue}</Link>
+      <Link to="/in-house">In-house {s.inHouse}</Link>
+      {s.overstay > 0 ? (
+        <span data-testid="board-summary-overstay" className={statusClass('exception')}>
+          Overstay {s.overstay}
+        </span>
+      ) : null}
+      <span>
+        Occupancy {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}
+      </span>
+    </div>
+  );
+}

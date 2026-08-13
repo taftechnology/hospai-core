@@ -5,6 +5,7 @@ import { asClassified } from './client.js';
 import { BookRoute } from './screens/BookRoute.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
+import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
@@ -41,6 +42,7 @@ export function App() {
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />
+            <Route path="reservations" element={<ReservationsDirectoryScreen />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="shift" element={<ShiftScreen />} />

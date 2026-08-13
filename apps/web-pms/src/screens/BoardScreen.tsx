@@ -18,6 +18,7 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { guestLabel } from './guest-row.js';
+import { BoardSummary } from './board-summary.js';
 
 export type { BoardMode };
 
@@ -285,6 +286,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             />
           </label>
         ) : null}
+        <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
       </header>
 
       {createdBanner ? (

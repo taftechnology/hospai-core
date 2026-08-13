@@ -51,6 +51,7 @@ describe('me authority helpers', () => {
     );
     const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
     expect(ids).toContain('board');
+    expect(ids).toContain('reservations');
   });
 
   it('filterNavEntries: live with reservations:write → includes Book', () => {

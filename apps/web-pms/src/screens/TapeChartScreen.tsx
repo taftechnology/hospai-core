@@ -19,6 +19,7 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { guestLabel } from './guest-row.js';
+import { BoardSummary } from './board-summary.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -119,6 +120,7 @@ export function TapeChartScreen() {
   const navigate = useNavigate();
   const fromParam = dateFromSearchParam(params.get('from'));
   const toParam = dateFromSearchParam(params.get('to'));
+  const view = params.get('view') === 'available' ? 'available' : 'tape';
   const [from, setFrom] = useState<string | null>(() => fromParam);
   const [to, setTo] = useState<string | null>(() => toParam);
   const seededRef = useRef(Boolean(fromParam && toParam));
@@ -138,19 +140,35 @@ export function TapeChartScreen() {
     seededRef.current = true;
     setFrom(seededFrom);
     setTo(seededTo);
-    navigate({ search: `?from=${seededFrom}&to=${seededTo}` }, { replace: true });
-  }, [fromParam, toParam, timeZone, navigate]);
+    navigate({ search: windowSearch(seededFrom, seededTo, view) }, { replace: true });
+  }, [fromParam, toParam, timeZone, navigate, view]);
+
+  function windowSearch(nextFrom: string, nextTo: string, nextView: 'tape' | 'available'): string {
+    const sp = new URLSearchParams();
+    sp.set('from', nextFrom);
+    sp.set('to', nextTo);
+    if (nextView === 'available') sp.set('view', 'available');
+    return `?${sp.toString()}`;
+  }
 
   function writeWindow(nextFrom: string, nextTo: string) {
     setFrom(nextFrom);
     setTo(nextTo);
-    navigate({ search: `?from=${nextFrom}&to=${nextTo}` }, { replace: true });
+    navigate({ search: windowSearch(nextFrom, nextTo, view) }, { replace: true });
   }
 
   const tapeQ = useQuery({
     queryKey: ['front-desk-tape', tenant.propertyId, from, to],
     queryFn: () => api.getFrontOfficeTape(tenant.propertyId, { fromDate: from!, toDate: to! }),
-    enabled: from != null && to != null,
+    enabled: view === 'tape' && from != null && to != null,
+    retry: (n, err) => n < 2 && shouldRetry(asClassified(err)),
+    retryDelay: (n, err) => retryDelay(asClassified(err), n),
+  });
+
+  const availableQ = useQuery({
+    queryKey: ['front-desk-available', tenant.propertyId, from, to],
+    queryFn: () => api.getAvailableRooms(tenant.propertyId, { fromDate: from!, toDate: to! }),
+    enabled: view === 'available' && from != null && to != null,
     retry: (n, err) => n < 2 && shouldRetry(asClassified(err)),
     retryDelay: (n, err) => retryDelay(asClassified(err), n),
   });
@@ -158,7 +176,7 @@ export function TapeChartScreen() {
   const typesQ = useQuery({
     queryKey: ['room-types', tenant.propertyId],
     queryFn: () => api.listRoomTypes(tenant.propertyId, { status: 'active' }),
-    enabled: tapeQ.isSuccess,
+    enabled: tapeQ.isSuccess || availableQ.isSuccess,
     retry: false,
   });
 
@@ -174,9 +192,11 @@ export function TapeChartScreen() {
     retry: false,
   });
 
-  if (tapeQ.isError) {
-    const c = asClassified(tapeQ.error);
-    if (c.class === 'fail_closed' || tapeQ.error instanceof ClassifiedError) {
+  const activeError = view === 'available' ? availableQ.error : tapeQ.error;
+  const activeIsError = view === 'available' ? availableQ.isError : tapeQ.isError;
+  if (activeIsError && activeError) {
+    const c = asClassified(activeError);
+    if (c.class === 'fail_closed' || activeError instanceof ClassifiedError) {
       return (
         <div className="error" role="alert">
           Property unreachable — board cannot load. This is not an empty day.
@@ -222,8 +242,46 @@ export function TapeChartScreen() {
   }
 
   let body: ReactNode;
-  if (from == null || to == null || tapeQ.isLoading) {
+  if (from == null || to == null || (view === 'tape' ? tapeQ.isLoading : availableQ.isLoading)) {
     body = <p className="muted">Loading…</p>;
+  } else if (view === 'available') {
+    const free = availableQ.data?.rooms ?? [];
+    if (free.length === 0) {
+      body = (
+        <div>
+          <p className="muted">No rooms free for these dates.</p>
+          <Link to="/book">Book</Link>
+        </div>
+      );
+    } else {
+      const availGroups: Array<{ typeId: string; rooms: typeof free }> = [];
+      const availSeen = new Set<string>();
+      for (const r of free) {
+        if (availSeen.has(r.roomTypeId)) continue;
+        availSeen.add(r.roomTypeId);
+        availGroups.push({
+          typeId: r.roomTypeId,
+          rooms: free.filter((x) => x.roomTypeId === r.roomTypeId),
+        });
+      }
+      body = (
+        <div>
+          <Link to="/book">Book</Link>
+          {availGroups.map((g) => (
+            <section key={g.typeId}>
+              <h2 className="tape-type">{typeLabel(g.typeId, typeRows)}</h2>
+              <ul>
+                {g.rooms.map((r) => (
+                  <li key={r.roomId}>
+                    {r.code} <span className="badge">{r.status}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      );
+    }
   } else if (rooms.length === 0) {
     body = <p className="muted">No rooms yet — create rooms in Inventory.</p>;
   } else {
@@ -328,6 +386,11 @@ export function TapeChartScreen() {
     <div>
       <header className="board-header">
         <h1 className="board-title">Board</h1>
+        <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
+        <Link to={from && to ? windowSearch(from, to, 'available') : '/board?view=available'}>
+          Available
+        </Link>
+        <BoardSummary date={today} />
         <label>
           From{' '}
           <input

@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getFrontOfficeTape = vi.fn();
 const postGuestsBatch = vi.fn();
 const listRoomTypes = vi.fn();
+const getAvailableRooms = vi.fn();
+const getFrontOfficeSummary = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -26,6 +28,8 @@ vi.mock('../client.js', () => ({
     getFrontOfficeTape: (...args: unknown[]) => getFrontOfficeTape(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
+    getAvailableRooms: (...args: unknown[]) => getAvailableRooms(...args),
+    getFrontOfficeSummary: (...args: unknown[]) => getFrontOfficeSummary(...args),
   },
 }));
 
@@ -120,6 +124,24 @@ describe('TapeChartScreen', () => {
     listRoomTypes.mockResolvedValue({
       ok: true,
       roomTypes: [{ roomTypeId: 'rt_king', code: 'KNG', name: 'King' }],
+    });
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-13',
+      toDate: '2026-08-19',
+      asOf: 1,
+      rooms: [],
+    });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 0,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
     });
   });
 
@@ -244,5 +266,48 @@ describe('TapeChartScreen', () => {
     expect(src).toContain('<Navigate to="/board" replace />');
     expect(src).toContain('path="board"');
     expect(src).toContain('<TapeChartScreen');
+  });
+
+  it('available view lists free rooms and Book links to /book', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-13',
+      toDate: '2026-08-19',
+      asOf: 1,
+      rooms: [room],
+    });
+    renderTape({
+      pathname: '/board',
+      search: '?view=available&from=2026-08-13&to=2026-08-19',
+    });
+    await waitFor(() => expect(screen.getByText('101')).toBeTruthy());
+    expect(
+      getAvailableRooms.mock.calls.some(
+        (c) =>
+          (c[1] as { fromDate: string; toDate: string }).fromDate === '2026-08-13' &&
+          (c[1] as { fromDate: string; toDate: string }).toDate === '2026-08-19',
+      ),
+    ).toBe(true);
+    expect(screen.getByRole('link', { name: /^Book$/i }).getAttribute('href')).toBe('/book');
+  });
+
+  it('available view empty copy', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-13',
+      toDate: '2026-08-19',
+      asOf: 1,
+      rooms: [],
+    });
+    renderTape({
+      pathname: '/board',
+      search: '?view=available&from=2026-08-13&to=2026-08-19',
+    });
+    await waitFor(() => expect(screen.getByText('No rooms free for these dates.')).toBeTruthy());
+  });
+
+  it('tape header mounts board-summary', async () => {
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
   });
 });

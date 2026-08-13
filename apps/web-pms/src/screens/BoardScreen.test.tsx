@@ -8,6 +8,7 @@ const getDepartures = vi.fn();
 const getInHouse = vi.fn();
 const postGuestsBatch = vi.fn();
 const confirmReservation = vi.fn();
+const getFrontOfficeSummary = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -23,6 +24,7 @@ vi.mock('../client.js', () => ({
     getInHouse: (...args: unknown[]) => getInHouse(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     confirmReservation: (...args: unknown[]) => confirmReservation(...args),
+    getFrontOfficeSummary: (...args: unknown[]) => getFrontOfficeSummary(...args),
   },
 }));
 
@@ -97,6 +99,17 @@ describe('BoardScreen folio links', () => {
       states: { g1: { kind: 'name_pending' } },
     });
     confirmReservation.mockResolvedValue({ reservationId: 'res_pend', status: 'confirmed' });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
+    });
   });
 
   afterEach(() => cleanup());
@@ -184,6 +197,12 @@ describe('BoardScreen folio links', () => {
       expect((screen.getByTestId('board-date') as HTMLInputElement).value).toBe('2026-09-14');
     });
     expect(getArrivals.mock.calls.some((c) => c[1] === '2026-09-14')).toBe(true);
+  });
+
+  it('header contains board-summary', async () => {
+    renderBoard('arrivals', { pathname: '/arrivals', search: '?date=2026-08-13' });
+    await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
+    expect(getFrontOfficeSummary.mock.calls.some((c) => c[1] === '2026-08-13')).toBe(true);
   });
 
   it('in-house does not wait on date', async () => {

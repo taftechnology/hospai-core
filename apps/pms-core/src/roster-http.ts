@@ -18,14 +18,18 @@ export type RosterHttpRow = RosterOperational & {
   skills?: string[];
 };
 
-/** Vitest-only override — avoids vi.mock in the Workers pool. */
+/** Vitest-only override — avoids vi.mock in the Workers pool. Applied only when `HOSPAI_UNSAFE_LOCAL=1`. */
 let rosterGrantsOverrideForTest: readonly Permission[] | null = null;
 
 export function __setRosterGrantsForTest(grants: readonly Permission[] | null): void {
   rosterGrantsOverrideForTest = grants;
 }
 
-export function effectiveRosterGrants(roleGrants: readonly Permission[]): readonly Permission[] {
+export function effectiveRosterGrants(
+  roleGrants: readonly Permission[],
+  env: { HOSPAI_UNSAFE_LOCAL?: string },
+): readonly Permission[] {
+  if (env.HOSPAI_UNSAFE_LOCAL !== '1') return roleGrants;
   return rosterGrantsOverrideForTest ?? roleGrants;
 }
 

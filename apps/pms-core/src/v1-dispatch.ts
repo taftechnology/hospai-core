@@ -1171,9 +1171,10 @@ async function rosterGrants(
   org: DurableObjectStub<OrgDO>,
   userId: string,
   propertyId: string,
+  env: PmsEnv,
 ): Promise<readonly Permission[]> {
   const role = await org.getEffectiveRole(userId, propertyId);
-  return effectiveRosterGrants(role ? ROLE_GRANTS[role] : []);
+  return effectiveRosterGrants(role ? ROLE_GRANTS[role] : [], env);
 }
 
 function parseRosterProfile(body: RosterHttpBody): ReturnType<typeof profileFromHttpBody> | Response {
@@ -1205,7 +1206,7 @@ async function handleGetRoster(ctx: V1DispatchContext): Promise<Response> {
       }
       return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
     }
-    const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+    const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
     const kind = ctx.url.searchParams.get('kind');
     const staff = result.staff
       .filter((row) => !kind || row.kinds.includes(kind))
@@ -1239,7 +1240,7 @@ async function handleGetRosterOne(ctx: V1DispatchContext): Promise<Response> {
       }
       return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
     }
-    const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+    const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
     return rosterGetJson({ ok: true, ...stripRosterRow(grants, result) }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e)) return rosterGetDegraded();
@@ -1264,7 +1265,7 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+  const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
   if (compensationWriteDenied(grants, body)) {
     const permission: Permission = 'roster:compensation';
     return json({ error: 'forbidden', permission }, 403);
@@ -1317,7 +1318,7 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const grants = await rosterGrants(org, ctx.actor.userId, propertyId);
+  const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
   if (compensationWriteDenied(grants, body)) {
     const permission: Permission = 'roster:compensation';
     return json({ error: 'forbidden', permission }, 403);

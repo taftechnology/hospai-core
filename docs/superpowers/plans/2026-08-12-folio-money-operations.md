@@ -619,13 +619,13 @@ EOF
 - Consumes: Task 3 gate; Task 1 catalog ids; config keys
 - Also: `assertUnsafeLocal` on `createFolioWindow` (spec §1.1 / nit 2) now that `open_window` is the real path.
 
-- [ ] **Step 1: Write the failing tests** for 1–6, 8–14 (7 already green from Task 3). Cover default check-out leaves OPEN; config true + zero closes; override with balance stays OPEN; in-house GUEST close → `WINDOW_NOT_CLOSABLE`; reopen; COMPANY close while in-house; staff 403 on close (`gatePermission` `folio:adjust`).
+- [x] **Step 1: Write the failing tests** for 1–6, 8–14 (7 already green from Task 3). Cover default check-out leaves OPEN; config true + zero closes; override with balance stays OPEN; in-house GUEST close → `WINDOW_NOT_CLOSABLE`; reopen; COMPANY close while in-house; staff 403 on close (`gatePermission` `folio:adjust`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-windows.spec.ts`
 
-- [ ] **Step 3: Implement window commands**
+- [x] **Step 3: Implement window commands**
 
 `tryOpenFolioWindow`: kind `COMPANY` | `MASTER` only; GUEST → `GUEST_WINDOW_NOT_OPENABLE`. Deterministic ids per spec §3.6. Inquiry → `WINDOW_NOT_OPENABLE`. Idempotent via `runIdempotent` + deterministic PK.
 

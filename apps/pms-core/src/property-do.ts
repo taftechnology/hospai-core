@@ -39,6 +39,11 @@ import {
   ROOM_NOT_READY,
   BALANCE_DUE,
   WINDOW_CLOSED,
+  WINDOW_NOT_CLOSABLE,
+  WINDOW_BALANCE_DUE,
+  WINDOW_NOT_REOPENABLE,
+  WINDOW_NOT_OPENABLE,
+  GUEST_WINDOW_NOT_OPENABLE,
   RATE_PLAN_NOT_FOUND,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
@@ -519,6 +524,31 @@ class WindowClosedError extends Error {
     super(WINDOW_CLOSED);
     this.name = 'WindowClosedError';
   }
+}
+
+class FolioWindowError extends Error {
+  constructor(
+    readonly code:
+      | typeof WINDOW_NOT_CLOSABLE
+      | typeof WINDOW_BALANCE_DUE
+      | typeof WINDOW_NOT_REOPENABLE
+      | typeof WINDOW_NOT_OPENABLE
+      | typeof GUEST_WINDOW_NOT_OPENABLE
+      | typeof NOT_FOUND,
+  ) {
+    super(code);
+    this.name = 'FolioWindowError';
+  }
+}
+
+/** Spec §3.6: lowercase `[a-z0-9]+`; other chars → `_`; collapse. */
+function billedPartySlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
 }
 
 class InvalidCancelPolicyError extends Error {
@@ -1668,6 +1698,43 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       Date.now(),
       folioWindowId,
     );
+  }
+
+  async readFolioWindowForTest(
+    folioWindowId: string,
+  ): Promise<{
+    folioWindowId: string;
+    reservationId: string;
+    kind: string;
+    status: string;
+    billedParty: string | null;
+    closedAt: number | null;
+  } | null> {
+    this.assertUnsafeLocal('readFolioWindowForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, reservation_id, kind, status, billed_party, closed_at
+         FROM folio_window WHERE folio_window_id = ?`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      folio_window_id: string;
+      reservation_id: string;
+      kind: string;
+      status: string;
+      billed_party: string | null;
+      closed_at: number | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      folioWindowId: row.folio_window_id,
+      reservationId: row.reservation_id,
+      kind: row.kind,
+      status: row.status,
+      billedParty: row.billed_party,
+      closedAt: row.closed_at,
+    };
   }
 
   private auditActorSync(actor: ActorContext): string {
@@ -6192,6 +6259,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
 
+          if (this.readConfigValueSync('pms.folio.close_window_on_check_out') === true && balanceMinor === 0) {
+            const guestWindowId = this.guestFolioWindowId(input.reservationId);
+            const guestWindow = this.readFolioWindowRowSync(guestWindowId);
+            if (guestWindow?.status === 'OPEN') {
+              this.closeFolioWindowSync(guestWindowId, now, propertyId, input.reservationId);
+            }
+          }
+
           return { ok: true as const, reservationId: input.reservationId };
         }),
       );
@@ -8610,6 +8685,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     reservationId: string;
     kind: 'GUEST' | 'COMPANY' | 'MASTER';
   }): Promise<void> {
+    this.assertUnsafeLocal('createFolioWindow');
     this.ctx.storage.sql.exec(
       `INSERT INTO folio_window (folio_window_id, reservation_id, kind, status)
        VALUES (?, ?, ?, 'OPEN')`,
@@ -8640,6 +8716,278 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ folio_window_id: string }>;
     return rows[0]!.folio_window_id;
+  }
+
+  private readFolioWindowRowSync(folioWindowId: string): {
+    folioWindowId: string;
+    reservationId: string;
+    kind: string;
+    status: string;
+    billedParty: string | null;
+    closedAt: number | null;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, reservation_id, kind, status, billed_party, closed_at
+         FROM folio_window WHERE folio_window_id = ?`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      folio_window_id: string;
+      reservation_id: string;
+      kind: string;
+      status: string;
+      billed_party: string | null;
+      closed_at: number | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      folioWindowId: row.folio_window_id,
+      reservationId: row.reservation_id,
+      kind: row.kind,
+      status: row.status,
+      billedParty: row.billed_party,
+      closedAt: row.closed_at,
+    };
+  }
+
+  private windowBalanceMinorSync(folioWindowId: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS balance FROM folio_line WHERE folio_window_id = ?`,
+        folioWindowId,
+      )
+      .toArray() as Array<{ balance: number }>;
+    return Number(rows[0]?.balance ?? 0);
+  }
+
+  private closeFolioWindowSync(
+    folioWindowId: string,
+    now: number,
+    propertyId: string,
+    reservationId: string,
+  ): void {
+    this.ctx.storage.sql.exec(
+      `UPDATE folio_window SET status = 'CLOSED', closed_at = ? WHERE folio_window_id = ?`,
+      now,
+      folioWindowId,
+    );
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'folio.window_closed',
+      payload: { propertyId, reservationId, folioWindowId },
+    });
+  }
+
+  async tryOpenFolioWindow(
+    actor: ActorContext,
+    input: { reservationId: string; kind: 'GUEST' | 'COMPANY' | 'MASTER'; billedParty?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; folioWindowId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof GUEST_WINDOW_NOT_OPENABLE }
+    | { ok: false; error: typeof WINDOW_NOT_OPENABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          if (input.kind === 'GUEST') throw new FolioWindowError(GUEST_WINDOW_NOT_OPENABLE);
+
+          const resRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+            .toArray() as Array<{ status: string }>;
+          const reservation = resRows[0];
+          if (!reservation) throw new FolioWindowError(NOT_FOUND);
+          if (reservation.status === 'inquiry') throw new FolioWindowError(WINDOW_NOT_OPENABLE);
+
+          let folioWindowId: string;
+          let billedParty: string | null = null;
+          if (input.kind === 'COMPANY') {
+            const raw = input.billedParty?.trim() ?? '';
+            if (!raw || raw.length > 128) throw new FolioWindowError(WINDOW_NOT_OPENABLE);
+            const slug = billedPartySlug(raw);
+            if (!slug) throw new FolioWindowError(WINDOW_NOT_OPENABLE);
+            folioWindowId = `${input.reservationId}:COMPANY:${slug}`;
+            billedParty = raw;
+          } else {
+            folioWindowId = `${input.reservationId}:MASTER`;
+          }
+
+          const existing = this.readFolioWindowRowSync(folioWindowId);
+          if (existing) return { ok: true as const, folioWindowId };
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO folio_window (folio_window_id, reservation_id, kind, billed_party, status)
+             VALUES (?, ?, ?, ?, 'OPEN')`,
+            folioWindowId,
+            input.reservationId,
+            input.kind,
+            billedParty,
+          );
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.window_opened',
+            payload: { propertyId, reservationId: input.reservationId, folioWindowId, kind: input.kind },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.open_window',
+            entityType: 'folio_window',
+            entityId: folioWindowId,
+            beforeJson: null,
+            afterJson: { folioWindowId, kind: input.kind, billedParty, status: 'OPEN' },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, folioWindowId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryCloseFolioWindow(
+    actor: ActorContext,
+    input: { folioWindowId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; alreadyClosed?: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof WINDOW_NOT_CLOSABLE }
+    | { ok: false; error: typeof WINDOW_BALANCE_DUE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const window = this.readFolioWindowRowSync(input.folioWindowId);
+          if (!window) throw new FolioWindowError(NOT_FOUND);
+          if (window.status === 'CLOSED') return { ok: true as const, alreadyClosed: true as const };
+
+          const balance = this.windowBalanceMinorSync(input.folioWindowId);
+          if (window.kind === 'GUEST') {
+            const resRows = this.ctx.storage.sql
+              .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, window.reservationId)
+              .toArray() as Array<{ status: string }>;
+            const status = resRows[0]?.status;
+            if (status !== 'checked_out' && status !== 'cancelled' && status !== 'no_show') {
+              throw new FolioWindowError(WINDOW_NOT_CLOSABLE);
+            }
+          }
+          if (balance !== 0) throw new FolioWindowError(WINDOW_BALANCE_DUE);
+
+          const now = Date.now();
+          this.closeFolioWindowSync(input.folioWindowId, now, propertyId, window.reservationId);
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.close_window',
+            entityType: 'folio_window',
+            entityId: input.folioWindowId,
+            beforeJson: { status: 'OPEN' },
+            afterJson: { status: 'CLOSED', closedAt: now },
+            reservationId: window.reservationId,
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryReopenFolioWindow(
+    actor: ActorContext,
+    input: { folioWindowId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; alreadyOpen?: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof WINDOW_NOT_REOPENABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const window = this.readFolioWindowRowSync(input.folioWindowId);
+          if (!window) throw new FolioWindowError(NOT_FOUND);
+          if (window.status === 'OPEN') return { ok: true as const, alreadyOpen: true as const };
+          if (window.status !== 'CLOSED') throw new FolioWindowError(WINDOW_NOT_REOPENABLE);
+
+          this.ctx.storage.sql.exec(
+            `UPDATE folio_window SET status = 'OPEN', closed_at = NULL WHERE folio_window_id = ?`,
+            input.folioWindowId,
+          );
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.window_reopened',
+            payload: { propertyId, reservationId: window.reservationId, folioWindowId: input.folioWindowId },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.reopen_window',
+            entityType: 'folio_window',
+            entityId: input.folioWindowId,
+            beforeJson: { status: 'CLOSED' },
+            afterJson: { status: 'OPEN', closedAt: null },
+            reservationId: window.reservationId,
+          });
+          return { ok: true as const };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   private insertFolioLineSync(input: {

@@ -1783,6 +1783,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.auditAppendFaultForTest = fault;
   }
 
+  async setRoomStatusRawForTest(input: { roomId: string; status: string }): Promise<void> {
+    this.assertUnsafeLocal('setRoomStatusRawForTest');
+    this.ctx.storage.sql.exec(
+      `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
+      input.status,
+      Date.now(),
+      input.roomId,
+    );
+  }
+
   async stampFolioWindowClosedForTest(folioWindowId: string): Promise<void> {
     this.assertUnsafeLocal('stampFolioWindowClosedForTest');
     this.ctx.storage.sql.exec(
@@ -4907,6 +4917,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray();
     if (conflict.length > 0) throw new RoomAlreadyAssignedError();
+    const oooHit = this.ctx.storage.sql
+      .exec(
+        `SELECT ooo_id FROM room_ooo
+          WHERE room_id = ?
+            AND start_date < ?
+            AND end_date > ?
+          LIMIT 1`,
+        roomId,
+        reservation.departureDate,
+        reservation.arrivalDate,
+      )
+      .toArray();
+    if (oooHit.length > 0) throw new RoomOutOfOrderError();
     return room;
   }
 
@@ -6195,6 +6218,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_MODIFIABLE }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
+    | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
+    | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: string }
   > {
     this.assertRpcAvailable();
@@ -6234,7 +6260,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -6245,6 +6271,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             departure_date: string;
             status: string;
             rate_plan_id: string;
+            room_id: string | null;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -6276,6 +6303,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .toArray() as Array<{ status: string }>;
           if (!roomRows[0] || roomRows[0].status !== 'active') {
             throw new RoomTypeNotFoundError();
+          }
+
+          if (reservation.room_id) {
+            this.assertRoomAssignableSync(reservation.room_id, {
+              reservationId: input.reservationId,
+              roomTypeId: input.roomTypeId,
+              arrivalDate: input.arrivalDate,
+              departureDate: input.departureDate,
+            });
           }
 
           const oldNights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
@@ -6589,12 +6625,35 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const room = roomRows[0];
           if (!room) throw new RoomNotFoundError();
           if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
+          const oooHit = this.ctx.storage.sql
+            .exec(
+              `SELECT ooo_id FROM room_ooo
+                WHERE room_id = ?
+                  AND start_date < ?
+                  AND end_date > ?
+                LIMIT 1`,
+              resolvedRoomId,
+              reservation.departure_date,
+              reservation.arrival_date,
+            )
+            .toArray();
+          if (oooHit.length > 0) throw new RoomOutOfOrderError();
           const cleanliness = this.readConfigValueSync('pms.reservations.check_in_cleanliness') ?? 'strict';
           const allowDirtyOverride =
             this.readConfigValueSync('pms.reservations.allow_dirty_check_in_override') !== false;
           if (
             room.status === 'dirty' &&
             cleanliness === 'strict' &&
+            !(input.overrideCleanliness === true && allowDirtyOverride)
+          ) {
+            throw new RoomNotReadyError();
+          }
+          const requireInspection =
+            this.readConfigValueSync('pms.housekeeping.require_inspection') === true;
+          if (
+            requireInspection &&
+            cleanliness === 'strict' &&
+            room.status === 'clean' &&
             !(input.overrideCleanliness === true && allowDirtyOverride)
           ) {
             throw new RoomNotReadyError();
@@ -6732,21 +6791,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               .exec(`SELECT status FROM room WHERE room_id = ?`, reservation.room_id)
               .toArray() as Array<{ status: string }>;
             const fromStatus = roomRows[0]?.status ?? 'clean';
-            this.ctx.storage.sql.exec(
-              `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
-              now,
-              reservation.room_id,
-            );
-            this.appendPropertyOutbox({
-              eventId: crypto.randomUUID(),
-              eventType: 'room.status_changed',
-              payload: {
-                propertyId,
-                roomId: reservation.room_id,
-                fromStatus,
-                toStatus: 'dirty',
-              },
-            });
+            if (fromStatus !== 'out_of_order') {
+              this.ctx.storage.sql.exec(
+                `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
+                now,
+                reservation.room_id,
+              );
+              this.appendPropertyOutbox({
+                eventId: crypto.randomUUID(),
+                eventType: 'room.status_changed',
+                payload: {
+                  propertyId,
+                  roomId: reservation.room_id,
+                  fromStatus,
+                  toStatus: 'dirty',
+                },
+              });
+            }
           }
 
           this.appendPropertyOutbox({

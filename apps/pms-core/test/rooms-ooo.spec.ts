@@ -5,6 +5,9 @@ import {
   OOO_INVALID_RANGE,
   OOO_RANGE_OVERLAP,
   OOO_ROOM_ASSIGNED,
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_NOT_READY,
+  ROOM_OUT_OF_ORDER,
 } from '@hospai/contracts';
 import { HORIZON_DAYS } from '@hospai/pms-inventory';
 import { NIGHT_AUDIT_STEPS } from '../src/property-do';
@@ -190,6 +193,29 @@ describe('rooms.set_ooo_range', () => {
       expect((await stub.readAvailabilityDay('rt_king', addCalendarDays(open, i)))?.blocked).toBe(1);
     }
     expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(0);
+  });
+
+  it('4 assign-half. overlapping stay is ROOM_OUT_OF_ORDER; stay ending on startDate is ok', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-4a-${crypto.randomUUID()}`);
+    const startDate = addCalendarDays(open, 5);
+    const endDate = addCalendarDays(open, 8);
+    expect(await setOoo(stub, { roomId: 'rm_1', startDate, endDate }, 'ooo-4a')).toMatchObject({ ok: true });
+    await bookConfirmed(stub, guestRef, 'res_4overlap', startDate, addCalendarDays(startDate, 2));
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_4overlap', roomId: 'rm_1' },
+        await idemFor('as4o', { reservationId: 'res_4overlap', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+    await bookConfirmed(stub, guestRef, 'res_4adj', open, startDate);
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_4adj', roomId: 'rm_1' },
+        await idemFor('as4a', { reservationId: 'res_4adj', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
   });
 
   it('5. disjoint ranges apply; overlapping create is OOO_RANGE_OVERLAP', async () => {
@@ -522,5 +548,230 @@ describe('rooms.set_ooo_range', () => {
     expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toMatchObject({ ok: true });
     expect(await stub.readBusinessDate()).toBe(open);
     expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(blocked);
+  });
+
+  it('26. stay overlapping a future range rejects assign and check-in while status is clean', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-26-${crypto.randomUUID()}`);
+    const startDate = addCalendarDays(open, 5);
+    const endDate = addCalendarDays(open, 8);
+    expect(await setOoo(stub, { roomId: 'rm_1', startDate, endDate }, 'ooo-26')).toMatchObject({ ok: true });
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('clean');
+    await bookConfirmed(stub, guestRef, 'res_26a', startDate, addCalendarDays(startDate, 2));
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_26a', roomId: 'rm_1' },
+        await idemFor('as26', { reservationId: 'res_26a', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+    await bookConfirmed(stub, guestRef, 'res_26b', startDate, addCalendarDays(startDate, 2));
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_26b', roomId: 'rm_1' },
+        await idemFor('ci26', { reservationId: 'res_26b', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+  });
+
+  it('27. require_inspection strict + clean → ROOM_NOT_READY; inspected allows; default clean allows', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-27-${crypto.randomUUID()}`);
+    await createRoom(stub, 'rm_2', '102');
+    await bookConfirmed(stub, guestRef, 'res_27def', open, addCalendarDays(open, 1));
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_27def', roomId: 'rm_2' },
+        await idemFor('ci27def', { reservationId: 'res_27def', roomId: 'rm_2' }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    expect(
+      await stub.tryPutDomainConfig(
+        TEST_OWNER_ACTOR,
+        'pms.housekeeping.require_inspection',
+        true,
+        { reason: 'strict inspect' },
+        await idemFor('cfg-insp', {
+          key: 'pms.housekeeping.require_inspection',
+          value: true,
+          reason: 'strict inspect',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    await bookConfirmed(stub, guestRef, 'res_27clean', open, addCalendarDays(open, 1));
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_27clean', roomId: 'rm_1' },
+        await idemFor('ci27c', { reservationId: 'res_27clean', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: false, error: ROOM_NOT_READY });
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_1', status: 'inspected' },
+        await idemFor('insp27', { roomId: 'rm_1', status: 'inspected' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_27clean', roomId: 'rm_1' },
+        await idemFor('ci27i', { reservationId: 'res_27clean', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('28. check-out of a cleanliness room dirties; OOO skip via test hook does not', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-28-${crypto.randomUUID()}`);
+    await createRoom(stub, 'rm_2', '102');
+    await bookConfirmed(stub, guestRef, 'res_28a', open, addCalendarDays(open, 1));
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_28a', roomId: 'rm_1' },
+        await idemFor('ci28a', { reservationId: 'res_28a', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+    expect(
+      await stub.tryCheckOut(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_28a' },
+        await idemFor('co28a', { reservationId: 'res_28a' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('dirty');
+    const dirtyEvents = (await stub.listOutboxPayloads()).filter(
+      (p) => p.eventType === 'room.status_changed' && JSON.parse(p.payload).toStatus === 'dirty',
+    );
+    expect(dirtyEvents.length).toBeGreaterThan(0);
+
+    await bookConfirmed(stub, guestRef, 'res_28b', open, addCalendarDays(open, 1));
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_28b', roomId: 'rm_2' },
+        await idemFor('ci28b', { reservationId: 'res_28b', roomId: 'rm_2' }),
+      ),
+    ).toMatchObject({ ok: true });
+    await stub.flushOutbox();
+    // Product-unreachable under invariant 4; hook-only.
+    await stub.setRoomStatusRawForTest({ roomId: 'rm_2', status: 'out_of_order' });
+    expect(
+      await stub.tryCheckOut(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_28b' },
+        await idemFor('co28b', { reservationId: 'res_28b' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_2')?.status).toBe('out_of_order');
+    const afterSkip = await stub.listOutboxPayloads();
+    expect(
+      afterSkip.some(
+        (p) => p.eventType === 'room.status_changed' && JSON.parse(p.payload).toStatus === 'dirty',
+      ),
+    ).toBe(false);
+  });
+
+  it('31. modify that extends an assigned stay into a future OOO is ROOM_OUT_OF_ORDER', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-31-${crypto.randomUUID()}`);
+    const arrival = addCalendarDays(open, 1);
+    const departure = addCalendarDays(open, 3);
+    await bookConfirmed(stub, guestRef, 'res_31', arrival, departure);
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_31', roomId: 'rm_1' },
+        await idemFor('as31', { reservationId: 'res_31', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await setOoo(
+        stub,
+        { roomId: 'rm_1', startDate: addCalendarDays(open, 4), endDate: addCalendarDays(open, 6) },
+        'ooo-31',
+      ),
+    ).toMatchObject({ ok: true });
+    const soldBefore = (await stub.readAvailabilityDay('rt_king', arrival))?.sold;
+    const modify = {
+      reservationId: 'res_31',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: addCalendarDays(open, 5),
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m31', modify)),
+    ).toMatchObject({ ok: false, error: ROOM_OUT_OF_ORDER });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(soldBefore);
+    const read = await stub.readReservation('res_31');
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.reservation.arrivalDate).toBe(arrival);
+      expect(read.reservation.departureDate).toBe(departure);
+    }
+  });
+
+  it('32. modify with unchanged dates and type succeeds (cheap short-circuit)', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-32-${crypto.randomUUID()}`);
+    const arrival = addCalendarDays(open, 1);
+    const departure = addCalendarDays(open, 3);
+    await bookConfirmed(stub, guestRef, 'res_32', arrival, departure);
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_32', roomId: 'rm_1' },
+        await idemFor('as32', { reservationId: 'res_32', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await setOoo(
+        stub,
+        { roomId: 'rm_1', startDate: addCalendarDays(open, 4), endDate: addCalendarDays(open, 6) },
+        'ooo-32',
+      ),
+    ).toMatchObject({ ok: true });
+    const modify = {
+      reservationId: 'res_32',
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m32', modify)),
+    ).toMatchObject({ ok: true });
+  });
+
+  it('33. modify that extends into another assigned stay is ROOM_ALREADY_ASSIGNED', async () => {
+    const { stub, guestRef, open } = await setupOoo(`ooo-33-${crypto.randomUUID()}`);
+    await bookConfirmed(stub, guestRef, 'res_33a', open, addCalendarDays(open, 2));
+    await bookConfirmed(stub, guestRef, 'res_33b', addCalendarDays(open, 2), addCalendarDays(open, 4));
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_33a', roomId: 'rm_1' },
+        await idemFor('as33a', { reservationId: 'res_33a', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryAssignRoom(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_33b', roomId: 'rm_1' },
+        await idemFor('as33b', { reservationId: 'res_33b', roomId: 'rm_1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const soldBefore = (await stub.readAvailabilityDay('rt_king', open))?.sold;
+    const modify = {
+      reservationId: 'res_33a',
+      roomTypeId: 'rt_king',
+      arrivalDate: open,
+      departureDate: addCalendarDays(open, 3),
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m33', modify)),
+    ).toMatchObject({ ok: false, error: ROOM_ALREADY_ASSIGNED });
+    expect((await stub.readAvailabilityDay('rt_king', open))?.sold).toBe(soldBefore);
   });
 });

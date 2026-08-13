@@ -187,10 +187,10 @@ describe('reservation check-in triangle', () => {
     const departure = addCalendarDays(arrival, 1);
     await createRoom(stub, 'rm_28', '105');
     expect(
-      await stub.tryUpdateRoomStatus(
+      await stub.trySetOooRange(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_28', status: 'out_of_order' },
-        await idemFor('ooo28', { roomId: 'rm_28', status: 'out_of_order' }),
+        { roomId: 'rm_28', startDate: arrival, endDate: departure },
+        await idemFor('ooo28', { roomId: 'rm_28', startDate: arrival, endDate: departure }),
       ),
     ).toMatchObject({ ok: true });
     await bookConfirmed(stub, guestRef, 'res_28', arrival, departure);

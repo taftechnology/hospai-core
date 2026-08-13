@@ -912,7 +912,7 @@ Replace `tryUpdateRoomStatus(..., { status: 'out_of_order' })` with `trySetOooRa
 - Produces: range overlap in `assertRoomAssignableSync`; modify re-check when `room_id` set and dates **or** type change; check-in stay ∩ range; check-out skip dirty if OOO; `require_inspection` gate
 - Consumes: `trySetOooRange` (Task 3), config key (Task 1)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Rewrite check-in test 28:
 
@@ -946,7 +946,7 @@ Add to `rooms-ooo.spec.ts`:
 
 Keep existing dirty+override check-in assertions (test 25 lifecycle regression) — they already live in `reservations-check-in.spec.ts`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run \
@@ -957,7 +957,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: FAIL — assign/check-in still allow a clean room with a future OOO; modify does not SELECT `room_id`; label-era tests fail if you already swapped the call without the range existing… after the rewrite, check-in 28 should still pass via **status** defense until Task 5, but assign-OOO already fails today on `room.status`. The **new** failures are tests 4/26/31/33. Rewrite the two call sites in the same commit as the gate so they never go red-then-green on cleanliness-only.
 
-- [ ] **Step 3: Implement gates**
+- [x] **Step 3: Implement gates**
 
 `assertRoomAssignableSync` — after the existing overlap check, before `return room`:
 
@@ -1044,7 +1044,7 @@ async setRoomStatusRawForTest(input: { roomId: string; status: string }): Promis
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run \
@@ -1056,7 +1056,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: PASS. The two rewritten tests no longer call `tryUpdateRoomStatus` with `out_of_order` (`rg` the string in those two files → only historical comments if any).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \

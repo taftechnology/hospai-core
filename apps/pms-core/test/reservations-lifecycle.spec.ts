@@ -720,10 +720,10 @@ describe('reservation lifecycle inquiry/pending', () => {
     const room = { roomId: 'rm_1', roomTypeId: 'rt_king', code: '101' };
     expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor('rm', room))).toMatchObject({ ok: true });
     expect(
-      await stub.tryUpdateRoomStatus(
+      await stub.trySetOooRange(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_1', status: 'out_of_order' },
-        await idemFor('ooo', { roomId: 'rm_1', status: 'out_of_order' }),
+        { roomId: 'rm_1', startDate: arrival, endDate: departure },
+        await idemFor('ooo', { roomId: 'rm_1', startDate: arrival, endDate: departure }),
       ),
     ).toMatchObject({ ok: true });
     const reservationId = `res_${crypto.randomUUID()}`;

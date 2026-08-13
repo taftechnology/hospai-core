@@ -535,7 +535,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional §16.3 note when the ch
 | 7 | Night-audit auto-transfer | Pinned 7 steps |
 | 8 | Recurring charges / `breakfast_rule` engine | Prototype-holes leftover 1 |
 | 9 | Partial refunds | Folio-money leftover |
-| 10 | Full exception-queue workbench | ARCHITECTURE still owed |
+| 10 | Full exception-queue workbench | **Closed 2026-08-13** by [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md). |
 | 11 | PCI / real PSP | Simulate stays |
 | 12 | `entitlement.changed` WebSocket | Org-scoped; refetch-on-402 stays |
 | 13 | Reclass `get_front_desk_*` / `get_guest` / search to `READ_STALE` | Prototype-holes leftover 4 remainder — still no projection / names are OrgDO |

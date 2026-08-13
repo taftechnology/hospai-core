@@ -55,7 +55,7 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 > **Decided:** `held` is reserved in schema now, hold *behaviour* deferred to Phase 3 (§7.6).
 > **Clerk is narrow** — authentication only; all authorization in OrgDO (§13).
 >
-> **Still owed:** the exception-queue operator UX; per-country fiscalization design for
+> **Still owed:** per-country fiscalization design for
 > the launch market. The config register and command catalog are now Phase 0 work items
 > rather than open questions (§14).
 >
@@ -2107,6 +2107,8 @@ to a rule already stated in this document.
    The tape chart, reservations directory, available-rooms view, and live front-office board
    now have a live SPA
    ([tape chart + live board](docs/superpowers/specs/2026-08-13-tape-chart-live-board-design.md)).
+   The exception-queue operator screen now has a live SPA
+   ([exception-queue workbench](docs/superpowers/specs/2026-08-13-exception-queue-workbench-design.md)).
 4. **Keep the prototype runnable** as the behavioural reference for as long as Phase 1 lasts.
    When platform behaviour and prototype behaviour diverge, that is a product decision to
    record — in this document or the module's spec — not a bug to be silently resolved.

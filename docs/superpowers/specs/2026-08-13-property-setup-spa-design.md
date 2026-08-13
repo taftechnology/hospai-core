@@ -545,7 +545,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 8 | Night-audit auto-transfer | Folio-money leftover; pinned 7 steps |
 | 9 | Recurring charges / `breakfast_rule` engine | Prototype-holes leftover 1; Settings may **edit the string** |
 | 10 | Partial refunds | Folio-money leftover 4 remainder |
-| 11 | Full exception-queue workbench | ARCHITECTURE still owed |
+| 11 | Full exception-queue workbench | **Closed 2026-08-13** by [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md). |
 | 12 | PCI / real PSP | Simulate + Folio FX stay |
 | 13 | Plan-scoped restrictions | Rate-plans §2.3 |
 | 14 | `rematerializesRates` consumer | Rule-3 leftover |

@@ -566,8 +566,8 @@ Existing `night-audit.spec.ts` / `night-audit-room-charges.spec.ts` stay. New co
 6. **SQL `PENDING` status** on `night_audit_run` (ARCHITECTURE DDL vs shipped table) — do not introduce as a halt flag.
 7. **PDF / print** of close-out reports; fiscalization submission.
 8. **Historical plan checkbox backfill** — not done; living-status rule is forward-only (§8.5).
-9. **Re-apply a resolved provisional command** — resolve is acknowledge-only. A “retry original” action is a follow-on on the exceptions panel.
-10. **Full exception-queue workbench** (filter, retry-original, assign) — this chunk is resolve + badge-honest counts.
+9. **Re-apply a resolved provisional command** — resolve is acknowledge-only. A “retry original” action is a follow-on on the exceptions panel. **Closed 2026-08-13** by [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md).
+10. **Full exception-queue workbench** (filter, retry-original, assign) — this chunk is resolve + badge-honest counts. **Closed 2026-08-13** by [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md).
 11. **`pending_command_open` org-purge** — D1 census rows keyed by `property_id` orphan if org purge only deletes registry/`events/`/`reports/` prefixes. Fold the DELETE into the org D1 purge step (same PR as the reports-prefix amend, or a one-line follow-on if that amend slips).
 
 ---

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   addCalendarDays,
   ClassifiedError,
@@ -53,13 +53,13 @@ function formatTapeHeader(iso: string, timeZone: string): string {
   }).format(new Date(`${iso}T12:00:00Z`));
 }
 
-function spanStyle(
+function spanRange(
   startDate: string,
   endExclusive: string,
   fromDate: string,
   toDate: string,
   dates: string[],
-): CSSProperties | null {
+): { colStart: number; colEnd: number } | null {
   const start = startDate < fromDate ? fromDate : startDate;
   const lastNight = addCalendarDays(endExclusive, -1);
   const endNight = lastNight > toDate ? toDate : lastNight;
@@ -67,7 +67,7 @@ function spanStyle(
   const startIdx = dates.indexOf(start);
   const endNightIdx = dates.indexOf(endNight);
   if (startIdx < 0 || endNightIdx < 0) return null;
-  return { gridColumn: `${startIdx + 2} / ${endNightIdx + 3}`, gridRow: 1 };
+  return { colStart: startIdx + 2, colEnd: endNightIdx + 3 };
 }
 
 function tapeBlockSeverity(status: ReservationStatus, overstay: boolean) {
@@ -87,12 +87,14 @@ function typeLabel(id: string, types: RoomTypeLabel[]): string {
 function StayBlock({
   block,
   state,
-  style,
+  colStart,
+  colEnd,
   today,
 }: {
   block: FrontDeskItem;
   state: GuestRowState | undefined;
-  style: CSSProperties;
+  colStart: number;
+  colEnd: number;
   today: string | null;
 }) {
   const status = asReservationStatus(block.status);
@@ -106,7 +108,10 @@ function StayBlock({
     <Link
       to={`/folio/${encodeURIComponent(block.reservationId)}`}
       className={`tape-block min-w-0 truncate ${statusClass(sev)}`}
-      style={style}
+      style={{
+        ['--tape-col-start']: String(colStart),
+        ['--tape-col-end']: String(colEnd),
+      }}
     >
       <span className="truncate">{guestLabel(state, block.guestRef)}</span>
       {block.vipFlag === true ? <span data-testid="badge-vip"> VIP</span> : null}
@@ -217,9 +222,7 @@ export function TapeChartScreen() {
   const typeRows = (typesQ.data?.roomTypes ?? []) as RoomTypeLabel[];
   const dates = from && to ? inclusiveDates(from, to) : [];
   const today = timeZone ? propertyLocalToday(timeZone) : null;
-  const columns: CSSProperties = {
-    gridTemplateColumns: `minmax(7rem, 9rem) repeat(${Math.max(dates.length, 1)}, minmax(4.5rem, 1fr))`,
-  };
+  const tapeCols = String(Math.max(dates.length, 1));
 
   const unassigned = blocks.filter((b) => b.roomId == null);
   const assignedByRoom = new Map<string, FrontDeskItem[]>();
@@ -287,35 +290,38 @@ export function TapeChartScreen() {
   } else {
     body = (
       <div className="tape-scroller">
-        <div className="tape-row" style={columns}>
-          <div className="tape-room" style={{ gridColumn: 1, gridRow: 1 }} />
+        <div className="tape-row" style={{ ['--tape-cols']: tapeCols }}>
+          <div className="tape-room" />
           {dates.map((d, i) => (
             <div
               key={d}
               className="tape-header-cell tabular-nums"
-              style={{ gridColumn: i + 2, gridRow: 1 }}
+              style={{ ['--tape-col']: String(i + 2) }}
             >
               {formatTapeHeader(d, timeZone ?? 'UTC')}
             </div>
           ))}
         </div>
         {unassigned.length > 0 ? (
-          <div data-testid="tape-unassigned" className="tape-row content-visibility-auto" style={columns}>
-            <div className="tape-room" style={{ gridColumn: 1, gridRow: 1 }}>
-              Unassigned
-            </div>
+          <div
+            data-testid="tape-unassigned"
+            className="tape-row content-visibility-auto"
+            style={{ ['--tape-cols']: tapeCols }}
+          >
+            <div className="tape-room">Unassigned</div>
             {dates.map((d, i) => (
-              <div key={d} className="tape-cell min-w-0" style={{ gridColumn: i + 2, gridRow: 1 }} />
+              <div key={d} className="tape-cell min-w-0" style={{ ['--tape-col']: String(i + 2) }} />
             ))}
             {unassigned.map((block) => {
-              const style = spanStyle(block.arrivalDate ?? from, block.departureDate, from, to, dates);
-              if (!style) return null;
+              const span = spanRange(block.arrivalDate ?? from, block.departureDate, from, to, dates);
+              if (!span) return null;
               return (
                 <StayBlock
                   key={block.reservationId}
                   block={block}
                   state={states[block.guestRef]}
-                  style={style}
+                  colStart={span.colStart}
+                  colEnd={span.colEnd}
                   today={today}
                 />
               );
@@ -326,8 +332,12 @@ export function TapeChartScreen() {
           <section key={g.typeId}>
             <h2 className="tape-type">{typeLabel(g.typeId, typeRows)}</h2>
             {g.rooms.map((room) => (
-              <div key={room.roomId} className="tape-row content-visibility-auto" style={columns}>
-                <div className="tape-room min-w-0 truncate" style={{ gridColumn: 1, gridRow: 1 }}>
+              <div
+                key={room.roomId}
+                className="tape-row content-visibility-auto"
+                style={{ ['--tape-cols']: tapeCols }}
+              >
+                <div className="tape-room min-w-0 truncate">
                   {room.code}{' '}
                   <span className="badge">{room.status}</span>
                 </div>
@@ -335,24 +345,25 @@ export function TapeChartScreen() {
                   <div
                     key={d}
                     className="tape-cell min-w-0"
-                    style={{ gridColumn: i + 2, gridRow: 1 }}
+                    style={{ ['--tape-col']: String(i + 2) }}
                   />
                 ))}
                 {(assignedByRoom.get(room.roomId) ?? []).map((block) => {
-                  const style = spanStyle(
+                  const span = spanRange(
                     block.arrivalDate ?? from,
                     block.departureDate,
                     from,
                     to,
                     dates,
                   );
-                  if (!style) return null;
+                  if (!span) return null;
                   return (
                     <StayBlock
                       key={block.reservationId}
                       block={block}
                       state={states[block.guestRef]}
-                      style={style}
+                      colStart={span.colStart}
+                      colEnd={span.colEnd}
                       today={today}
                     />
                   );
@@ -360,14 +371,17 @@ export function TapeChartScreen() {
                 {ooo
                   .filter((row) => row.roomId === room.roomId)
                   .map((row) => {
-                    const style = spanStyle(row.startDate, row.endDate, from, to, dates);
-                    if (!style) return null;
+                    const span = spanRange(row.startDate, row.endDate, from, to, dates);
+                    if (!span) return null;
                     const label = row.reason?.trim() ? row.reason : 'Out of order';
                     return (
                       <div
                         key={row.oooId}
                         className={`tape-block min-w-0 truncate ${statusClass('attention')}`}
-                        style={style}
+                        style={{
+                          ['--tape-col-start']: String(span.colStart),
+                          ['--tape-col-end']: String(span.colEnd),
+                        }}
                         aria-label={label}
                       >
                         {label}

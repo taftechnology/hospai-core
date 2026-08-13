@@ -118,12 +118,15 @@ a {
 .tape-row {
   display: grid;
   align-items: stretch;
+  grid-template-columns: minmax(7rem, 9rem) repeat(var(--tape-cols, 1), minmax(4.5rem, 1fr));
 }
 
 .tape-room {
   position: sticky;
   left: 0;
   z-index: 1;
+  grid-column: 1;
+  grid-row: 1;
   background: var(--panel);
   padding: 0.35rem 0.5rem;
   border-bottom: 1px solid var(--line);
@@ -132,6 +135,8 @@ a {
 
 .tape-cell {
   min-width: 0;
+  grid-column: var(--tape-col);
+  grid-row: 1;
   border-bottom: 1px solid var(--line);
   border-right: 1px solid var(--line);
 }
@@ -142,6 +147,8 @@ a {
   gap: 0.25rem;
   z-index: 2;
   min-width: 0;
+  grid-column: var(--tape-col-start) / var(--tape-col-end);
+  grid-row: 1;
   margin: 0.15rem;
   padding: 0.2rem 0.4rem;
   overflow: hidden;
@@ -149,6 +156,8 @@ a {
 
 .tape-header-cell {
   padding: 0.35rem 0.4rem;
+  grid-column: var(--tape-col);
+  grid-row: 1;
   border-bottom: 1px solid var(--line);
 }
 

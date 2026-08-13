@@ -11371,6 +11371,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           amountMinor: number;
           currency: string;
           status: PaymentStatus;
+          purpose: 'STAY' | 'DAMAGE';
           gatewayReference: string | null;
           capturedAmountMinor: number | null;
           createdAt: number;
@@ -11387,7 +11388,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT payment_id, reservation_id, amount_minor, currency, status, gateway_reference,
+        `SELECT payment_id, reservation_id, amount_minor, currency, status, purpose, gateway_reference,
                 captured_amount_minor, created_at, updated_at
          FROM payment WHERE reservation_id = ?
          ORDER BY created_at ASC`,
@@ -11399,6 +11400,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       amount_minor: number;
       currency: string;
       status: PaymentStatus;
+      purpose: 'STAY' | 'DAMAGE';
       gateway_reference: string | null;
       captured_amount_minor: number | null;
       created_at: number;
@@ -11413,6 +11415,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         amountMinor: row.amount_minor,
         currency: row.currency,
         status: row.status,
+        purpose: row.purpose,
         gatewayReference: row.gateway_reference,
         capturedAmountMinor: row.captured_amount_minor,
         createdAt: row.created_at,
@@ -11533,9 +11536,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async readFolio(reservationId: string): Promise<
     | {
         ok: true;
-        window: { folioWindowId: string; kind: string; status: string } | null;
+        window: { folioWindowId: string; kind: string; status: string; closedAt: number | null } | null;
+        windows: Array<{
+          folioWindowId: string;
+          kind: string;
+          status: string;
+          billedParty: string | null;
+          closedAt: number | null;
+          balanceMinor: number;
+        }>;
         lines: Array<{
           folioLineId: string;
+          folioWindowId: string;
           chargeCode: string;
           amountMinor: number;
           ledgerAmountMinor: number;
@@ -11549,25 +11561,43 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           taxRuleId: string | null;
         }>;
         balanceMinor: number;
+        noPost: boolean;
       }
     | { ok: false; error: typeof NOT_FOUND }
   > {
     this.assertRpcAvailable();
     const reservationRows = this.ctx.storage.sql
-      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
-      .toArray() as Array<{ reservation_id: string }>;
+      .exec(`SELECT reservation_id, no_post FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ reservation_id: string; no_post: number }>;
     if (!reservationRows[0]) return { ok: false, error: NOT_FOUND };
 
     const windowRows = this.ctx.storage.sql
       .exec(
-        `SELECT folio_window_id, kind, status FROM folio_window WHERE reservation_id = ? AND kind = 'GUEST'`,
+        `SELECT folio_window_id, kind, status, billed_party, closed_at
+         FROM folio_window WHERE reservation_id = ?`,
         reservationId,
       )
-      .toArray() as Array<{ folio_window_id: string; kind: string; status: string }>;
+      .toArray() as Array<{
+      folio_window_id: string;
+      kind: string;
+      status: string;
+      billed_party: string | null;
+      closed_at: number | null;
+    }>;
+
+    const windowBalances = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, COALESCE(SUM(ledger_amount_minor), 0) AS balance
+         FROM folio_line WHERE reservation_id = ?
+         GROUP BY folio_window_id`,
+        reservationId,
+      )
+      .toArray() as Array<{ folio_window_id: string; balance: number }>;
+    const balanceByWindow = new Map(windowBalances.map((row) => [row.folio_window_id, Number(row.balance)]));
 
     const lineRows = this.ctx.storage.sql
       .exec(
-        `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
+        `SELECT folio_line_id, folio_window_id, charge_code, amount_minor, ledger_amount_minor, txn_currency,
                 source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id
          FROM folio_line WHERE reservation_id = ?
          ORDER BY created_at ASC`,
@@ -11575,6 +11605,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{
       folio_line_id: string;
+      folio_window_id: string;
       charge_code: string;
       amount_minor: number;
       ledger_amount_minor: number;
@@ -11589,15 +11620,29 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>;
 
     const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
-    const windowRow = windowRows[0];
+    const guestWindow = windowRows.find((row) => row.kind === 'GUEST');
 
     return {
       ok: true,
-      window: windowRow
-        ? { folioWindowId: windowRow.folio_window_id, kind: windowRow.kind, status: windowRow.status }
+      window: guestWindow
+        ? {
+            folioWindowId: guestWindow.folio_window_id,
+            kind: guestWindow.kind,
+            status: guestWindow.status,
+            closedAt: guestWindow.closed_at,
+          }
         : null,
+      windows: windowRows.map((row) => ({
+        folioWindowId: row.folio_window_id,
+        kind: row.kind,
+        status: row.status,
+        billedParty: row.billed_party,
+        closedAt: row.closed_at,
+        balanceMinor: balanceByWindow.get(row.folio_window_id) ?? 0,
+      })),
       lines: lineRows.map((row) => ({
         folioLineId: row.folio_line_id,
+        folioWindowId: row.folio_window_id,
         chargeCode: row.charge_code,
         amountMinor: row.amount_minor,
         ledgerAmountMinor: row.ledger_amount_minor,
@@ -11611,6 +11656,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         taxRuleId: row.tax_rule_id,
       })),
       balanceMinor,
+      noPost: reservationRows[0].no_post === 1,
     };
   }
 

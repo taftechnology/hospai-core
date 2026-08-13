@@ -923,7 +923,7 @@ EOF
 - Produces: route ids 95–103 in **identical order** in audit + `V1_ROUTES`
 - Consumes: Task 6–11 DO methods
 
-- [ ] **Step 1: Write failing pin tests**
+- [x] **Step 1: Write failing pin tests**
 
 ```ts
 expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_reservation_front_office');
@@ -935,13 +935,13 @@ GET folio: assert `windows` array, `lines[].folioWindowId`, `noPost`, `window.cl
 
 Kill-switch `pms.core` + POST close → 503 (test 51).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts`
 
 Run: `pnpm check:permissions` — still green until Step 3 adds **both** arrays together.
 
-- [ ] **Step 3: Append audit rows and handlers in the same commit**
+- [x] **Step 3: Append audit rows and handlers in the same commit**
 
 Audit rows per spec §11 (entitlement `pms.core` on all nine). `V1_ROUTES` append matching `pattern` / `handler` in the same order. `check:permissions` requires identical order.
 
@@ -951,11 +951,11 @@ GET folio handler: pass through widened `readFolio`.
 
 Fingerprints: body `idempotencyKey` on the nine POSTs (key-in-body; they ship with a body).
 
-- [ ] **Step 4: Run tests + `pnpm check:permissions`**
+- [x] **Step 4: Run tests + `pnpm check:permissions`**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts \

@@ -271,10 +271,29 @@ describe('folio vertical HTTP routes', () => {
     const body = (await res.json()) as {
       ok: true;
       balanceMinor: number;
-      lines: Array<{ chargeCode: string }>;
+      lines: Array<{ chargeCode: string; folioWindowId: string }>;
+      windows: Array<{ folioWindowId: string; status: string; closedAt: number | null }>;
+      window: { folioWindowId: string; status: string; closedAt: number | null } | null;
+      noPost: boolean;
     };
     expect(body.balanceMinor).toBe(1500);
     expect(body.lines).toHaveLength(2);
+    expect(body.lines.every((l) => l.folioWindowId === `${reservationId}:GUEST`)).toBe(true);
+    expect(body.window).toMatchObject({
+      folioWindowId: `${reservationId}:GUEST`,
+      status: 'OPEN',
+      closedAt: null,
+    });
+    expect(body.windows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          folioWindowId: `${reservationId}:GUEST`,
+          status: 'OPEN',
+          closedAt: null,
+        }),
+      ]),
+    );
+    expect(body.noPost).toBe(false);
   });
 
   it('Test 5: GET .../folio on reservation with no window yet returns window null', async () => {
@@ -455,6 +474,17 @@ describe('folio vertical HTTP routes', () => {
         splits: [{ folioLineId: 's1', amountMinor: 1 }],
         idempotencyKey: `idem-kill-split-${crypto.randomUUID()}`,
       }),
+      await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/windows/${encodeURIComponent(`${reservationId}:GUEST`)}/close`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({ idempotencyKey: `idem-kill-close-${crypto.randomUUID()}` }),
+          },
+        ),
+        env,
+      ),
     ]) {
       expect(res.status).toBe(503);
       expect(res.headers.get('Retry-After')).toBeNull();

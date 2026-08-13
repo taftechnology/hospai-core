@@ -88,7 +88,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any DO method body, any SPA, any migration, `AUDIT_WRITER_COMMAND_IDS` membership, new catalog ids.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `packages/contracts/src/idempotency.test.ts` add (next to `OCCUPANCY_EXCEEDED`):
 
@@ -111,7 +111,7 @@ expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.update_status')?.event
 
 Do **not** add `[105]` assertions this commit (`[104]` stays `post_room_ooo_range`; `[105]` is undefined until Task 5). Size pin stays **45**.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts
@@ -119,7 +119,7 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempot
 
 Expected: FAIL — missing export / notes still *“Front-office comment + VIP flag…”* without DND.
 
-- [ ] **Step 3: Implement contracts**
+- [x] **Step 3: Implement contracts**
 
 `packages/contracts/src/idempotency.ts` — after `OCCUPANCY_EXCEEDED`:
 
@@ -135,7 +135,7 @@ notes: 'Front-office comment, VIP flag, DND flag. Not the status-machine column.
 
 Lane / degraded / permission / events / entitlement **unchanged**.
 
-- [ ] **Step 4: Rebuild contracts, re-run tests, check:permissions**
+- [x] **Step 4: Rebuild contracts, re-run tests, check:permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -145,7 +145,7 @@ pnpm check:permissions
 
 Expected: all exit 0. `check:permissions` still reports the current `V1_HTTP_ROUTE_AUDIT.length` (no new route).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts packages/contracts/src/idempotency.ts packages/contracts/src/idempotency.test.ts packages/contracts/src/register.test.ts
@@ -175,7 +175,7 @@ EOF
 - Consumes: Task 1 not required at runtime
 - **Forbidden:** DO RPC bodies, HTTP routes, SPA.
 
-- [ ] **Step 1: Write the failing migrate + sqlite tests**
+- [x] **Step 1: Write the failing migrate + sqlite tests**
 
 In `packages/do-runtime/src/migrate.test.ts`:
 
@@ -245,7 +245,7 @@ describe('prototype holes v23 real sqlite', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/prototype-holes-migration.sqlite.test.ts
@@ -253,7 +253,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/prototy
 
 Expected: FAIL — head still 22 / unhandled SQL / missing export.
 
-- [ ] **Step 3: Implement v23**
+- [x] **Step 3: Implement v23**
 
 `packages/do-runtime/src/property-migrations.ts` — after `ROOM_OOO_V22_SQL`:
 
@@ -302,7 +302,7 @@ pnpm generate:ddl
 
 (`generate:ddl` builds `@hospai/do-runtime` then `--write`.) Do not hand-edit the generated SQL.
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/prototype-holes-migration.sqlite.test.ts
@@ -311,7 +311,7 @@ pnpm check:ddl
 
 Expected: all exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts packages/do-runtime/src/index.ts packages/do-runtime/src/migrate.test.ts packages/do-runtime/src/prototype-holes-migration.sqlite.test.ts scripts/property-ddl.mjs migrations/do-property/0023_prototype_holes.sql
@@ -341,7 +341,7 @@ EOF
 - Produces: `tryUpdateFrontOffice` input `{ reservationId, frontOfficeComment?, vipFlag?, dndFlag?, noPost? }`; reads include `dndFlag: boolean`
 - **Forbidden:** `V1_HTTP_ROUTE_AUDIT` / new `V1_ROUTES` entries; occupancy; search.
 
-- [ ] **Step 1: Write the failing tests (spec 2–5, 16)**
+- [x] **Step 1: Write the failing tests (spec 2–5, 16)**
 
 In `apps/pms-core/test/reservations-lifecycle.spec.ts` (use `crypto.randomUUID()` for ids; property-local dates):
 
@@ -353,7 +353,7 @@ In `apps/pms-core/test/reservations-lifecycle.spec.ts` (use `crypto.randomUUID()
 
 HTTP in `reservations-routes.spec.ts`: `POST …/front-office` `{ dndFlag: true, idempotencyKey }` → GET reservation `dndFlag: true`. Also `{ noPost: true }` only (no comment) → folio/read `noPost: true` and **comment/VIP unchanged** (proves undefined-means-unchanged after the dispatcher spread).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -362,7 +362,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: FAIL — `dndFlag` undefined / comment cap missing / `noPost` HTTP no-op.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `tryUpdateFrontOffice` (`property-do.ts` ~7259):
 
@@ -412,7 +412,7 @@ const commandPayload = {
 
 `packages/client-core/src/api.ts`: `ReservationRead.dndFlag?: boolean`; `updateFrontOffice` extra `{ frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean; dndFlag?: boolean }` (spread `...extra` already sends whatever is passed — do not send `noPost` from the new editor in Task 6).
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -421,7 +421,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/v1-dispatch.ts apps/pms-core/src/pending-commands-consumer.ts packages/client-core/src/api.ts apps/pms-core/test/reservations-lifecycle.spec.ts apps/pms-core/test/reservations-routes.spec.ts
@@ -450,7 +450,7 @@ EOF
 - Produces: check-in and modify reject over-cap; party-only modify updates without ledger move; create fingerprint includes party size
 - **Forbidden:** new routes; DND (already done); search; SPA.
 
-- [ ] **Step 1: Write the failing tests (spec 6–10)**
+- [x] **Step 1: Write the failing tests (spec 6–10)**
 
 Keep existing test 45 (create over occupancy). Add:
 
@@ -460,7 +460,7 @@ Keep existing test 45 (create over occupancy). Add:
 - **9.** Modify **only** `adults` (same dates/type) under the cap → row updates; **no** `availability.changed`; `reservation.modified` emitted. Same modify over cap → `OCCUPANCY_EXCEEDED`.
 - **10.** `handlePostReservations` / `tryCreateReservation`: first create adults=1 succeeds; replay **same idempotency key** with adults=2 → `IDEM_KEY_REUSED` (not a stored 1-adult stay returned as success). Client: `bookingReservationOpId` differs when adults/children differ (`packages/client-core/test/booking.test.ts`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -470,7 +470,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: FAIL — check-in/modify skip occupancy; party-only modify no-ops; create fingerprint ignores adults; opId ignores party.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `tryCheckIn`: SELECT adds `adults, children`. After confirmed + room resolved, **before** status flip:
 
@@ -511,7 +511,7 @@ export function bookingReservationOpId(input: {
 
 Update existing `booking.test.ts` expected strings to append `:1:0` (defaults).
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/booking.test.ts
@@ -520,7 +520,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/src/v1-dispatch.ts packages/client-core/src/booking.ts packages/client-core/test/booking.test.ts apps/pms-core/test/reservations-lifecycle.spec.ts apps/pms-core/test/reservations-routes.spec.ts
@@ -550,7 +550,7 @@ EOF
 - Produces: `GET /v1/properties/:propertyId/reservations-search?q=`
 - **Forbidden:** splicing `V1_ROUTES` / `V1_HTTP_ROUTE_AUDIT`; changing `get_reservation` pattern.
 
-- [ ] **Step 1: Write the failing tests (spec 17–23)**
+- [x] **Step 1: Write the failing tests (spec 17–23)**
 
 `packages/contracts/src/register.test.ts` — in the route-pin test that already asserts `[104]`:
 
@@ -577,7 +577,7 @@ expect('commandId' in (V1_HTTP_ROUTE_AUDIT[105] ?? {})).toBe(false);
 - Empty/missing `q` → 400 `invalid_query`. `q` longer than 128 → 400.
 - **Path:** request `GET /v1/properties/${pid}/reservations-search?q=…` — **not** `/reservations/search` (would hit `get_reservation` with id `search`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -587,7 +587,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-search-routes.s
 
 Expected: FAIL — `[105]` undefined / 404 on the hyphen path.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 PropertyDO `searchReservations(q: string)` (sync SQL, **no OrgDO**):
 
@@ -639,7 +639,7 @@ async searchReservations(propertyId: string, q: string) {
 }
 ```
 
-- [ ] **Step 4: Rebuild contracts, re-run tests, check:permissions**
+- [x] **Step 4: Rebuild contracts, re-run tests, check:permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -650,7 +650,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-search-routes.s
 
 Expected: all exit 0. `check:permissions` length matches (audit and dispatch both +1 at the end; index 105 fields match).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts apps/pms-core/src/property-do.ts apps/pms-core/src/v1-dispatch.ts packages/client-core/src/api.ts apps/pms-core/test/reservations-search-routes.spec.ts
@@ -686,7 +686,7 @@ EOF
 - Produces: desk UX listed in spec §10
 - **Forbidden:** sending `noPost` from the editor; `window.print` when reservation/guest read is not live.
 
-- [ ] **Step 1: Write the failing SPA tests**
+- [x] **Step 1: Write the failing SPA tests**
 
 - **11.** `BookingScreen.test.tsx`: adults/children inputs exist (`data-testid="adults"` / `"children"`); `createReservation` called with those values; `occupancy_exceeded` body shows *“Party exceeds this room type’s occupancy.”*
 - **12–14.** `CheckInScreen.test.tsx` / `FolioScreen.test.tsx`: `data-testid="print-reg-card"` enabled when reservation + resolved guest; disabled when guest `name_pending` / erased / reservation `fail_closed`; mock `window.print` and assert **not** called when disabled. Printed region (`data-testid="reg-card"`) contains reservation id, displayName, dates, adults/children; does **not** contain folio `balanceMinor`.
@@ -695,7 +695,7 @@ EOF
 
 Mock `api.searchReservations` / `updateFrontOffice` / `postGuestsBatch` in each file’s `vi.mock('../client.js')` (copy the existing mock shape; add missing fns).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx src/screens/CheckInScreen.test.tsx src/screens/FolioScreen.test.tsx src/screens/BoardScreen.test.tsx src/shell/AppShell.search.test.tsx
@@ -703,7 +703,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx
 
 Expected: FAIL — missing testids / payloads.
 
-- [ ] **Step 3: Implement SPA**
+- [x] **Step 3: Implement SPA**
 
 `AppShell.tsx`: after nav, if `hasPropertyPermission(me, 'reservations:read')` (live authority only — hide on `unknown` / `no_access`), render `<div role="search">` with input `data-testid="reservation-search"`. Debounce 300ms. Call `api.searchReservations`. Popover: guest label (or id), reservation id, dates, status. Click / Enter-on-single-hit → `navigate(\`/folio/${encodeURIComponent(id)}\`)`. On classified `fail_closed`: the copy in spec §7.5.
 
@@ -719,7 +719,7 @@ Print panel: hidden except `@media print` (and visible in a `data-testid="reg-ca
 
 `HousekeepingScreen.tsx`: unchanged.
 
-- [ ] **Step 4: Re-run SPA tests**
+- [x] **Step 4: Re-run SPA tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx src/screens/CheckInScreen.test.tsx src/screens/FolioScreen.test.tsx src/screens/BoardScreen.test.tsx src/shell/AppShell.search.test.tsx src/shell/AppShell.me.test.tsx
@@ -727,7 +727,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/BookingScreen.test.tsx
 
 Expected: PASS (including existing me / folio tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/AppShell.tsx apps/web-pms/src/shell/AppShell.search.test.tsx apps/web-pms/src/shell/AppShell.me.test.tsx apps/web-pms/src/screens/BookingScreen.tsx apps/web-pms/src/screens/BookingScreen.test.tsx apps/web-pms/src/screens/CheckInScreen.tsx apps/web-pms/src/screens/CheckInScreen.test.tsx apps/web-pms/src/screens/FolioScreen.tsx apps/web-pms/src/screens/FolioScreen.test.tsx apps/web-pms/src/screens/BoardScreen.tsx apps/web-pms/src/screens/BoardScreen.test.tsx apps/web-pms/src/screens/front-office-editor.tsx
@@ -753,9 +753,9 @@ EOF
 
 One sentence each. No product changes.
 
-- [ ] **Step 1: Edit the five docs**
+- [x] **Step 1: Edit the five docs**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-room-operations-hk-completion-design.md docs/superpowers/specs/2026-08-12-night-audit-e2e-design.md docs/superpowers/specs/2026-08-12-reservations-lifecycle-completion-design.md docs/superpowers/specs/2026-08-11-booking-wizard-design.md ARCHITECTURE.md
@@ -780,7 +780,7 @@ git diff -- tooling/eslint-plugin-hospai/src/class-denylist.ts apps/pms-core/src
 
 Expected: **no** hunks that add/remove denylist names or purge table names. Then `pnpm check:class-denylist` and `pnpm check:purge` in the sequence below must exit 0. If a new `export class` or table slipped in, stop and revert — this chunk forbids both.
 
-- [ ] **Step 1: Run the `checks` job commands in order**
+- [x] **Step 1: Run the `checks` job commands in order**
 
 ```bash
 pnpm build
@@ -811,7 +811,7 @@ Expected: all exit 0. `pnpm build` rebuilds `@hospai/contracts` and `@hospai/pms
 
 Pins: `AUDIT_WRITER_COMMAND_IDS.size === 45`; `PLATFORM_GAPS` `[]`; `NIGHT_AUDIT_STEPS.length === 7`; `SYSTEM_CHARGE_CODES` unchanged; `PROPERTY_SCHEMA_HEAD === 23`.
 
-- [ ] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -822,11 +822,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Expected: all four exit 0.
 
-- [ ] **Step 3: Tick living checkboxes on this plan**
+- [x] **Step 3: Tick living checkboxes on this plan**
 
 Mark Tasks 1–8 steps `- [x]` in this file. Same PR as the last implementation commit, or a docs commit in that PR. **Not** before merge.
 
-- [ ] **Step 4: Commit only if Step 3 left docs dirty**
+- [x] **Step 4: Commit only if Step 3 left docs dirty**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-prototype-holes-sweep.md

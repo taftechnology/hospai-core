@@ -11,6 +11,7 @@ import type { PropertyDO } from './property-do.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { resolvePropertyFromRegistry } from './provision.js';
 import { assertTenantActive } from './registry.js';
+import { deletePendingOpen } from './night-audit-census.js';
 
 const replayLanes = new LaneGuard();
 
@@ -92,6 +93,15 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
 
 export const REPLAY_COMMAND_IDS = Object.keys(REPLAY_DISPATCH);
 
+async function ackTerminal(
+  env: PmsEnv,
+  msg: Message<PendingCommandMessage>,
+): Promise<void> {
+  const { provisional } = msg.body;
+  await deletePendingOpen(env.PLATFORM_DB, provisional.propertyId, provisional.idempotencyKey);
+  msg.ack();
+}
+
 export async function handlePendingCommandsBatch(
   batch: MessageBatch<PendingCommandMessage>,
   env: PmsEnv,
@@ -114,7 +124,7 @@ export async function handlePendingCommandsBatch(
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
         });
-        msg.ack();
+        await ackTerminal(env, msg);
         continue;
       }
 
@@ -127,7 +137,7 @@ export async function handlePendingCommandsBatch(
           commandId: provisional.command.type,
           status: gate.status,
         });
-        msg.ack();
+        await ackTerminal(env, msg);
         continue;
       }
 
@@ -140,7 +150,7 @@ export async function handlePendingCommandsBatch(
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
         });
-        msg.ack();
+        await ackTerminal(env, msg);
         continue;
       }
 
@@ -150,7 +160,7 @@ export async function handlePendingCommandsBatch(
           expected: provisional.requestFingerprint,
           actual: fingerprint,
         });
-        msg.ack();
+        await ackTerminal(env, msg);
         continue;
       }
 
@@ -173,7 +183,7 @@ export async function handlePendingCommandsBatch(
           commandId: provisional.command.type,
           idempotencyKey: provisional.idempotencyKey,
         });
-        msg.ack();
+        await ackTerminal(env, msg);
         continue;
       }
 
@@ -193,7 +203,7 @@ export async function handlePendingCommandsBatch(
         commandId: provisional.command.type,
         idempotencyKey: provisional.idempotencyKey,
       });
-      msg.ack();
+      await ackTerminal(env, msg);
     } catch (e) {
       if (isPropertyDoTransportFailure(e)) {
         msg.retry();

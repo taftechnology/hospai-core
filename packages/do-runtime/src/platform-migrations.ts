@@ -222,10 +222,26 @@ BEGIN
 END`,
 ];
 
+export const PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS pending_command_open (
+  property_id     TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  business_date   TEXT NOT NULL,
+  command_id      TEXT NOT NULL,
+  enqueued_at     TEXT NOT NULL,
+  PRIMARY KEY (property_id, idempotency_key)
+)`,
+  `CREATE INDEX IF NOT EXISTS pending_command_open_property_idx ON pending_command_open (property_id)`,
+];
+
+export const PLATFORM_PENDING_COMMAND_OPEN_SQL =
+  PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
   ...PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
+  ...PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS,
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
 

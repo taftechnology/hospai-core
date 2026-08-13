@@ -1,6 +1,6 @@
 # Multi-currency folio + payments↔folio event contract — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Turn on the existing `folio_line` money columns: staff-entered effective-dated FX rates, foreign payments + optional `folio.add_item`, residual FX as its own line, versioned `payment.*` event seam (`applyPaymentEventSync`), chargebacks, and consistent reversal/split/transfer/tax/`capture_due` currency behaviour.
 
@@ -98,7 +98,7 @@
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any `/fx-rates` handler, any DO method body, `PROPERTY_PURGE_INVENTORY_TABLES`.
 
-- [ ] **Step 1: Write the failing register + wire-code tests**
+- [x] **Step 1: Write the failing register + wire-code tests**
 
 In `register.test.ts` change size **45 → 49** (both existing pins). Add:
 
@@ -131,7 +131,7 @@ Do **not** add `[106]` assertions this commit (`[105]` stays last).
 
 Wire-code tests: `FX_RATE_MISSING === 'fx_rate_missing'`, `FX_RATE_NOT_LEDGER`, `FX_RATE_OPEN_EXISTS`, `FX_REASON_REQUIRED`, `PAYMENT_NOT_CHARGEBACKABLE`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts
@@ -139,7 +139,7 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempot
 
 Expected: FAIL — size 45 / length 70 / missing exports.
 
-- [ ] **Step 3: Implement contracts + event-consumer allowlist**
+- [x] **Step 3: Implement contracts + event-consumer allowlist**
 
 `events/payment.ts` — copy spec §7.2 types exactly. `index.ts`: `export * from './events/payment.js';`
 
@@ -165,7 +165,7 @@ case 'folio.fx_adjusted':
 
 Do **not** call PropertyDO.
 
-- [ ] **Step 4: Rebuild, re-run, gates**
+- [x] **Step 4: Rebuild, re-run, gates**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -178,7 +178,7 @@ pnpm check:degraded
 
 Expected: all exit 0. `check:permissions` still reports current audit length (106). Events-queue allowlist includes the new catalog events.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/events/payment.ts packages/contracts/src/index.ts \
@@ -208,21 +208,21 @@ EOF
 - Consumes: existing `postToLedger` / `roundHalfAwayFromZero`
 - **Forbidden:** PropertyDO, HTTP, schema.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Same-currency + rate `"1"` returns the ledger amount. Cross-currency: `postToLedger(money(10000, EUR), USD, '1.10')` → 11000 (existing). Inverse: `ledgerToTxn(11000, EUR, USD, '1.10')` then `postToLedger` of that txn is within **1** minor of 11000. Same-currency with rate `!== "1"` throws `InvalidFxRateError`. Zero rate throws.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/money exec vitest run src/index.test.ts
 ```
 
-- [ ] **Step 3: Implement `ledgerToTxn`**
+- [x] **Step 3: Implement `ledgerToTxn`**
 
 Invert `postToLedger`’s BigInt path (`roundHalfAwayFromZero`). Same-currency requires `"1"`. No new `export class`.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/money exec vitest run src/index.test.ts
@@ -230,7 +230,7 @@ pnpm --filter @hospai/money build
 pnpm typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/money/src/index.ts packages/money/src/index.test.ts
@@ -260,7 +260,7 @@ EOF
 - Produces: `MULTI_CURRENCY_FOLIO_V24_STATEMENTS` / `_SQL`; `PROPERTY_SCHEMA_HEAD === 24`; `SYSTEM_CHARGE_CODES` length **9**; purge lists include the three tables
 - **Forbidden:** DO command methods, HTTP routes. **Do not rebuild `folio_line`.**
 
-- [ ] **Step 1: Write the failing migrate + sqlite tests**
+- [x] **Step 1: Write the failing migrate + sqlite tests**
 
 `migrate.test.ts`:
 
@@ -287,7 +287,7 @@ if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray:
 - `SYSTEM_CHARGE_CODES` length 9 equals `['ROOM','PAYMENT','CANCEL','NO_SHOW','DISCOUNT','DAMAGE','FX_GAIN','FX_LOSS','CHARGEBACK_FEE']`.
 - Re-run seed statements — `INSERT OR IGNORE` does not duplicate.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/multi-currency-folio-migration.sqlite.test.ts
@@ -295,7 +295,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts src/multi-c
 
 Expected: FAIL — head 23 / missing file.
 
-- [ ] **Step 3: Land v24 statements**
+- [x] **Step 3: Land v24 statements**
 
 Wrap: first `PRAGMA foreign_keys = OFF`, last `ON`.
 
@@ -318,7 +318,7 @@ Export `MULTI_CURRENCY_FOLIO_V24_SQL` from `property-migrations.ts` and `index.t
 
 `property-do.ts` purge list + `countPropertyInventoryRows`: add the three tables in the same relative order as other inventory tables. Literal SQL only.
 
-- [ ] **Step 4: generate DDL and gates**
+- [x] **Step 4: generate DDL and gates**
 
 ```bash
 pnpm --filter @hospai/do-runtime build
@@ -330,7 +330,7 @@ pnpm check:purge
 
 Expected: PASS. On-disk `0024_*.sql` matches. `check:purge` sees the new names.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts packages/do-runtime/src/index.ts \
@@ -360,22 +360,22 @@ EOF
 - Consumes: Task 3 tables; Task 1 wire codes
 - **Forbidden:** HTTP routes, lifting `CROSS_CURRENCY_UNSUPPORTED` on add_item (Task 5).
 
-- [ ] **Step 1: Write failing DO tests (5–6)**
+- [x] **Step 1: Write failing DO tests (5–6)**
 
 Provision USD ledger. `tryCreateFxRate` EUR→USD `"1.10"` → open row; `listFxRates` returns it. Identity pair → existing `MONEY_INVALID`; `to ≠ ledger` → `FX_RATE_NOT_LEDGER`. `MONEY_INVALID` already exists in `packages/contracts/src/money.ts` — reuse, do not add. Second open EUR→USD → `FX_RATE_OPEN_EXISTS`. Supersede closes first (`effective_to` set) and inserts replacement. Same fingerprint → one pair.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-rates.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Lookup SQL per spec §4.2. Create/supersede: `settings:configure`, `FAIL_CLOSED`, `runIdempotent`, outbox `fx_rate.changed`, `appendAuditLogSync`. Fingerprints per spec §4.3. File-local errors mapped to wire codes.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-rates.spec.ts
@@ -387,7 +387,7 @@ pnpm check:class-denylist
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-rates.spec.ts
@@ -413,7 +413,7 @@ EOF
 - Consumes: Task 4 lookup
 - **Forbidden:** HTTP new routes; payment capture changes (Task 6).
 
-- [ ] **Step 1: Write failing tests 8–11**
+- [x] **Step 1: Write failing tests 8–11**
 
 8: add_item EUR, no rate → `FX_RATE_MISSING`, zero lines.  
 9: rate `1.10`, add_item 10000 EUR + 10% tax → ROOM 10000/11000 @ `1.10`; TAX 1100 USD @ `"1"`; `balanceMinor === 12100`.  
@@ -422,13 +422,13 @@ EOF
 
 Resolve rate **before** `runIdempotent`; put frozen `fxRate` / `ledgerAmountMinor` into the fingerprint (spec §10.2).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-charges.spec.ts test/folio-routes.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `resolveFolioLineMoney`: if `txnCurrency !== ledger`, lookup rate (or use client-supplied `fxRate` if present and `assertPostedMatches`); do **not** return `CROSS_CURRENCY_UNSUPPORTED` when a rate exists. Same-currency still requires `"1"`.
 
@@ -436,7 +436,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-charges.spec.ts tes
 
 Night-audit ROOM stays ledger — existing tax tests must pass.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-charges.spec.ts
@@ -447,7 +447,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-charges.spec.ts
@@ -473,7 +473,7 @@ EOF
 - Consumes: Tasks 2–5
 - **Forbidden:** HTTP new routes; `capture_due` ledger-aware change (Task 7).
 
-- [ ] **Step 1: Write failing tests 12–16, 19–21**
+- [x] **Step 1: Write failing tests 12–16, 19–21**
 
 12: authorize EUR → `payment.currency=EUR`, zero lines, outbox both event names; capture 10000 @ 1.10 → −10000 EUR / −11000 USD; `payment.fx_rate="1.10"`; `balanceMinor === -11000` (plus any room).  
 13: authorize EUR, no rate, ok; capture → `FX_RATE_MISSING`, still `authorized`.  
@@ -486,13 +486,13 @@ EOF
 
 Expose `applyPaymentEventSync` via an `assertUnsafeLocal` test RPC **or** drive 20–21 through capture/authorize only if you can inject event ids — prefer a `applyPaymentEventForTest` gated like other test hooks.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-payments.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `applyPaymentEventSync` per spec §7.3 (payment_event PK + gateway unique index). In-DO commands construct V1 events after the adapter and apply inside the status txn, then emit both names.
 
@@ -505,7 +505,7 @@ Failed auth/capture: `payment.failed` + `balance_at_risk`.
 
 `PaymentStatus` += `'chargeback'` (unused until Task 8). `PaymentRow` new columns.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-payments.spec.ts test/folio-payment-lifecycle.spec.ts test/folio-payments.spec.ts
@@ -519,7 +519,7 @@ pnpm check:class-denylist
 
 Existing payment lifecycle tests must stay green (USD identity).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-payments.spec.ts
@@ -543,22 +543,22 @@ EOF
 
 **Forbidden:** HTTP new routes.
 
-- [ ] **Step 1: Write failing tests 17–18**
+- [x] **Step 1: Write failing tests 17–18**
 
 17: ROOM 5000 USD + EUR hold 10000 @ 1.10; `capture_due` takes a partial EUR via `ledgerToTxn`; remaining ledger 0 (±1); DAMAGE hold untouched.  
 18: `auto_capture_on_check_out=true`, foreign STAY hold covers balance → `autoCapture: 'captured'`; same-key live replay recomputes `'captured'` and does not re-await; provisional replay → still `authorized`, `'skipped'`.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-payments.spec.ts test/reservations-check-out.spec.ts
 ```
 
-- [ ] **Step 3: Implement §8.10**
+- [x] **Step 3: Implement §8.10**
 
 Remaining is ledger. Per hold: convert available txn → ledger; `takeLedger = min(available, remaining)`; `takeTxn` via `ledgerToTxn` when partial; capture through existing seam; subtract **posted** ledger abs. Damage skipped. Check-out await/recompute unchanged.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-payments.spec.ts test/reservations-check-out.spec.ts
@@ -569,7 +569,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-payments.spec.ts \
@@ -591,24 +591,24 @@ EOF
 - Modify: `apps/pms-core/src/property-do.ts`
 - Create: `apps/pms-core/test/folio-fx-chargeback.spec.ts`
 
-- [ ] **Step 1: Write failing tests 22–25**
+- [x] **Step 1: Write failing tests 22–25**
 
 22: chargeback captured USD, fee 250 → `chargeback`, reverse PAYMENT at original rate, `CHARGEBACK_FEE` +250, dispute `open`, events `payment.chargeback_received` + `folio.line_posted`.  
 23: authorized / already chargeback (different fingerprint) → `PAYMENT_NOT_CHARGEBACKABLE`; same fingerprint → one reversal.  
 24: foreign capture chargeback reverses at capture `fx_rate`, not `"1"`.  
 25: fx adjustment loss 100 + reason → `FX_LOSS` +100; gain → `FX_GAIN` −100; no reason → `FX_REASON_REQUIRED`; capture line untouched. **No `folioLineId` in input.**
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-chargeback.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `tryRecordChargeback` / `tryPostFxAdjustment` per spec. Adjustment: UUID line id inside `runIdempotent`; fingerprint omits line id; `sourcePaymentId?` event-payload-only. Chargeback deterministic ids `${paymentId}:chargeback` / `${paymentId}:chargeback-fee`. No simulate chargeback method. CLOSED window → `WINDOW_CLOSED`.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-chargeback.spec.ts
@@ -620,7 +620,7 @@ pnpm check:pms-core-test-dates
 pnpm check:class-denylist
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-chargeback.spec.ts
@@ -641,7 +641,7 @@ EOF
 - Modify: `apps/pms-core/src/property-do.ts` — `splitFolioLineSync`, `tryPostDiscount` (transfer already copies both legs; restamp uses Task 5 tax)
 - Create: `apps/pms-core/test/folio-fx-split-transfer.spec.ts`
 
-- [ ] **Step 1: Write failing tests 26–30**
+- [x] **Step 1: Write failing tests 26–30**
 
 26: v1 USD ROOM split still foots Σ amount and Σ ledger (regression).  
 27: 60/40 of EUR 10000/11000: reverse −10000/−11000 @ 1.10; children `allocate` both legs LAST; Σ txn 10000, Σ ledger 11000; children rate `1.10`.  
@@ -649,19 +649,19 @@ EOF
 29: 10% discount → −1000 EUR / −1100 USD @ 1.10.  
 30: split/transfer/discount of `FX_LOSS` / `CHARGEBACK` / TAX → existing not-* codes.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-split-transfer.spec.ts test/folio-payments.spec.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `splitFolioLineSync`: `allocate` txn and ledger independently (same abs weights, `LAST`); copy `fx_rate` / `fx_rate_at` / `txn_currency`. **Do not** `postToLedger` per child. Same for tax dependents.
 
 `tryPostDiscount`: percent/fixed in source txn units; `postToLedger` at source frozen rate. Reject `CHARGEBACK` / `FX_GAIN` / `FX_LOSS` / `CHARGEBACK_FEE`.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-split-transfer.spec.ts
@@ -672,7 +672,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-fx-split-transfer.spec.ts
@@ -693,13 +693,13 @@ EOF
 - Modify: `apps/pms-core/src/property-do.ts` — `snapshotReportsAsync` cashier JSON only
 - Modify: existing night-audit report / room-charges specs
 
-- [ ] **Step 1: Write failing tests 31–33**
+- [x] **Step 1: Write failing tests 31–33**
 
 31: `POST_ROOM_CHARGES` still ROOM + tax ledger identity; `NIGHT_AUDIT_STEPS.length === 7`.  
 32: revenue `roomNet` / `taxTotal` / `byChargeCodeAndSource` use `ledger_amount_minor`; a EUR payment that night does **not** add 10000 into `roomNet`.  
 33: cashier `tendersByCurrency` has `{ currency: 'EUR', capturedMinor: 10000, … }` and a USD cash row.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spec.ts
@@ -707,11 +707,11 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 (Use the actual night-audit report spec filename in-tree if different.)
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Revenue query unchanged (already `SUM(ledger_amount_minor)`). Add `tendersByCurrency` per spec §12. Do not grow `NIGHT_AUDIT_STEPS`. Do not read `fx_rate` in `POST_ROOM_CHARGES`.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -721,7 +721,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test
@@ -746,7 +746,7 @@ EOF
 
 **Forbidden:** SPA. Do not splice before `[105]`.
 
-- [ ] **Step 1: Write failing route pins + HTTP tests**
+- [x] **Step 1: Write failing route pins + HTTP tests**
 
 `register.test.ts`:
 
@@ -764,7 +764,7 @@ expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
 
 Map new wire codes → 422 in `mapReservationCommandErrorStatus` (or the folio error mapper next to `CROSS_CURRENCY_UNSUPPORTED`).
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -774,7 +774,7 @@ pnpm check:permissions
 
 Expected: FAIL — audit/dispatcher length mismatch or missing pins.
 
-- [ ] **Step 3: Append routes in lockstep**
+- [x] **Step 3: Append routes in lockstep**
 
 `V1_HTTP_ROUTE_AUDIT` then `V1_ROUTES` in this order:
 
@@ -786,7 +786,7 @@ Expected: FAIL — audit/dispatcher length mismatch or missing pins.
 
 `invokePropertyDo` for mutations (503, never 202). Widen existing GET folio / payments handlers. Optional `currency` on authorize/cash dispatch + fingerprint.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -802,7 +802,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts \
@@ -828,7 +828,7 @@ EOF
 
 **Keys:** `stableKeyForOperation` only.
 
-- [ ] **Step 1: Write failing tests 40–43**
+- [x] **Step 1: Write failing tests 40–43**
 
 40: line with `txnCurrency !== ledgerCurrency` shows `data-testid="line-fx"`; identity line does not.  
 41: authorize `<select>` lists USD + EUR when `GET fx-rates` has an open EUR quote; submit sends `currency`.  
@@ -837,18 +837,18 @@ EOF
 
 Client tests: `authorizePayment` / `recordCashPayment` optional `currency`; new `listFxRates` / `createFxRate` / `supersedeFxRate` / `recordChargeback` / `postFxAdjustment`.
 
-- [ ] **Step 2: Run to verify fail**
+- [x] **Step 2: Run to verify fail**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-folio.test.ts
 pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 FolioScreen: dual amounts; currency selects; indicative authorize preview copy; FX rates disclosure (`settings:configure`); chargeback + adjustment (`folio:adjust`); `balanceAtRisk` chip. Disable FX/payment currency controls when folio/payments reads are not live. Rates screens unchanged.
 
-- [ ] **Step 4: Gates**
+- [x] **Step 4: Gates**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-folio.test.ts
@@ -858,7 +858,7 @@ pnpm check:web-pms-colors
 pnpm typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core apps/web-pms/src/screens/FolioScreen.tsx \
@@ -883,9 +883,9 @@ EOF
 
 One sentence each. Do not rewrite those specs.
 
-- [ ] **Step 1: Edit the three specs**
+- [x] **Step 1: Edit the three specs**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-07-28-multi-currency-money-design.md \
@@ -907,7 +907,7 @@ EOF
 **Files:**
 - Modify: `ARCHITECTURE.md` only
 
-- [ ] **Step 1: Apply all four edits**
+- [x] **Step 1: Apply all four edits**
 
 1. Add **Revision 2026-08-13** at the top of the revision block: prototype-holes decisions closed; INQUIRY/PENDING drift closed; transfer/split/OOO shipped; multi-currency + payments↔folio event contract designed in `docs/superpowers/specs/2026-08-13-multi-currency-folio-design.md`; FX sourcing is no longer “still owed” once this chunk merges.
 2. Rewrite the **2026-08-12** paragraph (lines 56–60) so it is a **historical** note, not an open punch list (DND / unnamed rows / INQUIRY-PENDING are closed).
@@ -916,7 +916,7 @@ EOF
 
 Do not rewrite the rest of §16.5’s decision table (already closed by prototype holes).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add ARCHITECTURE.md
@@ -935,7 +935,7 @@ EOF
 
 If `pnpm typecheck` fails, **stop** and land a **separate** `fix(test): …` / `fix(types): …` commit. Do **not** fold typecheck fixes into Task 13/14/16.
 
-- [ ] **Step 1: Run the `checks` job commands in order**
+- [x] **Step 1: Run the `checks` job commands in order**
 
 ```bash
 pnpm build
@@ -966,7 +966,7 @@ Expected: all exit 0.
 
 Pins: `AUDIT_WRITER_COMMAND_IDS.size === 49`; `COMMAND_CATALOG.length === 74`; `PLATFORM_GAPS` `[]`; `NIGHT_AUDIT_STEPS.length === 7`; `SYSTEM_CHARGE_CODES` length 9; `PROPERTY_SCHEMA_HEAD === 24`; `[105]=get_reservation_search`; `[106]=post_fx_rates`; `[107]=post_fx_rate_supersede`; `[110]=post_folio_fx_adjustment`.
 
-- [ ] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 2: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -983,9 +983,9 @@ Expected: all four exit 0.
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–16 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
+- [x] **Step 1: Mark checkboxes**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-multi-currency-folio.md

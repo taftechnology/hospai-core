@@ -886,6 +886,7 @@ export function createClient(opts: {
         floor: string | null;
         createdAt: number;
         updatedAt: number;
+        oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
       }>;
     }> {
       const qs = new URLSearchParams();
@@ -905,8 +906,30 @@ export function createClient(opts: {
           floor: string | null;
           createdAt: number;
           updatedAt: number;
+          oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
         }>;
       };
+    },
+    async setOooRange(
+      propertyId: string,
+      roomId: string,
+      input: {
+        startDate: string;
+        endDate: string;
+        oooId?: string;
+        reason?: string;
+        idempotencyKey: string;
+      },
+    ): Promise<{ ok: true; roomId: string; oooId: string; alreadyApplied?: true }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/ooo`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      );
+      return body as { ok: true; roomId: string; oooId: string; alreadyApplied?: true };
     },
     async listHousekeepingAssignments(
       propertyId: string,

@@ -5190,6 +5190,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       floor: string | null;
       createdAt: number;
       updatedAt: number;
+      oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
     }>;
   }> {
     this.assertRpcAvailable();
@@ -5217,6 +5218,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       updated_at: number;
     }>;
 
+    const oooRows = this.ctx.storage.sql
+      .exec(`SELECT ooo_id, room_id, start_date, end_date, reason FROM room_ooo`)
+      .toArray() as Array<{
+      ooo_id: string;
+      room_id: string;
+      start_date: string;
+      end_date: string;
+      reason: string | null;
+    }>;
+    const oooByRoom = new Map<
+      string,
+      Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>
+    >();
+    for (const o of oooRows) {
+      const list = oooByRoom.get(o.room_id) ?? [];
+      list.push({
+        oooId: o.ooo_id,
+        startDate: o.start_date,
+        endDate: o.end_date,
+        reason: o.reason,
+      });
+      oooByRoom.set(o.room_id, list);
+    }
+
     return {
       ok: true,
       rooms: rows.map((r) => ({
@@ -5227,6 +5252,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         floor: r.floor,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
+        oooRanges: oooByRoom.get(r.room_id) ?? [],
       })),
     };
   }

@@ -438,6 +438,13 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_reservation_front_office');
     expect(V1_HTTP_ROUTE_AUDIT[95]?.id).toBe('post_folio_window');
     expect(V1_HTTP_ROUTE_AUDIT[103]?.id).toBe('post_folio_capture_due');
+    expect(V1_HTTP_ROUTE_AUDIT[104]?.id).toBe('post_room_ooo_range');
+    expect(V1_HTTP_ROUTE_AUDIT[104]).toMatchObject({
+      permission: 'inventory:write',
+      commandId: 'rooms.set_ooo_range',
+      entitlement: 'pms.core',
+    });
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

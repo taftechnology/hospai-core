@@ -1228,7 +1228,7 @@ EOF
 - Consumes: `trySetOooRange` (Task 3)
 - Forbidden: SPA (Task 7)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `register.test.ts`:
 

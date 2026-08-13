@@ -62,6 +62,10 @@ import {
   ROOM_REQUIRED,
   ROOM_NOT_READY,
   ROOM_OUT_OF_ORDER,
+  OOO_VIA_RANGE,
+  OOO_ROOM_ASSIGNED,
+  OOO_RANGE_OVERLAP,
+  OOO_INVALID_RANGE,
   OCCUPANCY_EXCEEDED,
   WINDOW_CLOSED,
   WINDOW_NOT_CLOSABLE,
@@ -268,6 +272,10 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_REQUIRED ||
     error === ROOM_NOT_READY ||
     error === ROOM_OUT_OF_ORDER ||
+    error === OOO_VIA_RANGE ||
+    error === OOO_ROOM_ASSIGNED ||
+    error === OOO_RANGE_OVERLAP ||
+    error === OOO_INVALID_RANGE ||
     error === OCCUPANCY_EXCEEDED ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
@@ -3012,6 +3020,77 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    roomId?: string;
+    startDate: string;
+    endDate: string;
+    oooId?: string;
+    reason?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.startDate || !body.endDate || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.roomId !== undefined && body.roomId !== roomId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload: {
+    roomId: string;
+    startDate: string;
+    endDate: string;
+    oooId?: string;
+    reason?: string;
+  } = { roomId, startDate: body.startDate, endDate: body.endDate };
+  if (body.oooId !== undefined) commandPayload.oooId = body.oooId;
+  if (body.reason !== undefined) commandPayload.reason = body.reason;
+  const fingerprint = await fingerprintPayload({
+    roomId,
+    startDate: body.startDate,
+    endDate: body.endDate,
+    ...(body.oooId ? { oooId: body.oooId } : {}),
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetOooRange']>>>({
+    env: ctx.env,
+    commandId: 'rooms.set_ooo_range',
+    routeId: 'post_room_ooo_range',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.trySetOooRange(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    const payload: { ok: false; error: string; reservationId?: string } = { ok: false, error: err };
+    if (err === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
+      payload.reservationId = result.reservationId;
+    }
+    return json(payload, mapReservationCommandErrorStatus(err ?? 'unknown'));
   }
   return json(result, 200);
 }
@@ -5800,6 +5879,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.capture_due',
     entitlement: 'pms.core',
     handler: handlePostFolioCaptureDue,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/ooo$/,
+    permission: 'inventory:write',
+    commandId: 'rooms.set_ooo_range',
+    entitlement: 'pms.core',
+    handler: handlePostRoomOooRange,
   },
 ];
 

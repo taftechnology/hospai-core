@@ -582,4 +582,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.capture_due',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_room_ooo_range',
+    scope: 'property',
+    permission: 'inventory:write',
+    commandId: 'rooms.set_ooo_range',
+    entitlement: 'pms.core',
+  },
 ];

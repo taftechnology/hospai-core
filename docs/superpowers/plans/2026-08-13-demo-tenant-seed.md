@@ -156,7 +156,7 @@ VALUES (?, ?, ?, 0, 0, 0, 0, 1)
 
 **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, `v1-dispatch.ts`, `scripts/demo-seed.mjs`, any SPA, `CLASS_DENYLIST`, `INSERT INTO reservation`, night audit, new `export class`.
 
-- [ ] **Step 1: Write the failing horizon test**
+- [x] **Step 1: Write the failing horizon test**
 
 Copy the local `postOrg` / `postProperty` / `postRoomType` helpers from `apps/pms-core/test/rate-plans-routes.spec.ts` (~26–70). Use `crypto.randomUUID()` org/property ids. Actor `user_owner`. Timezone `America/Los_Angeles`, currency `USD`.
 
@@ -214,7 +214,7 @@ it('fixture tables match spec §5 counts', () => {
 
 Copy every row from spec §5.1–§5.5 into `DEMO_*` arrays. Do not invent extra guests.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/demo-seed-horizon.spec.ts
@@ -222,13 +222,13 @@ pnpm --filter @hospai/pms-core exec vitest run test/demo-seed-horizon.spec.ts
 
 Expected: FAIL (module / method missing).
 
-- [ ] **Step 3: Implement fixture + helper**
+- [x] **Step 3: Implement fixture + helper**
 
 `demo-seed-fixture.ts`: literal tables from spec §5. `addIsoDate` as specified. `buildDemoSeedPlan` maps offsets onto `today`.
 
 `ensurePastAvailabilityDays`: `assertUnsafeLocal`, date check, loop active types × dates, `INSERT OR IGNORE`, return insert count. Use `enumerateFromDate` from `@hospai/pms-inventory` **or** a local `addIsoDate` loop — do not change horizon reconcile.
 
-- [ ] **Step 4: Re-run the test**
+- [x] **Step 4: Re-run the test**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/demo-seed-horizon.spec.ts
@@ -236,7 +236,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/demo-seed-horizon.spec.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/demo-seed-fixture.ts \
@@ -344,7 +344,7 @@ On OrgDO / PropertyDO transport failure → existing 503 fail-closed JSON (copy 
 
 **Forbidden this commit:** catalog ids, schema, SPA, `client-core`, README (Task 4), starting the Vite app, night audit, folio posts, `CLASS_DENYLIST`.
 
-- [ ] **Step 1: Write the failing register + HTTP tests**
+- [x] **Step 1: Write the failing register + HTTP tests**
 
 In `register.test.ts`, **inside the existing test** that already pins `[124]`–`[126]` and `COMMAND_CATALOG` length 77 (~606), append:
 
@@ -377,7 +377,7 @@ Cover spec §12.4–12.12:
 
 Use `addIsoDate` from the fixture (or a local copy) for `today+6`. Fixture dates: `check:pms-core-test-dates` — do not hardcode `2026-08-13` as a load-bearing stay date in HTTP tests; use `body.today` from the seed response.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts
@@ -386,7 +386,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/demo-seed.spec.ts
 
 Expected: FAIL — `[127]` undefined; route 404 for allowed actor.
 
-- [ ] **Step 3: Implement audit + handler + orchestrator**
+- [x] **Step 3: Implement audit + handler + orchestrator**
 
 Append audit + `V1_ROUTES` together. Implement `runDemoSeed` as specified. Import `GUEST_EXISTS` / `fingerprintPayload` / `validateTenantId` from `@hospai/contracts`. Import `getProperty` / `resolvePropertyFromRegistry` / `requirePermission` / `isDevActorAllowed` from existing pms-core modules.
 
@@ -394,7 +394,7 @@ Append audit + `V1_ROUTES` together. Implement `runDemoSeed` as specified. Impor
 
 Re-read `ariVersion` before **each** reservation create if a previous create bumped it (or read once per stay). A stale `quoteAriVersion` → 409 `no_availability`. Simplest: call `readAvailabilityRange` immediately before each `tryCreateReservation`.
 
-- [ ] **Step 4: Build contracts and re-run**
+- [x] **Step 4: Build contracts and re-run**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -405,7 +405,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/demo-seed.spec.ts test/demo-
 
 Expected: all PASS. `check:permissions` prints `128 HTTP routes` (127 + 1) or whatever the new length is (previous 127 entries, now 128).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts \
@@ -471,11 +471,11 @@ Use the JSON `propertyName` / `board` / `today` / `rooms`. Exit 0.
 
 Do **not** start wrangler or Vite. Do **not** implement `--wipe`. Do **not** change `.env.example` ids.
 
-- [ ] **Step 1: Write the script + package.json script**
+- [x] **Step 1: Write the script + package.json script**
 
 Shebang `#!/usr/bin/env node`. ESM (`import` — root `package.json` already `"type": "module"`).
 
-- [ ] **Step 2: Smoke — Worker down**
+- [x] **Step 2: Smoke — Worker down**
 
 ```bash
 node scripts/demo-seed.mjs --base-url http://127.0.0.1:1
@@ -483,7 +483,7 @@ node scripts/demo-seed.mjs --base-url http://127.0.0.1:1
 
 Expected: non-zero exit; stdout/stderr contains `pnpm --filter @hospai/pms-core dev`; does **not** print `The Meridian Seattle` as a success line.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/demo-seed.mjs package.json
@@ -509,7 +509,7 @@ Documented manual check (not a CI gate this chunk): with `pms-core` `dev` runnin
 
 **Forbidden:** `ARCHITECTURE.md` rewrite. SPA files. P0-2/P0-3/P0-4/P0-5 copy.
 
-- [ ] **Step 1: Rewrite README step 3**
+- [x] **Step 1: Rewrite README step 3**
 
 Replace the current “Bootstrap tenant (once per local DO/D1 store)” **meeting path** with:
 
@@ -540,11 +540,11 @@ Engineers who want a blank property can still curl org → property → one room
 
 Keep the three existing curl blocks **under** that developer subheading (same JSON as today). Keep steps 1 (env files) and 2 (start servers). Do not tell the meeting to curl.
 
-- [ ] **Step 2: Tick DEMO-READY P0-1**
+- [x] **Step 2: Tick DEMO-READY P0-1**
 
 Change the eight `- [ ]` under `### P0-1. One-command demo hotel` to `- [x]`. Add one sentence after the P0-1 list: `Closed 2026-08-13 by [demo tenant seed](docs/superpowers/specs/2026-08-13-demo-tenant-seed-design.md).`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md DEMO-READY.md docs/superpowers/specs/2026-08-13-demo-tenant-seed-design.md
@@ -563,7 +563,7 @@ Omit the spec file if you skip the optional Amends sentence.
 
 **Spec:** §2, §12.1–3, §12.13, §12.15, §15.
 
-- [ ] **Step 1: Hygiene pins**
+- [x] **Step 1: Hygiene pins**
 
 ```bash
 pnpm --filter @hospai/do-runtime build
@@ -574,7 +574,7 @@ git diff --exit-code -- tooling/eslint-plugin-hospai/src/class-denylist.ts
 
 Expected: empty diffs. `PROPERTY_SCHEMA_HEAD === 25`. `ORG_SCHEMA_HEAD === 7`. `NIGHT_AUDIT_STEPS.length === 7`. `COMMAND_CATALOG.length === 77`. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `[126]=get_guest_stays`; `[127]=post_demo_seed`. `CLASS_DENYLIST` untouched. No `demo.seed` catalog id.
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -604,7 +604,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -623,8 +623,8 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–6 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Mark checkboxes**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-demo-tenant-seed.md

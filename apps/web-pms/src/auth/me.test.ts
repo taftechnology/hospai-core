@@ -47,12 +47,40 @@ describe('me authority helpers', () => {
           e.id !== 'exceptions' &&
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
-          e.id !== 'settings',
+          e.id !== 'settings' &&
+          e.id !== 'guests',
       ),
     );
     const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
     expect(ids).toContain('board');
     expect(ids).toContain('reservations');
+  });
+
+  it('filterNavEntries: live guests:read includes guests at order 36 between reservations and book', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'reservations:write', 'guests:read'],
+    };
+    const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
+    const ids = filtered.map((e) => e.id);
+    expect(ids).toContain('guests');
+    const reservations = ids.indexOf('reservations');
+    const guests = ids.indexOf('guests');
+    const book = ids.indexOf('book');
+    expect(reservations).toBeGreaterThan(-1);
+    expect(guests).toBeGreaterThan(reservations);
+    expect(book).toBeGreaterThan(guests);
+    expect(NAV_ENTRIES.find((e) => e.id === 'guests')?.order).toBe(36);
+  });
+
+  it('filterNavEntries: without guests:read omits guests', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'reservations:write'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).not.toContain(
+      'guests',
+    );
   });
 
   it('filterNavEntries: live with reservations:write → includes Book', () => {

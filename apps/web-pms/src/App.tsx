@@ -13,6 +13,8 @@ import { StaffRoute } from './screens/StaffRoute.js';
 import { RosterRoute } from './screens/RosterRoute.js';
 import { NightAuditRoute } from './screens/NightAuditRoute.js';
 import { ExceptionsScreen } from './screens/ExceptionsScreen.js';
+import { GuestsDirectoryScreen } from './screens/GuestsDirectoryScreen.js';
+import { GuestProfileScreen } from './screens/GuestProfileScreen.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
 import { InventoryRoute } from './screens/InventoryRoute.js';
 import { InventoryScreen } from './screens/InventoryScreen.js';
@@ -44,6 +46,8 @@ export function App() {
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />
             <Route path="reservations" element={<ReservationsDirectoryScreen />} />
+            <Route path="guests" element={<GuestsDirectoryScreen />} />
+            <Route path="guests/:guestRef" element={<GuestProfileScreen />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="shift" element={<ShiftScreen />} />

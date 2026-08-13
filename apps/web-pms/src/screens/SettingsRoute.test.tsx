@@ -9,6 +9,12 @@ vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
   api: {
     getMe: (...a: unknown[]) => getMe(...a),
+    listDomainConfig: async () => ({ ok: true, keys: [] }),
+    getProperty: async () => ({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+    }),
+    listChargeCodes: async () => ({ ok: true, codes: [] }),
+    listTaxRules: async () => ({ ok: true, rules: [] }),
   },
   asClassified: () => ({
     class: 'server_error' as const,

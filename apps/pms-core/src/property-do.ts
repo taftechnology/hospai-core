@@ -73,6 +73,7 @@ import {
   MONEY_INVALID,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
+  FX_RATE_MISSING,
   FX_RATE_NOT_LEDGER,
   FX_RATE_OPEN_EXISTS,
   SPLIT_AMOUNT_MISMATCH,
@@ -163,6 +164,8 @@ import {
   assertPostedMatches,
   computeTax,
   currencyCode,
+  money,
+  postToLedger,
   InvalidFxRateError,
   InvalidMoneyError,
   validateFxRate,
@@ -1385,7 +1388,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       parentSource === 'PAYMENT' ||
       parentSource === 'SPLIT_REVERSAL' ||
       parentSource === 'TAX' ||
-      parentSource === 'PAYMENT_REFUND'
+      parentSource === 'PAYMENT_REFUND' ||
+      parentSource === 'CHARGEBACK' ||
+      parentSource === 'TRANSFER_REVERSAL'
+    ) {
+      return;
+    }
+    if (
+      params.chargeCode === 'FX_GAIN' ||
+      params.chargeCode === 'FX_LOSS' ||
+      params.chargeCode === 'CHARGEBACK_FEE'
     ) {
       return;
     }
@@ -1396,10 +1408,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const taxGroup = codeRows[0]?.tax_group;
     if (!taxGroup) return;
 
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) return;
+
     const rules = this.listApplicableTaxRulesSync(taxGroup, params.postingDate);
     for (const rule of rules) {
       if (rule.rule_type !== 'PERCENTAGE') continue;
-      const taxMinor = computeTax(params.parentAmountMinor, rule.rate);
+      const taxMinor = computeTax(params.posted.ledgerAmountMinor, rule.rate);
       if (taxMinor === 0) continue;
       this.insertFolioLineSync({
         folioLineId: `${params.parentLineId}:tax:${rule.tax_rule_id}`,
@@ -1408,9 +1423,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         chargeCode: rule.output_charge_code,
         posted: {
           amountMinor: taxMinor,
-          txnCurrency: params.posted.txnCurrency,
+          txnCurrency: ledgerCurrency,
           ledgerAmountMinor: taxMinor,
-          fxRate: params.posted.fxRate,
+          fxRate: '1',
           fxRateAt: params.posted.fxRateAt,
         },
         source: 'TAX',
@@ -10564,6 +10579,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LEDGER_AMOUNT_MISMATCH }
     | { ok: false; error: typeof MONEY_INVALID }
     | { ok: false; error: typeof CROSS_CURRENCY_UNSUPPORTED }
+    | { ok: false; error: typeof FX_RATE_MISSING }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
@@ -12984,27 +13000,58 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ):
     | { ok: true; posted: PostedLineAmount }
     | { ok: false; error: typeof CROSS_CURRENCY_UNSUPPORTED }
+    | { ok: false; error: typeof FX_RATE_MISSING }
     | { ok: false; error: typeof FX_RATE_INVALID }
     | { ok: false; error: typeof LEDGER_AMOUNT_MISMATCH }
     | { ok: false; error: typeof MONEY_INVALID } {
     const fxRateAt = input.fxRateAt ?? Date.now();
-    if (input.txnCurrency !== undefined && input.txnCurrency !== ledgerCurrency) {
-      return { ok: false, error: CROSS_CURRENCY_UNSUPPORTED };
+    const txnCurrency = input.txnCurrency ?? ledgerCurrency;
+
+    if (txnCurrency === ledgerCurrency) {
+      const normalized = {
+        amountMinor: input.amountMinor,
+        txnCurrency,
+        ledgerAmountMinor: input.ledgerAmountMinor ?? input.amountMinor,
+        fxRate: input.fxRate ?? '1',
+        fxRateAt,
+      };
+      const validated = this.validateFolioLineMoney(normalized, ledgerCurrency, fxRateAt);
+      if (!validated.ok) {
+        if (validated.error === FX_RATE_INVALID) return { ok: false, error: FX_RATE_INVALID };
+        if (validated.error === LEDGER_AMOUNT_MISMATCH) return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+        return { ok: false, error: MONEY_INVALID };
+      }
+      return validated;
     }
-    const normalized = {
-      amountMinor: input.amountMinor,
-      txnCurrency: input.txnCurrency ?? ledgerCurrency,
-      ledgerAmountMinor: input.ledgerAmountMinor ?? input.amountMinor,
-      fxRate: input.fxRate ?? '1',
-      fxRateAt,
-    };
-    const validated = this.validateFolioLineMoney(normalized, ledgerCurrency, fxRateAt);
-    if (!validated.ok) {
-      if (validated.error === FX_RATE_INVALID) return { ok: false, error: FX_RATE_INVALID };
-      if (validated.error === LEDGER_AMOUNT_MISMATCH) return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+
+    try {
+      const txn = money(input.amountMinor, currencyCode(txnCurrency));
+      if (input.fxRate !== undefined) {
+        const posted = postToLedger(txn, ledgerCurrency, input.fxRate, fxRateAt);
+        if (
+          input.ledgerAmountMinor !== undefined &&
+          input.ledgerAmountMinor !== posted.ledgerAmountMinor
+        ) {
+          return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+        }
+        return { ok: true, posted };
+      }
+      const quote = this.lookupFxRateSync(txnCurrency, ledgerCurrency, fxRateAt);
+      if (!quote) return { ok: false, error: FX_RATE_MISSING };
+      const posted = postToLedger(txn, ledgerCurrency, quote.rate, fxRateAt);
+      if (
+        input.ledgerAmountMinor !== undefined &&
+        input.ledgerAmountMinor !== posted.ledgerAmountMinor
+      ) {
+        return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+      }
+      return { ok: true, posted };
+    } catch (e) {
+      if (e instanceof InvalidFxRateError) return { ok: false, error: FX_RATE_INVALID };
+      if (e instanceof LedgerAmountMismatchError) return { ok: false, error: LEDGER_AMOUNT_MISMATCH };
+      if (e instanceof InvalidMoneyError) return { ok: false, error: MONEY_INVALID };
       return { ok: false, error: MONEY_INVALID };
     }
-    return validated;
   }
 
   private outboxSourceSync(): EventSource {

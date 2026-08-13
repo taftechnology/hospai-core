@@ -12,6 +12,7 @@ import {
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays } from './date-helpers';
 import { createGuest, idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import { seedBarRatesForHorizon } from './fixtures';
 
 async function provisionedPropertyWithGuest(
   name: string,
@@ -38,6 +39,7 @@ async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: stri
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('add room type failed');
   await stub.flushOutbox();
+  await seedBarRatesForHorizon(stub, roomTypeId, result.fromDate);
   return result;
 }
 
@@ -566,7 +568,19 @@ describe('reservation lifecycle inquiry/pending', () => {
     const arrival = added.fromDate;
     const departure = addCalendarDays(arrival, 1);
     const plan = { ratePlanId: 'MISS', code: 'MISS', name: 'Missing', cancelPenaltyType: 'first_night' as const, cancelGraceHours: 0 };
-    expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p42', plan))).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p42', plan)),
+    ).toMatchObject({ ok: true });
+    const rate = {
+      roomTypeId: 'rt_king',
+      ratePlanId: 'MISS',
+      stayDate: arrival,
+      amountMinor: 9900,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r42', rate))).toMatchObject({
+      ok: true,
+    });
     const reservationId = `res_${crypto.randomUUID()}`;
     const create = {
       reservationId,
@@ -579,6 +593,7 @@ describe('reservation lifecycle inquiry/pending', () => {
     expect(
       await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c42', create)),
     ).toMatchObject({ ok: true });
+    await stub.deleteRateDayForTest('rt_king', 'MISS', arrival);
     const cancel = await stub.tryCancelReservation(
       TEST_OWNER_ACTOR,
       { reservationId },
@@ -647,6 +662,16 @@ describe('reservation lifecycle inquiry/pending', () => {
     const departure = addCalendarDays(arrival, 1);
     const plan = { ratePlanId: 'SNAP', code: 'SNAP', name: 'Snap', cancelPenaltyType: 'none' as const, cancelGraceHours: 0 };
     expect(await stub.tryCreateRatePlan(TEST_OWNER_ACTOR, plan, await idemFor('p44', plan))).toMatchObject({ ok: true });
+    const snapRate = {
+      roomTypeId: 'rt_king',
+      ratePlanId: 'SNAP',
+      stayDate: arrival,
+      amountMinor: 8000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, snapRate, await idemFor('r44', snapRate))).toMatchObject({
+      ok: true,
+    });
     const reservationId = `res_${crypto.randomUUID()}`;
     const create = {
       reservationId,

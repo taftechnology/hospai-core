@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BALANCE_DUE } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays } from './date-helpers';
-import { createGuest, idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import { createGuest, idemFor, orgStub, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './guest-helpers';
 
 async function provisionedPropertyWithGuest(
   name: string,
@@ -27,6 +27,7 @@ async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: stri
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('add room type failed');
   await stub.flushOutbox();
+  await seedBarRatesForHorizon(stub, roomTypeId, result.fromDate);
   return result;
 }
 

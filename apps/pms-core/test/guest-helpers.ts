@@ -12,6 +12,7 @@ export {
   idemFor,
   provisionedOrg,
   provisionedPropertyStub,
+  seedBarRatesForHorizon,
 } from './fixtures.js';
 
 

@@ -1,9 +1,11 @@
 import { env } from 'cloudflare:test';
 import { fingerprintPayload } from '@hospai/contracts';
+import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
 import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
 import type { PropertyDO } from '../src/property-do';
 import { seedSubscription } from '../src/registry';
+import { addCalendarDays } from './date-helpers.js';
 
 import type { ActorContext } from '@hospai/contracts';
 
@@ -83,6 +85,26 @@ export async function ensureEntitledMeta(
   await stub.ensureMetaOrgId(targetOrgId);
   if (propertyId) {
     await stub.ensureMetaPropertyId(propertyId);
+  }
+}
+
+/** Seed BAR rate_day so inventory-commit snapshot writers can succeed in tests. */
+export async function seedBarRatesForHorizon(
+  stub: DurableObjectStub<PropertyDO>,
+  roomTypeId: string,
+  fromDate: string,
+  nights = 30,
+  amountMinor = 10000,
+  currency = 'USD',
+): Promise<void> {
+  for (let i = 0; i < nights; i++) {
+    await stub.seedOrphanRateDayForTest({
+      roomTypeId,
+      ratePlanId: DEFAULT_RATE_PLAN_ID,
+      stayDate: addCalendarDays(fromDate, i),
+      amountMinor,
+      currency,
+    });
   }
 }
 

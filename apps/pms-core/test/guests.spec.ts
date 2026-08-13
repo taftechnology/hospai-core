@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, GUEST_ALREADY_ERASED, GUEST_EXISTS, GUEST_NOT_FOUND } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
-import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import { createGuest, idemFor, provisionedOrg, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './guest-helpers';
 
 
 async function provisionedProperty(name: string, orgId: string): Promise<DurableObjectStub<PropertyDO>> {
@@ -211,6 +211,7 @@ describe('PropertyDO reservation.created PII contract', () => {
 
     expect(added.ok).toBe(true);
     if (!added.ok) return;
+    await seedBarRatesForHorizon(stub, 'rt_king', added.fromDate);
 
     const arrival = added.fromDate;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(arrival)!;

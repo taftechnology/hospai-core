@@ -1745,6 +1745,40 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  async deleteRateDayForTest(roomTypeId: string, ratePlanId: string, stayDate: string): Promise<void> {
+    this.assertUnsafeLocal('deleteRateDayForTest');
+    this.ctx.storage.sql.exec(
+      `DELETE FROM rate_day WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+      roomTypeId,
+      ratePlanId,
+      stayDate,
+    );
+  }
+
+  async listReservationRateNightsForTest(reservationId: string): Promise<
+    Array<{ stayDate: string; amountMinor: number; currency: string; ratePlanId: string }>
+  > {
+    this.assertUnsafeLocal('listReservationRateNightsForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT stay_date, amount_minor, currency, rate_plan_id
+         FROM reservation_rate_night WHERE reservation_id = ? ORDER BY stay_date`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      stay_date: string;
+      amount_minor: number;
+      currency: string;
+      rate_plan_id: string;
+    }>;
+    return rows.map((r) => ({
+      stayDate: r.stay_date,
+      amountMinor: r.amount_minor,
+      currency: r.currency,
+      ratePlanId: r.rate_plan_id,
+    }));
+  }
+
   async recordProvisionalException(
     cmd: ProvisionalCommand,
     reason: string,
@@ -4608,6 +4642,28 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return rows[0].amount_minor;
   }
 
+  private snapshotRateNightsSync(
+    reservationId: string,
+    roomTypeId: string,
+    ratePlanId: string,
+    nights: string[],
+  ): void {
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) throw new Error(CURRENCY_UNSET);
+    for (const stayDate of nights) {
+      const amount = this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+      this.ctx.storage.sql.exec(
+        `INSERT INTO reservation_rate_night (reservation_id, stay_date, amount_minor, currency, rate_plan_id)
+         VALUES (?, ?, ?, ?, ?)`,
+        reservationId,
+        stayDate,
+        amount,
+        currency,
+        ratePlanId,
+      );
+    }
+  }
+
   private stayTotalMinorSync(roomTypeId: string, ratePlanId: string, nights: string[]): number {
     let total = 0;
     for (const stayDate of nights) {
@@ -4979,6 +5035,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             now,
           );
+          if (commitsInventory) {
+            this.snapshotRateNightsSync(input.reservationId, input.roomTypeId, ratePlanId, nights);
+          }
           this.ensureGuestFolioWindowSync(input.reservationId);
 
           const fromDate = nights[0]!;
@@ -5110,6 +5169,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               nights,
             );
             const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+            this.snapshotRateNightsSync(
+              input.reservationId,
+              reservation.room_type_id,
+              ratePlanId,
+              nights,
+            );
             this.ctx.storage.sql.exec(
               `UPDATE reservation SET status = 'confirmed', rate_plan_id = ?, cancel_penalty_type = ?,
                cancel_grace_hours = ?, cancel_penalty_nights = ?, cancel_penalty_bps = ?,
@@ -5229,6 +5294,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             nights,
           );
           const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+          this.snapshotRateNightsSync(
+            input.reservationId,
+            reservation.room_type_id,
+            ratePlanId,
+            nights,
+          );
           const now = Date.now();
           const holdHours = Number(this.readConfigValueSync('pms.reservations.pending_hold_hours') ?? 24);
           const confirmBy = input.confirmBy ?? now + holdHours * 3600_000;

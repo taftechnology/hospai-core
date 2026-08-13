@@ -16,7 +16,7 @@ import {
 import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays } from './date-helpers';
-import { createGuest, idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import { createGuest, idemFor, orgStub, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './guest-helpers';
 
 /** Provisions org + property, then mints one org guest and returns its `guestRef`. */
 async function provisionedPropertyWithGuest(
@@ -51,6 +51,7 @@ async function addRoomType(
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('add room type failed');
   await stub.flushOutbox();
+  await seedBarRatesForHorizon(stub, roomTypeId, result.fromDate);
   return result;
 }
 

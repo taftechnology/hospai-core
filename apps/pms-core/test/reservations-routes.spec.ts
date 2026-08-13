@@ -11,7 +11,7 @@ import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
-import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { createGuest, orgStub as testOrgStub, seedBarRatesForHorizon } from './guest-helpers.js';
 import { idemFor } from './fixtures';
 import type { PropertyDO } from '../src/property-do';
 
@@ -88,7 +88,10 @@ async function provisionHotel(actor: string, roomCount = 10) {
   expect(roomTypeRes.status).toBe(201);
   const roomTypeData = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await resolved.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', roomTypeData.fromDate);
+  }
   const org = testOrgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {

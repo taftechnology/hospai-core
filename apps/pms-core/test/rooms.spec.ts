@@ -10,7 +10,7 @@ import {
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { addCalendarDays, daysFromPropertyToday } from './date-helpers';
-import { idemFor, orgStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { idemFor, orgStub, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './fixtures';
 import { provisionedPropertyWithGuest } from './guest-helpers';
 import { createHousekeeper } from './roster-helpers';
 
@@ -41,6 +41,7 @@ async function addRoomType(
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error('add room type failed');
   await stub.flushOutbox();
+  await seedBarRatesForHorizon(stub, roomTypeId, result.fromDate);
   return result;
 }
 

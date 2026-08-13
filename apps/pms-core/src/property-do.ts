@@ -70,6 +70,8 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  PAYMENT_NOT_VOIDABLE,
+  PAYMENT_NOT_REFUNDABLE,
   SHIFT_NOT_FOUND,
   SHIFT_ALREADY_OPEN,
   SHIFT_NOT_OPEN,
@@ -160,6 +162,8 @@ import { isJurisdictionSimulate, isPspSimulate, type PmsEnv } from './env.js';
 import {
   simulateAuthorize,
   simulateCapture,
+  simulateVoid,
+  simulateRefund,
   type PspSimulateOutcome,
 } from './psp-simulate.js';
 import type { OrgDO } from './org-do.js';
@@ -171,7 +175,7 @@ import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.j
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 import { hasEventLogR2, reportObjectKey } from './event-log.js';
 
-type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown';
+type PaymentStatus = 'pending' | 'authorized' | 'declined' | 'captured' | 'unknown' | 'voided' | 'refunded';
 
 type PaymentRow = {
   payment_id: string;
@@ -187,6 +191,9 @@ type PaymentRow = {
   capture_fingerprint: string | null;
   tender_type: 'CARD' | 'CASH';
   shift_id: string | null;
+  purpose: 'STAY' | 'DAMAGE';
+  void_fingerprint: string | null;
+  refund_fingerprint: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -1282,7 +1289,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (
       parentSource === 'PAYMENT' ||
       parentSource === 'SPLIT_REVERSAL' ||
-      parentSource === 'TAX'
+      parentSource === 'TAX' ||
+      parentSource === 'PAYMENT_REFUND'
     ) {
       return;
     }
@@ -9818,7 +9826,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, tender_type, shift_id, created_at, updated_at
+                capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                created_at, updated_at
          FROM payment WHERE payment_id = ?`,
         paymentId,
       )
@@ -9831,7 +9840,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, tender_type, shift_id, created_at, updated_at
+                capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
         idempotencyKey,
       )
@@ -9998,6 +10008,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       amountMinor: number;
       idempotencyKey: string;
       requestFingerprint: string;
+      purpose?: 'STAY' | 'DAMAGE';
     },
   ): Promise<
     | { ok: true; paymentId: string; status: PaymentStatus; gatewayReference: string | null }
@@ -10049,8 +10060,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             `INSERT INTO payment (
                payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-               capture_fingerprint, tender_type, shift_id, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, 'CARD', ?, ?, ?)`,
+               capture_fingerprint, tender_type, shift_id, purpose, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, NULL, 'CARD', ?, ?, ?, ?)`,
             input.paymentId,
             input.reservationId,
             folioWindowId,
@@ -10059,6 +10070,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.idempotencyKey,
             input.requestFingerprint,
             shiftId,
+            input.purpose ?? 'STAY',
             now,
             now,
           );
@@ -10366,6 +10378,318 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  async tryVoidPayment(
+    actor: ActorContext,
+    input: { paymentId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; paymentId: string; status: 'voided' }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof PAYMENT_NOT_VOIDABLE }
+    | { ok: false; error: typeof PSP_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+    if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const payment = this.readPaymentRowSync(input.paymentId);
+    if (!payment) return { ok: false, error: NOT_FOUND };
+    if (payment.status === 'voided') {
+      if (payment.void_fingerprint === idem.fingerprint) {
+        return { ok: true, paymentId: payment.payment_id, status: 'voided' };
+      }
+      return { ok: false, error: IDEM_KEY_REUSED };
+    }
+    if (payment.tender_type === 'CASH' || payment.status !== 'authorized') {
+      return { ok: false, error: PAYMENT_NOT_VOIDABLE };
+    }
+
+    const adapterResult = await simulateVoid(
+      {
+        paymentId: input.paymentId,
+        gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
+      },
+      this.pspSimulateOutcomeForTest,
+    );
+    if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
+      return { ok: false, error: 'psp_adapter_failed' };
+    }
+    if (adapterResult.outcome !== 'approved') {
+      return { ok: false, error: PAYMENT_NOT_VOIDABLE };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const updated = this.ctx.storage.sql.exec(
+          `UPDATE payment
+           SET status = 'voided', void_fingerprint = ?, updated_at = ?
+           WHERE payment_id = ? AND status = 'authorized'`,
+          idem.fingerprint,
+          Date.now(),
+          input.paymentId,
+        );
+        if (updated.rowsWritten === 0) {
+          const current = this.readPaymentRowSync(input.paymentId);
+          if (!current) return { ok: false as const, error: NOT_FOUND };
+          if (current.status === 'voided' && current.void_fingerprint === idem.fingerprint) {
+            return { ok: true as const, paymentId: current.payment_id, status: 'voided' as const };
+          }
+          return { ok: false as const, error: PAYMENT_NOT_VOIDABLE };
+        }
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'folio.payment_voided',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            gatewayReference: adapterResult.gatewayReference,
+          },
+        });
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.void',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: { status: 'authorized' },
+          afterJson: { status: 'voided' },
+          reservationId: payment.reservation_id,
+        });
+        return { ok: true as const, paymentId: input.paymentId, status: 'voided' as const };
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryRefundPayment(
+    actor: ActorContext,
+    input: { paymentId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; paymentId: string; status: 'refunded' }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof PAYMENT_NOT_REFUNDABLE }
+    | { ok: false; error: typeof PSP_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const payment = this.readPaymentRowSync(input.paymentId);
+    if (!payment) return { ok: false, error: NOT_FOUND };
+    if (payment.status === 'refunded') {
+      if (payment.refund_fingerprint === idem.fingerprint) {
+        return { ok: true, paymentId: payment.payment_id, status: 'refunded' };
+      }
+      return { ok: false, error: IDEM_KEY_REUSED };
+    }
+    if (payment.status !== 'captured') {
+      return { ok: false, error: PAYMENT_NOT_REFUNDABLE };
+    }
+    const refundAmount = payment.captured_amount_minor ?? payment.amount_minor;
+
+    if (payment.tender_type === 'CARD') {
+      if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
+      const adapterResult = await simulateRefund(
+        {
+          paymentId: input.paymentId,
+          amountMinor: refundAmount,
+          gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
+          currency: payment.currency,
+        },
+        this.pspSimulateOutcomeForTest,
+      );
+      if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
+        return { ok: false, error: 'psp_adapter_failed' };
+      }
+      if (adapterResult.outcome !== 'approved') {
+        return { ok: false, error: PAYMENT_NOT_REFUNDABLE };
+      }
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const updated = this.ctx.storage.sql.exec(
+          `UPDATE payment
+           SET status = 'refunded', refund_fingerprint = ?, updated_at = ?
+           WHERE payment_id = ? AND status = 'captured'`,
+          idem.fingerprint,
+          Date.now(),
+          input.paymentId,
+        );
+        if (updated.rowsWritten === 0) {
+          const current = this.readPaymentRowSync(input.paymentId);
+          if (!current) return { ok: false as const, error: NOT_FOUND };
+          if (current.status === 'refunded' && current.refund_fingerprint === idem.fingerprint) {
+            return { ok: true as const, paymentId: current.payment_id, status: 'refunded' as const };
+          }
+          return { ok: false as const, error: PAYMENT_NOT_REFUNDABLE };
+        }
+
+        const captureLineId = `${input.paymentId}:capture`;
+        const refundLineId = `${input.paymentId}:refund`;
+        const fxRateAt = Date.now();
+        this.assertChargeCodeSync('PAYMENT', { requireActive: true });
+        this.insertFolioLineSync({
+          folioLineId: refundLineId,
+          folioWindowId: payment.folio_window_id,
+          reservationId: payment.reservation_id,
+          chargeCode: 'PAYMENT',
+          posted: {
+            amountMinor: refundAmount,
+            txnCurrency: currencyCode(payment.currency),
+            ledgerAmountMinor: refundAmount,
+            fxRate: '1',
+            fxRateAt,
+          },
+          source: 'PAYMENT_REFUND',
+          splitOf: captureLineId,
+          paymentId: null,
+        });
+
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'folio.payment_refunded',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            amountMinor: refundAmount,
+            currency: payment.currency,
+            folioLineId: refundLineId,
+          },
+        });
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.refund',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: { status: 'captured' },
+          afterJson: { status: 'refunded', amountMinor: refundAmount },
+          reservationId: payment.reservation_id,
+        });
+        return { ok: true as const, paymentId: input.paymentId, status: 'refunded' as const };
+      });
+    } catch (e) {
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryCaptureDueHolds(
+    actor: ActorContext,
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; captured: string[] }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof PSP_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    const prior = this.ctx.storage.sql
+      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+      .toArray() as Array<{ request_fingerprint: string; response: string }>;
+    if (prior[0]) {
+      if (prior[0].request_fingerprint !== idem.fingerprint) {
+        return { ok: false, error: IDEM_KEY_REUSED };
+      }
+      return JSON.parse(prior[0].response) as { ok: true; captured: string[] };
+    }
+
+    try {
+      const captured = await this.captureDueHoldsInner(actor, input.reservationId);
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => ({ ok: true as const, captured })),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private async captureDueHoldsInner(actor: ActorContext, reservationId: string): Promise<string[]> {
+    const resRows = this.ctx.storage.sql
+      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray();
+    if (!resRows[0]) throw new Error(NOT_FOUND);
+
+    const balanceRow = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS balance FROM folio_line WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{ balance: number }>;
+    let remaining = Number(balanceRow[0]?.balance ?? 0);
+    if (remaining <= 0) return [];
+
+    const holds = this.ctx.storage.sql
+      .exec(
+        `SELECT payment_id, amount_minor FROM payment
+         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY' AND tender_type = 'CARD'
+         ORDER BY created_at ASC, payment_id ASC`,
+        reservationId,
+      )
+      .toArray() as Array<{ payment_id: string; amount_minor: number }>;
+
+    const captured: string[] = [];
+    for (const hold of holds) {
+      if (remaining <= 0) break;
+      const amountMinor = Math.min(hold.amount_minor, remaining);
+      const result = await this.tryCapturePayment(actor, {
+        paymentId: hold.payment_id,
+        amountMinor,
+        idempotencyKey: `capture-due:${hold.payment_id}`,
+        captureFingerprint: await fingerprintPayload({
+          paymentId: hold.payment_id,
+          amountMinor,
+          source: 'capture_due',
+        }),
+      });
+      if (result.ok) {
+        captured.push(hold.payment_id);
+        remaining -= result.capturedAmountMinor;
+      }
+    }
+    return captured;
   }
 
   async tryOpenShift(

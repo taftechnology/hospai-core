@@ -759,13 +759,13 @@ EOF
 - Consumes: Task 8 adapters; v21 payment columns; Task 3 CLOSED gate on refund line insert
 - **Forbidden:** wiring into `tryCheckOut` (Task 10).
 
-- [ ] **Step 1: Write the failing tests** 26–32, 35–36, 39.
+- [x] **Step 1: Write the failing tests** 26–32, 35–36, 39.
 
 Widen `PaymentStatus` to include `'voided' | 'refunded'` in the test assertions via `readPayment`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Void: async seam like authorize (assert `authorized` + CARD, await `simulateVoid`, txn2 `UPDATE … WHERE status='authorized'`). No folio line. Cash → `PAYMENT_NOT_VOIDABLE`. `unknown` → not voidable. Timeout on void → stay `authorized` (do not write `unknown`). Event `folio.payment_voided`. Fingerprint `{ paymentId }`. `void_fingerprint` column.
 
@@ -775,13 +775,13 @@ Refund: full only. Card: await `simulateRefund`; cash: skip PSP. Positive `PAYME
 
 Authorize: accept optional `purpose`, default `'STAY'`, store on insert, fingerprint includes `purpose`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts test/folio-payments.spec.ts`
 
 Existing authorize/capture tests stay green (`purpose` default).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-payment-lifecycle.spec.ts

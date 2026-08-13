@@ -1,6 +1,6 @@
 # Tape Chart + Live Front-Office Board Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > Do **not** start implementing until the parent reviewer approves this plan. Do not commit this file in the same turn it is written.
 
@@ -152,7 +152,7 @@ async readFrontOfficeSummary(date: string): Promise<{
 - Consumes: existing `mapFrontDeskListRow`, `listRooms` SQL shape, `assertRoomAssignableSync` overlap, `encodeFrontDeskCursor` / `decodeFrontDeskCursor`, `inclusiveDateRangeError`
 - **Forbidden this commit:** `PropertyDO.fetch`, `webSocketMessage`, `acceptWebSocket`, `broadcastFrontOffice`, `V1_HTTP_ROUTE_AUDIT[119]`, SPA, client-core, catalog ids, migrations, `CLASS_DENYLIST`.
 
-- [ ] **Step 1: Write the failing register pins**
+- [x] **Step 1: Write the failing register pins**
 
 In the existing route-audit `it` that already pins `[114]`, append:
 
@@ -198,7 +198,7 @@ expect(PLATFORM_GAPS).toEqual([]);
 
 Do **not** pin `[119]` this commit.
 
-- [ ] **Step 2: Write failing HTTP tests** (`apps/pms-core/test/front-desk-tape-routes.spec.ts`)
+- [x] **Step 2: Write failing HTTP tests** (`apps/pms-core/test/front-desk-tape-routes.spec.ts`)
 
 Copy provision helpers from `front-desk-reads.spec.ts` / `rooms-ooo-routes.spec.ts` / `reservations-search-routes.spec.ts` (`postOrg`, `postProperty`, `crypto.randomUUID()` ids, `ensurePlatformSchema` / `setKillSwitch` in `beforeEach`/`afterEach`, `org.ensureMember(staff, 'staff')`, `insertReservationForTest`, `seedBarRatesForHorizon` if create-via-HTTP needs rates).
 
@@ -214,7 +214,7 @@ Required cases (spec §14.4–14.10):
 6. `fromDate=A&toDate=` 91 nights (`toDate = A+90`) on tape **and** available-rooms → 400 `{ error: 'date_range_exceeds_max' }`. `fromDate > toDate` → 400.
 7. Staff member GET tape → **200**. Actor without `reservations:read` (fabricate a member that lacks it if the role always has it — otherwise a stranger → existing 404/403 privacy mapping; add an OrgDO role fixture only if a current test already does). Kill-switch `pms.core` → 503 on each of the four paths (copy `folio-fx-routes.spec.ts` / `property-setup-reads.spec.ts`). `setTransportBlockedForTest` → 503 `FAIL_CLOSED` (copy front-desk-reads).
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -224,7 +224,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-tape-routes.spec.
 
 Expected: FAIL — missing audit rows / handlers / RPCs.
 
-- [ ] **Step 4: Implement DO RPCs**
+- [x] **Step 4: Implement DO RPCs**
 
 All four: `this.assertRpcAvailable()`, sync SQL, no OrgDO.
 
@@ -254,7 +254,7 @@ All four: `this.assertRpcAvailable()`, sync SQL, no OrgDO.
 
 Do **not** add a table or index. Do **not** call `listRooms` from HTTP (permission mismatch).
 
-- [ ] **Step 5: Implement HTTP handlers + audit + `V1_ROUTES`**
+- [x] **Step 5: Implement HTTP handlers + audit + `V1_ROUTES`**
 
 Audit rows (no `commandId`):
 
@@ -281,7 +281,7 @@ GET  /^\/v1\/properties\/([^/]+)\/front-desk\/available-rooms$/
 GET  /^\/v1\/properties\/([^/]+)\/front-desk\/summary$/
 ```
 
-- [ ] **Step 6: Rebuild contracts, re-run tests, check:permissions**
+- [x] **Step 6: Rebuild contracts, re-run tests, check:permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -293,7 +293,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-tape-routes.spec.
 
 Expected: all exit 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts \
@@ -337,7 +337,7 @@ Attachment JSON: `{ propertyId: string; userId: string; fromDate: string | null;
 - Consumes: Task 1 `readFrontOfficeTape`
 - **Forbidden this commit:** SPA, client-core `WebSocket`, catalog ids, migrations, `setInterval`, `server.accept()`, actor query param, `entitlement.changed`, constructor work beyond existing migrate, broadcasting `folio.*` / `payment.*` / `rate.*` / `config.changed` / `shift.changed`.
 
-- [ ] **Step 1: Write failing register pin + stream tests**
+- [x] **Step 1: Write failing register pin + stream tests**
 
 Replace `expect(V1_HTTP_ROUTE_AUDIT[119]).toBeUndefined()` with:
 
@@ -365,7 +365,7 @@ expect('commandId' in (V1_HTTP_ROUTE_AUDIT[119] ?? {})).toBe(false);
 
 Kill-switch on the stream GET (no upgrade needed) → 503, no 101.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -375,7 +375,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-stream.spec.ts
 
 Expected: FAIL — `[119]` missing / no 101.
 
-- [ ] **Step 3: Auth + dispatcher handshake**
+- [x] **Step 3: Auth + dispatcher handshake**
 
 `resolveActor`: after the existing `x-dev-actor` header branch, if `isDevActorAllowed(env)`:
 
@@ -407,7 +407,7 @@ GET  /^\/v1\/properties\/([^/]+)\/front-desk\/stream$/
 
 `degradedRead: 'FAIL_CLOSED'` on the audit row.
 
-- [ ] **Step 4: PropertyDO hibernation handlers + broadcast**
+- [x] **Step 4: PropertyDO hibernation handlers + broadcast**
 
 `fetch`:
 
@@ -433,7 +433,7 @@ then build a partial delta from the payload + a small SELECT (`mapFrontDeskListR
 
 Constructor: **unchanged**. No `getWebSockets` scan, no snapshot assemble.
 
-- [ ] **Step 5: Rebuild, re-run, check:permissions**
+- [x] **Step 5: Rebuild, re-run, check:permissions**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -445,7 +445,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-tape-routes.spec.
 
 Expected: all exit 0. `[114]` still `get_domain_config`. Catalog length 74.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/contracts/src/v1-http-routes.ts packages/contracts/src/register.test.ts \
@@ -473,7 +473,7 @@ EOF
 
 **Forbidden this commit:** `new WebSocket`, React, `document`, SPA screens, pms-core.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `api-front-office-board.test.ts` (copy `api-property-setup.test.ts` transport mock):
 
@@ -494,7 +494,7 @@ frontOfficeStreamUrl(propertyId, fromDate?, toDate?): string
 
 Unknown JSON → `null`. Snapshot without `displayName`. `isFrontOfficeDelta` type guard.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/client-core exec vitest run test/api-front-office-board.test.ts test/front-office-stream.test.ts
@@ -502,20 +502,20 @@ pnpm --filter @hospai/client-core exec vitest run test/api-front-office-board.te
 
 Expected: FAIL — methods missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the four `getJson` methods next to `getArrivals`. Export types matching the HTTP bodies (`asOf`, `blocks`, `ooo`, summary occupancy).
 
 `front-office-stream.ts` is pure functions + types (`FrontOfficeStreamMessage` union: snapshot | delta | pong | error). **No** `WebSocket`.
 
-- [ ] **Step 4: Rebuild and re-run**
+- [x] **Step 4: Rebuild and re-run**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/client-core exec vitest run test/api-front-office-board.test.ts test/front-office-stream.test.ts
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts packages/client-core/src/front-office-stream.ts \
@@ -543,7 +543,7 @@ EOF
 
 **Forbidden this commit:** WebSocket provider, watermark, directory screen, summary GET (may omit widgets or show a placeholder — **prefer omit**; Task 5 adds them). No Tailwind. No drag. No POST.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `me.test.ts`: in the `reservations:read` filter test, also:
 
@@ -564,14 +564,14 @@ expect(ids).toContain('reservations'); // nav entry lands in Task 5 — **wait**
 5. Loading copy is `Loading…`.
 6. Index: render `App` at `/` → navigate to `/board` (or assert `App.tsx` `<Navigate to="/board" />`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/web-pms exec vitest run src/screens/TapeChartScreen.test.tsx src/auth/me.test.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `nav.ts`: insert Board at order 8 (array order need not match `order`; `ALL_NAV` sorts).
 
@@ -590,13 +590,13 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/TapeChartScreen.test.t
 
 Existing tokens only.
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/TapeChartScreen.test.tsx src/auth/me.test.ts src/shell/module-ui-registry.test.ts
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/nav.ts apps/web-pms/src/App.tsx apps/web-pms/src/auth/me.test.ts \
@@ -628,7 +628,7 @@ Do not `git add` unrelated CSS. If no style file changed, omit it.
 
 **Forbidden this commit:** WebSocket, watermark, new writes, `/dashboard` route, `roomId` on create.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Directory:
 
@@ -645,7 +645,7 @@ Summary:
 5. `BoardSummary` with `{ arrivals: 51, overstay: 2, occupancy: { occupiedRooms: 1, sellableRooms: 3 } }` shows 51 and an overstay chip (`status-exception`) and `1 / 3`. Overstay hidden when 0. Widget Arrivals is a `<Link to="/arrivals?date=">`.
 6. `BoardScreen` header contains `data-testid="board-summary"` (mock `getFrontOfficeSummary`). Tape header too.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
@@ -657,7 +657,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/auth/me.test.ts
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Directory table: reservation id `translate="no"`, `guestLabel`, status, dates `tabular-nums`, room code from optional `listRooms` if `housekeeping:read` else truncated `roomId`. Do not fail the page on rooms 403.
 
@@ -665,11 +665,11 @@ Title Case: Today, Tomorrow, This Week, All.
 
 Shared `BoardSummary` query key `['front-desk-summary', propertyId, date]`.
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 Same command as Step 2. Expected: exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/nav.ts apps/web-pms/src/App.tsx apps/web-pms/src/auth/me.test.ts \
@@ -710,7 +710,7 @@ Same-origin URL from `frontOfficeStreamUrl`. Clerk: cookies on upgrade; no proto
 
 **Forbidden this commit:** polling `setInterval` as the live path; entitlement WS; `ui-kit`; connecting from each screen (one shell connection).
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `StaleWatermark.test.tsx`:
 
@@ -728,7 +728,7 @@ Same-origin URL from `frontOfficeStreamUrl`. Clerk: cookies on upgrade; no proto
 
 Reconnect backoff: unit-test a tiny `nextReconnectMs(attempt)` cap 10_000. Do not flakily wait 10s in jsdom.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/client-core build
@@ -738,7 +738,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/screens/BoardScreen.test.tsx
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `AppShell`: wrap main with `FrontOfficeLive` when live + `reservations:read`. Render `StaleWatermark` under `ShiftStrip`.
 
@@ -748,11 +748,11 @@ On open: `subscribe`. On close/error: mark stale if a snapshot was seen; reconne
 
 Dev actor: protocol subprotocol only when `VITE_USE_DEV_ACTOR === '1'`. Never put actor in the URL.
 
-- [ ] **Step 4: Re-run tests**
+- [x] **Step 4: Re-run tests**
 
 Same as Step 2 plus `TapeChartScreen.test.tsx` / `AppShell.search.test.tsx` / `AppShell.me.test.tsx` / `AppShell.boot.test.tsx`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/FrontOfficeLive.tsx apps/web-pms/src/shell/FrontOfficeLive.test.tsx \
@@ -780,9 +780,9 @@ EOF
 - `docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md` — leftover 4 watermark UI only; list routes stay FAIL_CLOSED
 - Optional one sentence in `ARCHITECTURE.md` §16.3 item 3 that the tape chart now has a live SPA (same PR as implementation, not a drive-by). If you touch ARCHITECTURE, keep it to that sentence.
 
-- [ ] **Step 1: Edit pointers**
+- [x] **Step 1: Edit pointers**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-07-front-desk-operational-reads-design.md \
@@ -806,7 +806,7 @@ Omit `ARCHITECTURE.md` from `git add` if you did not edit it.
 
 **Spec:** §2 invariants, §14.3, §14.24, §15.
 
-- [ ] **Step 1: Hygiene pins**
+- [x] **Step 1: Hygiene pins**
 
 ```bash
 pnpm generate:ddl
@@ -816,7 +816,7 @@ git diff --exit-code -- tooling/eslint-plugin-hospai/src/class-denylist.ts
 
 `PROPERTY_SCHEMA_HEAD` stays 24. `NIGHT_AUDIT_STEPS.length === 7`. `PROPERTY_PURGE_INVENTORY_TABLES` unchanged. `COMMAND_CATALOG.length === 74`. `AUDIT_WRITER_COMMAND_IDS.size === 49`. `[114]=get_domain_config`; `[115]`–`[119]` as spec.
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -846,7 +846,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -865,9 +865,9 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–9 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
+- [x] **Step 1: Mark checkboxes**
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-tape-chart-live-board.md

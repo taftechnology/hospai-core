@@ -391,7 +391,9 @@ describe('night-audit HTTP routes', () => {
     const fail = await stub.runAuditStep(d, 'PRE_CHECK', { pendingOpenCount: 0 });
     expect(fail.status).toBe('FAILED');
 
-    const listed = await stub.listProvisionalExceptions();
+    const listed = (await stub.listProvisionalExceptions()) as {
+      exceptions: Array<{ exceptionId: string }>;
+    };
     expect(listed.exceptions).toHaveLength(1);
     const exceptionId = listed.exceptions[0]!.exceptionId;
 

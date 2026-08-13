@@ -62,7 +62,7 @@ describe('pending_command_open census', () => {
         body,
       },
     ]);
-    await handlePendingCommandsBatch(batch, env);
+    await handlePendingCommandsBatch(batch as MessageBatch<PendingCommandMessage>, env);
     expect(await countPendingOpen(env.PLATFORM_DB, propertyId)).toBe(0);
   });
 });

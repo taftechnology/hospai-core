@@ -42,7 +42,14 @@ const STEPS = [
   'ARCHIVE',
 ] as const;
 
-function pendingSteps() {
+function pendingSteps(): Array<{
+  step: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  attempt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  error: string | null;
+}> {
   return STEPS.map((step) => ({
     step,
     status: 'PENDING' as const,

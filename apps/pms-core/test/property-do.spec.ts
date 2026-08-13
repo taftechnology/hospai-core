@@ -10,7 +10,7 @@ import {
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
 import { ensureEntitledMeta, idemFor, propertyStub, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
-import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
+import { TYPE_WIDE_RATE_PLAN, PROPERTY_SCHEMA_HEAD } from '@hospai/do-runtime';
 
 async function configIdem(key: string, value: unknown, meta: { reason: string }) {
   const fingerprint = await fingerprintPayload({
@@ -22,9 +22,9 @@ async function configIdem(key: string, value: unknown, meta: { reason: string })
 }
 
 describe('PropertyDO freeze gate', () => {
-  it('migrates to schema version 18', async () => {
+  it('migrates to PROPERTY_SCHEMA_HEAD', async () => {
     const stub = propertyStub(`migrate-${crypto.randomUUID()}`);
-    expect(await stub.getSchemaVersion()).toBe(18);
+    expect(await stub.getSchemaVersion()).toBe(PROPERTY_SCHEMA_HEAD);
   });
 
   it('defaults held to 0 and computes free', async () => {

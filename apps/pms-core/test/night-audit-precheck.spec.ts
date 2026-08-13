@@ -1,5 +1,5 @@
 import { env, createMessageBatch } from 'cloudflare:test';
-import { fingerprintPayload, type PendingCommandMessage } from '@hospai/contracts';
+import { fingerprintPayload, type PendingCommandMessage, type ProvisionalExceptionRow } from '@hospai/contracts';
 import { describe, expect, it } from 'vitest';
 import { handlePendingCommandsBatch } from '../src/pending-commands-consumer.js';
 import { enqueueProvisionalCommand } from '../src/provisional-queue.js';
@@ -75,7 +75,9 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
     const { stub: stubResolved } = await provisionedPropertyStub(`na-pc-ex-r-${crypto.randomUUID()}`, 'UTC', 'USD');
     const dResolved = (await stubResolved.readBusinessDate())!;
     await stubResolved.recordProvisionalException(sampleExceptionCmd(dResolved), 'domain_error', null);
-    const listed = await stubResolved.listProvisionalExceptions();
+    const listed = await stubResolved.listProvisionalExceptions() as {
+      exceptions: ProvisionalExceptionRow[];
+    };
     expect(listed.exceptions).toHaveLength(1);
     const resolved = await stubResolved.tryResolveProvisionalException(
       TEST_OWNER_ACTOR,
@@ -158,9 +160,11 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
         body,
       },
     ]);
-    await handlePendingCommandsBatch(batch, env);
+    await handlePendingCommandsBatch(batch as MessageBatch<PendingCommandMessage>, env);
 
-    const { exceptions } = await stub.listProvisionalExceptions();
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
     expect(exceptions).toHaveLength(1);
     expect(exceptions[0]!.reason).toBe('business_date_closed');
     expect(await stub.countFolioLines()).toBe(0);
@@ -171,7 +175,9 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
     const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
     await stub.recordProvisionalException(sampleExceptionCmd((await stub.readBusinessDate())!), 'domain_error', null);
     expect(await stub.countProvisionalExceptions()).toBe(1);
-    const { exceptions } = await stub.listProvisionalExceptions();
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
     const exceptionId = exceptions[0]!.exceptionId;
     expect(exceptions[0]!.resolvedAt).toBeNull();
 
@@ -182,13 +188,12 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
     );
     expect(first).toEqual({ ok: true });
     expect(await stub.countProvisionalExceptions()).toBe(0);
-    expect((await stub.listProvisionalExceptions()).exceptions).toHaveLength(0);
+    expect((await stub.listProvisionalExceptions() as { exceptions: unknown[] }).exceptions).toHaveLength(0);
     expect(await stub.listOutboxEventTypes()).toContain('provisional.exception_resolved');
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, {});
-    expect(audit.ok).toBe(true);
-    if (audit.ok) {
-      expect(audit.rows.some((r) => r.commandId === 'provisional.resolve_exception')).toBe(true);
-    }
+    expect(audit).toMatchObject({ ok: true });
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string }> }).rows;
+    expect(rows.some((r) => r.commandId === 'provisional.resolve_exception')).toBe(true);
 
     const second = await stub.tryResolveProvisionalException(
       TEST_OWNER_ACTOR,
@@ -197,10 +202,9 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
     );
     expect(second).toEqual({ ok: true, alreadyResolved: true });
     const audit2 = await stub.listAuditLog(TEST_OWNER_ACTOR, {});
-    expect(audit2.ok).toBe(true);
-    if (audit2.ok) {
-      expect(audit2.rows.filter((r) => r.commandId === 'provisional.resolve_exception')).toHaveLength(1);
-    }
+    expect(audit2).toMatchObject({ ok: true });
+    const rows2 = (audit2 as unknown as { ok: true; rows: Array<{ commandId: string }> }).rows;
+    expect(rows2.filter((r) => r.commandId === 'provisional.resolve_exception')).toHaveLength(1);
 
     const missing = await stub.tryResolveProvisionalException(
       TEST_OWNER_ACTOR,

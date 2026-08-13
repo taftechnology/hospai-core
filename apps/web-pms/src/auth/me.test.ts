@@ -38,7 +38,9 @@ describe('me authority helpers', () => {
       permissions: ['reservations:read', 'folio:read'],
     };
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me })).toEqual(
-      NAV_ENTRIES.filter((e) => e.id !== 'staff' && e.id !== 'book' && e.id !== 'roster'),
+      NAV_ENTRIES.filter(
+        (e) => e.id !== 'staff' && e.id !== 'book' && e.id !== 'roster' && e.id !== 'night-audit',
+      ),
     );
   });
 
@@ -74,6 +76,7 @@ describe('me authority helpers', () => {
     const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
     expect(filtered.map((e) => e.id)).not.toContain('staff');
     expect(filtered.map((e) => e.id)).not.toContain('roster');
+    expect(filtered.map((e) => e.id)).not.toContain('night-audit');
     expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
   });
 

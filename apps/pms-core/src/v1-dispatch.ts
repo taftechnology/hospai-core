@@ -2007,7 +2007,7 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
-  const invoked = await invokePropertyDo({
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCheckIn']>>>({
     env: ctx.env,
     commandId: 'reservations.check_in',
     routeId: 'post_reservation_check_in',
@@ -2052,7 +2052,7 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
-  const invoked = await invokePropertyDo({
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCheckOut']>>>({
     env: ctx.env,
     commandId: 'reservations.check_out',
     routeId: 'post_reservation_check_out',

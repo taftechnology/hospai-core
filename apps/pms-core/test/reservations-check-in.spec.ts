@@ -172,10 +172,10 @@ describe('reservation check-in triangle', () => {
     expect(await stub.getReservationStatus('res_27')).toBe('checked_in');
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_27' });
     expect(audit.ok).toBe(true);
-    if (audit.ok) {
-      const ci = audit.rows.find((r) => r.commandId === 'reservations.check_in');
-      expect(ci?.afterJson).toMatchObject({ overrideCleanliness: true });
-    }
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> })
+      .rows;
+    const ci = rows.find((r) => r.commandId === 'reservations.check_in');
+    expect(ci?.afterJson).toMatchObject({ overrideCleanliness: true });
   });
 
   it('28. OOO + override → ROOM_OUT_OF_ORDER', async () => {

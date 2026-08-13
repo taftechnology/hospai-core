@@ -1065,7 +1065,7 @@ EOF
 
 **Files:** none expected. Fix anything this sequence turns red. Tick living checkboxes on this plan in the same PR.
 
-- [ ] **Step 1: Run the `checks` job locally, in this order**
+- [x] **Step 1: Run the `checks` job locally, in this order**
 
 ```
 pnpm build
@@ -1094,7 +1094,7 @@ pnpm lint
 
 Expected: all exit 0.
 
-- [ ] **Step 2: Run the pms-core shard matrix**
+- [x] **Step 2: Run the pms-core shard matrix**
 
 ```
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -1105,11 +1105,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Do not put `--` before `--shard`. Expected: all four exit 0.
 
-- [ ] **Step 3: Tick living checkboxes on this plan**
+- [x] **Step 3: Tick living checkboxes on this plan**
 
 Mark Tasks 1–11 steps `- [x]` in this file. Same PR as the last implementation commit, or a docs commit in that PR.
 
-- [ ] **Step 4: Commit only if Step 3 left docs dirty**
+- [x] **Step 4: Commit only if Step 3 left docs dirty**
 
 ```bash
 git add docs/superpowers/plans/2026-08-12-reservations-lifecycle-completion.md

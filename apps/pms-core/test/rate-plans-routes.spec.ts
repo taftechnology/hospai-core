@@ -214,11 +214,28 @@ describe('rate plans HTTP routes', () => {
     const res = await getRatePlans(propertyId, actor);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      plans: Array<{ ratePlanId: string; code: string; status: string }>;
+      plans: Array<{
+        ratePlanId: string;
+        code: string;
+        status: string;
+        cancelPenaltyType?: string;
+        cancelGraceHours?: number;
+        cancelPenaltyNights?: number | null;
+        cancelPenaltyBps?: number | null;
+        cancelPolicyText?: string | null;
+      }>;
     };
     expect(body.plans.some((p) => p.ratePlanId === DEFAULT_RATE_PLAN_ID && p.status === 'active')).toBe(
       true,
     );
+    const bar = body.plans.find((p) => p.ratePlanId === DEFAULT_RATE_PLAN_ID);
+    expect(bar).toMatchObject({
+      cancelPenaltyType: 'none',
+      cancelGraceHours: 0,
+    });
+    expect('cancelPenaltyNights' in (bar ?? {})).toBe(true);
+    expect('cancelPenaltyBps' in (bar ?? {})).toBe(true);
+    expect('cancelPolicyText' in (bar ?? {})).toBe(true);
   });
 
   it('2: POST /rate-plans creates active plan + rate_plan.changed', async () => {

@@ -251,4 +251,17 @@ describe('domain config HTTP routes', () => {
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
   });
+
+  it('PUT pms.ops.auto_assign_rooms succeeds after DOMAIN reclass', async () => {
+    const owner = 'user_cfg_auto_assign';
+    const { propertyId, stub } = await provisionHotel(owner);
+    const res = await putDomainConfig(propertyId, owner, {
+      key: 'pms.ops.auto_assign_rooms',
+      value: false,
+      reason: 'ops:explicit-assign',
+      idempotencyKey: 'idem-cfg-auto-assign',
+    });
+    expect(res.status).toBe(200);
+    expect(await stub.readConfig('pms.ops.auto_assign_rooms')).toBe(false);
+  });
 });

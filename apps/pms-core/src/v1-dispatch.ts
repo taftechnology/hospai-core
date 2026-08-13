@@ -4119,6 +4119,133 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function inclusiveDateRangeError(fromDate: string | null, toDate: string | null): Response | null {
+  if (!fromDate || !toDate || !ISO_DATE_RE.test(fromDate) || !ISO_DATE_RE.test(toDate)) {
+    return json({ error: 'invalid_date' }, 400);
+  }
+  if (fromDate > toDate) {
+    return json({ error: 'invalid_date_range' }, 400);
+  }
+  if (toDate > addDays(fromDate, 89)) {
+    return json({ error: 'date_range_exceeds_max' }, 400);
+  }
+  return null;
+}
+
+async function handleGetRoomTypes(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const statusParam = ctx.url.searchParams.get('status');
+  const status =
+    statusParam == null || statusParam === ''
+      ? 'active'
+      : statusParam === 'active' || statusParam === 'archived' || statusParam === 'all'
+        ? statusParam
+        : null;
+  if (status == null) {
+    return json({ error: 'invalid_query' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const roomTypes = await resolvedCtx.resolved.stub.listRoomTypes(status);
+    return json({ ok: true, roomTypes }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetRateDays(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const fromDate = ctx.url.searchParams.get('fromDate');
+  const toDate = ctx.url.searchParams.get('toDate');
+  const rangeErr = inclusiveDateRangeError(fromDate, toDate);
+  if (rangeErr) return rangeErr;
+
+  const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
+  const ratePlanId = ctx.url.searchParams.get('ratePlanId') ?? undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const days = await resolvedCtx.resolved.stub.listRateDays({
+      fromDate: fromDate!,
+      toDate: toDate!,
+      roomTypeId,
+      ratePlanId,
+    });
+    return json({ ok: true, days }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetRestrictionDays(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const ratePlanId = ctx.url.searchParams.get('ratePlanId');
+  if (ratePlanId != null && ratePlanId !== '' && ratePlanId !== TYPE_WIDE_RATE_PLAN) {
+    return json({ error: 'invalid_query', detail: 'type_wide_only' }, 400);
+  }
+
+  const fromDate = ctx.url.searchParams.get('fromDate');
+  const toDate = ctx.url.searchParams.get('toDate');
+  const rangeErr = inclusiveDateRangeError(fromDate, toDate);
+  if (rangeErr) return rangeErr;
+
+  const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const days = await resolvedCtx.resolved.stub.listRestrictionDays({
+      fromDate: fromDate!,
+      toDate: toDate!,
+      roomTypeId,
+    });
+    return json({ ok: true, days }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetDomainConfig(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const keys = await resolvedCtx.resolved.stub.listDomainConfig();
+    return json({ ok: true, keys }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
 async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const roomTypeId = decodeURIComponent(ctx.match[2]!);
@@ -6282,6 +6409,38 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.post_fx_adjustment',
     entitlement: 'pms.core',
     handler: handlePostFolioFxAdjustment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/room-types$/,
+    permission: 'inventory:read',
+    entitlement: 'pms.core',
+    handler: handleGetRoomTypes,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-days$/,
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    handler: handleGetRateDays,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/restriction-days$/,
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    handler: handleGetRestrictionDays,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/config\/domain$/,
+    permission: 'settings:configure',
+    entitlement: 'pms.core',
+    handler: handleGetDomainConfig,
   },
 ];
 

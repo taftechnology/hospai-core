@@ -8604,12 +8604,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /** Active rate plans only. */
   async listRatePlans(): Promise<
-    Array<{ ratePlanId: string; code: string; name: string; status: string }>
+    Array<{
+      ratePlanId: string;
+      code: string;
+      name: string;
+      status: string;
+      cancelPenaltyType: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
+      cancelGraceHours: number;
+      cancelPenaltyNights: number | null;
+      cancelPenaltyBps: number | null;
+      cancelPolicyText: string | null;
+    }>
   > {
     this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT rate_plan_id, code, name, status FROM rate_plan
+        `SELECT rate_plan_id, code, name, status,
+                cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights,
+                cancel_penalty_bps, cancel_policy_text
+         FROM rate_plan
          WHERE status = 'active' ORDER BY code`,
       )
       .toArray() as Array<{
@@ -8617,12 +8630,174 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       code: string;
       name: string;
       status: string;
+      cancel_penalty_type: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
+      cancel_policy_text: string | null;
     }>;
     return rows.map((r) => ({
       ratePlanId: r.rate_plan_id,
       code: r.code,
       name: r.name,
       status: r.status,
+      cancelPenaltyType: r.cancel_penalty_type,
+      cancelGraceHours: r.cancel_grace_hours,
+      cancelPenaltyNights: r.cancel_penalty_nights,
+      cancelPenaltyBps: r.cancel_penalty_bps,
+      cancelPolicyText: r.cancel_policy_text,
+    }));
+  }
+
+  async listRoomTypes(status: 'active' | 'archived' | 'all' = 'active'): Promise<
+    Array<{
+      roomTypeId: string;
+      code: string;
+      name: string;
+      roomCount: number;
+      maxOccupancy: number;
+      maxAdults: number;
+      status: 'active' | 'archived';
+      createdAt: number;
+      updatedAt: number;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id, code, name, room_count, max_occupancy, max_adults,
+                status, created_at, updated_at
+         FROM room_type
+         WHERE (? = 'all' OR status = ?)
+         ORDER BY code`,
+        status,
+        status,
+      )
+      .toArray() as Array<{
+      room_type_id: string;
+      code: string;
+      name: string;
+      room_count: number;
+      max_occupancy: number;
+      max_adults: number;
+      status: 'active' | 'archived';
+      created_at: number;
+      updated_at: number;
+    }>;
+    return rows.map((r) => ({
+      roomTypeId: r.room_type_id,
+      code: r.code,
+      name: r.name,
+      roomCount: r.room_count,
+      maxOccupancy: r.max_occupancy,
+      maxAdults: r.max_adults,
+      status: r.status,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  async listRateDays(q: {
+    fromDate: string;
+    toDate: string;
+    roomTypeId?: string;
+    ratePlanId?: string;
+  }): Promise<
+    Array<{
+      roomTypeId: string;
+      ratePlanId: string;
+      stayDate: string;
+      amountMinor: number;
+      currency: string;
+      version: number;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const ratePlanId = q.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
+    const roomTypeId = q.roomTypeId ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id, rate_plan_id, stay_date, amount_minor, currency, version
+         FROM rate_day
+         WHERE stay_date >= ? AND stay_date <= ?
+           AND rate_plan_id = ?
+           AND (? IS NULL OR room_type_id = ?)
+         ORDER BY room_type_id, stay_date`,
+        q.fromDate,
+        q.toDate,
+        ratePlanId,
+        roomTypeId,
+        roomTypeId,
+      )
+      .toArray() as Array<{
+      room_type_id: string;
+      rate_plan_id: string;
+      stay_date: string;
+      amount_minor: number;
+      currency: string;
+      version: number;
+    }>;
+    return rows.map((r) => ({
+      roomTypeId: r.room_type_id,
+      ratePlanId: r.rate_plan_id,
+      stayDate: r.stay_date,
+      amountMinor: r.amount_minor,
+      currency: r.currency,
+      version: r.version,
+    }));
+  }
+
+  async listRestrictionDays(q: {
+    fromDate: string;
+    toDate: string;
+    roomTypeId?: string;
+  }): Promise<
+    Array<{
+      roomTypeId: string;
+      stayDate: string;
+      minLos: number | null;
+      maxLos: number | null;
+      cta: boolean;
+      ctd: boolean;
+      stopSell: boolean;
+      version: number;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const roomTypeId = q.roomTypeId ?? null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id, stay_date, min_los, max_los, cta, ctd, stop_sell, version
+         FROM restriction_day
+         WHERE stay_date >= ? AND stay_date <= ?
+           AND rate_plan_id = ?
+           AND (? IS NULL OR room_type_id = ?)
+         ORDER BY room_type_id, stay_date`,
+        q.fromDate,
+        q.toDate,
+        TYPE_WIDE_RATE_PLAN,
+        roomTypeId,
+        roomTypeId,
+      )
+      .toArray() as Array<{
+      room_type_id: string;
+      stay_date: string;
+      min_los: number | null;
+      max_los: number | null;
+      cta: number;
+      ctd: number;
+      stop_sell: number;
+      version: number;
+    }>;
+    return rows.map((r) => ({
+      roomTypeId: r.room_type_id,
+      stayDate: r.stay_date,
+      minLos: r.min_los,
+      maxLos: r.max_los,
+      cta: r.cta !== 0,
+      ctd: r.ctd !== 0,
+      stopSell: r.stop_sell !== 0,
+      version: r.version,
     }));
   }
 
@@ -14025,6 +14200,54 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async listDomainKeys(): Promise<string[]> {
     return domainConfigKeys().map((e) => e.key);
+  }
+
+  async listDomainConfig(): Promise<
+    Array<{
+      key: string;
+      value: unknown;
+      source: 'stored' | 'default' | 'unset';
+      version: number | null;
+      permission: string;
+      consumersExempt: boolean;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT key, value_json, version FROM property_config`)
+      .toArray() as Array<{ key: string; value_json: string; version: number }>;
+    const stored = new Map(rows.map((r) => [r.key, r]));
+    return domainConfigKeys().map((entry) => {
+      const row = stored.get(entry.key);
+      if (row) {
+        return {
+          key: entry.key,
+          value: JSON.parse(row.value_json) as unknown,
+          source: 'stored' as const,
+          version: row.version,
+          permission: entry.permission,
+          consumersExempt: Boolean(entry.consumersExempt),
+        };
+      }
+      if (entry.key === 'pms.money.currency_code' || entry.key === 'pms.time.time_zone') {
+        return {
+          key: entry.key,
+          value: null,
+          source: 'unset' as const,
+          version: null,
+          permission: entry.permission,
+          consumersExempt: Boolean(entry.consumersExempt),
+        };
+      }
+      return {
+        key: entry.key,
+        value: entry.default,
+        source: 'default' as const,
+        version: null,
+        permission: entry.permission,
+        consumersExempt: Boolean(entry.consumersExempt),
+      };
+    });
   }
 
   async outboxUnackedCount(): Promise<number> {

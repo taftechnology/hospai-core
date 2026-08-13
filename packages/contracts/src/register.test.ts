@@ -472,8 +472,41 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[108]?.id).toBe('get_fx_rates');
     expect(V1_HTTP_ROUTE_AUDIT[109]?.id).toBe('post_folio_chargeback');
     expect(V1_HTTP_ROUTE_AUDIT[110]?.id).toBe('post_folio_fx_adjustment');
+    expect(V1_HTTP_ROUTE_AUDIT[111]?.id).toBe('get_room_types');
+    expect(V1_HTTP_ROUTE_AUDIT[111]).toMatchObject({
+      scope: 'property',
+      permission: 'inventory:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[111] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[112]?.id).toBe('get_rate_days');
+    expect(V1_HTTP_ROUTE_AUDIT[112]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[112] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[113]?.id).toBe('get_restriction_days');
+    expect(V1_HTTP_ROUTE_AUDIT[113]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[113] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[114]?.id).toBe('get_domain_config');
+    expect(V1_HTTP_ROUTE_AUDIT[114]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[114] ?? {})).toBe(false);
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
     expect(COMMAND_CATALOG).toHaveLength(74);
+    expect(PLATFORM_GAPS).toEqual([]);
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

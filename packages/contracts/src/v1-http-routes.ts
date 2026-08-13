@@ -631,4 +631,32 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.post_fx_adjustment',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_room_types',
+    scope: 'property',
+    permission: 'inventory:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_rate_days',
+    scope: 'property',
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_restriction_days',
+    scope: 'property',
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_domain_config',
+    scope: 'property',
+    permission: 'settings:configure',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];

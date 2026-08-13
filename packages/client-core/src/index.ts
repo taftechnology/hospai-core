@@ -42,6 +42,15 @@ export {
   type NightAuditStepStatus,
 } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
+export {
+  frontOfficeStreamUrl,
+  isFrontOfficeDelta,
+  parseFrontOfficeStreamMessage,
+  serializeSubscribe,
+  type FrontOfficeStreamMessage,
+  type FrontOfficeDelta,
+  type FrontOfficeSnapshot,
+} from './front-office-stream.js';
 export { permissionForForbidden } from './permission-copy.js';
 export {
   foldFolioLines,

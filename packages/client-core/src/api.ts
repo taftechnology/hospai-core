@@ -225,6 +225,95 @@ export function createClient(opts: {
         cursor: cursor ?? undefined,
       });
     },
+    async getFrontOfficeTape(
+      propertyId: string,
+      query: { fromDate: string; toDate: string; roomTypeId?: string },
+    ) {
+      const qs = new URLSearchParams({ fromDate: query.fromDate, toDate: query.toDate });
+      if (query.roomTypeId) qs.set('roomTypeId', query.roomTypeId);
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/front-desk/tape?${qs.toString()}`,
+      );
+      return body as {
+        ok: true;
+        fromDate: string;
+        toDate: string;
+        asOf: number;
+        rooms: Array<{
+          roomId: string;
+          roomTypeId: string;
+          code: string;
+          status: string;
+          floor: string | null;
+        }>;
+        blocks: FrontDeskItem[];
+        ooo: Array<{
+          oooId: string;
+          roomId: string;
+          startDate: string;
+          endDate: string;
+          reason: string | null;
+        }>;
+      };
+    },
+    async getFrontOfficeDirectory(
+      propertyId: string,
+      query: {
+        window: 'today' | 'tomorrow' | 'week' | 'all';
+        date?: string;
+        status?: string;
+        cursor?: string | null;
+      },
+    ) {
+      const qs = new URLSearchParams({ window: query.window });
+      if (query.date) qs.set('date', query.date);
+      if (query.status) qs.set('status', query.status);
+      if (query.cursor) qs.set('cursor', query.cursor);
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/front-desk/directory?${qs.toString()}`,
+      );
+      return body as ListPage<FrontDeskItem>;
+    },
+    async getAvailableRooms(
+      propertyId: string,
+      query: { fromDate: string; toDate: string; roomTypeId?: string },
+    ) {
+      const qs = new URLSearchParams({ fromDate: query.fromDate, toDate: query.toDate });
+      if (query.roomTypeId) qs.set('roomTypeId', query.roomTypeId);
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/front-desk/available-rooms?${qs.toString()}`,
+      );
+      return body as {
+        ok: true;
+        fromDate: string;
+        toDate: string;
+        asOf: number;
+        rooms: Array<{
+          roomId: string;
+          roomTypeId: string;
+          code: string;
+          status: string;
+          floor: string | null;
+        }>;
+      };
+    },
+    async getFrontOfficeSummary(propertyId: string, date: string) {
+      const qs = new URLSearchParams({ date });
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/front-desk/summary?${qs.toString()}`,
+      );
+      return body as {
+        ok: true;
+        date: string;
+        asOf: number;
+        arrivals: number;
+        departuresDue: number;
+        departed: number;
+        inHouse: number;
+        overstay: number;
+        occupancy: { occupiedRooms: number; sellableRooms: number };
+      };
+    },
     async postGuestsBatch(
       propertyId: string,
       refs: string[],

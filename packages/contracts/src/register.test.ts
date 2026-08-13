@@ -17,6 +17,7 @@ import {
   V1_HTTP_ROUTE_AUDIT,
   assertRegisterInvariants,
   domainConfigKeys,
+  getConfigEntry,
   isStructuredCloneable,
   requiredPermissionForKey,
 } from './index.js';
@@ -124,6 +125,20 @@ const EXPECTED_PROTOTYPE_KEYS = [
 describe('config register', () => {
   it('passes invariants', () => {
     expect(() => assertRegisterInvariants()).not.toThrow();
+  });
+
+  it('pms.ops.auto_assign_rooms is DOMAIN + consumersExempt (property-setup SPA)', () => {
+    const entry = getConfigEntry('pms.ops.auto_assign_rooms');
+    expect(entry?.class).toBe('DOMAIN');
+    expect(entry?.consumersExempt).toBe(true);
+    expect(entry?.default).toBe(true);
+    expect(entry?.permission).toBe('settings:configure');
+    expect(() => assertRegisterInvariants()).not.toThrow();
+
+    const extend = getConfigEntry('pms.night_audit.auto_extend');
+    expect(extend?.class).toBe('DOMAIN');
+    expect(getConfigEntry('pms.ops.auto_assign_rule')?.class).toBe('OPERATIONAL');
+    expect(getConfigEntry('pms.ops.auto_assign_rooming')?.class).toBe('OPERATIONAL');
   });
 
   it('classifies all 96 prototype config keys', () => {
@@ -913,6 +928,7 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.folio',
       'pms.reservations',
       'pms.housekeeping',
+      'pms.ops.auto_assign_rooms',
     ];
     for (const e of domainConfigKeys()) {
       expect(

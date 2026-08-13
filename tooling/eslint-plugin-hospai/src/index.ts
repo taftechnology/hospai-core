@@ -52,6 +52,7 @@ export const DOMAIN_KEY_PREFIXES = [
   'pms.folio',
   'pms.reservations',
   'pms.housekeeping',
+  'pms.ops.auto_assign_rooms',
 ] as const;
 
 function stringLooksLikeDomainKey(value: string): boolean {

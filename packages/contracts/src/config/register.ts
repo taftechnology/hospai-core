@@ -276,7 +276,14 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
   entry({ key: 'pms.ui.show_departures', prototypeKey: 'pms_sys_show_departures', class: 'PRESENTATION', schema: bool, default: true, audited: false }),
 
   // —— OPERATIONAL ——
-  entry({ key: 'pms.ops.auto_assign_rooms', prototypeKey: 'pms_sys_auto_assign_rooms', class: 'OPERATIONAL', schema: bool, default: true }),
+  entry({
+    key: 'pms.ops.auto_assign_rooms',
+    prototypeKey: 'pms_sys_auto_assign_rooms',
+    class: 'DOMAIN',
+    schema: bool,
+    default: true,
+    consumersExempt: true,
+  }),
   entry({ key: 'pms.ops.auto_assign_rule', prototypeKey: 'pms_sys_auto_assign_rule', class: 'OPERATIONAL', schema: str, default: 'ASSIGN_EXISTING_AND_FUTURE' }),
   entry({ key: 'pms.ops.auto_assign_rooming', prototypeKey: 'pms_sys_auto_assign_rooming', class: 'OPERATIONAL', schema: bool, default: true }),
   entry({ key: 'pms.ops.default_guest_country', prototypeKey: 'pms_sys_default_guest_country', class: 'OPERATIONAL', schema: bool, default: true }),

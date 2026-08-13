@@ -6,7 +6,6 @@ import {
   NO_AVAILABILITY,
   NOT_MODIFIABLE,
   OCCUPANCY_EXCEEDED,
-  RATE_MISSING,
   ROOM_OUT_OF_ORDER,
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
@@ -561,7 +560,7 @@ describe('reservation lifecycle inquiry/pending', () => {
     expect(await stub.countFolioLinesForReservation(close)).toBeGreaterThan(0);
   });
 
-  it('42. cancel missing rate_day after grace → RATE_MISSING, still confirmed', async () => {
+  it('42. cancel after rate_day deleted still uses quote snapshot', async () => {
     const name = `lc-42-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name);
     const added = await addRoomType(stub, 'rt_king', 5);
@@ -599,10 +598,11 @@ describe('reservation lifecycle inquiry/pending', () => {
       { reservationId },
       await idemFor('x42', { reservationId }),
     );
-    expect(cancel).toMatchObject({ ok: false, error: RATE_MISSING });
+    expect(cancel).toMatchObject({ ok: true });
     const read = await stub.readReservation(reservationId);
-    expect(read.ok && read.reservation.status).toBe('confirmed');
-    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect(read.ok && read.reservation.status).toBe('cancelled');
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    expect(lines.some((l) => l.chargeCode === 'CANCEL' && l.amountMinor === 9900)).toBe(true);
   });
 
   it('43. desk no-show after arrival, first_night → NO_SHOW DESK line', async () => {

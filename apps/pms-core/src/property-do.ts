@@ -4664,12 +4664,33 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
-  private stayTotalMinorSync(roomTypeId: string, ratePlanId: string, nights: string[]): number {
-    let total = 0;
-    for (const stayDate of nights) {
-      total += this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
-    }
-    return total;
+  private rateNightAmountSync(
+    reservationId: string,
+    roomTypeId: string,
+    ratePlanId: string,
+    stayDate: string,
+  ): number {
+    const snap = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
+        reservationId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number }>;
+    if (snap[0]) return snap[0].amount_minor;
+    const amount = this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) throw new Error(CURRENCY_UNSET);
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO reservation_rate_night (reservation_id, stay_date, amount_minor, currency, rate_plan_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      reservationId,
+      stayDate,
+      amount,
+      currency,
+      ratePlanId,
+    );
+    return amount;
   }
 
   /**
@@ -4678,6 +4699,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    */
   private penaltyMinor(
     row: {
+      reservation_id: string;
       status: string;
       arrival_date: string;
       departure_date: string;
@@ -4698,24 +4720,60 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const nights = enumerateStayDates(row.arrival_date, row.departure_date);
     if (row.cancel_penalty_type === 'first_night') {
-      return this.rateDayAmountSync(row.room_type_id, row.rate_plan_id, row.arrival_date);
+      return this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, row.arrival_date);
     }
     if (row.cancel_penalty_type === 'nights') {
       const count = Math.min(row.cancel_penalty_nights ?? 0, nights.length);
       if (count < 1) throw new RateMissingError(row.arrival_date);
       let total = 0;
       for (let i = 0; i < count; i++) {
-        total += this.rateDayAmountSync(row.room_type_id, row.rate_plan_id, nights[i]!);
+        total += this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, nights[i]!);
       }
       return total;
     }
-    const stayTotal = this.stayTotalMinorSync(row.room_type_id, row.rate_plan_id, nights);
+    let stayTotal = 0;
+    for (const stayDate of nights) {
+      stayTotal += this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, stayDate);
+    }
     if (row.cancel_penalty_type === 'full') return stayTotal;
     if (row.cancel_penalty_type === 'percent') {
       const bps = row.cancel_penalty_bps ?? 0;
       return Number(roundHalfAwayFromZero(BigInt(stayTotal) * BigInt(bps), 10000n));
     }
     return 0;
+  }
+
+  private syncReservationRateNightsOnModifySync(
+    reservationId: string,
+    roomTypeId: string,
+    ratePlanId: string,
+    oldNights: string[],
+    newNights: string[],
+  ): void {
+    const newSet = new Set(newNights);
+    const oldSet = new Set(oldNights);
+    for (const stayDate of oldNights) {
+      if (newSet.has(stayDate)) continue;
+      const consumed = this.ctx.storage.sql
+        .exec(
+          `SELECT 1 AS hit FROM folio_line
+           WHERE reservation_id = ? AND business_date = ? AND charge_code IN ('ROOM', 'NO_SHOW')
+           LIMIT 1`,
+          reservationId,
+          stayDate,
+        )
+        .toArray() as Array<{ hit: number }>;
+      if (consumed[0]) continue;
+      this.ctx.storage.sql.exec(
+        `DELETE FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
+        reservationId,
+        stayDate,
+      );
+    }
+    const added = newNights.filter((d) => !oldSet.has(d));
+    if (added.length > 0) {
+      this.snapshotRateNightsSync(reservationId, roomTypeId, ratePlanId, added);
+    }
   }
 
   private postDeskPenaltySync(
@@ -5439,7 +5497,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (reservation.status === 'pending' || reservation.status === 'confirmed') {
             const timeZone = this.readStoredTimeZoneSync();
             if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
-            const penalty = this.penaltyMinor(reservation, Date.now(), timeZone);
+            const penalty = this.penaltyMinor(
+              { ...reservation, reservation_id: input.reservationId },
+              Date.now(),
+              timeZone,
+            );
             if (penalty > 0) {
               const businessDate = this.readBusinessDateSync();
               if (!businessDate) return { ok: false as const, error: BUSINESS_DATE_UNSET };
@@ -5578,7 +5640,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -5588,6 +5650,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             arrival_date: string;
             departure_date: string;
             status: string;
+            rate_plan_id: string;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -5713,6 +5776,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.reservationId,
           );
+
+          if (commitsInventory) {
+            this.syncReservationRateNightsOnModifySync(
+              input.reservationId,
+              input.roomTypeId,
+              reservation.rate_plan_id,
+              oldNights,
+              newNights,
+            );
+          }
 
           const ariVersion = commitsInventory ? this.bumpAriVersionSync() : this.readAriVersionSync();
           const unionFrom =
@@ -6278,7 +6351,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const timeZone = this.readStoredTimeZoneSync();
           if (!timeZone) return { ok: false as const, error: TIMEZONE_UNSET };
-          const penalty = this.penaltyMinor(reservation, Date.now(), timeZone);
+          const penalty = this.penaltyMinor(
+            { ...reservation, reservation_id: input.reservationId },
+            Date.now(),
+            timeZone,
+          );
           if (penalty > 0) {
             this.postDeskPenaltySync(input.reservationId, 'NO_SHOW', penalty, businessDate);
           }
@@ -8781,22 +8858,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     let postedCount = 0;
     for (const reservation of reservations) {
-      const rateRows = this.ctx.storage.sql
-        .exec(
-          `SELECT amount_minor FROM rate_day
-           WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
-          reservation.room_type_id,
-          reservation.rate_plan_id,
-          businessDate,
-        )
-        .toArray() as Array<{ amount_minor: number }>;
-      if (!rateRows[0]) {
-        throw new RateMissingError(businessDate);
-      }
+      const amountMinor = this.rateNightAmountSync(
+        reservation.reservation_id,
+        reservation.room_type_id,
+        reservation.rate_plan_id,
+        businessDate,
+      );
 
       this.ensureGuestFolioWindowSync(reservation.reservation_id);
       const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
-      const amountMinor = rateRows[0].amount_minor;
       const fxRateAt = Date.now();
       const posted: PostedLineAmount = {
         amountMinor,

@@ -12,6 +12,7 @@ import {
   InvalidMoneyError,
   money,
   negate,
+  ledgerToTxn,
   postToLedger,
   roundHalfAwayFromZero,
   type PostedLineAmount,
@@ -117,6 +118,37 @@ describe('postToLedger', () => {
     expect(() =>
       postToLedger(money(100, currencyCode('EUR')), currencyCode('USD'), '1.2.3', 1),
     ).toThrow(InvalidFxRateError);
+  });
+
+  it('converts EUR 10000 at 1.10 to 11000 ledger', () => {
+    const posted = postToLedger(money(10000, currencyCode('EUR')), currencyCode('USD'), '1.10', 1);
+    expect(posted.ledgerAmountMinor).toBe(11000);
+  });
+});
+
+describe('ledgerToTxn', () => {
+  it('returns the ledger amount for same-currency rate 1', () => {
+    expect(ledgerToTxn(5000, currencyCode('USD'), currencyCode('USD'), '1')).toBe(5000);
+  });
+
+  it('rejects non-identity rate for same currency', () => {
+    expect(() => ledgerToTxn(5000, currencyCode('USD'), currencyCode('USD'), '1.10')).toThrow(
+      InvalidFxRateError,
+    );
+  });
+
+  it('rejects a zero rate', () => {
+    expect(() => ledgerToTxn(11000, currencyCode('EUR'), currencyCode('USD'), '0')).toThrow(
+      InvalidFxRateError,
+    );
+  });
+
+  it('inverts postToLedger within 1 minor', () => {
+    const eur = currencyCode('EUR');
+    const usd = currencyCode('USD');
+    const txn = ledgerToTxn(11000, eur, usd, '1.10');
+    const posted = postToLedger(money(txn, eur), usd, '1.10', 1);
+    expect(Math.abs(posted.ledgerAmountMinor - 11000)).toBeLessThanOrEqual(1);
   });
 });
 

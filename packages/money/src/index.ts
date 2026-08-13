@@ -217,6 +217,36 @@ export function postToLedger(
   };
 }
 
+/** Inverse of `postToLedger` for capture-due partials. Same-currency requires rate `"1"`. */
+export function ledgerToTxn(
+  ledgerAmountMinor: number,
+  txnCurrency: CurrencyCode,
+  ledgerCurrency: CurrencyCode,
+  fxRate: string,
+): number {
+  if (!Number.isInteger(ledgerAmountMinor)) {
+    throw new InvalidMoneyError('ledgerAmountMinor must be an integer');
+  }
+
+  if (txnCurrency === ledgerCurrency) {
+    const rate = validateFxRate(fxRate);
+    if (rate !== '1') {
+      throw new InvalidFxRateError('same-currency posting requires fx rate "1"');
+    }
+    return ledgerAmountMinor;
+  }
+
+  const { num, den } = parseFxRate(fxRate);
+  if (num === 0n) {
+    throw new InvalidFxRateError('fx rate must be non-zero for cross-currency posting');
+  }
+  const txnAmountMinor = Number(roundHalfAwayFromZero(BigInt(ledgerAmountMinor) * den, num));
+  if (!Number.isSafeInteger(txnAmountMinor)) {
+    throw new InvalidMoneyError('txn amount overflow');
+  }
+  return txnAmountMinor;
+}
+
 export function assertPostedMatches(
   input: {
     amountMinor: number;

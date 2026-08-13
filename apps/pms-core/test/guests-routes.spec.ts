@@ -146,6 +146,28 @@ async function getGuest(propertyId: string, actor: string, guestId: string) {
   );
 }
 
+async function getGuests(propertyId: string, actor: string, query?: { cursor?: string; limit?: string }) {
+  const url = new URL(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/guests`);
+  if (query?.cursor) url.searchParams.set('cursor', query.cursor);
+  if (query?.limit) url.searchParams.set('limit', query.limit);
+  return worker.fetch(new Request(url, { method: 'GET', headers: { 'x-dev-actor': actor } }), env);
+}
+
+async function postGuestsSearch(
+  propertyId: string,
+  actor: string,
+  body: { q: string; cursor?: string; limit?: number },
+) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/guests-search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
+}
+
 async function postReservation(
   propertyId: string,
   actor: string,
@@ -464,5 +486,171 @@ describe('guest HTTP routes', () => {
     await org.setTransportBlockedForTest(false);
     const read = await getGuest(propertyId, actor, 'guest_blocked');
     expect(read.status).toBe(404);
+  });
+
+  it('20: GET /guests lists live guest without cipher fields', async () => {
+    const actor = 'user_guests_20';
+    const { propertyId } = await provisionHotel(actor);
+    await postGuest(propertyId, actor, {
+      guestId: 'guest_ada',
+      displayName: 'Ada Lovelace',
+      email: 'ada@ex.com',
+      phone: '555-0100',
+    });
+
+    const res = await getGuests(propertyId, actor);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toMatch(/no-store/);
+    const body = (await res.json()) as {
+      ok: boolean;
+      items: Array<{ guestId: string; profile: { displayName: string; email?: string; phone?: string } }>;
+      nextCursor: string | null;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      guestId: 'guest_ada',
+      erased: false,
+      profile: { displayName: 'Ada Lovelace', email: 'ada@ex.com', phone: '555-0100' },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/cipher|profile_iv|index_hash/i);
+    expect(body.nextCursor).toBeNull();
+  });
+
+  it('21: GET /guests pages at limit=25', async () => {
+    const actor = 'user_guests_21';
+    const { propertyId } = await provisionHotel(actor);
+    for (let i = 0; i < 26; i++) {
+      const res = await postGuest(propertyId, actor, {
+        guestId: `guest_page_${String(i).padStart(2, '0')}`,
+        displayName: `Guest ${i}`,
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const first = await getGuests(propertyId, actor, { limit: '25' });
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as {
+      items: Array<{ guestId: string }>;
+      nextCursor: string | null;
+    };
+    expect(firstBody.items).toHaveLength(25);
+    expect(firstBody.nextCursor).toEqual(expect.any(String));
+
+    const second = await getGuests(propertyId, actor, { cursor: firstBody.nextCursor!, limit: '25' });
+    expect(second.status).toBe(200);
+    const secondBody = (await second.json()) as {
+      items: Array<{ guestId: string }>;
+      nextCursor: string | null;
+    };
+    const firstIds = new Set(firstBody.items.map((g) => g.guestId));
+    const secondIds = secondBody.items.map((g) => g.guestId);
+    expect(secondIds.every((id) => !firstIds.has(id))).toBe(true);
+    expect(new Set([...firstIds, ...secondIds]).size).toBe(26);
+  });
+
+  it('22: search equality + tokens; erase hides from list/search', async () => {
+    const actor = 'user_guests_22';
+    const { propertyId } = await provisionHotel(actor);
+    await postGuest(propertyId, actor, {
+      guestId: 'guest_ada',
+      displayName: 'Ada Lovelace',
+      email: 'ada@ex.com',
+      phone: '555-0100',
+    });
+
+    const hit = await postGuestsSearch(propertyId, actor, { q: 'Ada' });
+    expect(hit.status).toBe(200);
+    const hitBody = (await hit.json()) as { items: Array<{ guestId: string }>; q?: string };
+    expect(hitBody.items.map((g) => g.guestId)).toEqual(['guest_ada']);
+    expect(hitBody.q).toBeUndefined();
+
+    const miss = await postGuestsSearch(propertyId, actor, { q: 'Ad' });
+    expect(miss.status).toBe(200);
+    expect(((await miss.json()) as { items: unknown[] }).items).toEqual([]);
+
+    const emailHit = await postGuestsSearch(propertyId, actor, { q: 'ada@ex.com' });
+    expect(emailHit.status).toBe(200);
+    expect(((await emailHit.json()) as { items: Array<{ guestId: string }> }).items[0]?.guestId).toBe(
+      'guest_ada',
+    );
+
+    const phoneHit = await postGuestsSearch(propertyId, actor, { q: '5550100' });
+    expect(phoneHit.status).toBe(200);
+    expect(((await phoneHit.json()) as { items: Array<{ guestId: string }> }).items[0]?.guestId).toBe(
+      'guest_ada',
+    );
+
+    expect((await eraseGuest(propertyId, actor, 'guest_ada')).status).toBe(200);
+    expect(((await (await getGuests(propertyId, actor)).json()) as { items: unknown[] }).items).toEqual([]);
+    expect(
+      ((await (await postGuestsSearch(propertyId, actor, { q: 'Ada' })).json()) as { items: unknown[] }).items,
+    ).toEqual([]);
+    const tombstone = await getGuest(propertyId, actor, 'guest_ada');
+    expect(tombstone.status).toBe(200);
+    expect(await tombstone.json()).toMatchObject({ guestId: 'guest_ada', erased: true, profile: null });
+  });
+
+  it('23: PATCH email rewrites index; erase deletes hashes', async () => {
+    const actor = 'user_guests_23';
+    const { orgId, propertyId } = await provisionHotel(actor);
+    await postGuest(propertyId, actor, {
+      guestId: 'guest_mail',
+      displayName: 'Mail Guest',
+      email: 'old@ex.com',
+    });
+
+    expect((await patchGuest(propertyId, actor, 'guest_mail', { displayName: 'Mail Guest', email: 'new@ex.com' })).status).toBe(
+      200,
+    );
+    expect(
+      ((await (await postGuestsSearch(propertyId, actor, { q: 'old@ex.com' })).json()) as { items: unknown[] }).items,
+    ).toEqual([]);
+    expect(
+      ((await (await postGuestsSearch(propertyId, actor, { q: 'new@ex.com' })).json()) as { items: Array<{ guestId: string }> })
+        .items[0]?.guestId,
+    ).toBe('guest_mail');
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    expect((await eraseGuest(propertyId, actor, 'guest_mail')).status).toBe(200);
+    expect(await org.countGuestBlindIndexForTest('guest_mail')).toBe(0);
+    expect((await eraseGuest(propertyId, actor, 'guest_mail')).status).toBe(200);
+    expect(await org.countGuestBlindIndexForTest('guest_mail')).toBe(0);
+  });
+
+  it('24: list/search 400/402/503 and privacy 404', async () => {
+    const actor = 'user_guests_24';
+    const stranger = 'user_guests_stranger24';
+    const { orgId, propertyId } = await provisionHotel(actor);
+    await postGuest(propertyId, actor, { guestId: 'guest_gate', displayName: 'Gate' });
+
+    expect((await getGuests(propertyId, stranger)).status).toBe(404);
+    expect((await postGuestsSearch(propertyId, stranger, { q: 'Gate' })).status).toBe(404);
+
+    const emptyQ = await postGuestsSearch(propertyId, actor, { q: '' });
+    expect(emptyQ.status).toBe(400);
+    expect(await emptyQ.json()).toMatchObject({ error: 'invalid_query' });
+
+    const longQ = await postGuestsSearch(propertyId, actor, { q: 'x'.repeat(129) });
+    expect(longQ.status).toBe(400);
+    expect(await longQ.json()).toMatchObject({ error: 'invalid_query' });
+
+    const badCursor = await getGuests(propertyId, actor, { cursor: '%%%' });
+    expect(badCursor.status).toBe(400);
+    expect(await badCursor.json()).toMatchObject({ error: 'invalid_cursor' });
+
+    await setKillSwitch(env, 'pms.core', true);
+    expect((await getGuests(propertyId, actor)).status).toBe(503);
+    await setKillSwitch(env, 'pms.core', false);
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.setTransportBlockedForTest(true);
+    const blocked = await getGuests(propertyId, actor);
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toMatchObject({ error: 'property_unreachable', degraded: 'FAIL_CLOSED' });
+    await org.setTransportBlockedForTest(false);
+
+    await cancelSubscription(env, orgId);
+    expect((await getGuests(propertyId, actor)).status).toBe(402);
   });
 });

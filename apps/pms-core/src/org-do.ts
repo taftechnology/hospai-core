@@ -41,9 +41,14 @@ import {
   type OutboxRow,
 } from '@hospai/do-runtime';
 import {
+  blindIndexHash,
+  blindIndexRows,
+  importBlindIndexKeyHex,
   importMasterKeyHex,
   KeyShreddedError,
+  normalizeBlindIndexValue,
   PiiVault,
+  type BlindIndexKind,
   type GuestProfile,
   type StaffProfile,
   type StaffProfileCreate,
@@ -220,8 +225,11 @@ function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem
   return JSON.parse(prior[0]!.response) as T;
 }
 
+const SEARCH_PHONE_RE = /^[+]?[\d\s().-]{7,}$/;
+
 export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
+  private blindIndexKeyPromise: Promise<CryptoKey> | null = null;
   private readonly entitlementCache = new EntitlementDoCache();
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
@@ -250,6 +258,100 @@ export class OrgDO extends DurableObject<PmsEnv> {
       })();
     }
     return this.vaultPromise;
+  }
+
+  private async blindIndexKey(): Promise<CryptoKey> {
+    if (!this.blindIndexKeyPromise) {
+      this.blindIndexKeyPromise = (async () => {
+        const hex = this.env.HOSPAI_ORG_MASTER_KEY;
+        if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
+        return importBlindIndexKeyHex(hex);
+      })();
+    }
+    return this.blindIndexKeyPromise;
+  }
+
+  private replaceGuestBlindIndexSync(
+    guestId: string,
+    rows: Array<{ kind: BlindIndexKind; hash: Uint8Array }>,
+  ): void {
+    this.ctx.storage.sql.exec(`DELETE FROM guest_blind_index WHERE guest_id = ?`, guestId);
+    for (const row of rows) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO guest_blind_index (guest_id, kind, index_hash) VALUES (?, ?, ?)`,
+        guestId,
+        row.kind,
+        row.hash,
+      );
+    }
+  }
+
+  private deleteGuestBlindIndexSync(guestId: string): void {
+    this.ctx.storage.sql.exec(`DELETE FROM guest_blind_index WHERE guest_id = ?`, guestId);
+  }
+
+  private async hashesForSearchQuery(
+    q: string,
+  ): Promise<Array<{ kind: BlindIndexKind; hash: Uint8Array }>> {
+    const key = await this.blindIndexKey();
+    if (q.includes('@')) {
+      const email = normalizeBlindIndexValue('email', q);
+      if (!email) return [];
+      return [{ kind: 'email', hash: await blindIndexHash(key, 'email', email) }];
+    }
+    if (SEARCH_PHONE_RE.test(q)) {
+      const phone = normalizeBlindIndexValue('phone', q);
+      if (!phone) return [];
+      return [{ kind: 'phone', hash: await blindIndexHash(key, 'phone', phone) }];
+    }
+    const rows: Array<{ kind: BlindIndexKind; hash: Uint8Array }> = [];
+    const name = normalizeBlindIndexValue('name', q);
+    if (name) {
+      rows.push({ kind: 'name', hash: await blindIndexHash(key, 'name', name) });
+      const seen = new Set<string>();
+      for (const token of name.split(' ')) {
+        const normalized = normalizeBlindIndexValue('name_token', token);
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        rows.push({ kind: 'name_token', hash: await blindIndexHash(key, 'name_token', normalized) });
+      }
+    }
+    return rows;
+  }
+
+  private async ensureGuestBlindIndex(scope: string | 'missing'): Promise<void> {
+    const rows =
+      scope === 'missing'
+        ? (this.ctx.storage.sql
+            .exec(
+              `SELECT guest_id FROM guest
+               WHERE erased_at IS NULL
+                 AND guest_id NOT IN (SELECT DISTINCT guest_id FROM guest_blind_index)
+               LIMIT 25`,
+            )
+            .toArray() as Array<{ guest_id: string }>)
+        : (this.ctx.storage.sql
+            .exec(
+              `SELECT guest_id FROM guest
+               WHERE erased_at IS NULL
+                 AND guest_id = ?
+                 AND guest_id NOT IN (SELECT DISTINCT guest_id FROM guest_blind_index)
+               LIMIT 25`,
+              scope,
+            )
+            .toArray() as Array<{ guest_id: string }>);
+
+    if (rows.length === 0) return;
+    const key = await this.blindIndexKey();
+    for (const row of rows) {
+      const entry = await this.readGuestEntry(row.guest_id);
+      if (!entry.ok) continue;
+      if (entry.erased) continue;
+      const hashes = await blindIndexRows(key, entry.profile);
+      this.ctx.storage.transactionSync(() => {
+        this.replaceGuestBlindIndexSync(row.guest_id, hashes);
+      });
+    }
   }
 
   private getOrgIdSync(): string | null {
@@ -404,6 +506,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return this.lanes.getLastInteractiveAt();
   }
 
+  async countGuestBlindIndexForTest(guestId: string): Promise<number> {
+    this.assertUnsafeLocal('countGuestBlindIndexForTest');
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS c FROM guest_blind_index WHERE guest_id = ?`, guestId)
+      .toArray() as Array<{ c: number }>;
+    return Number(rows[0]?.c ?? 0);
+  }
+
   async verifyGuestKeyShredded(
     guestId: string,
   ): Promise<{ ok: true; shredded: boolean } | { ok: false; error: string }> {
@@ -451,11 +561,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
       return { ok: false, error: 'bulk_not_admitted' };
     }
     const now = Date.now();
-    this.ctx.storage.sql.exec(
-      `UPDATE guest SET profile_cipher = x'', profile_iv = x'', updated_at = ? WHERE guest_id = ?`,
-      now,
-      guestId,
-    );
+    this.ctx.storage.transactionSync(() => {
+      this.deleteGuestBlindIndexSync(guestId);
+      this.ctx.storage.sql.exec(
+        `UPDATE guest SET profile_cipher = x'', profile_iv = x'', updated_at = ? WHERE guest_id = ?`,
+        now,
+        guestId,
+      );
+    });
     return { ok: true };
   }
 
@@ -1332,6 +1445,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
       const vault = await this.vault();
       const material = await vault.prepareGuestRecord('guest', input.guestId, input.profile);
+      const indexRows = await blindIndexRows(await this.blindIndexKey(), input.profile);
 
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
@@ -1360,6 +1474,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             now,
             now,
           );
+          this.replaceGuestBlindIndexSync(input.guestId, indexRows);
 
           this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
@@ -1417,6 +1532,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
       const vault = await this.vault();
       const sealed = await vault.prepareProfileSeal(guest.pii_key_id, input.profile);
+      const indexRows = await blindIndexRows(await this.blindIndexKey(), input.profile);
 
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
@@ -1428,6 +1544,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             now,
             input.guestId,
           );
+          this.replaceGuestBlindIndexSync(input.guestId, indexRows);
 
           this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
@@ -1475,6 +1592,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             .toArray() as Array<{ pii_key_id: string; erased_at: number | null }>;
           const guest = rows[0];
           if (!guest) throw new GuestNotFoundError();
+          this.deleteGuestBlindIndexSync(input.guestId);
           if (guest.erased_at != null) {
             return { ok: true as const, guestId: input.guestId, piiKeyId: guest.pii_key_id };
           }
@@ -2058,6 +2176,155 @@ export class OrgDO extends DurableObject<PmsEnv> {
       guests[guestId] = await this.readGuestEntry(guestId);
     }
     return { ok: true, guests };
+  }
+
+  async listGuests(
+    actor: ActorContext,
+    propertyId: string,
+    input: { cursor?: { createdAt: number; guestId: string }; limit: number },
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }>;
+        nextCursor: { createdAt: number; guestId: string } | null;
+      }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    await this.ensureGuestBlindIndex('missing');
+
+    const limit = input.limit;
+    const cursor = input.cursor;
+    const rows = (
+      cursor
+        ? this.ctx.storage.sql.exec(
+            `SELECT guest_id, created_at FROM guest
+             WHERE erased_at IS NULL
+               AND (created_at, guest_id) < (?, ?)
+             ORDER BY created_at DESC, guest_id DESC
+             LIMIT ?`,
+            cursor.createdAt,
+            cursor.guestId,
+            limit,
+          )
+        : this.ctx.storage.sql.exec(
+            `SELECT guest_id, created_at FROM guest
+             WHERE erased_at IS NULL
+             ORDER BY created_at DESC, guest_id DESC
+             LIMIT ?`,
+            limit,
+          )
+    ).toArray() as Array<{ guest_id: string; created_at: number }>;
+
+    const items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }> = [];
+    for (const row of rows) {
+      const entry = await this.readGuestEntry(row.guest_id);
+      if (!entry.ok) continue;
+      if (entry.erased) continue;
+      items.push({
+        guestId: entry.guestId,
+        erased: false,
+        profile: entry.profile,
+        createdAt: row.created_at,
+      });
+    }
+
+    const lastReturned = items[items.length - 1];
+    const nextCursor =
+      rows.length < limit || !lastReturned
+        ? null
+        : { createdAt: lastReturned.createdAt, guestId: lastReturned.guestId };
+
+    return { ok: true, items, nextCursor };
+  }
+
+  async searchGuests(
+    actor: ActorContext,
+    propertyId: string,
+    input: { q: string; cursor?: { guestId: string }; limit: number },
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }>;
+        nextCursor: { guestId: string } | null;
+      }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    await this.ensureGuestBlindIndex('missing');
+
+    const hashes = await this.hashesForSearchQuery(input.q);
+    const hitIds = new Set<string>();
+    for (const row of hashes) {
+      const found = this.ctx.storage.sql
+        .exec(
+          `SELECT DISTINCT guest_id FROM guest_blind_index WHERE kind = ? AND index_hash = ?`,
+          row.kind,
+          row.hash,
+        )
+        .toArray() as Array<{ guest_id: string }>;
+      for (const hit of found) hitIds.add(hit.guest_id);
+    }
+
+    const liveIds: string[] = [];
+    for (const guestId of hitIds) {
+      const guest = this.ctx.storage.sql
+        .exec(`SELECT erased_at FROM guest WHERE guest_id = ?`, guestId)
+        .toArray() as Array<{ erased_at: number | null }>;
+      if (guest[0] && guest[0].erased_at == null) liveIds.push(guestId);
+    }
+    liveIds.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const capped = liveIds.slice(0, 50);
+    const afterCursor = input.cursor
+      ? capped.filter((id) => id > input.cursor!.guestId)
+      : capped;
+    const pageIds = afterCursor.slice(0, input.limit);
+
+    const items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }> = [];
+    for (const guestId of pageIds) {
+      const created = this.ctx.storage.sql
+        .exec(`SELECT created_at FROM guest WHERE guest_id = ?`, guestId)
+        .toArray() as Array<{ created_at: number }>;
+      const entry = await this.readGuestEntry(guestId);
+      if (!entry.ok) continue;
+      if (entry.erased) continue;
+      items.push({
+        guestId: entry.guestId,
+        erased: false,
+        profile: entry.profile,
+        createdAt: created[0]?.created_at ?? 0,
+      });
+    }
+
+    const lastReturned = items[items.length - 1];
+    const nextCursor =
+      afterCursor.length <= input.limit || !lastReturned ? null : { guestId: lastReturned.guestId };
+
+    return { ok: true, items, nextCursor };
   }
 
   async readGuestProfile(guestId: string): Promise<GuestProfile | null> {

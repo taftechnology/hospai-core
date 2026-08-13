@@ -8535,6 +8535,88 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ok: true, items: rows.map((row) => this.mapFrontDeskListRow(row)), mode: 'name' };
   }
 
+  async listReservationsByGuestRef(
+    guestRef: string,
+    input: { cursor?: { arrivalDate: string; reservationId: string }; limit: number },
+  ): Promise<{
+    items: Array<{
+      reservationId: string;
+      roomTypeId: string;
+      arrivalDate: string;
+      departureDate: string;
+      status: string;
+      roomId: string | null;
+      adults: number;
+      children: number;
+      vipFlag: boolean;
+      dndFlag: boolean;
+      ratePlanId: string | null;
+    }>;
+    nextCursor: { arrivalDate: string; reservationId: string } | null;
+  }> {
+    this.assertRpcAvailable();
+    const limit = input.limit;
+    const cursor = input.cursor;
+    const rows = (
+      cursor
+        ? this.ctx.storage.sql.exec(
+            `SELECT reservation_id, room_type_id, arrival_date, departure_date, status,
+                    room_id, adults, children, vip_flag, dnd_flag, rate_plan_id
+               FROM reservation
+              WHERE guest_ref = ?
+                AND (arrival_date, reservation_id) < (?, ?)
+              ORDER BY arrival_date DESC, reservation_id DESC
+              LIMIT ?`,
+            guestRef,
+            cursor.arrivalDate,
+            cursor.reservationId,
+            limit,
+          )
+        : this.ctx.storage.sql.exec(
+            `SELECT reservation_id, room_type_id, arrival_date, departure_date, status,
+                    room_id, adults, children, vip_flag, dnd_flag, rate_plan_id
+               FROM reservation
+              WHERE guest_ref = ?
+              ORDER BY arrival_date DESC, reservation_id DESC
+              LIMIT ?`,
+            guestRef,
+            limit,
+          )
+    ).toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      arrival_date: string;
+      departure_date: string;
+      status: string;
+      room_id: string | null;
+      adults: number;
+      children: number;
+      vip_flag: number;
+      dnd_flag: number;
+      rate_plan_id: string | null;
+    }>;
+
+    const items = rows.map((row) => ({
+      reservationId: row.reservation_id,
+      roomTypeId: row.room_type_id,
+      arrivalDate: row.arrival_date,
+      departureDate: row.departure_date,
+      status: row.status,
+      roomId: row.room_id,
+      adults: row.adults,
+      children: row.children,
+      vipFlag: row.vip_flag === 1,
+      dndFlag: row.dnd_flag === 1,
+      ratePlanId: row.rate_plan_id,
+    }));
+    const last = items[items.length - 1];
+    const nextCursor =
+      items.length === limit && last
+        ? { arrivalDate: last.arrivalDate, reservationId: last.reservationId }
+        : null;
+    return { items, nextCursor };
+  }
+
   async readFrontOfficeTape(
     fromDate: string,
     toDate: string,

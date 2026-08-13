@@ -179,6 +179,38 @@ describe('OrgDO guests + crypto-shredding', () => {
     });
   });
 
+  it('listGuests backfills missing blind-index rows then search hits', async () => {
+    const org = await provisionedOrg(`org-backfill-${crypto.randomUUID()}`);
+    const propertyId = 'prop_backfill';
+    const guestId = 'guest_backfill';
+    await createGuest(org, propertyId, guestId, 'Ada Lovelace');
+    await org.execSqlForTest(`DELETE FROM guest_blind_index WHERE guest_id = ?`, guestId);
+    expect(await org.countGuestBlindIndexForTest(guestId)).toBe(0);
+
+    const listed = await org.listGuests(TEST_OWNER_ACTOR, propertyId, { limit: 25 });
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.items.some((g) => g.guestId === guestId)).toBe(true);
+    expect(await org.countGuestBlindIndexForTest(guestId)).toBeGreaterThan(0);
+
+    const found = await org.searchGuests(TEST_OWNER_ACTOR, propertyId, { q: 'Ada', limit: 25 });
+    expect(found.ok).toBe(true);
+    if (!found.ok) return;
+    expect(found.items.map((g) => g.guestId)).toContain(guestId);
+  });
+
+  it('listGuests omits decrypt_unresolved guests instead of 500', async () => {
+    const org = await provisionedOrg(`org-unresolved-${crypto.randomUUID()}`);
+    const propertyId = 'prop_unresolved';
+    const refs = await createGuest(org, propertyId, 'guest_unresolved', 'Live');
+    expect(await org.testShredGuestKey(refs.piiKeyId)).toBe(true);
+
+    const listed = await org.listGuests(TEST_OWNER_ACTOR, propertyId, { limit: 25 });
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(listed.items.find((g) => g.guestId === 'guest_unresolved')).toBeUndefined();
+  });
+
   it('M4 DO: shredded key without erased_at is an incident, not a tombstone', async () => {
     const org = await provisionedOrg(`org-m4-${crypto.randomUUID()}`);
     const propertyId = 'prop_m4';

@@ -244,6 +244,25 @@ function parseOptionalFrontDeskLimit(url: URL): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Directory/search/stays: default 25, max 50. Garbage / out of range → invalid (400). */
+function parseGuestDirectoryLimit(raw: string | null | undefined): number | 'invalid' {
+  if (raw === null || raw === undefined || raw === '') return 25;
+  if (!/^-?\d+$/.test(raw)) return 'invalid';
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 50) return 'invalid';
+  return n;
+}
+
+function parseGuestDirectoryLimitValue(raw: unknown): number | 'invalid' {
+  if (raw === undefined || raw === null || raw === '') return 25;
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1 || raw > 50) return 'invalid';
+    return raw;
+  }
+  if (typeof raw === 'string') return parseGuestDirectoryLimit(raw);
+  return 'invalid';
+}
+
 function mapAddRoomTypeErrorStatus(error: string): number {
   if (error === IDEM_KEY_REUSED || error === ROOM_TYPE_EXISTS || error === ROOM_TYPE_CODE_EXISTS) {
     return 409;
@@ -1221,6 +1240,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
 }
 
 const ROSTER_GET_HEADERS = { 'Cache-Control': 'private, no-store' };
+const GUEST_HEADERS = { 'Cache-Control': 'private, no-store' };
 
 type RosterHttpBody = {
   displayName?: string;
@@ -5670,6 +5690,163 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
   return json({ ok: true }, 200);
 }
 
+function guestDirectoryErrorResponse(err: string): Response {
+  if (err === 'not_member') return json({ error: 'not_found' }, 404, GUEST_HEADERS);
+  if (err === FORBIDDEN || err === 'scope_mismatch') {
+    return json({ error: 'forbidden', permission: 'guests:read' }, 403, GUEST_HEADERS);
+  }
+  if (err === ENTITLEMENT_REQUIRED) {
+    return json({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' }, 402, GUEST_HEADERS);
+  }
+  if (err === ENTITLEMENT_UNAVAILABLE) {
+    return json({ error: ENTITLEMENT_UNAVAILABLE }, 503, GUEST_HEADERS);
+  }
+  return json({ ok: false, error: err }, 422, GUEST_HEADERS);
+}
+
+async function handleGetGuests(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const limit = parseGuestDirectoryLimit(ctx.url.searchParams.get('limit'));
+  if (limit === 'invalid') return json({ error: 'invalid_limit' }, 400, GUEST_HEADERS);
+
+  const decoded = decodeFrontDeskCursor<{ createdAt: number; guestId: string }>(
+    ctx.url.searchParams.get('cursor'),
+  );
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  if (
+    decoded &&
+    (typeof decoded.createdAt !== 'number' || typeof decoded.guestId !== 'string')
+  ) {
+    return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.listGuests(actor, propertyId, {
+      limit,
+      ...(decoded ? { cursor: decoded } : {}),
+    });
+    if (!result.ok) return guestDirectoryErrorResponse(result.error);
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+      GUEST_HEADERS,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostGuestsSearch(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json().catch(() => null)) as {
+    q?: unknown;
+    cursor?: unknown;
+    limit?: unknown;
+  } | null;
+  const q = typeof body?.q === 'string' ? body.q.trim() : '';
+  if (!q || q.length > 128) return json({ error: 'invalid_query' }, 400, GUEST_HEADERS);
+
+  const limit = parseGuestDirectoryLimitValue(body?.limit);
+  if (limit === 'invalid') return json({ error: 'invalid_limit' }, 400, GUEST_HEADERS);
+
+  const cursorRaw = typeof body?.cursor === 'string' ? body.cursor : body?.cursor == null ? null : 'invalid';
+  if (cursorRaw === 'invalid') return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  const decoded = decodeFrontDeskCursor<{ guestId: string }>(cursorRaw);
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  if (decoded && typeof decoded.guestId !== 'string') {
+    return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.searchGuests(actor, propertyId, {
+      q,
+      limit,
+      ...(decoded ? { cursor: decoded } : {}),
+    });
+    if (!result.ok) return guestDirectoryErrorResponse(result.error);
+    return json(
+      {
+        ok: true,
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+      GUEST_HEADERS,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetGuestStays(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const limit = parseGuestDirectoryLimit(ctx.url.searchParams.get('limit'));
+  if (limit === 'invalid') return json({ error: 'invalid_limit' }, 400, GUEST_HEADERS);
+
+  const decoded = decodeFrontDeskCursor<{ arrivalDate: string; reservationId: string }>(
+    ctx.url.searchParams.get('cursor'),
+  );
+  if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  if (
+    decoded &&
+    (typeof decoded.arrivalDate !== 'string' || typeof decoded.reservationId !== 'string')
+  ) {
+    return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listReservationsByGuestRef(guestId, {
+      limit,
+      ...(decoded ? { cursor: decoded } : {}),
+    });
+    return json(
+      {
+        ok: true,
+        propertyId,
+        guestId,
+        scope: 'this_property',
+        items: result.items,
+        nextCursor: result.nextCursor ? encodeFrontDeskCursor(result.nextCursor) : null,
+      },
+      200,
+      GUEST_HEADERS,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -6908,6 +7085,30 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'provisional.add_exception_note',
     entitlement: 'pms.core',
     handler: handlePostProvisionalExceptionNote,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuests,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests-search$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handlePostGuestsSearch,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/stays$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestStays,
   },
 ];
 

@@ -603,9 +603,24 @@ describe('command catalog', () => {
       commandId: 'provisional.add_exception_note',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[124]?.id).toBe('get_guests');
+    expect(V1_HTTP_ROUTE_AUDIT[125]?.id).toBe('post_guests_search');
+    expect(V1_HTTP_ROUTE_AUDIT[126]?.id).toBe('get_guest_stays');
+    for (const i of [124, 125, 126] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        scope: 'property',
+        permission: 'guests:read',
+        entitlement: 'pms.core',
+        degradedRead: 'FAIL_CLOSED',
+      });
+      expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
+    }
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
     expect(COMMAND_CATALOG).toHaveLength(77);
     expect(PLATFORM_GAPS).toEqual([]);
+    for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
+      expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();
+    }
   });
 
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {

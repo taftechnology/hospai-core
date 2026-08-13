@@ -312,7 +312,8 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
       routeId: 'post_folio_lines',
     };
     await stub.recordProvisionalException(cmd, WINDOW_CLOSED, result);
-    const { exceptions } = await stub.listProvisionalExceptions();
+    const listed = await stub.listProvisionalExceptions();
+    const exceptions = (listed as unknown as { exceptions: Array<{ reason: string }> }).exceptions;
     expect(exceptions.some((e) => e.reason === WINDOW_CLOSED)).toBe(true);
     const folio = await stub.readFolio('res_fw8');
     expect(folio.ok && folio.lines.every((l) => l.folioLineId !== payload.folioLineId)).toBe(true);
@@ -374,9 +375,9 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     expect(first).toMatchObject({ ok: true, alreadyOpen: true });
     const auditBefore = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_fw10' });
     expect(auditBefore.ok).toBe(true);
-    const reopenCountBefore = auditBefore.ok
-      ? auditBefore.rows.filter((r) => r.commandId === 'folio.reopen_window').length
-      : 0;
+    const reopenCountBefore = (
+      auditBefore as unknown as { ok: true; rows: Array<{ commandId: string }> }
+    ).rows.filter((r) => r.commandId === 'folio.reopen_window').length;
     const second = await stub.tryReopenFolioWindow(
       TEST_OWNER_ACTOR,
       { folioWindowId: 'res_fw10:GUEST' },
@@ -384,9 +385,9 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     );
     expect(second).toMatchObject({ ok: true, alreadyOpen: true });
     const auditAfter = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_fw10' });
-    const reopenCountAfter = auditAfter.ok
-      ? auditAfter.rows.filter((r) => r.commandId === 'folio.reopen_window').length
-      : 0;
+    const reopenCountAfter = (
+      auditAfter as unknown as { ok: true; rows: Array<{ commandId: string }> }
+    ).rows.filter((r) => r.commandId === 'folio.reopen_window').length;
     expect(reopenCountAfter).toBe(reopenCountBefore);
   });
 

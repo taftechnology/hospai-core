@@ -69,10 +69,11 @@ describe('folio extras — no-post and discounts', () => {
     });
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_disc' });
     expect(audit.ok).toBe(true);
-    if (audit.ok) {
-      const row = audit.rows.find((r) => r.commandId === 'folio.post_discount');
-      expect(row?.afterJson).toMatchObject({ reason: 'comp breakfast' });
-    }
+    const rows = (
+      audit as unknown as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> }
+    ).rows;
+    const row = rows.find((r) => r.commandId === 'folio.post_discount');
+    expect(row?.afterJson).toMatchObject({ reason: 'comp breakfast' });
 
     await orgStub(orgId).ensureMember('user_staff_disc', 'staff');
     const staff = { kind: 'user' as const, userId: 'user_staff_disc' };

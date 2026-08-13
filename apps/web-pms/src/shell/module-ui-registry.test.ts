@@ -10,9 +10,12 @@ describe('module UI nav merge', () => {
       'housekeeping',
       'departures',
       'book',
+      'inventory',
+      'rates',
       'staff',
       'roster',
       'night-audit',
+      'settings',
     ]);
     expect(NAV_ENTRIES.every((e) => typeof e.order === 'number')).toBe(true);
   });

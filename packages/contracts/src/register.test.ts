@@ -250,7 +250,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(44);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(45);
   });
 
   it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
@@ -486,7 +486,7 @@ describe('command catalog', () => {
   it('documents platform gaps', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('availability.book');
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('config.put_domain');
-    expect(PLATFORM_GAPS.length).toBeGreaterThanOrEqual(1);
+    expect(PLATFORM_GAPS).toEqual([]);
   });
 
   it('inventory.delete_room_type emits availability.changed', () => {
@@ -729,10 +729,31 @@ describe('command catalog', () => {
     }
   });
 
-  it('PLATFORM_GAPS no longer lists transfer_charge or split_charge_v2', () => {
+  it('PLATFORM_GAPS is empty after rooms.set_ooo_range promotion', () => {
+    expect(PLATFORM_GAPS).toEqual([]);
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.transfer_charge');
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.split_charge_v2');
-    expect(PLATFORM_GAPS.map((g) => g.id)).toContain('rooms.set_ooo_range');
+    expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('rooms.set_ooo_range');
+  });
+
+  it('rooms.set_ooo_range is entitled FAIL_CLOSED INTERACTIVE inventory:write', () => {
+    const c = COMMAND_CATALOG.find((x) => x.id === 'rooms.set_ooo_range');
+    expect(c?.prototypeAction).toBeNull();
+    expect(c?.lane).toBe('INTERACTIVE');
+    expect(c?.degraded).toBe('FAIL_CLOSED');
+    expect(c?.idempotent).toBe(true);
+    expect(c?.entitlement).toBe('pms.core');
+    expect(c?.permission).toBe('inventory:write');
+    expect(c?.events).toEqual(['room.ooo_changed', 'availability.changed', 'room.status_changed']);
+    expect(c?.notes).toMatch(/INVENTORY_FAIL_CLOSED_NOTES|Inventory-affecting/);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('rooms.set_ooo_range')).toBe(true);
+  });
+
+  it('require_inspection is DOMAIN bool default false consumersExempt', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.housekeeping.require_inspection');
+    expect(e?.class).toBe('DOMAIN');
+    expect(e?.default).toBe(false);
+    expect(e?.consumersExempt).toBe(true);
   });
 
   it('folio money-ops config keys are DOMAIN bool default false', () => {
@@ -822,6 +843,7 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.money',
       'pms.folio',
       'pms.reservations',
+      'pms.housekeeping',
     ];
     for (const e of domainConfigKeys()) {
       expect(

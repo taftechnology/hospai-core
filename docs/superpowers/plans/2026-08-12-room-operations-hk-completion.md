@@ -91,7 +91,7 @@ Tests 15–17 (`OOO_ROOM_ASSIGNED`) are the OOO **command** refusing an assigned
 - Consumes: nothing from later tasks
 - **Forbidden this commit:** `V1_ROUTES`, `V1_HTTP_ROUTE_AUDIT`, any `/ooo` handler, any DO method body, any `listRooms` shape change.
 
-- [ ] **Step 1: Write the failing register + idempotency tests**
+- [x] **Step 1: Write the failing register + idempotency tests**
 
 In `packages/contracts/src/idempotency.test.ts` add:
 
@@ -158,7 +158,7 @@ Do **not** add `[104]` assertions this commit (`V1_HTTP_ROUTE_AUDIT[103]` stays 
 
 In `apps/pms-core/test/events-queue.spec.ts`, add `'room.ooo_changed'` to the rooms/housekeeping loop (or rely on the existing `accepts every COMMAND_CATALOG event type` test — that test **fails** until `event-consumer.ts` allowlists the new type).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts
@@ -167,7 +167,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/events-queue.spec.ts
 
 Expected: FAIL — missing exports / size still 44 / `PLATFORM_GAPS` still lists `rooms.set_ooo_range` / unknown event type.
 
-- [ ] **Step 3: Implement contracts**
+- [x] **Step 3: Implement contracts**
 
 `packages/contracts/src/idempotency.ts` — after the Room / housekeeping wire codes block:
 
@@ -229,7 +229,7 @@ entry({
 
 The `PropertyDO source wires every AUDIT_WRITER_COMMAND_IDS literal` test matches `'rooms.set_ooo_range'` as a quoted string in that file.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts src/idempotency.test.ts
@@ -241,7 +241,7 @@ pnpm check:degraded
 
 Expected: all exit 0. `check:permissions` stays green because no route was added.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/commands/catalog.ts \

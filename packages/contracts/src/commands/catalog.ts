@@ -214,6 +214,21 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'code/floor only — room_type_id is immutable after create.',
   },
   {
+    id: 'rooms.set_ooo_range',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['room.ooo_changed', 'availability.changed', 'room.status_changed'],
+    entitlement: 'pms.core',
+    permission: 'inventory:write',
+    notes:
+      INVENTORY_FAIL_CLOSED_NOTES +
+      ' prototypeAction null: no SET_OOO_RANGE in PROTOTYPE_ACTIONS ' +
+      '(prototype folded OOO into room-status / inventory screens). ' +
+      'Null here records that no prototype action exists to cite, same family as rooms.create.',
+  },
+  {
     id: 'rooms.update_status',
     prototypeAction: 'UPDATE_ROOM_STATUS',
     lane: 'INTERACTIVE',
@@ -221,6 +236,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['room.status_changed'],
     permission: 'housekeeping:write',
+    notes: 'Payload out_of_order is not legal; use rooms.set_ooo_range (OOO_VIA_RANGE).',
   },
   {
     id: 'rooms.bulk_update_status',
@@ -773,9 +789,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
   },
 ];
 
-export const PLATFORM_GAPS: PlatformGap[] = [
-  { id: 'rooms.set_ooo_range', reason: 'Explicit OOO delta on blocked' },
-];
+export const PLATFORM_GAPS: PlatformGap[] = [];
 
 export const PROTOTYPE_ACTIONS = [
   'SET_ROLE',

@@ -63,6 +63,10 @@ import {
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
   DISCOUNT_REASON_REQUIRED,
+  OOO_VIA_RANGE,
+  OOO_ROOM_ASSIGNED,
+  OOO_RANGE_OVERLAP,
+  OOO_INVALID_RANGE,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -147,6 +151,13 @@ describe('fingerprintPayload', () => {
     expect(ROOM_OUT_OF_ORDER).toBe('room_out_of_order');
     expect(BALANCE_DUE).toBe('balance_due');
     expect(OCCUPANCY_EXCEEDED).toBe('occupancy_exceeded');
+  });
+
+  it('room OOO wire codes', () => {
+    expect(OOO_VIA_RANGE).toBe('ooo_via_range');
+    expect(OOO_ROOM_ASSIGNED).toBe('ooo_room_assigned');
+    expect(OOO_RANGE_OVERLAP).toBe('ooo_range_overlap');
+    expect(OOO_INVALID_RANGE).toBe('ooo_invalid_range');
   });
 
   it('folio money-ops wire codes', () => {

@@ -1792,6 +1792,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * 'folio.open_window' 'folio.close_window' 'folio.reopen_window'
    * 'folio.transfer_charge' 'folio.split_charge_v2' 'folio.void'
    * 'folio.refund' 'folio.post_discount' 'folio.capture_due'
+   *
+   * Room OOO audit writer (method lands in a later task):
+   * 'rooms.set_ooo_range'
    */
   private appendAuditLogSync(input: {
     at?: number;

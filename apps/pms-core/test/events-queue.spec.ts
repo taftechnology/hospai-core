@@ -269,6 +269,7 @@ describe('handleDomainEvent contract assertions', () => {
       'room.created',
       'room.updated',
       'room.status_changed',
+      'room.ooo_changed',
       'reservation.room_assigned',
       'housekeeping.assigned',
     ] as const) {

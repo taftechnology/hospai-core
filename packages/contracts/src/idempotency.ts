@@ -70,6 +70,10 @@ export const ROOM_UNITS_EXCEED_COUNT = 'room_units_exceed_count' as const;
 export const ROOM_TYPE_MISMATCH = 'room_type_mismatch' as const;
 export const ROOM_ALREADY_ASSIGNED = 'room_already_assigned' as const;
 export const ROOM_NOT_ASSIGNABLE = 'room_not_assignable' as const;
+export const OOO_VIA_RANGE = 'ooo_via_range' as const;
+export const OOO_ROOM_ASSIGNED = 'ooo_room_assigned' as const;
+export const OOO_RANGE_OVERLAP = 'ooo_range_overlap' as const;
+export const OOO_INVALID_RANGE = 'ooo_invalid_range' as const;
 
 export const RATE_PLAN_NOT_FOUND = 'rate_plan_not_found' as const;
 export const RATE_PLAN_CODE_EXISTS = 'rate_plan_code_exists' as const;

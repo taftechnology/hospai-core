@@ -235,6 +235,14 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     consumersExempt: true,
   }),
   entry({
+    key: 'pms.housekeeping.require_inspection',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: bool,
+    default: false,
+    consumersExempt: true,
+  }),
+  entry({
     key: 'pms.reservations.check_out_require_zero_balance',
     prototypeKey: 'pms_res_checkout_zero_bal',
     class: 'DOMAIN',

@@ -157,7 +157,7 @@ CREATE INDEX fx_rate_pair_eff
 | Idempotent | true; fingerprint `{ quoteId, fromCurrency, toCurrency, rate, effectiveFrom }` | true; fingerprint `{ quoteId, supersedeQuoteId, rate, effectiveFrom }` |
 | Audit | yes | yes |
 
-**Create:** insert an open row. Reject if an open row already exists for the pair (`FX_RATE_OPEN_EXISTS` — supersede, don’t stack opens). Reject identity pair. Reject `to_currency ≠ ledger`.
+**Create:** insert an open row. Reject if an open row already exists for the pair (`FX_RATE_OPEN_EXISTS` — supersede, don’t stack opens). Identity pair (`from_currency === to_currency`) → existing `MONEY_INVALID` (not a new export); `to_currency ≠ ledger` → `FX_RATE_NOT_LEDGER`.
 
 **Supersede:** close the named open row (`effective_to = now` or the new `effectiveFrom`) and insert the replacement in one txn. Already-superseded + same fingerprint → idempotent success.
 
@@ -649,7 +649,7 @@ FX_REASON_REQUIRED = 'fx_reason_required'
 PAYMENT_NOT_CHARGEBACKABLE = 'payment_not_chargebackable'
 ```
 
-HTTP: all of the above → **422**. Existing `PSP_UNAVAILABLE` → 501. Kill-switch → 503. `CROSS_CURRENCY_UNSUPPORTED` remains 422 for ledger-only surfaces that still reject a foreign code.
+HTTP: all of the above → **422**. Existing `PSP_UNAVAILABLE` → 501. Kill-switch → 503. `CROSS_CURRENCY_UNSUPPORTED` remains 422 for ledger-only surfaces that still reject a foreign code. Identity FX pair reuses existing `MONEY_INVALID` (also 422) — do not add a new code.
 
 ---
 

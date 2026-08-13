@@ -47,4 +47,8 @@ export type ProvisionalExceptionRow = {
   /** Null on open rows. List/count default to unresolved (`resolved_at IS NULL`). */
   resolvedAt?: number | null;
   resolvedBy?: string | null;
+  assignedTo?: string | null;
+  assignedAt?: number | null;
+  assignedBy?: string | null;
+  openRetryKey?: string | null;
 };

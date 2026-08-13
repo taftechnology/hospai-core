@@ -150,6 +150,9 @@ export async function handleDomainEvent(
     case 'night_audit.step_retried':
     case 'night_audit.halt_resolved':
     case 'provisional.exception_resolved':
+    case 'provisional.exception_retried':
+    case 'provisional.exception_assigned':
+    case 'provisional.exception_noted':
     case 'folio.payment_authorized':
     case 'folio.payment_captured':
     case 'folio.window_opened':

@@ -49,6 +49,9 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'night_audit.retry_step',
   'night_audit.resolve_halt',
   'provisional.resolve_exception',
+  'provisional.retry_exception',
+  'provisional.assign_exception',
+  'provisional.add_exception_note',
 ]);
 
 /** Entitled commands that deliberately do not write PropertyDO audit_log. */

@@ -265,7 +265,37 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
+  });
+
+  it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
+    for (const id of [
+      'provisional.retry_exception',
+      'provisional.assign_exception',
+      'provisional.add_exception_note',
+    ] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c?.lane).toBe('INTERACTIVE');
+      expect(c?.degraded).toBe('FAIL_CLOSED');
+      expect(c?.entitlement).toBe('pms.core');
+      expect(c?.permission).toBe('night_audit:run');
+      expect(c?.idempotent).toBe(true);
+      expect(c?.prototypeAction).toBeNull();
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
+    }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'provisional.retry_exception')?.events).toEqual([
+      'provisional.exception_retried',
+      'provisional.exception_resolved',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'provisional.assign_exception')?.events).toEqual([
+      'provisional.exception_assigned',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'provisional.add_exception_note')?.events).toEqual([
+      'provisional.exception_noted',
+    ]);
+    const resolve = COMMAND_CATALOG.find((c) => c.id === 'provisional.resolve_exception');
+    expect(resolve?.events).toEqual(['provisional.exception_resolved']);
+    expect(resolve?.notes).toMatch(/Not a replay/i);
   });
 
   it('night_audit operator commands are entitled FAIL_CLOSED; run opt-out stays', () => {
@@ -544,8 +574,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[119] ?? {})).toBe(false);
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(49);
-    expect(COMMAND_CATALOG).toHaveLength(74);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
+    expect(COMMAND_CATALOG).toHaveLength(77);
     expect(PLATFORM_GAPS).toEqual([]);
   });
 

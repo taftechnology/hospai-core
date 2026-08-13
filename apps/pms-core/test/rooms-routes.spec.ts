@@ -18,6 +18,7 @@ import {
 } from '../src/registry.js';
 import { addCalendarDays, daysFromPropertyToday } from './date-helpers.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { seedBarRatesForHorizon } from './fixtures.js';
 import { createHousekeeper } from './roster-helpers.js';
 
 // Module-level: +1 is slack for a mid-run UTC rollover, not a property of the seed window —
@@ -207,9 +208,14 @@ async function provisionHotel(actor: string, roomCount = 10) {
   const propertyId = `prop_rooms_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, 'Rooms Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyId, actor)).status).toBe(201);
-  expect((await postRoomType(propertyId, actor, { roomCount })).status).toBe(201);
+  const roomTypeRes = await postRoomType(propertyId, actor, { roomCount });
+  expect(roomTypeRes.status).toBe(201);
+  const { fromDate } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await resolved.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', fromDate);
+  }
   const org = testOrgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {

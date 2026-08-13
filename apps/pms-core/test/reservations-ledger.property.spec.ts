@@ -4,7 +4,7 @@ import { fingerprintPayload } from '@hospai/contracts';
 import { HORIZON_DAYS } from '@hospai/pms-inventory';
 import { enumerateStayDates } from '@hospai/pms-reservations';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { idemFor, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './fixtures';
 import { createGuest, orgStub } from './guest-helpers';
 
 function mulberry32(seed: number) {
@@ -82,6 +82,7 @@ describe('PropertyDO sold ledger property tests', () => {
     if (!added.ok) return;
 
     const anchor = added.fromDate;
+    await seedBarRatesForHorizon(stub, 'rt_king', anchor, HORIZON_DAYS);
     const live: LiveReservation[] = [];
     let seq = 0;
 

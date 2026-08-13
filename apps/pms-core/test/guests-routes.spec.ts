@@ -15,6 +15,7 @@ import {
   resetPlatformSchemaGate,
   setKillSwitch,
 } from '../src/registry.js';
+import { seedBarRatesForHorizon } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -77,7 +78,10 @@ async function provisionHotel(actor: string) {
   expect(roomTypeRes.status).toBe(201);
   const roomTypeData = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await resolved.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', roomTypeData.fromDate);
+  }
   return { orgId, propertyId, actor, arrival: roomTypeData.fromDate, stub: resolved!.stub };
 }
 

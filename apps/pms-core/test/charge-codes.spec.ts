@@ -15,6 +15,7 @@ import {
   setKillSwitch,
 } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { seedBarRatesForHorizon } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -188,7 +189,10 @@ async function provisionHotel(owner: string) {
   expect(roomTypeRes.status).toBe(201);
   const { fromDate: arrival } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await resolved.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', arrival);
+  }
   const org = testOrgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, propertyId, `guest_${crypto.randomUUID()}`, 'Guest', {

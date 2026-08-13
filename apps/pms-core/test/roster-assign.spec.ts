@@ -7,6 +7,7 @@ import type { PmsEnv } from '../src/env.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
+import { seedBarRatesForHorizon } from './fixtures.js';
 import { createHousekeeper, idemFor } from './roster-helpers.js';
 
 function addDays(isoDate: string, days: number): string {
@@ -163,7 +164,10 @@ async function provisionHotel(actor: string) {
   expect(roomTypeRes.status).toBe(201);
   const { fromDate: arrival } = (await roomTypeRes.json()) as { fromDate: string };
   const resolved = await resolvePropertyFromRegistry(env, propertyId);
-  if (resolved) await resolved.stub.flushOutbox();
+  if (resolved) {
+    await resolved.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolved.stub, 'rt_king', arrival);
+  }
   const org = testOrgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, propertyId, `guest_${propertyId}`, 'Test Guest', {

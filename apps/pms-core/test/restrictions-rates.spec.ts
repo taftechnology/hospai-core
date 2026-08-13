@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { fingerprintPayload, RESTRICTION_VIOLATED, RATE_MISSING } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import type { PropertyDO } from '../src/property-do';
-import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
+import { idemFor, provisionedPropertyStub, seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './fixtures';
 import { createGuest, orgStub } from './guest-helpers';
 
 function addDays(iso: string, days: number): string {
@@ -34,6 +34,7 @@ describe('PropertyDO restrictions + rates', () => {
     if (!added.ok) return;
 
     const arrival = added.fromDate;
+    await seedBarRatesForHorizon(stub, 'rt_king', arrival);
     const restriction = {
       roomTypeId: 'rt_king',
       ratePlanId: TYPE_WIDE_RATE_PLAN,

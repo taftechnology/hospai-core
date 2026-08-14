@@ -105,7 +105,9 @@ describe('GuestProfileScreen', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Ada Lovelace'));
     expect(screen.getByText('ada@ex.com')).toBeTruthy();
     expect(screen.getByText('5550100')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'res_1' }).getAttribute('href')).toBe('/folio/res_1');
+    expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
+      '/folio/res_1',
+    );
     expect(screen.getByText('101')).toBeTruthy();
     expect(screen.queryByText('rm_101')).toBeNull();
     expect(screen.getByTestId('guest-book').getAttribute('href')).toBe('/book?guestRef=g1');

@@ -16,6 +16,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
+import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { formatMinor } from '../money.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
@@ -580,7 +581,7 @@ export function FolioScreen() {
   });
 
   const openCompany = useFolioActionMutation({
-    fallback: 'Open COMPANY failed',
+    fallback: 'Open company folio failed',
     setMessage,
     mutationFn: () => {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
@@ -1042,7 +1043,7 @@ export function FolioScreen() {
               <div className="stack-row">
                 <Input
                   aria-label="company-billed-party"
-                  placeholder="billed party"
+                  placeholder="Company or agency name"
                   value={companyBilledParty}
                   onChange={(e) => setCompanyBilledParty(e.target.value)}
                 />
@@ -1052,7 +1053,7 @@ export function FolioScreen() {
                   disabled={openCompany.isPending}
                   onClick={() => openCompany.mutate()}
                 >
-                  Open COMPANY
+                  Open company folio
                 </Button>
               </div>
             ) : null}
@@ -1062,7 +1063,7 @@ export function FolioScreen() {
             <h2>Windows</h2>
             <Input
               aria-label="company-billed-party"
-              placeholder="billed party"
+              placeholder="Company or agency name"
               value={companyBilledParty}
               onChange={(e) => setCompanyBilledParty(e.target.value)}
             />
@@ -1072,7 +1073,7 @@ export function FolioScreen() {
               disabled={openCompany.isPending}
               onClick={() => openCompany.mutate()}
             >
-              Open COMPANY
+              Open company folio
             </Button>
           </section>
         ) : null}
@@ -1152,7 +1153,7 @@ export function FolioScreen() {
             <ul>
               {queued.forReservation.map((e) => (
                 <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                  {e.commandId} · {e.idempotencyKey.slice(0, 8)}…
+                  {queuedCommandLine(e)}
                 </li>
               ))}
             </ul>
@@ -1163,8 +1164,7 @@ export function FolioScreen() {
               <ul>
                 {queued.other.map((e) => (
                   <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                    {e.commandId}
-                    {e.reservationId ? ` · ${e.reservationId}` : ' · (untagged)'}
+                    {queuedCommandLine(e)}
                   </li>
                 ))}
               </ul>

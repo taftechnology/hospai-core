@@ -4,6 +4,7 @@ import { Alert, Badge, Button, Field, Input } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor, formatVarianceMinor, parseMajorToMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { shiftSeverity } from '../status/shift-severity.js';
@@ -77,7 +78,7 @@ function ShiftCloseForm() {
         );
         return;
       }
-      setMessage(`Close shift failed (${c.class})`);
+      setMessage(classifiedUserMessage(c, { fallback: 'Close shift failed' }));
     },
   });
 
@@ -93,7 +94,12 @@ function ShiftCloseForm() {
     return <p className="muted">Shift status unavailable</p>;
   }
 
-  const open = openQ.data as { ok?: boolean; shift?: { shiftId: string } | null } | undefined;
+  const open = openQ.data as
+    | {
+        ok?: boolean;
+        shift?: { shiftId: string; businessDate?: string; openingFloat?: number } | null;
+      }
+    | undefined;
   if (!open?.shift) {
     return (
       <div className="panel stack">
@@ -108,12 +114,27 @@ function ShiftCloseForm() {
   }
 
   const shiftId = open.shift.shiftId;
+  const { businessDate, openingFloat } = open.shift;
 
   return (
     <div className="panel stack">
       <h1>Close shift</h1>
       <p>
-        Shift <strong>{shiftId}</strong> — enter closing count (blind; expected cash is not shown).
+        {businessDate ? (
+          <>
+            Business date <strong>{businessDate}</strong>
+            {openingFloat != null ? (
+              <>
+                {' '}
+                · opening float <strong>{formatMinor(openingFloat)}</strong>
+              </>
+            ) : null}
+            {' '}
+            — enter closing count (blind; expected cash is not shown).
+          </>
+        ) : (
+          <>Enter closing count (blind; expected cash is not shown).</>
+        )}
       </p>
       <form
         onSubmit={(e) => {
@@ -153,7 +174,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
   if (q.isPending) return <p className="muted">Loading receipt…</p>;
   if (q.isError) {
     const c = asClassified(q.error);
-    return <p className="muted">Could not load shift ({c.class})</p>;
+    return <p className="muted">{classifiedUserMessage(c, { fallback: 'Could not load shift' })}</p>;
   }
 
   const shift = q.data?.shift;
@@ -186,10 +207,6 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         {shift.status}
       </Badge>
       <dl>
-        <div>
-          <dt>Shift</dt>
-          <dd>{shift.shiftId}</dd>
-        </div>
         <div>
           <dt>Business date</dt>
           <dd>{shift.businessDate}</dd>

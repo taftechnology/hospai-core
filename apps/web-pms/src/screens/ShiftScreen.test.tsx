@@ -114,6 +114,84 @@ describe('ShiftScreen', () => {
     expect(screen.getByTestId('receipt-status').textContent).toMatch(/FORCE_CLOSED/);
   });
 
+  it('close form and receipt hide wire shift ids', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_close_1',
+        businessDate: '2026-08-09',
+        openingFloat: 10_000,
+      },
+    });
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByLabelText(/closing count/i)).toBeTruthy());
+    expect(document.body.textContent).not.toMatch(/shift_close_1/);
+    expect(screen.getByText(/2026-08-09/)).toBeTruthy();
+    expect(screen.getByText(/100\.00/)).toBeTruthy();
+
+    getShiftById.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_fc',
+        businessDate: '2026-08-09',
+        openingFloat: 5000,
+        closingCount: null,
+        variance: null,
+        status: 'FORCE_CLOSED',
+        unattributedCashCount: 2,
+      },
+    });
+    cleanup();
+    renderAt('/shift/shift_fc');
+    await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
+    expect(document.body.textContent).not.toMatch(/shift_fc/);
+    expect(screen.getByText(/2026-08-09/)).toBeTruthy();
+  });
+
+  it('close shift error uses classifiedUserMessage without class token', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_err',
+        businessDate: '2026-08-09',
+        openingFloat: 100,
+      },
+    });
+    closeShift.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 400,
+        body: { error: 'bad' },
+        retryAfterMs: null,
+      }),
+    );
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByRole('button', { name: /close shift/i })).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /close shift/i }));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Something went wrong/i)).toBeTruthy(),
+    );
+    expect(document.body.textContent).not.toMatch(/client_error/);
+  });
+
+  it('load shift error uses classifiedUserMessage without class token', async () => {
+    getShiftById.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderAt('/shift/shift_missing');
+    await waitFor(() =>
+      expect(screen.getByText(/Something went wrong/i)).toBeTruthy(),
+    );
+    expect(document.body.textContent).not.toMatch(/server_error/);
+  });
+
   it('shift_not_open navigates to receipt path', async () => {
     getOpenShift.mockResolvedValue({
       ok: true,

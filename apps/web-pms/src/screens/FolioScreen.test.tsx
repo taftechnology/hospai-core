@@ -30,10 +30,23 @@ const recordChargeback = vi.fn();
 const postFxAdjustment = vi.fn();
 const listRooms = vi.fn();
 const listChargeCodes = vi.fn();
+const openFolioWindowMock = vi.fn();
+
+const { queuedStore } = vi.hoisted(() => ({
+  queuedStore: {
+    entries: [] as Array<{
+      commandId: string;
+      idempotencyKey: string;
+      issuedAt: string;
+      businessDate?: string;
+      reservationId?: string;
+    }>,
+  },
+}));
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
-  queuedCommands: { entries: () => [] },
+  queuedCommands: { entries: () => queuedStore.entries },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
     return {
@@ -60,7 +73,7 @@ vi.mock('../client.js', () => ({
     splitFolioLineV2: (...args: unknown[]) => splitFolioLineV2(...args),
     closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
     reopenFolioWindow: vi.fn(),
-    openFolioWindow: vi.fn(),
+    openFolioWindow: (...args: unknown[]) => openFolioWindowMock(...args),
     transferFolioLine: (...args: unknown[]) => transferFolioLine(...args),
     voidPayment: (...args: unknown[]) => voidPayment(...args),
     refundPayment: (...args: unknown[]) => refundPayment(...args),
@@ -171,6 +184,7 @@ const miscLine = {
 describe('FolioScreen wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    queuedStore.entries = [];
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
     listChargeCodes.mockResolvedValue({
       ok: true,
@@ -1067,6 +1081,74 @@ describe('FolioScreen wiring', () => {
     expect(advanced().querySelector('[data-testid="chargeback-form"]')).toBeTruthy();
     expect(advanced().querySelector('[data-testid="fx-rates-editor"]')).toBeTruthy();
     expect(advanced().textContent).toMatch(/Queued this reservation/);
+  });
+
+  it('Advanced expanded: company folio copy and queued lines without wire ids', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    queuedStore.entries = [
+      {
+        commandId: 'folio.add_line',
+        idempotencyKey: 'idem-res-1',
+        issuedAt: '2026-08-14T12:00:00Z',
+        businessDate: '2026-08-14',
+        reservationId: 'res_1',
+      },
+      {
+        commandId: 'folio.add_line',
+        idempotencyKey: 'idem-other',
+        issuedAt: '2026-08-13T12:00:00Z',
+        businessDate: '2026-08-13',
+        reservationId: 'res_other',
+      },
+    ];
+    openFolioWindowMock.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 400,
+        body: { error: 'bad' },
+        retryAfterMs: null,
+      }),
+    );
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-advanced')).toBeTruthy());
+    advanced().open = true;
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('Company or agency name')).toBeTruthy(),
+    );
+    expect(screen.queryByPlaceholderText(/billed party/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open company folio' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open COMPANY' })).toBeNull();
+
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('open-company-window'));
+    });
+    await waitFor(() => expect(screen.getByTestId('folio-message')).toBeTruthy());
+    expect(screen.getByTestId('folio-message').textContent).not.toMatch(/COMPANY/);
+    expect(screen.getByTestId('folio-message').textContent).toMatch(/Something went wrong/i);
+
+    expect(advanced().textContent).toMatch(/Queued action · 2026-08-14/);
+    expect(advanced().textContent).toMatch(/Queued action · 2026-08-13/);
+    expect(advanced().textContent).not.toMatch(/res_other/);
+    expect(advanced().textContent).not.toMatch(/untagged/);
   });
 
   it('tenders show Card/Cash amounts and hide payment ids', async () => {

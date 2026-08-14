@@ -145,8 +145,8 @@ describe('ReservationsDirectoryScreen', () => {
 
   it('active status filter and folio row link; empty and fail-closed copy', async () => {
     renderDirectory();
-    await waitFor(() => expect(screen.getByRole('link', { name: /res_dir_1/ })).toBeTruthy());
-    expect(screen.getByRole('link', { name: /res_dir_1/ }).getAttribute('href')).toBe(
+    await waitFor(() => expect(screen.getByRole('link', { name: 'View folio' })).toBeTruthy());
+    expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
       '/folio/res_dir_1',
     );
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
@@ -200,7 +200,11 @@ describe('ReservationsDirectoryScreen', () => {
     expect(
       getFrontOfficeDirectory.mock.calls.every((c) => !('q' in ((c[1] as object) ?? {}))),
     ).toBe(true);
-    await waitFor(() => expect(screen.getByText(/res_hit/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
+        '/folio/res_hit',
+      ),
+    );
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
   });
 });

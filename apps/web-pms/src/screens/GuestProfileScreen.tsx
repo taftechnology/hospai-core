@@ -318,7 +318,7 @@ export function GuestProfileScreen() {
                 {stays.items.map((row) => (
                   <DataTableRow key={row.reservationId}>
                     <DataTableCell>
-                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
+                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
                     </DataTableCell>
                     <DataTableCell>
                       {row.arrivalDate} → {row.departureDate}

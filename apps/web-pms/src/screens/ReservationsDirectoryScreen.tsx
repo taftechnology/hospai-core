@@ -224,7 +224,7 @@ export function ReservationsDirectoryScreen() {
               <DataTableRow key={hit.reservationId}>
                 <DataTableCell>
                   <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>
-                    {hit.reservationId}
+                    View folio
                   </Link>
                 </DataTableCell>
                 <DataTableCell>
@@ -268,7 +268,7 @@ export function ReservationsDirectoryScreen() {
           {items.map((row) => (
             <DataTableRow key={row.reservationId}>
               <DataTableCell>
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
+                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
               </DataTableCell>
               <DataTableCell>
                 <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />

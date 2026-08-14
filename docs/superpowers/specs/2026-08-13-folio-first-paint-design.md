@@ -354,7 +354,7 @@ No `v1-http-routes.ts` append. No catalog. No migration. No `demo-seed.ts` shift
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **P0-3** chrome + skin (sidebar, tokens, icons, palette, folio header/button/chip skin) | Next slice. Folio **skin only** after this IA. |
+| 1 | **P0-3** chrome + skin (sidebar, tokens, icons, palette, folio header/button/chip skin) | **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md). |
 | 2 | **P0-4** Clerk / real `/sign-in` / hide `X-Dev-Actor` | Auto-open uses `/me` whoever it is |
 | 3 | **P0-5** 8-minute script, dry runs, kill list | Kill list will say “do not open Folio Advanced unless asked” |
 | 4 | Pixel-faithful prototype folio / billing app | DEMO-READY out of scope |
@@ -365,10 +365,10 @@ No `v1-http-routes.ts` append. No catalog. No migration. No `demo-seed.ts` shift
 | 9 | Seed folio lines / minibar / payments | Live 8-minute beat |
 | 10 | Seed `folio.open_shift` | SPA auto-open instead |
 | 11 | Gate cash on open shift | Q4 unchanged |
-| 12 | Shift-strip hide raw `shiftId` | P0-3 chrome |
-| 13 | Status copy “In house” vs `checked_in` | P0-3 light screen copy |
+| 12 | Shift-strip hide raw `shiftId` | **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md). |
+| 13 | Status copy “In house” vs `checked_in` | **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md). |
 | 14 | City ledger / invoices / auto-transfer / recurring / partial refunds | Phase 1 |
-| 15 | `ui-kit` / Tailwind / prototype palette | §16.4 / P0-3 |
+| 15 | `ui-kit` / Tailwind / prototype palette | **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md). |
 | 16 | Virtual room types / derived rates / `rooms.delete` | Unrelated leftovers |
 
 ---

@@ -108,14 +108,14 @@ Reference: prototype `src/App.tsx` shell + `src/index.css` `@theme`.
 `AppShell` becomes the prototype frame. Routes and permissions stay; only chrome moves.
 Landing remains `/board` (tape). No Dashboard Hub.
 
-- [ ] Left sidebar (~16rem, sticky) + main column. Sage mark + “HospAI PMS”. Selected row:
+- [x] Left sidebar (~16rem, sticky) + main column. Sage mark + “HospAI PMS”. Selected row:
       cream fill, sage text, icon.
-- [ ] Footer shows the signed-in role from `/me`. No role-swap dropdown.
-- [ ] Top operations rail: global search (guest name first), property **name**, business-date
+- [x] Footer shows the signed-in role from `/me`. No role-swap dropdown.
+- [x] Top operations rail: global search (guest name first), property **name**, business-date
       chip.
-- [ ] Shift strip stays under the rail. Queued-commands and exceptions stay available but
+- [x] Shift strip stays under the rail. Queued-commands and exceptions stay available but
       **collapsed when empty**.
-- [ ] Small local SVG set copied from prototype `Icons.tsx` into `apps/web-pms`. No
+- [x] Small local SVG set copied from prototype `Icons.tsx` into `apps/web-pms`. No
       `lucide-react`, no `motion`.
 
 **Primary nav (this order):**
@@ -145,17 +145,17 @@ All colour literals stay on `--color-*` in `apps/web-pms/src/styles/tokens.css`.
 alias names (`--ink`, `--bg`, `--action-primary-*`, `--status-*`) stay so screens inherit
 without a markup sweep.
 
-- [ ] Chrome primitives from the prototype where they already pass AA; otherwise nudged:
+- [x] Chrome primitives from the prototype where they already pass AA; otherwise nudged:
       page bg `#F9F8F4`, selected/chip `#F1EFE9`, borders `#E8E4D8`, ink `#2D2926`, primary
       `#4A5D4E` (white label on `--color-action-primary-surface`), accent `#C18C5D` only if
       it clears 4.5:1 on its fill (else darkened).
-- [ ] Status rungs unchanged (`settled` / `neutral` / `informational` / `attention` /
+- [x] Status rungs unchanged (`settled` / `neutral` / `informational` / `attention` /
       `exception`). Informational drops institutional blue (sage-tinted). Settled stays a
       distinct green, not the same as primary sage. Attention / exception stay amber / red,
       warmed to the new neutrals.
-- [ ] Every `--status-*-fg` passes 4.5:1 against its surface **and** `--color-surface-base`
+- [x] Every `--status-*-fg` passes 4.5:1 against its surface **and** `--color-surface-base`
       (`pnpm check:web-pms-colors` green).
-- [ ] Keep IBM Plex / Segoe. Add `--radius` (~8px) for nav rows, search, chips. Nav labels
+- [x] Keep IBM Plex / Segoe. Add `--radius` (~8px) for nav rows, search, chips. Nav labels
       ~12px. No dark theme, no prototype `shadow-sm` / `animate-pulse`.
 
 #### Screens (light markup only)
@@ -163,18 +163,20 @@ without a markup sweep.
 Do not rebuild prototype layouts (tape scheduler popups, folio as a billing app, Dashboard
 Hub, recharts). Housekeeping and guests inherit via existing classes.
 
-- [ ] Guest names and room codes everywhere a stay is shown. No raw `roomId` / `guestRef` as
+- [x] Guest names and room codes everywhere a stay is shown. No raw `roomId` / `guestRef` as
       the primary label.
-- [ ] Tape: page title “Room Plan”; summary chips use cream/sage; stay blocks keep
+- [x] Tape: page title “Room Plan”; summary chips use cream/sage; stay blocks keep
       `statusClass`.
-- [ ] Book: drop “Type-only stay…” and `Quote ariVersion`; show a **dollar quote**. Hide
+- [x] Book: drop “Type-only stay…” and `Quote ariVersion`; show a **dollar quote**. Hide
       `guestRef` next to the name.
-- [ ] Check-in: room picker by **code**; registration card is a print control, not a
+- [x] Check-in: room picker by **code**; registration card is a print control, not a
       permanent blob.
-- [ ] Folio: **skin only** (headers, buttons, chips). First-paint / Advanced is P0-2.
-- [ ] Night audit: operator job chrome, not a JSON dump. Step names stay.
-- [ ] `data-testid`s stay. Tests change only where shell DOM or copy actually moves (nav
+- [x] Folio: **skin only** (headers, buttons, chips). First-paint / Advanced is P0-2.
+- [x] Night audit: operator job chrome, not a JSON dump. Step names stay.
+- [x] `data-testid`s stay. Tests change only where shell DOM or copy actually moves (nav
       into `<aside>`).
+
+Closed 2026-08-13 by [prototype chrome + skin](docs/superpowers/specs/2026-08-13-prototype-chrome-skin-design.md).
 
 ### P0-4. Sign-in that is not a lab flag
 

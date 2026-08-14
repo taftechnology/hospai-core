@@ -25,7 +25,7 @@ This chunk is staging only. It does not change how a hotel is provisioned, how a
 | Org create | `[0] post_orgs` `POST /v1/orgs` (`scope: 'bootstrap'`). Insert-only. **409** `{ error: 'org_exists' }`. On 201, `ensureMember(actor, 'owner')`. On 409, member is **not** re-ensured. |
 | Property provision | `[2] post_org_properties` `POST /v1/orgs/:orgId/properties` (`property:provision`, `pms.core`). `provisionProperty`: existing property → **201** with the existing row (does **not** rename; timezone / currency are first-write no-ops). Missing org is upserted. Actor is synced onto OrgDO / PropertyDO. |
 | Property name | `[43] patch_property_details` `PATCH /v1/properties/:pid` (`property.update_details`, `config:write`). **Name only.** Body `{ name, idempotencyKey }`. |
-| Property read | `GET /v1/properties/:pid` → `{ property: { propertyId, timeZone, name } }`. Tape header today is “Board” + dates — it does **not** print `propertyId`. P0-3 will put **name** on the rail. |
+| Property read | `GET /v1/properties/:pid` → `{ property: { propertyId, timeZone, name } }`. Tape header today is “Board” + dates — it does **not** print `propertyId`. P0-3 will put **name** on the rail. **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md) (property name on the ops rail). |
 | Room types | `POST /room-types` (`inventory.add_room_type`); `PUT /room-types/:id` (`inventory.update_room_type`); `GET /room-types` `[111]`. `roomCount` is sellable physical on `availability_day`, **not** a physical `room` row. Create seeds availability from **open business date** forward (`HORIZON_DAYS`). |
 | Physical rooms | `POST /rooms` (`rooms.create`) `{ roomId, roomTypeId, code, floor?, idempotencyKey }`. Default `room.status = 'clean'`. Unique `code`. **No `rooms.delete`.** |
 | BAR | PropertyDO v12 seeds `rate_plan` `BAR` / “Best Available Rate”. `DEFAULT_RATE_PLAN_ID === 'BAR'`. Create reservation defaults `ratePlanId` to BAR. **No rate_day rows** until someone PUTs them. |
@@ -469,7 +469,7 @@ No `pending-commands-consumer` / `NIGHT_AUDIT_STEPS` / `client-core` method requ
 | # | Item | Notes |
 |---|---|---|
 | 1 | **P0-2** folio first-paint / Advanced / shift auto-open | **Closed 2026-08-13** by [folio first-paint](./2026-08-13-folio-first-paint-design.md) (SPA auto-open, not seed). |
-| 2 | **P0-3** chrome + skin + “Room Plan” + property-name rail | Next slice; seed only supplies `name` |
+| 2 | **P0-3** chrome + skin + “Room Plan” + property-name rail | **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md) (property name on the ops rail). |
 | 3 | **P0-4** Clerk / real `/sign-in` / hide `X-Dev-Actor` | Script stays on dev actor |
 | 4 | **P0-5** 8-minute speaker script + dry runs | Documentation / rehearsal |
 | 5 | Virtual room types | §7.1 |

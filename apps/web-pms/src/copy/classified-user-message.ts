@@ -8,7 +8,7 @@ const UNKNOWN_MESSAGE = 'Something went wrong — try again or ask a manager.';
 
 const CLASS_MESSAGES: Partial<Record<ClientResultClass, string>> = {
   fail_closed: 'Property unreachable.',
-  read_stale: 'data is stale — try again',
+  read_stale: 'Data is stale — try again.',
   provisional: 'Request queued — will apply when the property is reachable.',
   queue_unavailable: 'Could not queue — queue unavailable.',
   not_configured: 'Card payments are not configured for this property.',

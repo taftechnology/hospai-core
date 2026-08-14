@@ -28,6 +28,14 @@ describe('classifiedUserMessage', () => {
     expect(msg).toMatch(/Something went wrong/i);
   });
 
+  it('read_stale does not paint the class token', () => {
+    const msg = classifiedUserMessage(classified({ class: 'read_stale' }), {
+      fallback: 'Availability failed',
+    });
+    expect(msg).not.toMatch(/read_stale/);
+    expect(msg).toMatch(/Data is stale/i);
+  });
+
   it('forbidden with permission body returns Requires permission line', () => {
     const msg = classifiedUserMessage(
       classified({

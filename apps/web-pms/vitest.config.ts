@@ -8,6 +8,7 @@ export default defineConfig({
       ['src/**/*.boot.test.tsx', 'jsdom'],
       ['src/screens/**/*.test.tsx', 'jsdom'],
       ['src/shell/**/*.test.tsx', 'jsdom'],
+      ['src/providers/**/*.test.tsx', 'jsdom'],
     ],
   },
 });

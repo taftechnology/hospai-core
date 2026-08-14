@@ -23,6 +23,7 @@ import { RatesScreen } from './screens/RatesScreen.js';
 import { SettingsRoute } from './screens/SettingsRoute.js';
 import { SettingsScreen } from './screens/SettingsScreen.js';
 import { AppShell } from './shell/AppShell.js';
+import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,7 +40,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route element={<AppShell />}>
+          <Route element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}>
             <Route index element={<Navigate to="/board" replace />} />
             <Route path="board" element={<TapeChartScreen />} />
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />

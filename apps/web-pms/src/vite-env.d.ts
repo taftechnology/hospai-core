@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly VITE_DEV_ACTOR?: string;
   readonly VITE_CLERK_PUBLISHABLE_KEY?: string;
   readonly VITE_USE_DEV_ACTOR?: string;
+  readonly VITE_DEMO_PASSWORD?: string;
+  readonly VITE_DEMO_EMAIL?: string;
 }
 
 interface ImportMeta {

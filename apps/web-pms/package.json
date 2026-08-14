@@ -11,6 +11,7 @@
     "lint": "echo 'lint via root eslint'"
   },
   "dependencies": {
+    "@clerk/react": "^6.14.2",
     "@hospai/client-core": "workspace:*",
     "@hospai/contracts": "workspace:*",
     "@hospai/pms-housekeeping": "workspace:*",

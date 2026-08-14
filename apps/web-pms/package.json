@@ -15,6 +15,7 @@
     "@hospai/client-core": "workspace:*",
     "@hospai/contracts": "workspace:*",
     "@hospai/pms-housekeeping": "workspace:*",
+    "@hospai/ui-kit": "workspace:*",
     "@tanstack/react-query": "^5.74.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

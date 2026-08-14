@@ -1,4 +1,5 @@
 @import './styles/tokens.css';
+@import '@hospai/ui-kit/styles.css';
 
 * {
   box-sizing: border-box;

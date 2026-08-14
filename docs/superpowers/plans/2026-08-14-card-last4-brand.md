@@ -158,17 +158,17 @@ export const CARD_DISPLAY_TOKEN_V26_SQL =
 
 No `CHECK` on brand enum in v26.
 
-- [ ] **Step 1: Add v26 statements + `PROPERTY_MIGRATIONS` entry**
+- [x] **Step 1: Add v26 statements + `PROPERTY_MIGRATIONS` entry**
 
 Follow `EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS` / v25 entry at ~968–1103 in `property-migrations.ts`.
 
-- [ ] **Step 2: Write failing migrate.test.ts assertions**
+- [x] **Step 2: Write failing migrate.test.ts assertions**
 
 Update both `expect(PROPERTY_SCHEMA_HEAD).toBe(25)` sites (lines ~600, ~714) to **26**. Add:
 - `property schema head is 26 after card_display_token` — v26 name + statements equality.
 - `migrations/do-property/0026_card_display_token.sql matches CARD_DISPLAY_TOKEN_V26_SQL` — same strip-comments pattern as v25 DDL test (~725–734).
 
-- [ ] **Step 3: Write failing sqlite test**
+- [x] **Step 3: Write failing sqlite test**
 
 `card-display-token-migration.sqlite.test.ts`:
 - Apply migrations `version <= 25`.
@@ -176,7 +176,7 @@ Update both `expect(PROPERTY_SCHEMA_HEAD).toBe(25)` sites (lines ~600, ~714) to 
 - Apply v26 statements.
 - Assert `card_last4` / `card_brand` are NULL on existing row; UPDATE with `'4242'` / `'visa'` succeeds.
 
-- [ ] **Step 4: Wire DDL generator, regenerate, run tests**
+- [x] **Step 4: Wire DDL generator, regenerate, run tests**
 
 Export `CARD_DISPLAY_TOKEN_V26_SQL` from `packages/do-runtime/src/index.ts`. Add `scripts/property-ddl.mjs` target (header: ALTER payment ADD card_last4, card_brand). Then:
 
@@ -189,7 +189,7 @@ pnpm --filter @hospai/do-runtime exec vitest run \
 
 Expect generated `migrations/do-property/0026_card_display_token.sql` in this commit. Do not `|| true` a missing file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts \
@@ -242,22 +242,22 @@ export type PspSimulateOutcome = {
 - `cardLast4`: `outcome?.cardLast4 ?? '4242'`.
 - Declined / timeout: unchanged (no card fields).
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 Add to `psp-simulate.test.ts` (import `simulateAuthorize`):
 - Default approve → `{ outcome: 'approved', gatewayReference: 'sim_pay_x', cardBrand: 'visa', cardLast4: '4242' }`.
 - Override `{ cardBrand: 'amex', cardLast4: '0005' }` on outcome → matching fields.
 - Declined / timeout → no `cardBrand` / `cardLast4` keys (shape unchanged from today).
 
-- [ ] **Step 2: Implement adapter changes**
+- [x] **Step 2: Implement adapter changes**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run src/psp-simulate.test.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/psp-simulate.ts apps/pms-core/src/psp-simulate.test.ts
@@ -316,7 +316,7 @@ cardBrand: row.card_brand,
 - Inline return type adds `cardLast4?: string | null; cardBrand?: string | null`.
 - Map from row; cash rows naturally null.
 
-- [ ] **Step 1: Write failing Worker tests**
+- [x] **Step 1: Write failing Worker tests**
 
 Add to `folio-payments.spec.ts` (new `it` blocks or extend Test 7 / HTTP list test ~980):
 
@@ -328,17 +328,17 @@ Add to `folio-payments.spec.ts` (new `it` blocks or extend Test 7 / HTTP list te
 
 Prefer HTTP `GET …/folio/payments` assertion where the file already uses `worker.fetch` (~980–990).
 
-- [ ] **Step 2: Implement DO changes**
+- [x] **Step 2: Implement DO changes**
 
 Tasks above. Do not add client-core methods. Capture/void/refund paths must not overwrite `card_last4` / `card_brand`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payments.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-payments.spec.ts
@@ -400,13 +400,13 @@ Row paint stays: `{tenderLabel(p)} · {formatMinor(p.amountMinor)}`.
 
 Hold (`status === 'authorized'`) and captured card rows with token use the same label (D6).
 
-- [ ] **Step 1: Widen client type + rebuild**
+- [x] **Step 1: Widen client type + rebuild**
 
 ```bash
 pnpm --filter @hospai/client-core build
 ```
 
-- [ ] **Step 2: Write failing FolioScreen tests**
+- [x] **Step 2: Write failing FolioScreen tests**
 
 Update / extend `FolioScreen.test.tsx`:
 - **Token row:** mock payment `{ tenderType: 'CARD', cardBrand: 'visa', cardLast4: '4242', amountMinor: 5000, ... }` → visible **Visa**, **4242**, **••••**, **50.00**; `not.toMatch(/simulate/i)`; `not.toMatch(/sim_/i)`; no `pay_*` id text in `<li>`.
@@ -415,11 +415,11 @@ Update / extend `FolioScreen.test.tsx`:
 - **Brand missing:** `{ cardLast4: '9999', cardBrand: null }` → **Card •••• 9999**.
 - **Advanced collapsed regression:** `folio-advanced` `<details>` not open; no Holds/Captured headings (existing ~1220–1225).
 
-- [ ] **Step 3: Implement `tenderLabel` + row paint**
+- [x] **Step 3: Implement `tenderLabel` + row paint**
 
 Replace `{tenderMethod(p)} · …` at ~810. Do not use `p.gatewayReference` in label text.
 
-- [ ] **Step 4: Run grep + tests**
+- [x] **Step 4: Run grep + tests**
 
 ```bash
 rg '•••• 4242' apps/web-pms/src --glob '!**/*.{test,spec}.*'
@@ -429,13 +429,13 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx
 
 Expect first grep: **no matches**. Second: **no display use** (gatewayReference may remain in `tenderMethod` heuristic — acceptable for legacy cash detection only).
 
-- [ ] **Step 5: Tick DEMO-READY + P0-2 pointer**
+- [x] **Step 5: Tick DEMO-READY + P0-2 pointer**
 
 `DEMO-READY.md` line 239: `- [ ] **Card last-4 / brand on tenders**` → `- [x]`.
 
 P0-2 spec: add one sentence under §12 #8 or schema-freeze note, e.g. *“P1 card last-4 / brand (2026-08-14) lifts the schema freeze; method-only fallback remains for legacy rows.”*
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts \
@@ -465,7 +465,7 @@ EOF
 
 **Forbidden this commit:** product code.
 
-- [ ] **Step 1: Pin frozen heads (except property 26)**
+- [x] **Step 1: Pin frozen heads (except property 26)**
 
 ```bash
 pnpm generate:ddl
@@ -476,7 +476,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **77**; route **[127] = post_demo_seed**; `PROPERTY_SCHEMA_HEAD === 26`; `ORG_SCHEMA_HEAD === 7`. (D7.11 — do not use `-t "COMMAND_CATALOG|post_demo_seed"`.)
 
-- [ ] **Step 2: Run targeted test superset**
+- [x] **Step 2: Run targeted test superset**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run \
@@ -486,16 +486,16 @@ pnpm --filter @hospai/pms-core exec vitest run \
 pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx
 ```
 
-- [ ] **Step 3: Grep acceptance (spec §7.11–12)**
+- [x] **Step 3: Grep acceptance (spec §7.11–12)**
 
 ```bash
 rg '•••• 4242' apps/web-pms/src --glob '!**/*.{test,spec}.*'
 rg 'sim_' apps/web-pms/src/screens/FolioScreen.tsx
 ```
 
-- [ ] **Step 4: Tick every `- [ ]` on Tasks 1–5 in this file**
+- [x] **Step 4: Tick every `- [ ]` on Tasks 1–5 in this file**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-14-card-last4-brand.md

@@ -33,6 +33,19 @@ vi.mock('./PropertyTimeZone.js', () => ({
 import type { Authority } from '../auth/me.js';
 import { ShiftStrip } from './ShiftStrip.js';
 
+const livePost: Authority = {
+  kind: 'live',
+  me: {
+    ok: true,
+    orgId: 'org_demo',
+    propertyId: 'prop_demo',
+    userId: 'user_owner',
+    role: 'owner',
+    permissions: ['folio:read', 'folio:post'],
+    orgPermissions: ['org:read'],
+  },
+};
+
 function renderStrip(authority: Authority = { kind: 'unknown' }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -76,6 +89,64 @@ describe('ShiftStrip', () => {
     expect(screen.getByRole('link', { name: /close/i }).getAttribute('href')).toBe('/shift');
   });
 
+  it('auto-opens once when live actor can post and no shift is open', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    openShift.mockResolvedValue({ ok: true });
+    const { invalidateSpy } = renderStrip(livePost);
+    await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
+    expect(openShift.mock.calls[0]?.[1]).toMatchObject({ openingFloat: 10000 });
+    expect((openShift.mock.calls[0]?.[1] as { shiftId: string }).shiftId).toMatch(/^shift_/);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['open-shift', 'prop_demo'] });
+  });
+
+  it('does not auto-open when a shift is already open', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_1',
+        businessDate: '2099-01-01',
+        openingFloat: 10_000,
+        attributedCashCount: 0,
+        status: 'OPEN',
+      },
+    });
+    renderStrip(livePost);
+    await waitFor(() => expect(screen.getByTestId('open-shift-badge')).toBeTruthy());
+    expect(openShift).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-open when open-shift GET is fail-closed', async () => {
+    getOpenShift.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
+    renderStrip(livePost);
+    await waitFor(() =>
+      expect(screen.getByText(/Shift unavailable — property unreachable/i)).toBeTruthy(),
+    );
+    expect(openShift).not.toHaveBeenCalled();
+  });
+
+  it('leaves the manual form when auto-open errors', async () => {
+    getOpenShift.mockResolvedValue({ ok: true, shift: null });
+    openShift.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'money_invalid' },
+        retryAfterMs: null,
+      }),
+    );
+    renderStrip(livePost);
+    await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy();
+    expect(screen.getByText(/Open shift failed/i)).toBeTruthy();
+  });
+
   it('shows already-open copy and invalidates open-shift only', async () => {
     getOpenShift.mockResolvedValue({ ok: true, shift: null });
     openShift.mockRejectedValue(
@@ -87,13 +158,10 @@ describe('ShiftStrip', () => {
       }),
     );
     const { invalidateSpy } = renderStrip();
-    await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
-    });
     await waitFor(() =>
       expect(screen.getByText(/You already have an open shift/i)).toBeTruthy(),
     );
+    expect(openShift).toHaveBeenCalledTimes(1);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['open-shift', 'prop_demo'] });
     expect(
       invalidateSpy.mock.calls.some(
@@ -114,18 +182,19 @@ describe('ShiftStrip', () => {
     );
     renderStrip();
     await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
-    });
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     });
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(2));
-    const firstId = (openShift.mock.calls[0]?.[1] as { shiftId: string }).shiftId;
-    const secondId = (openShift.mock.calls[1]?.[1] as { shiftId: string }).shiftId;
-    expect(firstId).toBeTruthy();
-    expect(secondId).toBe(firstId);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
+    });
+    await waitFor(() => expect(openShift).toHaveBeenCalledTimes(3));
+    const ids = openShift.mock.calls.map((c) => (c[1] as { shiftId: string }).shiftId);
+    expect(ids[0]).toBeTruthy();
+    expect(ids[1]).toBe(ids[0]);
+    expect(ids[2]).toBe(ids[0]);
   });
 
   it('withholds Open when authority pending; shows when unknown', async () => {
@@ -133,6 +202,7 @@ describe('ShiftStrip', () => {
     renderStrip({ kind: 'pending' });
     await waitFor(() => expect(screen.getByText(/No open shift/i)).toBeTruthy());
     expect(screen.queryByRole('button', { name: /open shift/i })).toBeNull();
+    expect(openShift).not.toHaveBeenCalled();
     cleanup();
     renderStrip({ kind: 'unknown' });
     await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
@@ -154,6 +224,7 @@ describe('ShiftStrip', () => {
     });
     await waitFor(() => expect(screen.getByText(/No open shift/i)).toBeTruthy());
     expect(screen.queryByRole('button', { name: /open shift/i })).toBeNull();
+    expect(openShift).not.toHaveBeenCalled();
   });
 
   it('force-close callout only for current/previous businessDate', async () => {

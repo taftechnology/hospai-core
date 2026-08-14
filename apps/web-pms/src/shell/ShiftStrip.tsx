@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -67,6 +67,18 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
       setMessage(`Open shift failed (${c.class})`);
     },
   });
+
+  const autoAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoAttemptedRef.current) return;
+    if (!showOpen) return;
+    if (!openQ.isSuccess) return;
+    const body = openQ.data as { shift?: unknown } | undefined;
+    if (!body || body.shift != null) return;
+    autoAttemptedRef.current = true;
+    openMut.mutate();
+  }, [showOpen, openQ.isSuccess, openQ.data, openMut]);
 
   if (openQ.isError) {
     const c = asClassified(openQ.error);

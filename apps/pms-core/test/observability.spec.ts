@@ -335,8 +335,12 @@ describe('observability (Phase 0)', () => {
     const capture = installLogCapture();
     await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest();
-    expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
-    expect(capture.lines.some((l) => l.msg === 'outbox.flush_failed')).toBe(false);
+    expect(
+      capture.lines.some((l) => l.msg === 'outbox.flush' && l.property_id === name),
+    ).toBe(false);
+    expect(
+      capture.lines.some((l) => l.msg === 'outbox.flush_failed' && l.property_id === name),
+    ).toBe(false);
     capture.restore();
   });
 

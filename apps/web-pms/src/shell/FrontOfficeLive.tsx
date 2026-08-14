@@ -12,7 +12,10 @@ import { tenant } from '../client.js';
 import { getClerkSessionToken } from '../providers/clerk-credentials.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from './PropertyTimeZone.js';
+import { frontOfficeAuthProtocol } from './front-office-auth-protocol.js';
 import { StaleWatermark } from './StaleWatermark.js';
+
+export { frontOfficeAuthProtocol } from './front-office-auth-protocol.js';
 
 export type FrontOfficeSocket = {
   readyState: number;
@@ -82,16 +85,6 @@ function invalidateFrontOffice(queryClient: ReturnType<typeof useQueryClient>) {
   for (const queryKey of INVALIDATE_KEYS) {
     void queryClient.invalidateQueries({ queryKey });
   }
-}
-
-export function frontOfficeAuthProtocol(opts: {
-  useDevActor: boolean;
-  devActor: string;
-  clerkToken: string | null;
-}): string[] | undefined {
-  if (opts.useDevActor) return [`hospai.dev-actor.${opts.devActor}`];
-  if (opts.clerkToken) return [`hospai.clerk.${opts.clerkToken}`];
-  return undefined;
 }
 
 export function FrontOfficeLive({

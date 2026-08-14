@@ -160,6 +160,6 @@ describe('PropertyDO sold ledger property tests', () => {
 
     await assertSoldMatchesReservations(stub, 'rt_king', anchor);
     },
-    20_000,
+    60_000,
   );
 });

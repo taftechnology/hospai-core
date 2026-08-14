@@ -73,6 +73,12 @@ const snapshot = {
   ooo: [],
 };
 
+async function waitForOpenHandler(socket: FakeSocket) {
+  await waitFor(() => {
+    expect(socket.onopen).toEqual(expect.any(Function));
+  });
+}
+
 function renderLive(opts: {
   authority?: Authority;
   createSocket: (url: string, protocols?: string | string[]) => FakeSocket;
@@ -117,6 +123,7 @@ describe('FrontOfficeLive', () => {
     const { client } = renderLive({
       createSocket: () => socket,
     });
+    await waitForOpenHandler(socket);
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(snapshot) });
     await waitFor(() => expect(screen.queryByTestId('stale-watermark')).toBeNull());
@@ -135,11 +142,14 @@ describe('FrontOfficeLive', () => {
         return s;
       },
     });
+    await waitFor(() => expect(sockets[0]).toBeTruthy());
+    await waitForOpenHandler(sockets[0]!);
     sockets[0]!.onopen?.();
     sockets[0]!.onmessage?.({ data: JSON.stringify(snapshot) });
     sockets[0]!.close();
     await waitFor(() => expect(screen.getByTestId('stale-watermark')).toBeTruthy());
     await waitFor(() => expect(sockets.length).toBeGreaterThan(1));
+    await waitForOpenHandler(sockets[1]!);
     sockets[1]!.onopen?.();
     sockets[1]!.onmessage?.({ data: JSON.stringify({ ...snapshot, asOf: 1_700_000_000_100 }) });
     await waitFor(() => expect(screen.queryByTestId('stale-watermark')).toBeNull());
@@ -149,6 +159,7 @@ describe('FrontOfficeLive', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const socket = createFakeSocket();
     renderLive({ createSocket: () => socket });
+    await waitForOpenHandler(socket);
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(snapshot) });
     await waitFor(() => expect(screen.queryByTestId('stale-watermark')).toBeNull());
@@ -161,6 +172,7 @@ describe('FrontOfficeLive', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const spy = vi.spyOn(client, 'invalidateQueries');
     renderLive({ createSocket: () => socket, client });
+    await waitForOpenHandler(socket);
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(snapshot) });
     await waitFor(() => expect(spy).toHaveBeenCalled());
@@ -201,6 +213,7 @@ describe('FrontOfficeLive', () => {
   it('subscribe window covers today through today+6', async () => {
     const socket = createFakeSocket();
     renderLive({ createSocket: () => socket, path: '/in-house' });
+    await waitForOpenHandler(socket);
     socket.onopen?.();
     await waitFor(() => expect(socket.sent.length).toBeGreaterThan(0));
     const msg = JSON.parse(socket.sent[0]!) as { fromDate: string; toDate: string };

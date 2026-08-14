@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { frontOfficeAuthProtocol } from './FrontOfficeLive.js';
+import { frontOfficeAuthProtocol } from './front-office-auth-protocol.js';
 
 describe('frontOfficeAuthProtocol', () => {
   it('returns dev-actor protocol when useDevActor is true', () => {

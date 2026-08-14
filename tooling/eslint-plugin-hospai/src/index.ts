@@ -316,7 +316,7 @@ const plugin = {
         'hospai/no-dom-in-client-core': 'error',
         'hospai/no-fetch-in-components': 'error',
         'hospai/no-inline-styles-in-web-pms': 'error',
-        'hospai/no-raw-controls-in-web-pms': 'warn',
+        'hospai/no-raw-controls-in-web-pms': 'error',
       },
     },
   },

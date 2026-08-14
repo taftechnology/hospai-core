@@ -2117,38 +2117,19 @@ to a rule already stated in this document.
 
 ### 16.4 Visual identity
 
-Rule 16 says *copy what it does, copy nothing of how it does it*, and §16.3 says *preserve the
-interaction design*. Visual identity — palette, typography, spacing, iconography, motion — sits
-between those two and was unnamed in earlier revisions. This section names it.
+**Decided (2026-08-14, UI system convergence).** Three §16.4 questions are closed:
 
-**Interaction design is specification. Visual identity is reference.** Screen flow, step order,
-field grouping, affordance placement, and state vocabulary come from the prototype and are
-rebuilt faithfully per vertical. Its *appearance* is not binding: the platform is free to
-diverge, and today it does.
+| Decision | Answer |
+|---|---|
+| Palette | **Keep P0-3.** Sage `#4A5D4E`, tan `#C18C5D`, cream `#F1EFE9`, `--bg #F9F8F4`, `--ink #2D2926`. No new hex. `check:web-pms-colors` remains merge-blocking. |
+| Tailwind | **No, permanently.** Colour stays in `.css` so the gate keeps working; `modules/*` has no bundler for `@source` scanning. |
+| `ui-kit` | **Yes — `packages/ui-kit`.** Hand-authored Tier A components (`Button`, `Field`, `Input`, `NativeSelect`, `DataTable`, …), one global `ui-kit.css`, closed API (no `className` / `style` / blanket `...rest`). Consumed by `apps/web-pms` and `modules/pms/housekeeping`. |
 
-| | Prototype | `apps/web-pms` today |
-|---|---|---|
-| Styling | Tailwind v4 `@theme` block | Hand-written CSS + `src/styles/tokens.css` |
-| Palette | Warm neutrals, sage `#4A5D4E`, tan `#C18C5D` | Cool greys, institutional blue `#1a4a6e` |
-| Icons / motion / charts | `lucide-react`, `motion`, `recharts` | none |
-| Contrast | unconstrained | `check:web-pms-colors` — WCAG AA 4.5:1 on every `--status-*-fg` |
+Visual divergence from the prototype is no longer expected: controls, tables, and panels share one system. Interaction design remains specification (§16.3); appearance is now platform-owned via tokens + ui-kit, not per-screen CSS.
 
-Two consequences worth stating, because both are easy to get wrong later:
+Enforcement: `hospai/no-raw-controls-in-web-pms` (error), `check:ui-kit-adoption` ratchet (floor 0), dev-only `/dev/ui` gallery outside `AppShell`. Storybook deferred.
 
-- **The contrast gate outranks the palette.** The prototype's colours were never designed
-  against `check:web-pms-colors`. Adopting them is a re-derivation of every status pair with
-  contrast proved, not a copy. The gate is not negotiable to win visual fidelity.
-- **`ui-kit` is extracted, not designed.** `packages/ui-kit` appears in the §11 layout and does
-  not exist yet — deliberately. A design system is extracted from screens that exist; building
-  it before the Phase 1 screens land means extracting from an incomplete sample.
-
-**When.** Convergence on a single visual system is a Phase 1 slice of its own, sequenced after
-the front-desk verticals are built, not a finishing pass and not a per-screen concern. Until
-that slice runs, screens ship against the existing token system and any visual divergence from
-the prototype is expected rather than debt. The slice owns three decisions: whether to adopt
-the prototype palette or re-skin existing token values; whether Tailwind enters the platform at
-all; and whether `ui-kit` becomes a package or stays inside `apps/web-pms` until a second
-consumer exists.
+Spec: `docs/superpowers/specs/2026-08-13-ui-system-convergence-design.md`.
 
 ### 16.5 Prototype coverage audit (2026-08-12)
 

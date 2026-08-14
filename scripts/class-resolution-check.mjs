@@ -204,25 +204,38 @@ function collectDefinedClasses(rules) {
 }
 
 function checkControlBaseline(rules, errors) {
-  for (const el of ['input', 'select', 'textarea', 'button']) {
-    const matching = rules.filter((r) => selectorTargetsElement(r.selector, el));
+  const uiKitByElement = {
+    input: 'ui-input',
+    select: 'ui-select',
+    textarea: 'ui-textarea',
+    button: 'ui-btn',
+  };
+  for (const [el, cls] of Object.entries(uiKitByElement)) {
+    const matching = rules.filter((r) => selectorClasses(r.selector).includes(cls));
     if (!matching.some((r) => /(^|;)\s*font(\s*|-family\s*|-size\s*):/.test(r.body))) {
-      errors.push(`companion §16.6: no rule declares font for <${el}>`);
+      errors.push(`companion §16.6: no rule declares font for .${cls} (<${el}>)`);
     }
-    if (!matching.some((r) => /(^|;)\s*(block-size|height)\s*:/.test(r.body))) {
-      errors.push(`companion §16.6: no rule declares a block size for <${el}>`);
+    if (el !== 'textarea' && !matching.some((r) => /(^|;)\s*(block-size|height)\s*:/.test(r.body))) {
+      errors.push(`companion §16.6: no rule declares a block size for .${cls} (<${el}>)`);
+    }
+    if (el === 'textarea' && !matching.some((r) => /(^|;)\s*(block-size|min-block-size|height)\s*:/.test(r.body))) {
+      errors.push(`companion §16.6: no rule declares a block size for .${cls} (<${el}>)`);
     }
   }
-  const allCss = rules.map((r) => r.selector).join('\n');
+  const allCss = rules.map((r) => `${r.selector}{${r.body}}`).join('\n');
   if (!/:focus-visible/.test(allCss)) {
     errors.push('companion §16.7: no :focus-visible rule exists');
   }
   if (!/:disabled/.test(allCss)) {
     errors.push('companion §16.7: no :disabled rule exists');
   }
-  const panelRule = rules.find((r) => selectorClasses(r.selector).includes('panel'));
-  if (!panelRule || !/(^|;)\s*border-radius\s*:/.test(panelRule.body)) {
-    errors.push('companion §16.8: .panel does not declare border-radius');
+  const cardRule = rules.find(
+    (r) =>
+      selectorClasses(r.selector).includes('ui-card') ||
+      selectorClasses(r.selector).includes('panel'),
+  );
+  if (!cardRule || !/(^|;)\s*border-radius\s*:/.test(cardRule.body)) {
+    errors.push('companion §16.8: .ui-card / .panel does not declare border-radius');
   }
 }
 
@@ -261,12 +274,12 @@ export function checkClassResolution({ tsxByFile, cssByFile }) {
 }
 
 const COMPANION_OK_CSS = `
-  input, select, textarea, button { font: inherit; }
-  input, select, button { block-size: 2.25rem; }
-  textarea { block-size: auto; }
-  button:focus-visible { outline: 2px solid blue; }
-  :disabled { opacity: 0.55; }
-  .panel { border-radius: 8px; }
+  .ui-input, .ui-select, .ui-textarea, .ui-btn { font: inherit; }
+  .ui-input, .ui-select, .ui-btn { block-size: 2.25rem; }
+  .ui-textarea { min-block-size: 4.5rem; }
+  .ui-btn:focus-visible { outline: 2px solid blue; }
+  .ui-btn:disabled { opacity: 0.55; }
+  .ui-card { border-radius: 8px; }
 `;
 
 function selfTest() {
@@ -376,7 +389,10 @@ if (process.argv.includes('--self-test')) {
         !f.endsWith('.test.tsx') &&
         (f.includes('apps/web-pms/') || f.includes('/src/ui/')),
     );
-  const cssFiles = walk(cssRoot).filter((f) => f.endsWith('.css'));
+  const cssFiles = [
+    ...walk(cssRoot).filter((f) => f.endsWith('.css')),
+    join(root, 'packages/ui-kit/src/styles.css'),
+  ];
   if (tsxFiles.length === 0 || cssFiles.length === 0) {
     console.error('No tsx or css files found');
     process.exit(1);

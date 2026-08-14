@@ -25,6 +25,8 @@ jobs:
       - run: pnpm check:forbidden-bodies
       - run: pnpm check:do-transport-guards
       - run: pnpm check:web-pms-colors
+      - run: pnpm check:class-resolution
+      - run: pnpm check:ui-kit-adoption
       - run: pnpm check:web-pms-me-gating
       - run: pnpm check:pms-core-test-dates
       - run: pnpm check:module-manifests
@@ -34,6 +36,8 @@ jobs:
       - run: node scripts/forbidden-body-check.mjs --self-test
       - run: node scripts/do-transport-guards-check.mjs --self-test
       - run: node scripts/web-pms-colors-check.mjs --self-test
+      - run: node scripts/class-resolution-check.mjs --self-test
+      - run: node scripts/ui-kit-adoption-check.mjs --self-test
       - run: node scripts/property-ddl.mjs --self-test
       - run: pnpm typecheck
       # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).

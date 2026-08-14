@@ -8,6 +8,8 @@
 
 **Amends:** [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md) invariant 15 (`ui-kit`) and §15 locks 2 / 10. That chunk's Tailwind ban is **upheld, not amended** — this rev decides Tailwind stays out permanently (§3). ARCHITECTURE §16.4 **is** rewritten by this chunk (§14 row 3). Bidirectional pointer: one sentence in the chrome spec when this lands.
 
+**Sticky header (approved deviation):** Batch 0b / §16.9 originally specified `thead th` at `top: 4rem` to clear `.ops-rail`. With tables inside `.table-scroll` / `DataTable`, the scroll wrapper is the containing block — sticky headers use **`top: 0` within the scroll container** (implemented in batch 0b; `DataTable` owns this in ui-kit).
+
 **Rev 2 changes from rev 1:** Tailwind and shadcn/ui are **out** (§3, reviewer's call after rev 1). Consequences: the shadcn variable-alias layer is deleted (§4 — the existing token layer needs no bridge); the `.tsx` colour-scanning gate extension is deleted (colour stays in `.css`, where the gate already reads it); the Tailwind build wiring and its `@source` hazard are deleted. A new **batch 0** folds in the control-repair work that makes the current UI cohere (§9), promoted ahead of everything else because it is demo-relevant and carries no test risk.
 
 **Rev 3 changes from rev 2:** four adoption mechanisms folded in, drawn from how mature systems (Polaris, Atlassian, Primer) actually hold a design system together — enforcement, not documentation. New §7.3 closes the component API (`className` is not accepted; variants are closed unions). New `check:ui-kit-adoption` ratchet (§9 batch 1, §13) makes adoption a CI-visible number that can only go down. New dev-only `/dev/ui` gallery (§9 batch 1) as the cheap stand-in for Storybook, which stays deferred (§15 row 10).
@@ -228,7 +230,7 @@ Tier is decided by one question: **does adopting it change the DOM the tests que
 | `Checkbox` | `<input type="checkbox">` | 10 | Styled native input. Not Radix. |
 | `Textarea` | `<textarea>` | 4 | |
 | `Card` (+ `Header`/`Title`/`Content`/`Footer`) | `.panel` | 16 | **The fix for defects 7, 8** — one definition of where the title sits. |
-| `DataTable` (+ `Head`/`Body`/`Row`/`Cell`/`HeaderCell`) | `<table>` … | 17 | **The fix for defect 9** — owns the scroll container, sticky header, and `top: 4rem` offset so no screen has to remember it. |
+| `DataTable` (+ `Head`/`Body`/`Row`/`Cell`/`HeaderCell`) | `<table>` … | 17 | **The fix for defect 9** — owns the bounded scroll container and sticky header at **`top: 0` inside the wrapper** (not page-level `top: 4rem`; see sticky deviation in plan). |
 | `Badge` | `.badge`, `.chip` | ~7 | Must keep emitting `status-*`; `src/status/` stays authoritative for severity. |
 | `Alert` | `.error` | 32 | Keeps `role="alert"`. Closes the module leak (§7.3). |
 | `Stack` | `.stack` | 18 | Or keep `.stack` as a CSS class — reviewer's call (§17.7). Either way it stops being a no-op. |
@@ -319,7 +321,7 @@ Add the rule to the `rules` map, to `configs.recommended`, and give it a test fi
 | # | Batch | Contents | Risk |
 |---|---|---|---|
 | **0a** | **Control repair (CSS only)** | Defects 1–7: font inheritance + explicit `block-size` on `input`/`select`/`textarea`/`button`; button appearance + primary variant; link affordance; `:focus-visible`; `:disabled`; define `stack`, `board-title`, `staff-roster`, `exceptions-workbench`; `border-radius: var(--radius)` on `.panel`. | **No `.tsx` touched. No test can break.** Gate green — all values are existing `var(--…)`. |
-| **0b** | **Container + table passes (markup)** | Defect 8: pick the rule — title **inside** the Card — and apply to the 8 screens that place it outside, plus `ShiftScreen` which has no container. Defect 9: wrap each `<table>` in a scroll container **inside** the panel; sticky `thead` at `top: 4rem`, z-index < 30. | Roots and table wrappers only. Snapshot-free tests unaffected; verify the 44 test files still pass unmodified. |
+| **0b** | **Container + table passes (markup)** | Defect 8: title **inside** the Card. Defect 9: bounded scroll wrapper; sticky `thead` at **`top: 0` within the wrapper** (not `4rem` — overflow makes the wrapper the scroll container). Print override required. |
 | 1 | Foundation | `packages/ui-kit` + Tier A components (§7.3 API) + §5 gate extension + §8 rule at `warn` + `check:ui-kit-adoption` ratchet (§9.1) + dev-only `/dev/ui` gallery (§9.2) | No screen changes. Gates green on an unchanged UI. |
 | 2 | Shell | `AppShell`, `ShiftStrip`, `QueuedCommandsPanel`, `ExceptionsPanel`, `StaleWatermark`, `FrontOfficeLive` | Highest blast radius, smallest surface — stabilise early. |
 | 3 | Read screens | Board, Tape chart, Reservations directory, Guests directory, Guest profile, board-summary, guest-row | Mostly `DataTable` / `Badge` / `Card`. |
@@ -460,7 +462,7 @@ Storybook remains deferred (§15 row 10). Revisit when the component count or th
 6. `input`, `select`, `textarea`, and `button` all declare `font` and an explicit block size.
 7. A `:focus-visible` rule and a `:disabled` rule exist.
 8. `.panel` declares `border-radius`.
-9. Every `<table>` in `apps/web-pms/src` has a scrolling ancestor; `thead th` is sticky at `top: 4rem` with z-index < 30; `@media print` resets it to `static`.
+9. Every `<table>` in `apps/web-pms/src` has a scrolling ancestor; `thead th` is sticky at **`top: 0` within that ancestor**; `@media print` resets it to `static`.
 10. Every screen root renders its `<h1>` inside the container (defect 8), `ShiftScreen` included.
 
 **Gate (§5)**

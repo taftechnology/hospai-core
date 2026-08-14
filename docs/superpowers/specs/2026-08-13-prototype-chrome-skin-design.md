@@ -14,7 +14,7 @@
 
 The 8-minute investor path already runs on live APIs with a named hotel (P0-1) and a folio that paints as a bill (P0-2). `apps/web-pms` still looks like a lab: a horizontal top-bar of text links, cool greys, institutional blue primary `#1a4a6e`, no icons, no property name, no business-date chip. The prototype (`hospai-pms-prototype`) is the product investors have seen: left sidebar, sage mark, cream selected row, search rail.
 
-This chunk is **chrome + skin on live screens**. Routes, permissions, commands, and seed stay. It is not a pixel-faithful rebuild of prototype layouts (tape popups, billing app, Dashboard Hub, recharts). Hand-written CSS + existing tokens — no Tailwind, no `packages/ui-kit`. The contrast gate outranks the palette.
+This chunk is **chrome + skin on live screens**. Routes, permissions, commands, and seed stay. It is not a pixel-faithful rebuild of prototype layouts (tape popups, billing app, Dashboard Hub, recharts). Hand-written CSS + existing tokens — no Tailwind. **`@hospai/ui-kit` now ships** (UI system convergence, 2026-08-14): Tier A components + global `ui-kit.css`; Tailwind remains out permanently.
 
 ### 1.1 What already exists (verified against the tree — do not re-spec)
 

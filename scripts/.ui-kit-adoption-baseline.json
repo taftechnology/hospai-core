@@ -1,17 +1,17 @@
 {
-  "total": 455,
+  "total": 0,
   "byTag": {
-    "button": 91,
-    "input": 106,
-    "select": 27,
-    "textarea": 4,
-    "table": 17,
-    "thead": 16,
-    "tbody": 17,
-    "tr": 33,
-    "th": 72,
-    "td": 72
+    "button": 0,
+    "input": 0,
+    "select": 0,
+    "textarea": 0,
+    "table": 0,
+    "thead": 0,
+    "tbody": 0,
+    "tr": 0,
+    "th": 0,
+    "td": 0
   },
   "generatedAt": "2026-08-14",
-  "note": "Batch 2 shell adoption. Lower in batches 3–7 with baseline update in same commit."
+  "note": "Batch 7 floor — lint rule is error; structural option/form/dialog sites remain legal without counting as raw controls."
 }

@@ -253,9 +253,9 @@ Track these in [ARCHITECTURE.md](ARCHITECTURE.md) §14 / §16.5 and existing spe
 - Guest CRM depth beyond a directory (merge, consent, LTV warehouse)
 - Channel manager / OTAs, booking engine, group blocks (Phase 2)
 - Self-serve Stripe, marketplace, fiscalization (Phase 3)
-- Extracting `packages/ui-kit` (§16.4). P0-3 is a token + shell restyle, not that extraction.
-- Recording the P0-3 palette adoption in §16.4 (Tailwind still out; visual divergence is no
-  longer “expected”)
+- ~~Extracting `packages/ui-kit` (§16.4). P0-3 is a token + shell restyle, not that extraction.~~ **Done** (2026-08-14).
+- ~~Recording the P0-3 palette adoption in §16.4 (Tailwind still out; visual divergence is no
+  longer “expected”)~~ **Done** (2026-08-14).
 
 ---
 
@@ -268,7 +268,7 @@ Pulling any of these into a “quick polish” slice is how the meeting slips.
 - Pixel-faithful rebuild of prototype screen layouts (tape popups, billing app, recharts)
 - Exact prototype hex that fails `check:web-pms-colors` (re-derive instead)
 - Adding Tailwind v4 to `web-pms`
-- Extracting `packages/ui-kit`
+- ~~Extracting `packages/ui-kit`~~ **Done** (2026-08-14)
 - Splitting `property-do.ts` as its own project
 - Demo theater: fake Opera sync, impersonation, “Simulation Active”, competitor scrape
 

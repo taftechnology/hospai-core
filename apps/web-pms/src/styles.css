@@ -344,67 +344,6 @@ button {
   cursor: pointer;
 }
 
-/* --- control baseline (batch 0a; superseded by ui-kit in batch 7) --- */
-/* :where() keeps the guards zero-specificity so component rules
-   (e.g. .reservation-search input) still win over the baseline. */
-input:where(:not([type='checkbox']):not([type='radio'])),
-select,
-textarea,
-button {
-  font: inherit;
-  color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-input:where(:not([type='checkbox']):not([type='radio'])),
-select,
-button {
-  block-size: 2.25rem;
-  padding: 0 0.75rem;
-}
-
-textarea {
-  block-size: auto;
-  padding: 0.5rem 0.75rem;
-}
-
-input[type='checkbox'],
-input[type='radio'] {
-  inline-size: 1rem;
-  block-size: 1rem;
-  accent-color: var(--primary);
-}
-
-.btn-primary {
-  background: var(--action-primary-surface);
-  color: var(--action-primary-fg);
-  border-color: transparent;
-}
-
-.btn-destructive {
-  background: var(--action-destructive-surface);
-  color: var(--action-destructive-fg);
-  border-color: transparent;
-}
-
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-summary:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 /* :not([class]) is deliberate: content links get an affordance while
    deliberately-styled links (nav, board-summary, tape blocks) keep theirs. */
 .main a:not([class]) {
@@ -434,33 +373,6 @@ summary:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-/* --- bounded table scroll (batch 0b) --- */
-/* top: 0, not 4rem: overflow-x:auto forces overflow-y, so the wrapper is
-   the scroll container and sticky resolves against it. */
-.table-scroll {
-  overflow-x: auto;
-  max-block-size: 70vh;
-  overscroll-behavior: contain;
-}
-
-.table-scroll thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--panel);
-}
-
-@media print {
-  .table-scroll {
-    max-block-size: none;
-    overflow: visible;
-  }
-
-  .table-scroll thead th {
-    position: static;
-  }
 }
 
 .badge {

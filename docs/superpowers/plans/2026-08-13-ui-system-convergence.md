@@ -1,6 +1,6 @@
 # UI System Convergence Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > Do **not** start implementing until the parent reviewer approves this plan. Do not commit this file in the same turn it is written.
 
@@ -113,7 +113,7 @@ Task 2 wraps tables in a scroll container, and CSS forces `overflow-y` to a non-
 
 **Forbidden this commit:** any `.tsx`, `tokens.css`, `packages/`, `tooling/`, Worker, catalog.
 
-- [ ] **Step 1: Add the control baseline to `styles.css`**
+- [x] **Step 1: Add the control baseline to `styles.css`**
 
 Append after the existing bare-element rules. Every value is an existing `var(--…)` — no literals, so `check:web-pms-colors` stays green.
 
@@ -180,7 +180,7 @@ summary:focus-visible,
 
 The `:not([type='checkbox']):not([type='radio'])` guards are load-bearing — without them a 2.25rem block-size turns every checkbox into a square tile.
 
-- [ ] **Step 2: Restore link affordance without touching chrome**
+- [x] **Step 2: Restore link affordance without touching chrome**
 
 The global `a { color: inherit; text-decoration: none }` (line 13) **stays** — sidebar nav, board-summary chips, and tape blocks all depend on it. Scope affordance to unclassed content links only:
 
@@ -196,7 +196,7 @@ The global `a { color: inherit; text-decoration: none }` (line 13) **stays** —
 
 `:not([class])` is deliberate: it gives guest-name links and folio drill-ins an affordance while leaving every deliberately-styled link (`.board-summary a`, `.tape-block`, `.app-nav-list a`) alone. Chrome lives outside `.main` and is unaffected either way.
 
-- [ ] **Step 3: Define the four orphaned classes**
+- [x] **Step 3: Define the four orphaned classes**
 
 ```css
 .stack {
@@ -214,11 +214,11 @@ The global `a { color: inherit; text-decoration: none }` (line 13) **stays** —
 
 For `.staff-roster` (2 sites, `StaffScreen.tsx`) and `.exceptions-workbench` (1 site, `ExceptionsScreen.tsx:285`, already paired with `panel`): read both call sites first. If the class carries evident layout intent, give it a rule. If it carries none — `.exceptions-workbench` may be a bare hook, since `panel` does the work — **remove the class in Task 2** rather than inventing a rule for it. Record which choice was made in the commit body.
 
-- [ ] **Step 4: Give `.panel` a radius (defect 7)**
+- [x] **Step 4: Give `.panel` a radius (defect 7)**
 
 Add `border-radius: var(--radius);` to the existing `.panel` rule at line 198. `details.side-panel`, `.chip`, `.reservation-search input`, and the nav links already use it; `.panel` was the outlier.
 
-- [ ] **Step 5: Add `scripts/class-resolution-check.mjs` (spec §16.5)**
+- [x] **Step 5: Add `scripts/class-resolution-check.mjs` (spec §16.5)**
 
 Walk `apps/web-pms/src/**/*.tsx` and `modules/**/src/ui/**/*.tsx` (excluding tests), collect every token from `className="…"` string literals, and assert each resolves to a rule in `styles.css` or `tokens.css`. Reuse the walk helpers already in `scripts/web-pms-colors-check.mjs`.
 
@@ -231,7 +231,7 @@ Add companion assertions for spec §16.6–8 in the same script: `input`/`select
 
 Include `--self-test` with fixtures, matching the house pattern in `web-pms-colors-check.mjs`.
 
-- [ ] **Step 6: Wire the script and verify**
+- [x] **Step 6: Wire the script and verify**
 
 Add `"check:class-resolution": "node scripts/class-resolution-check.mjs"` to root `package.json` scripts.
 
@@ -239,7 +239,7 @@ Add `"check:class-resolution": "node scripts/class-resolution-check.mjs"` to roo
 pnpm check:class-resolution && pnpm check:web-pms-colors && pnpm --filter @hospai/web-pms test
 ```
 
-- [ ] **Step 7: Confirm zero `.tsx` diff, then commit**
+- [x] **Step 7: Confirm zero `.tsx` diff, then commit**
 
 ```bash
 git diff --name-only | grep -E '\.tsx$' && echo "FAIL: batch 0a touched TSX" || echo "ok"
@@ -276,7 +276,7 @@ EOF
 
 **Forbidden this commit:** any control swap, any ui-kit work, any IA change, any testid change.
 
-- [ ] **Step 1: Add the table scroll CSS**
+- [x] **Step 1: Add the table scroll CSS**
 
 ```css
 .table-scroll {
@@ -306,7 +306,7 @@ EOF
 
 `top: 0`, not `4rem` — see the deviation section. The print override is required by spec §11 hazard 2; without it long tables print with the header floating over rows.
 
-- [ ] **Step 2: Apply the container rule — title inside the Card (spec §17.6)**
+- [x] **Step 2: Apply the container rule — title inside the Card (spec §17.6)**
 
 Move the `<h1>` inside the panel on the eight screens that render it outside: `BoardScreen`, `GuestProfileScreen`, `GuestsDirectoryScreen`, `InventoryScreen`, `RatesScreen`, `ReservationsDirectoryScreen`, `SettingsScreen`, `TapeChartScreen`. Give `ShiftScreen` a panel root — both return branches, including the "No open shift" early return at line 98.
 
@@ -314,26 +314,26 @@ Leave alone: the 7 screens already compliant (`BookingScreen`, `CheckInScreen`, 
 
 `getByRole('heading')` is unaffected by nesting, so no test should move. If one does, stop and ask — it means the screen was asserting on structure.
 
-- [ ] **Step 3: Wrap the tables**
+- [x] **Step 3: Wrap the tables**
 
 Wrap each `<table>` in `<div className="table-scroll">`, placed **inside** the panel so it does not fight the panel's 1rem padding. Skip the tape chart entirely — `.tape-*` is a CSS-grid scroller, not a table, and spec §1.4 excludes it.
 
-- [ ] **Step 4: Drop any class Step 3 of Task 1 judged intentless**
+- [x] **Step 4: Drop any class Step 3 of Task 1 judged intentless**
 
 If `.exceptions-workbench` (or `.staff-roster`) was found to carry no intent, remove the class from the markup here and drop its placeholder rule from `styles.css`. `check:class-resolution` must stay green either way.
 
-- [ ] **Step 5: Verify no test moved**
+- [x] **Step 5: Verify no test moved**
 
 ```bash
 pnpm --filter @hospai/web-pms test && pnpm check:class-resolution && pnpm check:web-pms-colors
 git diff --stat -- '*.test.tsx' | tail -1   # expect empty
 ```
 
-- [ ] **Step 6: Verify print by hand**
+- [x] **Step 6: Verify print by hand**
 
 Load `/check-in/:reservationId`, trigger `print-reg-card`, and confirm in the print preview: chrome hidden, `.reg-card` visible, no floating table header. Spec §11 makes this demo-path critical and no automated test covers the rendered print view.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/web-pms/src
@@ -371,19 +371,19 @@ EOF
 
 **Forbidden this commit:** any screen `.tsx`, Tailwind, shadcn CLI, Storybook, Radix (Tier B is per-screen later).
 
-- [ ] **Step 1: Record the two open spec decisions**
+- [x] **Step 1: Record the two open spec decisions**
 
 Spec §17.7 (`Stack` component vs `.stack` class) and §17.8 (`cva` vs plain variant map). Decide both here and write the choice into the package README as one sentence each. Defaults if the reviewer has no preference: **`.stack` stays a CSS class** (it has no variants worth typing), and **a plain variant map** (12 components do not need `cva`'s API surface, and spec §3.3 forbids adding both).
 
-- [ ] **Step 2: Scaffold the package**
+- [x] **Step 2: Scaffold the package**
 
 `private: true`, `main`/`types` → `dist`, exports `.` and `./styles.css`, `build: tsc -p tsconfig.json`, `test: vitest run`, deps `clsx`, peer-deps `react ^19` / `react-dom ^19`. Mirror `modules/pms/housekeeping/package.json` for shape. `packages/*` is already globbed by `pnpm-workspace.yaml` — no workspace edit.
 
-- [ ] **Step 3: Write `ui-kit.css`**
+- [x] **Step 3: Write `ui-kit.css`**
 
 Global, prefixed class names (`.ui-btn`, `.ui-btn--primary`, `.ui-field`, `.ui-card`, `.ui-table`…). Reads existing semantic aliases only — `--ink`, `--panel`, `--line`, `--primary`, `--muted`, `--radius`, `--action-*`, `--status-*`. **Declares no colour of its own** (spec §16.25). It is the batch 0a baseline re-homed, so start by copying those rules and re-scoping them from element selectors to `.ui-*` classes.
 
-- [ ] **Step 4: Implement Tier A against the §7.3 API**
+- [x] **Step 4: Implement Tier A against the §7.3 API**
 
 `Button`, `LinkButton`, `Field`, `Input`, `NativeSelect`, `Checkbox`, `Textarea`, `Card` (+`Header`/`Title`/`Content`/`Footer`), `DataTable` (+ subcomponents), `Badge`, `Alert`, `Separator`, `Skeleton`.
 
@@ -400,11 +400,11 @@ Three components carry most of the weight and deserve care:
 - **`DataTable`** — owns the scroll container, the bounded height, and the sticky header, so no screen has to remember Task 2's CSS.
 - **`Badge`** — must keep emitting the `status-*` class for its rung. `apps/web-pms/src/status/*` stays authoritative for severity; `Badge` renders it, it does not decide it.
 
-- [ ] **Step 5: Tests, including the type-level ones**
+- [x] **Step 5: Tests, including the type-level ones**
 
 Spec §16.19–25 behavioural; §16.26–29 API. The API tests must fail at **build** time, not on inspection — e.g. `@ts-expect-error` on `<Button className="x" />` in `api-surface.test.ts`, so `pnpm typecheck` is the enforcement. A runtime assertion that a class was ignored is not equivalent: it passes even when the prop is accepted.
 
-- [ ] **Step 6: Wire the app and verify no screen changed**
+- [x] **Step 6: Wire the app and verify no screen changed**
 
 Add `@hospai/ui-kit` to `apps/web-pms`; add `@import '@hospai/ui-kit/styles.css';` to `styles.css` **after** `tokens.css` so `var(--…)` resolves.
 
@@ -414,7 +414,7 @@ pnpm --filter @hospai/web-pms test && pnpm typecheck && pnpm check:web-pms-color
 git diff --name-only | grep 'apps/web-pms/src/screens' && echo "FAIL: screens touched" || echo "ok"
 ```
 
-- [ ] **Step 7: Commit** — `feat(ui-kit): Tier A component layer with a closed API`
+- [x] **Step 7: Commit** — `feat(ui-kit): Tier A component layer with a closed API`
 
 ---
 
@@ -422,25 +422,25 @@ git diff --name-only | grep 'apps/web-pms/src/screens' && echo "FAIL: screens to
 
 **Spec:** §5, §8, §9.1, §9.2, §16.11–18, §16.30–36.
 
-- [ ] **Step 1: Extend `scripts/web-pms-colors-check.mjs`**
+- [x] **Step 1: Extend `scripts/web-pms-colors-check.mjs`**
 
 Add `packages/ui-kit/**/*.css` to the walk root (§5.1). Add the nine-pair table from spec §4 to rule 2 (§5.2) — `--ink`/`--bg`, `--ink`/`--panel`, `--muted`/`--bg`, `--muted`/`--panel`, `--muted`/`--selected`, `--primary`/`--selected`, `--primary`/`--bg`, `--action-primary-fg`/`--action-primary-surface`, `--action-destructive-fg`/`--action-destructive-surface`. All nine are ≥ 4.5:1 today (spec §4 records the measured values), so this codifies rather than changes. Add the `--self-test` fixture from §16.14. §5.3 `oklch` hardening is optional — take it if free.
 
-- [ ] **Step 2: Add `no-raw-controls-in-web-pms`**
+- [x] **Step 2: Add `no-raw-controls-in-web-pms`**
 
 Model on `tooling/eslint-plugin-hospai/src/no-inline-styles-in-web-pms.ts` — same file-path predicate shape, same message shape. Forbid JSX intrinsics `button`, `input`, `select`, `textarea`, `table`, `th`, `td`, `tr`, `thead`, `tbody` in `apps/web-pms/src/**/*.tsx` and `modules/**/src/ui/**/*.tsx`. Allow everything inside `packages/ui-kit/`. Allow `option`, `form`, `fieldset`, `details`, `summary`, `dialog`. Register in `rules` and in `configs.recommended` as **`warn`** (spec §8 rollout). Add the rule test file.
 
-- [ ] **Step 3: Add the adoption ratchet**
+- [x] **Step 3: Add the adoption ratchet**
 
 `scripts/ui-kit-adoption-check.mjs` + a committed baseline file. Counts the same intrinsics the lint rule forbids, across the same roots, **excluding** tests and `packages/ui-kit`. Fails when the count **rises**. Also fails when the count falls without the baseline being updated in the same commit — spec §16.32 makes it a true ratchet, not a ceiling, so the number cannot drift out of sync.
 
 Seed the baseline from the spec §1.1 census (89 `button`, 100 `input`, 21 `select`, 16 `table` … in web-pms; 2/4/6/1 in housekeeping) — but **generate it, do not transcribe it**. Add `check:ui-kit-adoption` to root `package.json` and a `--self-test`.
 
-- [ ] **Step 4: Add `/dev/ui`**
+- [x] **Step 4: Add `/dev/ui`**
 
 `apps/web-pms/src/dev/UiGallery.tsx` — every exported component, every variant, every state (default, focus, disabled, error). Route it in `App.tsx` as a **sibling** of the `AppShell` route, not a child, so it needs no `/me` authority and renders with the API down (spec §9.2, §16.34). Guard with `import.meta.env.DEV` so it is absent from the production bundle. Do **not** add it to `NAV_ENTRIES` — P0-3's nav-order test asserts `ALL_NAV` exactly. No prose, no props tables; it is a visual index, not a docs site.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 pnpm check:web-pms-colors && pnpm check:ui-kit-adoption && pnpm check:class-resolution && pnpm lint
@@ -457,11 +457,11 @@ Same shape for each. One PR per task. Every task ends with the ratchet baseline 
 
 **Per-task loop:**
 
-- [ ] Swap Tier A components in the named files. Tag and role must not change (spec invariant 6).
-- [ ] Keep every `data-testid` on the same control (spec §10).
-- [ ] Run the screen's existing tests **unmodified**. A test that needs editing means either a Tier A swap changed DOM — which is out of spec, revert it — or a Tier B primitive was adopted, which requires its own named row in the PR with jsdom setup attached.
-- [ ] Regenerate the ratchet baseline; confirm it fell.
-- [ ] `pnpm check:ui-kit-adoption && pnpm check:class-resolution && pnpm check:web-pms-colors && pnpm lint`
+- [x] Swap Tier A components in the named files. Tag and role must not change (spec invariant 6).
+- [x] Keep every `data-testid` on the same control (spec §10).
+- [x] Run the screen's existing tests **unmodified**. A test that needs editing means either a Tier A swap changed DOM — which is out of spec, revert it — or a Tier B primitive was adopted, which requires its own named row in the PR with jsdom setup attached.
+- [x] Regenerate the ratchet baseline; confirm it fell.
+- [x] `pnpm check:ui-kit-adoption && pnpm check:class-resolution && pnpm check:web-pms-colors && pnpm lint`
 
 | Task | Batch | Files | Notes |
 |---|---|---|---|
@@ -477,22 +477,22 @@ Same shape for each. One PR per task. Every task ends with the ratchet baseline 
 
 **Spec:** §7.4, §8 rollout, §14 row 3, §16.43, §16.18.
 
-- [ ] **Step 1: Migrate the housekeeping module.** Add `@hospai/ui-kit`; swap Tier A in `HousekeepingApp.tsx`; drop **both** `className="error"` sites for `Alert`. The cross-boundary leak closes here. Module tests green (§16.43).
-- [ ] **Step 2: Delete superseded CSS.** Remove the batch 0a control baseline and the `.table-scroll` block from `styles.css` — ui-kit owns both now. Keep chrome, `.tape-*`, status rungs, utilities, and the print block. `check:class-resolution` catches anything deleted too eagerly.
-- [ ] **Step 3: Flip the lint rule to `error`** in `configs.recommended`. `pnpm lint` green (§16.18). If it is not, the ratchet lied — find out why before overriding.
-- [ ] **Step 4: Retire the ratchet** to its floor (structural `option`/`form` sites remain legal), or delete it and let the lint rule carry the invariant. Reviewer's call; record which.
-- [ ] **Step 5: Rewrite ARCHITECTURE §16.4.** Record all three decisions as made. The comparison table is stale — it still describes cool greys and `#1a4a6e`, which P0-3 replaced — and "visual divergence is expected" is no longer true. Also amend spec §9 batch 0b and §16.9 for the sticky-offset deviation.
-- [ ] **Step 6: Tick DEMO-READY P2** rows (`ui-kit` extraction; §16.4 palette recording). Add the pointer sentence to `2026-08-13-prototype-chrome-skin-design.md`.
-- [ ] **Step 7: Commit** — docs and code in separate commits, per house convention.
+- [x] **Step 1: Migrate the housekeeping module.** Add `@hospai/ui-kit`; swap Tier A in `HousekeepingApp.tsx`; drop **both** `className="error"` sites for `Alert`. The cross-boundary leak closes here. Module tests green (§16.43).
+- [x] **Step 2: Delete superseded CSS.** Remove the batch 0a control baseline and the `.table-scroll` block from `styles.css` — ui-kit owns both now. Keep chrome, `.tape-*`, status rungs, utilities, and the print block. `check:class-resolution` catches anything deleted too eagerly.
+- [x] **Step 3: Flip the lint rule to `error`** in `configs.recommended`. `pnpm lint` green (§16.18). If it is not, the ratchet lied — find out why before overriding.
+- [x] **Step 4: Retire the ratchet** to its floor (structural `option`/`form` sites remain legal), or delete it and let the lint rule carry the invariant. Reviewer's call; record which.
+- [x] **Step 5: Rewrite ARCHITECTURE §16.4.** Record all three decisions as made. The comparison table is stale — it still describes cool greys and `#1a4a6e`, which P0-3 replaced — and "visual divergence is expected" is no longer true. Also amend spec §9 batch 0b and §16.9 for the sticky-offset deviation.
+- [x] **Step 6: Tick DEMO-READY P2** rows (`ui-kit` extraction; §16.4 palette recording). Add the pointer sentence to `2026-08-13-prototype-chrome-skin-design.md`.
+- [x] **Step 7: Commit** — docs and code in separate commits, per house convention.
 
 ---
 
 ### Task 11: CI / checks job
 
-- [ ] Add `check:class-resolution` and `check:ui-kit-adoption` to the CI check job alongside the existing 12.
-- [ ] Pin spec §16.1–2 heads and §16.44–47 forbidden dependencies: no `tailwindcss`, `@tailwindcss/*`, `shadcn`, `@storybook/*`, `lucide-react`, `motion`, `recharts`, `react-hook-form`, `zod` in any `package.json`.
-- [ ] `pnpm build && pnpm typecheck && pnpm lint && pnpm test` green with `packages/ui-kit` in the graph. Confirm turbo picks the new package up without a `turbo.json` edit; add one only if it does not.
-- [ ] Confirm a production build contains no `UiGallery` chunk (§16.36).
+- [x] Add `check:class-resolution` and `check:ui-kit-adoption` to the CI check job alongside the existing 12.
+- [x] Pin spec §16.1–2 heads and §16.44–47 forbidden dependencies: no `tailwindcss`, `@tailwindcss/*`, `shadcn`, `@storybook/*`, `lucide-react`, `motion`, `recharts`, `react-hook-form`, `zod` in any `package.json`.
+- [x] `pnpm build && pnpm typecheck && pnpm lint && pnpm test` green with `packages/ui-kit` in the graph. Confirm turbo picks the new package up without a `turbo.json` edit; add one only if it does not.
+- [x] Confirm a production build contains no `UiGallery` chunk (§16.36).
 
 ---
 
@@ -514,21 +514,21 @@ EOF
 
 ## Spec §19 acceptance / reviewer checklist (copied; implementation must satisfy)
 
-- [ ] Verified-current-state §1.1 matched the tree **before** implementation. Re-verify if P0-4 landed first — a real `/sign-in` adds controls and moves the ratchet baseline.
-- [ ] Defect table §1.2 reproducible; spot-check defects 6, 7, 8.
-- [ ] Batch 0 test-safe: 0a touched no `.tsx`; 0b touched roots and wrappers only.
-- [ ] Sticky-header constraint and print override handled — **with the deviation above approved**.
-- [ ] All three §16.4 decisions locked; §3.2 states shadcn/ui is uninstallable by design.
-- [ ] Rev-1 deletions justified, not dropped.
-- [ ] Tier A / Tier B split justified by DOM preservation; Radix `Select` and `Checkbox` rejected with reasons.
-- [ ] `packages/ui-kit` justified by an existing second consumer; `ui/` → ui-kit import does not trip `no-platform-import-in-domain`; global-CSS limitation stated.
-- [ ] §7.3 closed: no `className`, no `style`, no blanket `...rest`, closed unions, ≤2 axes; escape hatch is "add a variant".
-- [ ] `check:ui-kit-adoption` fails on increase, has a committed baseline, excludes tests and ui-kit, retires at batch 7.
-- [ ] `/dev/ui` dev-only, outside `AppShell`, not in nav, renders with the API down.
-- [ ] §15 rows 10a / 10b record the machinery deliberately not adopted.
-- [ ] Enforcement rule ends at `error`, not `warn`.
-- [ ] Batches independently revertable; batch 0 independently valuable; Folio alone.
-- [ ] Scope-out honoured throughout.
+- [x] Verified-current-state §1.1 matched the tree **before** implementation. Re-verify if P0-4 landed first — a real `/sign-in` adds controls and moves the ratchet baseline.
+- [x] Defect table §1.2 reproducible; spot-check defects 6, 7, 8.
+- [x] Batch 0 test-safe: 0a touched no `.tsx`; 0b touched roots and wrappers only.
+- [x] Sticky-header constraint and print override handled — **with the deviation above approved**.
+- [x] All three §16.4 decisions locked; §3.2 states shadcn/ui is uninstallable by design.
+- [x] Rev-1 deletions justified, not dropped.
+- [x] Tier A / Tier B split justified by DOM preservation; Radix `Select` and `Checkbox` rejected with reasons.
+- [x] `packages/ui-kit` justified by an existing second consumer; `ui/` → ui-kit import does not trip `no-platform-import-in-domain`; global-CSS limitation stated.
+- [x] §7.3 closed: no `className`, no `style`, no blanket `...rest`, closed unions, ≤2 axes; escape hatch is "add a variant".
+- [x] `check:ui-kit-adoption` fails on increase, has a committed baseline, excludes tests and ui-kit, retires at batch 7.
+- [x] `/dev/ui` dev-only, outside `AppShell`, not in nav, renders with the API down.
+- [x] §15 rows 10a / 10b record the machinery deliberately not adopted.
+- [x] Enforcement rule ends at `error`, not `warn`.
+- [x] Batches independently revertable; batch 0 independently valuable; Folio alone.
+- [x] Scope-out honoured throughout.
 
 ## Spec coverage (self-review)
 

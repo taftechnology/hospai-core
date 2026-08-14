@@ -20,6 +20,7 @@
     "check:forbidden-bodies": "pnpm --filter @hospai/contracts build && node scripts/forbidden-body-check.mjs",
     "check:do-transport-guards": "pnpm --filter @hospai/contracts build && node scripts/do-transport-guards-check.mjs",
     "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs",
+    "check:class-resolution": "node scripts/class-resolution-check.mjs",
     "check:web-pms-me-gating": "node scripts/web-pms-me-gating-check.mjs",
     "check:pms-core-test-dates": "node scripts/pms-core-test-dates-check.mjs",
     "check:module-manifests": "pnpm --filter @hospai/kernel build && node scripts/module-manifests-check.mjs",

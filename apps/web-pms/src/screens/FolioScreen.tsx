@@ -274,7 +274,7 @@ export function FolioScreen() {
     },
     onSuccess: (result) => {
       if (result.classified.class === 'provisional') {
-        setMessage('Charge queued (provisional).');
+        setMessage('Request queued — will apply when the property is reachable.');
       } else {
         setMessage('Charge posted.');
       }
@@ -756,7 +756,7 @@ export function FolioScreen() {
       </p>
       <h1>Folio</h1>
       <p>
-        {guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : reservationId}
+        {guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : 'Guest'}
         {reservationQ.data
           ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationStatusLabel(reservationQ.data.status)}`
           : null}

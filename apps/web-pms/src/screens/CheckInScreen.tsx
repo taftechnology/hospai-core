@@ -110,7 +110,7 @@ export function CheckInScreen() {
     },
     onSuccess: (result) => {
       if (result.classified.class === 'provisional') {
-        setMessage('Check-in queued (provisional). See session log below.');
+        setMessage('Request queued — will apply when the property is reachable.');
         return;
       }
       setMessage('Checked in');

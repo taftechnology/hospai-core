@@ -13,6 +13,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { ExceptionsPanel } from '../screens/ExceptionsPanel.js';
 import { GuestNameLink } from '../screens/guest-row.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import {
   BedIcon,
   CalendarIcon,
@@ -88,8 +89,7 @@ function roleLabel(role: PropertyMe['role']): string {
 
 function hitPrimaryLabel(hit: SearchHit): string {
   if (hit.displayName) return hit.displayName;
-  if (hit.guestRef) return hit.guestRef;
-  return '';
+  return 'Folio';
 }
 
 function hitMeta(hit: SearchHit): string {
@@ -97,7 +97,7 @@ function hitMeta(hit: SearchHit): string {
   if (hit.arrivalDate && hit.departureDate) {
     parts.push(`${hit.arrivalDate} → ${hit.departureDate}`);
   }
-  if (hit.status) parts.push(hit.status);
+  if (hit.status) parts.push(reservationStatusLabel(hit.status));
   return parts.join(' · ');
 }
 

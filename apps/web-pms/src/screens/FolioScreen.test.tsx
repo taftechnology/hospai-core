@@ -415,6 +415,42 @@ describe('FolioScreen wiring', () => {
     expect(getFolio.mock.calls.length).toBe(folioCallsAfterMount);
   });
 
+  it('provisional charge uses operator queued copy', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    addFolioLine.mockResolvedValue({
+      classified: {
+        class: 'provisional',
+        status: 202,
+        body: {
+          provisional: true,
+          commandId: 'post_folio_charge',
+          idempotencyKey: 'k',
+          issuedAt: '2026-08-14T12:00:00.000Z',
+        },
+        retryAfterMs: null,
+      },
+      body: {},
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('add-charge')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('charge-amount'), { target: { value: '10' } });
+    screen.getByTestId('add-charge').click();
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-message').textContent).toMatch(
+        /Request queued — will apply when the property is reachable\./,
+      ),
+    );
+    expect(screen.getByTestId('folio-message').textContent).not.toMatch(/provisional/i);
+  });
+
   it('provisional checkout does not claim checked out', async () => {
     getFolio.mockResolvedValue({
       ok: true,
@@ -995,6 +1031,7 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('folio-balance')).toBeTruthy();
     expect(screen.getByTestId('folio-lines').textContent).toMatch(/Misc/);
     expect(screen.getByTestId('folio-lines').textContent).toMatch(/50\.00/);
+    expect(screen.queryByText(/paymentId/i)).toBeNull();
     expect(screen.getByTestId('add-charge')).toBeTruthy();
     expect(screen.getByTestId('authorize-card')).toBeTruthy();
     expect(screen.getByTestId('record-cash')).toBeTruthy();

@@ -137,7 +137,20 @@ describe('BookingScreen', () => {
     );
     createGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createReservation.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
-    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [
+        {
+          roomTypeId: 'rt_king',
+          code: 'KNG',
+          name: 'King Deluxe',
+          roomCount: 4,
+          maxOccupancy: 2,
+          maxAdults: 2,
+          status: 'active',
+        },
+      ],
+    });
     searchGuests.mockResolvedValue({
       classified: { class: 'live' },
       body: { items: [], nextCursor: null },
@@ -196,8 +209,8 @@ describe('BookingScreen', () => {
     renderBook();
     await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-08-11'));
     fireEvent.change(screen.getByTestId('departure-date'), { target: { value: '2026-08-13' } });
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toBe('$300.00'));
     expect(screen.queryByText(/Type-only stay/i)).toBeNull();
     expect(screen.queryByText(/ariVersion/i)).toBeNull();
@@ -210,8 +223,8 @@ describe('BookingScreen', () => {
       days: [{ stayDate: '2026-08-10', amountMinor: 15000 }],
     });
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     await waitFor(() => expect(screen.getByTestId('quote-version')).toBeTruthy());
     expect(screen.queryByTestId('stay-quote')).toBeNull();
   });
@@ -230,8 +243,8 @@ describe('BookingScreen', () => {
 
   it('happy path: createGuest then createReservation with quoteAriVersion; navigate', async () => {
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createGuest).toHaveBeenCalled());
@@ -267,8 +280,8 @@ describe('BookingScreen', () => {
       states: { g_ada: { kind: 'resolved', displayName: 'Ada Lovelace' } },
     });
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-find'), { target: { value: 'Ada' } });
     await waitFor(() => expect(searchGuests).toHaveBeenCalled());
     expect(searchGuests.mock.calls.some((c) => (c[1] as { q: string }).q === 'Ada')).toBe(true);
@@ -285,8 +298,8 @@ describe('BookingScreen', () => {
 
   it('skip search + type a new name still create-defaults', async () => {
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     expect(screen.getByTestId('guest-find')).toBeTruthy();
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
@@ -306,8 +319,8 @@ describe('BookingScreen', () => {
       expect(screen.getByTestId('context-guest').textContent).toMatch(/Maria/),
     );
     expect(screen.getByTestId('context-guest').textContent).not.toMatch(/g_ctx/);
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
     expect(createGuest).not.toHaveBeenCalled();
@@ -342,13 +355,13 @@ describe('BookingScreen', () => {
     );
 
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(screen.getByTestId('book-message').textContent).toMatch(/2026-08-11/));
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(opIds.length).toBe(2));
     expect(opIds[0]).toBe(opIds[1]);
@@ -356,6 +369,29 @@ describe('BookingScreen', () => {
   });
 
   it('different type after no_availability uses different opId', async () => {
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [
+        {
+          roomTypeId: 'rt_a',
+          code: 'A',
+          name: 'Type A',
+          roomCount: 1,
+          maxOccupancy: 2,
+          maxAdults: 2,
+          status: 'active',
+        },
+        {
+          roomTypeId: 'rt_b',
+          code: 'B',
+          name: 'Type B',
+          roomCount: 1,
+          maxOccupancy: 2,
+          maxAdults: 2,
+          status: 'active',
+        },
+      ],
+    });
     getAvailability.mockImplementation(
       async (_p: string, range: { fromDate: string; toDate: string }) =>
         availOk(3, range.fromDate, range.toDate, [
@@ -378,13 +414,13 @@ describe('BookingScreen', () => {
     });
 
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_a')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_a/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Type A/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /Type A/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(screen.getByTestId('book-message')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText('rt_b')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_b/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Type B/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /Type B/i }));
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(opIds.length).toBe(2));
     expect(opIds[0]).not.toBe(opIds[1]);
@@ -392,8 +428,8 @@ describe('BookingScreen', () => {
 
   it('idempotency_key_reused does not clear selection or refetch availability', async () => {
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     const callsBefore = getAvailability.mock.calls.length;
     createReservation.mockRejectedValue(
@@ -406,9 +442,12 @@ describe('BookingScreen', () => {
     );
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
-      expect(screen.getByTestId('book-message').textContent).toMatch(/idempotency/i),
+      expect(screen.getByTestId('book-message').textContent).toMatch(
+        /This booking was already submitted/i,
+      ),
     );
-    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+    expect(screen.getByTestId('book-message').textContent).not.toMatch(/idempotency/i);
+    expect((screen.getByRole('radio', { name: /King Deluxe/i }) as HTMLInputElement).checked).toBe(
       true,
     );
     expect(getAvailability.mock.calls.length).toBe(callsBefore);
@@ -427,14 +466,14 @@ describe('BookingScreen', () => {
       .mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
 
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createGuest).toHaveBeenCalledTimes(1));
     const firstGuestId = (createGuest.mock.calls[0]![1] as { guestId: string }).guestId;
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalledTimes(2));
     expect(createGuest).toHaveBeenCalledTimes(1);
@@ -464,8 +503,8 @@ describe('BookingScreen', () => {
       }),
     );
     const { invalidateSpy } = renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
@@ -483,8 +522,8 @@ describe('BookingScreen', () => {
 
   it('Confirm disabled when quote and type present but guest unresolved', async () => {
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     expect(screen.getByTestId('quote-version')).toBeTruthy();
     expect(inputValue('guest-name')).toBe('');
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
@@ -506,8 +545,8 @@ describe('BookingScreen', () => {
       }),
     );
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     const callsBefore = getAvailability.mock.calls.length;
     fireEvent.click(screen.getByTestId('confirm-book'));
@@ -517,7 +556,7 @@ describe('BookingScreen', () => {
       expect(msg).toMatch(/2026-08-11/);
       expect(msg).toMatch(/required 2/);
     });
-    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+    expect((screen.getByRole('radio', { name: /King Deluxe/i }) as HTMLInputElement).checked).toBe(
       true,
     );
     expect(getAvailability.mock.calls.length).toBe(callsBefore);
@@ -533,14 +572,14 @@ describe('BookingScreen', () => {
       }),
     );
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(/Unbookable on 2026-08-11/),
     );
-    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+    expect((screen.getByRole('radio', { name: /King Deluxe/i }) as HTMLInputElement).checked).toBe(
       true,
     );
   });
@@ -555,15 +594,15 @@ describe('BookingScreen', () => {
       }),
     );
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     const callsBefore = getAvailability.mock.calls.length;
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
-      expect(screen.getByTestId('book-message').textContent).toMatch(/Room type no longer available/i),
+      expect(screen.getByTestId('book-message').textContent).toMatch(/Room type unavailable/i),
     );
-    expect((screen.getByRole('radio', { name: /rt_king/i }) as HTMLInputElement).checked).toBe(
+    expect((screen.getByRole('radio', { name: /King Deluxe/i }) as HTMLInputElement).checked).toBe(
       false,
     );
     await waitFor(() => expect(getAvailability.mock.calls.length).toBeGreaterThan(callsBefore));
@@ -602,7 +641,7 @@ describe('BookingScreen', () => {
       },
     );
     renderBook('/book', { allowQueryRetry: true });
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     expect(calls).toBe(3);
     expect(screen.getByTestId('quote-version').textContent).toMatch(/7/);
   });
@@ -632,8 +671,8 @@ describe('BookingScreen', () => {
 
     async function fillStayAndClick(testId: string) {
       renderBook();
-      await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-      fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+      await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+      fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
       fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
       fireEvent.click(screen.getByTestId(testId));
     }
@@ -657,8 +696,8 @@ describe('BookingScreen', () => {
 
   it('11: adults/children go on create; occupancy_exceeded copy', async () => {
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.change(screen.getByTestId('adults'), { target: { value: '2' } });
     fireEvent.change(screen.getByTestId('children'), { target: { value: '1' } });
@@ -685,8 +724,8 @@ describe('BookingScreen', () => {
       }),
     );
     renderBook();
-    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
-    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => {
@@ -734,8 +773,8 @@ describe('BookingScreen', () => {
         availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_x', free: 1 }]),
     );
     renderBook();
-    expect(await screen.findByText('rt_x')).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: /rt_x/i }));
+    expect(await screen.findByText('Room type unavailable')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /Room type unavailable/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(false);
   });

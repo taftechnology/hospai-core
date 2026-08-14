@@ -237,6 +237,20 @@ describe('TapeChartScreen', () => {
     expect(screen.getByTestId('tape-unassigned').textContent).toMatch(/Unassigned/i);
   });
 
+  it('typeLabel miss shows Room type unavailable', async () => {
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
+    getFrontOfficeTape.mockImplementation((_pid: string, q: { fromDate: string; toDate: string }) =>
+      Promise.resolve({
+        ...emptyTape(q.fromDate, q.toDate),
+        rooms: [{ ...room, roomTypeId: 'rt_missing' }],
+        blocks: [],
+      }),
+    );
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    expect(await screen.findByText('Room type unavailable')).toBeTruthy();
+    expect(screen.queryByText('rt_missing')).toBeNull();
+  });
+
   it('empty rooms copy is inventory, not an empty day', async () => {
     getFrontOfficeTape.mockResolvedValue(emptyTape('2026-08-13', '2026-08-19'));
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });

@@ -82,7 +82,7 @@ type RoomTypeLabel = { roomTypeId: string; name?: string; code?: string };
 
 function typeLabel(id: string, types: RoomTypeLabel[]): string {
   const hit = types.find((t) => t.roomTypeId === id);
-  return hit?.name || hit?.code || id;
+  return hit?.name || hit?.code || 'Room type unavailable';
 }
 
 function StayBlock({

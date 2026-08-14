@@ -16,6 +16,21 @@ import { useMemo, useState } from 'react';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
 
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'clean':
+      return 'Clean';
+    case 'dirty':
+      return 'Dirty';
+    case 'inspected':
+      return 'Inspected';
+    case 'out_of_order':
+      return 'Out of order';
+    default:
+      return status;
+  }
+}
+
 export type HousekeepingOooRange = {
   oooId: string;
   startDate: string;
@@ -271,10 +286,10 @@ export function HousekeepingApp({
             onChange={(e) => setStatusFilter(e.target.value)}
           >
             <option value="">All</option>
-            <option value="clean">clean</option>
-            <option value="dirty">dirty</option>
-            <option value="inspected">inspected</option>
-            <option value="out_of_order">out_of_order</option>
+            <option value="clean">Clean</option>
+            <option value="dirty">Dirty</option>
+            <option value="inspected">Inspected</option>
+            <option value="out_of_order">Out of order</option>
           </NativeSelect>
         }
       />
@@ -423,7 +438,7 @@ export function HousekeepingApp({
                 <DataTableCell>{room.code}</DataTableCell>
                 <DataTableCell>
                   {room.status === 'out_of_order' ? (
-                    <span>out_of_order</span>
+                    <span>Out of order</span>
                   ) : (
                     <NativeSelect
                       aria-label={`Status for ${room.code}`}
@@ -437,7 +452,7 @@ export function HousekeepingApp({
                     >
                       {STATUSES.map((s) => (
                         <option key={s} value={s}>
-                          {s}
+                          {statusLabel(s)}
                         </option>
                       ))}
                     </NativeSelect>

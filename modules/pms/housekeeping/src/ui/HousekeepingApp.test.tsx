@@ -145,8 +145,8 @@ describe('HousekeepingApp assign picker', () => {
       canSetOoo: false,
     });
     const status = await screen.findByRole('combobox', { name: 'Status for 101' });
-    const options = Array.from(status.querySelectorAll('option')).map((o) => o.getAttribute('value'));
-    expect(options).toEqual(['clean', 'dirty', 'inspected']);
+    const options = Array.from(status.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).toEqual(['Clean', 'Dirty', 'Inspected']);
     expect(options).not.toContain('out_of_order');
     expect(screen.queryByTestId('hk-ooo-form')).toBeNull();
     expect(screen.getByRole('combobox', { name: 'Assign 101' })).toBeTruthy();

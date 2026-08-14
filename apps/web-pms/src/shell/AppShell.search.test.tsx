@@ -142,6 +142,32 @@ describe('AppShell reservation search', () => {
     expect(screen.queryByTestId('reservation-search')).toBeNull();
   });
 
+  it('search meta uses reservation status label, not wire status', async () => {
+    getMe.mockResolvedValue(liveMe);
+    searchReservations.mockResolvedValue({
+      classified: { class: 'live' },
+      body: {
+        ok: true,
+        items: [
+          {
+            reservationId: 'res_inhouse',
+            guestRef: 'g_maria',
+            displayName: 'Maria',
+            status: 'checked_in',
+            arrivalDate: '2026-08-11',
+            departureDate: '2026-08-12',
+          },
+        ],
+      },
+    });
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Maria' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Maria/ })).toBeTruthy());
+    expect(screen.getByRole('button', { name: /Maria/ }).textContent).toMatch(/In house/);
+    expect(screen.getByRole('button', { name: /Maria/ }).textContent).not.toMatch(/checked_in/);
+  });
+
   it('24: fail_closed copy', async () => {
     getMe.mockResolvedValue(liveMe);
     searchReservations.mockRejectedValue(

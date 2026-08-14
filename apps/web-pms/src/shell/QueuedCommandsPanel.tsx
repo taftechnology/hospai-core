@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { queuedCommands } from '../client.js';
+import { queuedCommandLine } from '../copy/queued-command-line.js';
 
 export function QueuedCommandsPanel() {
   const q = useQuery({
@@ -17,7 +18,7 @@ export function QueuedCommandsPanel() {
         <ul>
           {entries.map((e) => (
             <li key={`${e.commandId}-${e.idempotencyKey}`}>
-              {e.commandId} · {e.idempotencyKey.slice(0, 8)}… · {e.businessDate ?? '—'}
+              {queuedCommandLine(e)}
             </li>
           ))}
         </ul>

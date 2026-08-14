@@ -305,7 +305,7 @@ export function BookingScreen() {
         return;
       }
       if (code === 'idempotency_key_reused') {
-        setMessage('Booking conflict (idempotency). Do not retry blindly — refresh and try again.');
+        setMessage('This booking was already submitted — refresh and check arrivals.');
         return;
       }
       if (code === 'restriction_violated') {
@@ -329,7 +329,7 @@ export function BookingScreen() {
         return;
       }
       if (code === 'not_found') {
-        setMessage('Room type no longer available — choose another.');
+        setMessage('Room type unavailable');
         setRoomTypeId(null);
         void queryClient.invalidateQueries({
           queryKey: ['availability', propertyId],
@@ -337,7 +337,7 @@ export function BookingScreen() {
         return;
       }
       if (c.class === 'fail_closed') {
-        setMessage('Property unreachable — booking refused (no walk-in notepad).');
+        setMessage('Property unreachable — booking unavailable.');
         return;
       }
       if (code === 'guest_not_found' || code === 'guest_already_erased') {
@@ -430,7 +430,7 @@ export function BookingScreen() {
                 />{' '}
                 {(() => {
                   const t = typeDir.get(id);
-                  if (!t) return id;
+                  if (!t) return 'Room type unavailable';
                   return (
                     <>
                       {t.name} (<span translate="no">{t.code}</span>)

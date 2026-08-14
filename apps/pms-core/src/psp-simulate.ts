@@ -1,4 +1,5 @@
 export type PspAuthorizeResult =
+  | { outcome: 'approved'; gatewayReference: string; cardBrand: string; cardLast4: string }
   | { outcome: 'approved'; gatewayReference: string }
   | { outcome: 'declined'; reason: string }
   | { outcome: 'timeout' };
@@ -14,6 +15,8 @@ export type PspSimulateOutcome = {
   void?: 'approved' | 'declined' | 'timeout';
   refund?: 'approved' | 'declined' | 'timeout';
   captureAmountMinor?: number;
+  cardBrand?: string;
+  cardLast4?: string;
   /** After adapter returns, before DO txn 2 — leaves payment `pending` (spec test 20). */
   failAfterAdapter?: boolean;
 };
@@ -31,7 +34,12 @@ export async function simulateAuthorize(
   const mode = outcome?.authorize ?? 'approved';
   if (mode === 'declined') return { outcome: 'declined', reason: 'simulated_decline' };
   if (mode === 'timeout') return { outcome: 'timeout' };
-  return { outcome: 'approved', gatewayReference: `sim_${input.paymentId}` };
+  return {
+    outcome: 'approved',
+    gatewayReference: `sim_${input.paymentId}`,
+    cardBrand: outcome?.cardBrand ?? 'visa',
+    cardLast4: outcome?.cardLast4 ?? '4242',
+  };
 }
 
 export async function simulateCapture(

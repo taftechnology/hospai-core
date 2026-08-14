@@ -178,7 +178,7 @@ Password-gate compare: email trimmed, case-insensitive; password exact. Wrong pa
 
 **Produces:** `resolveActor` accepts `Sec-WebSocket-Protocol: hospai.clerk.<jwt>` when Clerk is configured, by building a synthetic `Request` with `Authorization: Bearer <jwt>` and calling the existing private `authenticateClerkSession`. HTTP Bearer path unchanged.
 
-- [ ] **Step 1: Write the failing `auth.spec.ts` cases (TDD)**
+- [x] **Step 1: Write the failing `auth.spec.ts` cases (TDD)**
 
 Add a new `describe('Clerk WebSocket protocol (mocked)', …)` next to the existing `describe('Clerk path (mocked)', …)` (line 179). Reuse `__setAuthenticateRequestForTest` / `afterEach` reset. Call **`resolveActor` directly** (exported) — do not provision an org; these cases are protocol parsing, not membership.
 
@@ -206,7 +206,7 @@ Cases (spec §12.16–20):
 
 Empty remainder (`hospai.clerk.` with nothing after) still goes through `authenticateClerkSession` (expect 401 from the mock / unauthenticated). Do not invent a special empty-jwt error.
 
-- [ ] **Step 2: Run the new file and confirm the new cases fail**
+- [x] **Step 2: Run the new file and confirm the new cases fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/auth.spec.ts
@@ -214,7 +214,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/auth.spec.ts
 
 Expected: existing tests pass; new protocol cases fail (no `hospai.clerk.` branch yet).
 
-- [ ] **Step 3: Implement the branch in `resolveActor`**
+- [x] **Step 3: Implement the branch in `resolveActor`**
 
 Insert **after** the existing `isDevActorAllowed` block (header + `hospai.dev-actor.`) and **after** the `if (!clerkConfigured(env))` early return, **before** the current `authenticateClerkSession(request, env)` call. Shape:
 
@@ -241,7 +241,7 @@ Insert **after** the existing `isDevActorAllowed` block (header + `hospai.dev-ac
 
 Do **not** export `authenticateClerkSession`. Do **not** copy `x-dev-actor` onto the synthetic request. Cookies on the **original** request remain valid when the Clerk protocol is absent (`clerkRequest === request`). Prefix is load-bearing: never send/parse a raw JWT as the protocol; never reuse `hospai.dev-actor.` for Clerk ids.
 
-- [ ] **Step 4: Re-run `auth.spec.ts` and confirm the existing Bearer test still passes**
+- [x] **Step 4: Re-run `auth.spec.ts` and confirm the existing Bearer test still passes**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/auth.spec.ts
@@ -249,7 +249,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/auth.spec.ts
 
 Expected: all cases green, including `verified Clerk session succeeds when member` (lines 189–254) which still sends `authorization: 'Bearer session_jwt'` as an HTTP header.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/auth.ts apps/pms-core/test/auth.spec.ts
@@ -293,7 +293,7 @@ EOF
 
 **Produces:** `spaAuthMode`, `demoGateEmail`, `demoGatePassword`, `registerClerkTokenGetter`, `getClerkSessionToken`, `createClerkCredentials` (async Bearer), `ClerkTokenBridge`, `ClerkSignedInGate`.
 
-- [ ] **Step 1: Install `@clerk/react` and confirm the classic `useSignIn` shape**
+- [x] **Step 1: Install `@clerk/react` and confirm the classic `useSignIn` shape**
 
 ```bash
 pnpm --filter @hospai/web-pms add @clerk/react
@@ -303,7 +303,7 @@ Do **not** add `@clerk/clerk-react`, `@clerk/ui`, `@clerk/themes`, `@clerk/nextj
 
 Open the installed types (or `node_modules/@clerk/react`) and confirm `useSignIn` returns `{ isLoaded, signIn, setActive }` with `signIn.create`. If the installed major only exposes `signIn.password` / `signIn.finalize` (Future API), **stop**. Record the installed version in the commit body.
 
-- [ ] **Step 2: `spaAuthMode` — tests first, then the table**
+- [x] **Step 2: `spaAuthMode` — tests first, then the table**
 
 `apps/web-pms/src/providers/spa-auth-mode.ts`:
 
@@ -346,7 +346,7 @@ Add to `vite-env.d.ts`:
 
 (`VITE_CLERK_PUBLISHABLE_KEY` is already declared.)
 
-- [ ] **Step 3: Bearer credentials — tests first, then the getter**
+- [x] **Step 3: Bearer credentials — tests first, then the getter**
 
 `clerk-credentials.test.ts` (node env is fine):
 
@@ -358,7 +358,7 @@ Add to `vite-env.d.ts`:
 
 Then replace the stub in `clerk-credentials.ts` (delete the cookies comment). Implement D1's getter + async `getCredentialHeaders`. `dev-actor-credentials.ts` and `client.ts` stay as they are.
 
-- [ ] **Step 4: `ClerkTokenBridge`**
+- [x] **Step 4: `ClerkTokenBridge`**
 
 ```tsx
 import { useAuth } from '@clerk/react';
@@ -375,7 +375,7 @@ export function ClerkTokenBridge() {
 
 `getToken()` is called with **no** arguments (default session JWT, no template).
 
-- [ ] **Step 5: `ClerkSignedInGate` + tests**
+- [x] **Step 5: `ClerkSignedInGate` + tests**
 
 Implement D2. Extend `vitest.config.ts` `environmentMatchGlobs` with `['src/providers/**/*.test.tsx', 'jsdom']`.
 
@@ -390,7 +390,7 @@ Implement D2. Extend `vitest.config.ts` `environmentMatchGlobs` with `['src/prov
 
 Stub `location.assign` the same way `AppShell.me.test.tsx` does (`vi.stubGlobal('location', { ...window.location, assign })`).
 
-- [ ] **Step 6: Wire `main.tsx` and `App.tsx`**
+- [x] **Step 6: Wire `main.tsx` and `App.tsx`**
 
 `main.tsx` — no `publishableKey` prop, no `appearance`, no `afterSignOutUrl`:
 
@@ -425,7 +425,7 @@ createRoot(root).render(<StrictMode>{tree}</StrictMode>);
 <Route element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}>
 ```
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```bash
 pnpm --filter @hospai/web-pms test
@@ -442,7 +442,7 @@ The 44 existing files must not appear. Default vitest env still has `VITE_USE_DE
 
 Grep the new files for `publishableKey=` — must be empty. Grep `apps/web-pms/package.json` for `@clerk/react` present and `@clerk/ui` / `@clerk/clerk-react` absent.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/web-pms/package.json apps/web-pms/vitest.config.ts apps/web-pms/src pnpm-lock.yaml
@@ -476,7 +476,7 @@ EOF
 
 **Consumes:** `spaAuthMode`, `demoGateEmail`, `demoGatePassword` from Task 2. `ClerkSignInForm` may import `useSignIn` from `@clerk/react`.
 
-- [ ] **Step 1: CSS first so `check:class-resolution` stays green when TSX lands**
+- [x] **Step 1: CSS first so `check:class-resolution` stays green when TSX lands**
 
 Append to `apps/web-pms/src/styles.css` (tokens only; no hex literals):
 
@@ -512,7 +512,7 @@ Append to `apps/web-pms/src/styles.css` (tokens only; no hex literals):
 
 Reuse `.app-sidebar-mark`, `.app-sidebar-title`, `.error`, `.muted`, `.btn-primary`, `.app-sidebar-brand`. No `@media print` (spec §5.1). No `tokens.css` edit.
 
-- [ ] **Step 2: Write `SignInScreen.test.tsx` (jsdom via `src/screens/**/*.test.tsx`) before the component**
+- [x] **Step 2: Write `SignInScreen.test.tsx` (jsdom via `src/screens/**/*.test.tsx`) before the component**
 
 Hoist a mutable `mode: SpaAuthMode`. Mock:
 
@@ -546,7 +546,7 @@ Mock `@clerk/react` `useSignIn` with hoisted `create` / `setActive` / `isLoaded`
 
 Do **not** boot a real Clerk app. Do **not** set `VITE_CLERK_PUBLISHABLE_KEY` in vitest config.
 
-- [ ] **Step 3: Implement `SignInScreen`**
+- [x] **Step 3: Implement `SignInScreen`**
 
 Layout, top to bottom, inside `<div className="sign-in" data-testid="sign-in">` → `<div className="sign-in-card">`:
 
@@ -562,7 +562,7 @@ Password-gate success: `sessionStorage.setItem('hospai.demo-unlock', '1')` then 
 
 Replace `App.tsx:78` with `<Route path="sign-in" element={<SignInScreen />} />`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 pnpm --filter @hospai/web-pms test
@@ -573,7 +573,7 @@ pnpm check:web-pms-me-gating
 
 `git diff --name-only -- 'apps/web-pms/src/**/*.test.*'` must list **only** `SignInScreen.test.tsx`. The 44 stay unmodified. `AppShell.me.test.tsx` still asserts `assign('/sign-in')` — that test never renders the sign-in route.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/SignInScreen.tsx apps/web-pms/src/screens/SignInScreen.test.tsx apps/web-pms/src/App.tsx apps/web-pms/src/styles.css
@@ -606,7 +606,7 @@ EOF
 
 **Load-bearing for the 44:** `FrontOfficeLive.test.tsx` calls `renderLive` then **synchronously** `socket.onopen?.()` on a pre-built fake. `createSocket` must remain **synchronous** when `VITE_USE_DEV_ACTOR === '1'`. Only the Clerk branch may `await getClerkSessionToken()`. If you wrap the engineer path in `void (async () => …)`, those tests flake or pass vacuously.
 
-- [ ] **Step 1: Export a pure helper and test it (node env — `.test.ts` is not on the jsdom glob)**
+- [x] **Step 1: Export a pure helper and test it (node env — `.test.ts` is not on the jsdom glob)**
 
 In `FrontOfficeLive.tsx`:
 
@@ -628,7 +628,7 @@ export function frontOfficeAuthProtocol(opts: {
 - `useDevActor: false`, token `'jwt.abc'` → `['hospai.clerk.jwt.abc']`.
 - `useDevActor: false`, token `null` → `undefined` (cookie fallback / 401; do not send `hospai.clerk.null`).
 
-- [ ] **Step 2: Wire `connect` without breaking the sync engineer path**
+- [x] **Step 2: Wire `connect` without breaking the sync engineer path**
 
 Replace the current `protocols` const (lines 111–114) with a split `open(protocols)` used by both branches. Sketch:
 
@@ -667,7 +667,7 @@ Replace the current `protocols` const (lines 111–114) with a split `open(proto
 
 Do not put the JWT in the URL (`?token=` is forbidden). Dev-actor protocol row unchanged. Reconnect must call `getClerkSessionToken()` again (fresh JWT), which this does because `connect` re-enters the async branch.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 pnpm --filter @hospai/web-pms test
@@ -675,7 +675,7 @@ pnpm --filter @hospai/web-pms test
 
 `FrontOfficeLive.test.tsx` unmodified and green. New protocol file green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/FrontOfficeLive.tsx apps/web-pms/src/shell/FrontOfficeLive.protocol.test.ts
@@ -706,7 +706,7 @@ EOF
 
 **Forbidden this commit:** SPA/Worker source, real keys, `wrangler.jsonc` `vars`, ticking P0-5, starting ui-kit batches, committing `.env` or `.dev.vars`.
 
-- [ ] **Step 1: `apps/web-pms/.env.example`**
+- [x] **Step 1: `apps/web-pms/.env.example`**
 
 Keep `VITE_USE_DEV_ACTOR=1` and `VITE_DEV_ACTOR=user_owner` as the engineer default. Keep the commented Clerk key. Add commented demo-gate lines. Exact shape:
 
@@ -724,7 +724,7 @@ VITE_DEV_ACTOR=user_owner
 
 Do not enable the gate by default. Do not put a real password or `pk_` value.
 
-- [ ] **Step 2: `apps/pms-core/.dev.vars.example`**
+- [x] **Step 2: `apps/pms-core/.dev.vars.example`**
 
 Append **commented** Clerk keys so P0-5 does not hunt `env.ts`. Do not uncomment them; do not add them to `wrangler.jsonc` `vars`.
 
@@ -738,7 +738,7 @@ Append **commented** Clerk keys so P0-5 does not hunt `env.ts`. Do not uncomment
 
 Leave `HOSPAI_UNSAFE_LOCAL=1` / `HOSPAI_ALLOW_DEV_ACTOR=1` as they are (engineer + seed curls). A Worker may have both Clerk keys and `ALLOW_DEV_ACTOR`; precedence is unchanged (header/protocol `hospai.dev-actor.` wins; Clerk SPA sends Bearer / `hospai.clerk.` and takes the Clerk path).
 
-- [ ] **Step 3: README — one paragraph + the mapping curl P0-5 must run**
+- [x] **Step 3: README — one paragraph + the mapping curl P0-5 must run**
 
 Keep every existing `x-dev-actor: user_owner` curl. After the current "Production auth uses **Clerk** (`Authorization: Bearer …`)." paragraph (README ~73), add that:
 
@@ -755,11 +755,11 @@ curl -sS -X POST http://127.0.0.1:8787/v1/orgs/org_demo/members \
 
 Order is load-bearing: seed first, then this POST, then sign-in. Signing in before mapping is `me-no-access` (correct, not a SPA bug). Password-gate fallback needs no mapping.
 
-- [ ] **Step 4: Tick DEMO-READY P0-4**
+- [x] **Step 4: Tick DEMO-READY P0-4**
 
 In `DEMO-READY.md` under `### P0-4. Sign-in that is not a lab flag`, tick the three boxes (`- [x]`). Do **not** tick P0-5. Do not rewrite the 8-minute table.
 
-- [ ] **Step 5: Forbidden-dep and colour grep, then commit**
+- [x] **Step 5: Forbidden-dep and colour grep, then commit**
 
 ```bash
 grep -E 'tailwindcss|@clerk/ui|@clerk/themes|@clerk/clerk-react|lucide-react|"motion"|shadcn' apps/web-pms/package.json && echo FAIL || echo ok
@@ -800,7 +800,7 @@ EOF
 
 **Forbidden this commit:** any product code, starting P0-5, starting ui-kit batches 1–7.
 
-- [ ] **Step 1: Heads + ddl no-op**
+- [x] **Step 1: Heads + ddl no-op**
 
 ```bash
 pnpm generate:ddl
@@ -812,7 +812,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 Pins: `COMMAND_CATALOG` length 77, `AUDIT_WRITER_COMMAND_IDS.size === 52`, `V1_HTTP_ROUTE_AUDIT[127].id === 'post_demo_seed'`, `PROPERTY_SCHEMA_HEAD === 25`, `ORG_SCHEMA_HEAD === 7`, `NIGHT_AUDIT_STEPS` length 7 (the night-audit spec file already asserts this).
 
-- [ ] **Step 2: Full `checks` job from `.github/workflows/ci.yml` (copy order)**
+- [x] **Step 2: Full `checks` job from `.github/workflows/ci.yml` (copy order)**
 
 ```bash
 pnpm install
@@ -846,7 +846,7 @@ Also run (in `package.json` but not yet in `ci.yml` — still required because T
 pnpm check:class-resolution
 ```
 
-- [ ] **Step 3: pms-core shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -857,7 +857,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
 
 Do **not** run unsharded `pnpm --filter @hospai/pms-core test`.
 
-- [ ] **Step 4: Tick every `- [ ]` on Tasks 1–6 in this file.** Do not backfill historical plans. Do not mix code fixes.
+- [x] **Step 4: Tick every `- [ ]` on Tasks 1–6 in this file.** Do not backfill historical plans. Do not mix code fixes.
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-sign-in-clerk.md

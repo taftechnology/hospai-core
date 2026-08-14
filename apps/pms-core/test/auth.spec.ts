@@ -304,7 +304,7 @@ describe('Clerk WebSocket protocol (mocked)', () => {
 
     expect(result).toEqual({ userId: 'user_clerk_ws', source: 'clerk' });
     expect(authenticateRequest).toHaveBeenCalledTimes(1);
-    const authHeader = authenticateRequest.mock.calls[0][0].headers.get('authorization');
+    const authHeader = authenticateRequest.mock.calls[0]?.[0]?.headers.get('authorization');
     expect(authHeader).toBe('Bearer session_jwt');
   });
 
@@ -379,7 +379,7 @@ describe('Clerk WebSocket protocol (mocked)', () => {
     );
 
     expect(result).toEqual({ userId: 'user_clerk_ws', source: 'clerk' });
-    const authHeader = authenticateRequest.mock.calls[0][0].headers.get('authorization');
+    const authHeader = authenticateRequest.mock.calls[0]?.[0]?.headers.get('authorization');
     expect(authHeader).toBe('Bearer session_jwt');
   });
 });

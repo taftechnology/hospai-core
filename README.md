@@ -72,6 +72,21 @@ cp apps/web-pms/.env.example apps/web-pms/.env
 
 Production auth uses **Clerk** (`Authorization: Bearer …`). With the flags above, local dev accepts **`X-Dev-Actor: user_…`** instead. Org membership is always enforced in OrgDO — not Clerk Organizations. Match the SPA actor (`user_owner` in `.env.example`) on curls below.
 
+**Engineer path (unchanged):** keep `VITE_USE_DEV_ACTOR=1` in `apps/web-pms/.env`; `/sign-in` auto-redirects to `/board`.
+
+**Demo path (P0-4):** unset `VITE_USE_DEV_ACTOR`, set `VITE_CLERK_PUBLISHABLE_KEY` in the SPA, and set Worker `CLERK_*` in `apps/pms-core/.dev.vars`. The SPA uses a custom `/sign-in` (not Clerk's hosted pages). See `docs/superpowers/specs/2026-08-13-sign-in-clerk-design.md`.
+
+Identity mapping is OrgDO, not Clerk roles. After seed (still `user_owner`) **and** after the Clerk user exists, P0-5 runs:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8787/v1/orgs/org_demo/members \
+  -H 'content-type: application/json' \
+  -H 'x-dev-actor: user_owner' \
+  -d '{"email":"<the Clerk user email>","role":"owner"}'
+```
+
+Order is load-bearing: seed first, then this POST, then sign-in. Signing in before mapping is `me-no-access` (correct, not a SPA bug). Password-gate fallback needs no mapping.
+
 ### 2 — Start servers
 
 ```bash

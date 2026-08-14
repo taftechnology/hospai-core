@@ -10,3 +10,8 @@ HOSPAI_PSP_MODE=simulate
 HOSPAI_ALLOW_DEV_ACTOR=1
 # 32-byte hex (64 chars) — wraps guest PII data keys in OrgDO (required for guests.create / booking)
 HOSPAI_ORG_MASTER_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+# Clerk (demo happy path). Optional CLERK_JWT_KEY is a PEM; SDK fetches JWKS if omitted.
+# CLERK_SECRET_KEY=sk_test_…
+# CLERK_PUBLISHABLE_KEY=pk_test_…
+# CLERK_JWT_KEY=
+# CLERK_AUTHORIZED_PARTIES=http://localhost:5173

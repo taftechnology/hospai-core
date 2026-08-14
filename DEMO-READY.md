@@ -184,10 +184,10 @@ Worker Clerk verification already exists. The SPA still defaults to `VITE_USE_DE
 and `/sign-in` is the literal text “Sign in required”
 (`apps/web-pms/src/App.tsx`).
 
-- [ ] Demo runbook uses Clerk (or a hosted session) on the demo tenant. `X-Dev-Actor` is
+- [x] Demo runbook uses Clerk (or a hosted session) on the demo tenant. `X-Dev-Actor` is
       never visible in the room (no header flag, no `.env` on the projector).
-- [ ] `/sign-in` is a real sign-in surface, not a dead paragraph.
-- [ ] Unauthorized still redirects there; after sign-in, land on `/board` with the seeded
+- [x] `/sign-in` is a real sign-in surface, not a dead paragraph.
+- [x] Unauthorized still redirects there; after sign-in, land on `/board` with the seeded
       day.
 
 If Clerk dashboard setup cannot land in time: a **single demo user** behind a password gate

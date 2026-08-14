@@ -81,14 +81,16 @@ holds keyed by `paymentId`, transfer dest selects, queued command ids, chargebac
 This is **content IA**, not the P0-3 skin. Do not fold Advanced / first-paint into the chrome
 slice.
 
-- [ ] First paint: guest name, dates, room code, **balance**, line list (description + amount),
+- [x] First paint: guest name, dates, room code, **balance**, line list (description + amount),
       post charge, take payment (card + cash).
-- [ ] Holds / captured show as tenders (amount, last-4 or method) — not raw `paymentId`.
-- [ ] Chargeback, FX editor, split-to-window, Open COMPANY, queued-command dump live behind
+- [x] Holds / captured show as tenders (amount, last-4 or method) — not raw `paymentId`.
+- [x] Chargeback, FX editor, split-to-window, Open COMPANY, queued-command dump live behind
       **Advanced** (collapsed by default).
-- [ ] No “simulate”, no “unattributed until close discloses the count” on the happy path.
+- [x] No “simulate”, no “unattributed until close discloses the count” on the happy path.
       Open a shift as part of seed or auto-open for the demo actor.
-- [ ] `data-testid`s on existing controls stay so tests do not rewrite the vertical.
+- [x] `data-testid`s on existing controls stay so tests do not rewrite the vertical.
+
+Closed 2026-08-13 by [folio first-paint](docs/superpowers/specs/2026-08-13-folio-first-paint-design.md).
 
 ### P0-3. Prototype chrome + contrast-safe skin
 

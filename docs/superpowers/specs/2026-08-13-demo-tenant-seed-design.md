@@ -69,7 +69,7 @@ This chunk is staging only. It does not change how a hotel is provisioned, how a
 
 ### 1.3 Scope out (normative — name them so a later pass does not “fix” them here)
 
-- **P0-2 folio first-paint / Advanced.** Do not restyle FolioScreen. Do not auto-open a cashier shift (P0-2 names that leftover). Seed may leave empty folios; walk-in + post-minibar is the 8-minute script (P0-5).
+- **P0-2 folio first-paint / Advanced / shift auto-open.** **Closed 2026-08-13** by [folio first-paint](./2026-08-13-folio-first-paint-design.md) (SPA `ShiftStrip` auto-open; seed still does not open a shift).
 - **P0-3 chrome + skin.** No sidebar, tokens, icons, “Room Plan” title, or property-name rail. Seed data will surface on the current chrome.
 - **P0-4 sign-in / Clerk.** Script authenticates as `X-Dev-Actor: user_owner`. Do not remove `VITE_USE_DEV_ACTOR`. Do not build `/sign-in`.
 - **P0-5 script + dry runs.** No speaker notes, kill list, or timed rehearsal in this chunk.
@@ -319,7 +319,7 @@ This helper is `assertUnsafeLocal` + called only from the dev route. It is not a
 
 ### 5.7 What is deliberately not seeded
 
-- Cashier shift (P0-2).
+- Cashier shift — **closed 2026-08-13** by folio first-paint SPA auto-open (seed still does not `folio.open_shift`).
 - Folio charges / payments / holds.
 - Housekeeping assignments, dirty rooms, OOO ranges.
 - Staff / roster beyond the existing `user_owner` membership from provision.
@@ -468,7 +468,7 @@ No `pending-commands-consumer` / `NIGHT_AUDIT_STEPS` / `client-core` method requ
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **P0-2** folio first-paint / Advanced / shift auto-open | Next slice |
+| 1 | **P0-2** folio first-paint / Advanced / shift auto-open | **Closed 2026-08-13** by [folio first-paint](./2026-08-13-folio-first-paint-design.md) (SPA auto-open, not seed). |
 | 2 | **P0-3** chrome + skin + “Room Plan” + property-name rail | Next slice; seed only supplies `name` |
 | 3 | **P0-4** Clerk / real `/sign-in` / hide `X-Dev-Actor` | Script stays on dev actor |
 | 4 | **P0-5** 8-minute speaker script + dry runs | Documentation / rehearsal |

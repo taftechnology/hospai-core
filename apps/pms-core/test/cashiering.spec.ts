@@ -250,6 +250,22 @@ describe('cashiering matrix', () => {
     }
     const lines = await stub.listFolioLinesForReservation(reservationId);
     expect(lines.some((l) => l.chargeCode === 'PAYMENT' && l.amountMinor === -2500)).toBe(true);
+
+    const listPay = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/payments`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    expect(listPay.status).toBe(200);
+    const listed = (await listPay.json()) as {
+      ok: true;
+      payments: Array<{ tenderType: string; paymentId: string }>;
+    };
+    expect(listed.payments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ paymentId, tenderType: 'CASH' })]),
+    );
   });
 
   it('Test 2: cash succeeds when PSP unavailable (simulate-off)', async () => {

@@ -987,6 +987,7 @@ describe('folio payments DO', () => {
     expect(listPay.status).toBe(200);
     const listed = (await listPay.json()) as { ok: true; payments: unknown[] };
     expect(listed.payments).toHaveLength(1);
+    expect(listed.payments[0]).toMatchObject({ tenderType: 'CARD' });
 
     expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
   });

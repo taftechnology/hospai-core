@@ -14791,6 +14791,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           capturedAmountMinor: number | null;
           createdAt: number;
           updatedAt: number;
+          tenderType: 'CARD' | 'CASH';
           dispute: {
             disputeId: string;
             status: 'open' | 'closed';
@@ -14810,7 +14811,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT payment_id, reservation_id, amount_minor, currency, status, purpose, gateway_reference,
-                captured_amount_minor, created_at, updated_at
+                captured_amount_minor, created_at, updated_at, tender_type
          FROM payment WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -14826,6 +14827,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       captured_amount_minor: number | null;
       created_at: number;
       updated_at: number;
+      tender_type: 'CARD' | 'CASH';
     }>;
 
     return {
@@ -14841,6 +14843,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         capturedAmountMinor: row.captured_amount_minor,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        tenderType: row.tender_type,
         dispute: this.readPaymentDisputeSync(row.payment_id),
       })),
     };

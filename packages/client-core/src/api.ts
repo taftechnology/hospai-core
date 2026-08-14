@@ -98,6 +98,7 @@ export type FolioPaymentRow = {
   capturedAmountMinor: number | null;
   createdAt: number;
   updatedAt: number;
+  tenderType?: 'CARD' | 'CASH';
   fxRate?: string | null;
   fxRateAt?: number | null;
   balanceAtRisk?: boolean;

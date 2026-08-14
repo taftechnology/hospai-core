@@ -71,6 +71,7 @@ if (process.argv.includes('--self-test')) {
   let PROTOTYPE_HOLES_V23_SQL;
   let MULTI_CURRENCY_FOLIO_V24_SQL;
   let EXCEPTION_QUEUE_WORKBENCH_V25_SQL;
+  let CARD_DISPLAY_TOKEN_V26_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -110,6 +111,7 @@ if (process.argv.includes('--self-test')) {
       PROTOTYPE_HOLES_V23_SQL,
       MULTI_CURRENCY_FOLIO_V24_SQL,
       EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
+      CARD_DISPLAY_TOKEN_V26_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -373,6 +375,16 @@ const doPropertyTargets = [
 
 `,
     sql: EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0026_card_display_token.sql'),
+    header: `-- PropertyDO card display token — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: ALTER payment ADD card_last4, card_brand.
+
+`,
+    sql: CARD_DISPLAY_TOKEN_V26_SQL,
   },
 ];
 

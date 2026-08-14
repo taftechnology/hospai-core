@@ -975,6 +975,14 @@ export const EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS = [
 export const EXCEPTION_QUEUE_WORKBENCH_V25_SQL =
   EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS.join(';\n\n') + ';\n';
 
+export const CARD_DISPLAY_TOKEN_V26_STATEMENTS = [
+  `ALTER TABLE payment ADD COLUMN card_last4 TEXT`,
+  `ALTER TABLE payment ADD COLUMN card_brand TEXT`,
+] as const;
+
+export const CARD_DISPLAY_TOKEN_V26_SQL =
+  CARD_DISPLAY_TOKEN_V26_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1100,5 +1108,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 25,
     name: 'exception_queue_workbench',
     statements: EXCEPTION_QUEUE_WORKBENCH_V25_STATEMENTS,
+  },
+  {
+    version: 26,
+    name: 'card_display_token',
+    statements: CARD_DISPLAY_TOKEN_V26_STATEMENTS,
   },
 ] as const;

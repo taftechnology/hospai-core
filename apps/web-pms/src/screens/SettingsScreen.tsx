@@ -1,6 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+  Textarea,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -65,14 +82,14 @@ function DomainBool(props: {
         save.mutate();
       }}
     >
-      <label>
-        {props.label}{' '}
-        <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
-      </label>
-      {props.hint ? <p className="muted">{props.hint}</p> : null}
-      <button type="submit" disabled={save.isPending || !props.reason.trim()}>
+      <Field
+        label={props.label}
+        hint={props.hint}
+        control={<Checkbox checked={on} onChange={(e) => setOn(e.target.checked)} />}
+      />
+      <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
         {save.isPending ? 'Saving…' : `Save ${props.label}`}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -110,22 +127,30 @@ function DomainText(props: {
     },
     onSuccess: props.onSaved,
   });
-  const input = props.json ? (
-    <textarea
+  const inputType = props.inputType ?? 'text';
+  const control = props.json ? (
+    <Textarea
       value={raw}
       readOnly={props.readOnly}
       autoComplete="off"
-      spellCheck={props.spellCheck ?? true}
       onChange={(e) => setRaw(e.target.value)}
     />
-  ) : (
-    <input
-      type={props.inputType ?? 'text'}
+  ) : inputType === 'time' ? (
+    <Input
+      type="time"
       value={raw}
       readOnly={props.readOnly}
       disabled={props.readOnly}
       autoComplete="off"
-      spellCheck={props.spellCheck ?? true}
+      onChange={(e) => setRaw(e.target.value)}
+    />
+  ) : (
+    <Input
+      type={inputType === 'number' ? 'number' : 'text'}
+      value={raw}
+      readOnly={props.readOnly}
+      disabled={props.readOnly}
+      autoComplete="off"
       onChange={(e) => setRaw(e.target.value)}
     />
   );
@@ -138,14 +163,11 @@ function DomainText(props: {
         save.mutate();
       }}
     >
-      <label>
-        {props.label} {input}
-      </label>
-      {props.hint ? <p className="muted">{props.hint}</p> : null}
+      <Field label={props.label} hint={props.hint} control={control} />
       {props.readOnly ? null : (
-        <button type="submit" disabled={save.isPending || !props.reason.trim()}>
+        <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
           {save.isPending ? 'Saving…' : `Save ${props.label}`}
-        </button>
+        </Button>
       )}
     </form>
   );
@@ -181,19 +203,21 @@ function DomainSelect(props: {
         save.mutate();
       }}
     >
-      <label>
-        {props.label}{' '}
-        <select value={raw} onChange={(e) => setRaw(e.target.value)}>
-          {props.options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="submit" disabled={save.isPending || !props.reason.trim()}>
+      <Field
+        label={props.label}
+        control={
+          <NativeSelect value={raw} onChange={(e) => setRaw(e.target.value)}>
+            {props.options.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </NativeSelect>
+        }
+      />
+      <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
         {save.isPending ? 'Saving…' : `Save ${props.label}`}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -310,9 +334,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
     return (
       <div className="main" data-testid="settings-screen">
         {unsavedGuard}
-        <div className="error" role="alert">
-          Property unreachable — cannot load settings.
-        </div>
+        <Alert>Property unreachable — cannot load settings.</Alert>
       </div>
     );
   }
@@ -337,15 +359,17 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           <p className="muted">Loading…</p>
         ) : (
           <>
-          <label>
-            Reason{' '}
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Why this change…"
-              autoComplete="off"
-            />
-          </label>
+          <Field
+            label="Reason"
+            control={
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why this change…"
+                autoComplete="off"
+              />
+            }
+          />
 
           <h2>Property</h2>
           <form
@@ -356,11 +380,15 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
               setMessage('Saved.');
             }}
           >
-            <label>
-              Property name{' '}
-              <input value={propName} onChange={(e) => setPropName(e.target.value)} autoComplete="off" />
-            </label>
-            <button type="submit">Save Property name</button>
+            <Field
+              label="Property name"
+              control={
+                <Input value={propName} onChange={(e) => setPropName(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Button type="submit" intent="primary">
+              Save Property name
+            </Button>
           </form>
           <DomainText
             label="Time zone"
@@ -532,12 +560,16 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           />
 
           <section className="panel">
-            <h2>FX Rates</h2>
-            <p className="muted">
-              Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
-              stay’s folio → FX rates.
-            </p>
-            <Link to="/in-house">Open in-house board</Link>
+            <Card>
+              <CardContent>
+                <h2>FX Rates</h2>
+                <p className="muted">
+                  Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
+                  stay’s folio → FX rates.
+                </p>
+                <Link to="/in-house">Open in-house board</Link>
+              </CardContent>
+            </Card>
           </section>
         </>
         )
@@ -548,45 +580,45 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           {charges.length === 0 && chargesQ.isSuccess ? (
             <p className="muted">No charge codes.</p>
           ) : (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Tax group</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {charges.map((c) => (
-                    <tr key={c.code}>
-                      <td translate="no">{c.code}</td>
-                      <td>{c.name}</td>
-                      <td>{c.status}</td>
-                      <td>{c.taxGroup ?? '—'}</td>
-                      <td>
-                        {SYSTEM_CHARGE_CODES.has(c.code) ? (
-                          <span className="muted">System code — cannot archive.</span>
-                        ) : c.status === 'archived' ? (
-                          <button
-                            type="button"
-                            onClick={() => api.setChargeCodeStatus(propertyId, c.code, 'active')}
-                          >
-                            Restore {c.code}
-                          </button>
-                        ) : (
-                          <button type="button" onClick={() => setArchiveCode(c.code)}>
-                            Archive {c.code}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Code</DataTableHeaderCell>
+                  <DataTableHeaderCell>Name</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell>Tax group</DataTableHeaderCell>
+                  <DataTableHeaderCell />
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {charges.map((c) => (
+                  <DataTableRow key={c.code}>
+                    <DataTableCell>
+                      <span translate="no">{c.code}</span>
+                    </DataTableCell>
+                    <DataTableCell>{c.name}</DataTableCell>
+                    <DataTableCell>{c.status}</DataTableCell>
+                    <DataTableCell>{c.taxGroup ?? '—'}</DataTableCell>
+                    <DataTableCell>
+                      {SYSTEM_CHARGE_CODES.has(c.code) ? (
+                        <span className="muted">System code — cannot archive.</span>
+                      ) : c.status === 'archived' ? (
+                        <Button
+                          type="button"
+                          onClick={() => api.setChargeCodeStatus(propertyId, c.code, 'active')}
+                        >
+                          Restore {c.code}
+                        </Button>
+                      ) : (
+                        <Button type="button" intent="destructive" onClick={() => setArchiveCode(c.code)}>
+                          Archive {c.code}
+                        </Button>
+                      )}
+                    </DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
           )}
           <form
             className="stack"
@@ -596,21 +628,25 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             }}
           >
             <h2>Create Charge Code</h2>
-            <label>
-              Code{' '}
-              <input
-                value={chargeCode}
-                onChange={(e) => setChargeCode(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                translate="no"
-              />
-            </label>
-            <label>
-              Name{' '}
-              <input value={chargeName} onChange={(e) => setChargeName(e.target.value)} autoComplete="off" />
-            </label>
-            <button type="submit">{createCharge.isPending ? 'Saving…' : 'Create Charge Code'}</button>
+            <Field
+              label="Code"
+              control={
+                <Input
+                  value={chargeCode}
+                  onChange={(e) => setChargeCode(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Name"
+              control={
+                <Input value={chargeName} onChange={(e) => setChargeName(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Button type="submit" intent="primary">
+              {createCharge.isPending ? 'Saving…' : 'Create Charge Code'}
+            </Button>
           </form>
         </>
       ) : null}
@@ -620,78 +656,85 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           <p className="muted">
             Superseding closes this rule and opens a new one. Posted tax lines stay.
           </p>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Key</th>
-                  <th>Type</th>
-                  <th>Rate</th>
-                  <th>Group</th>
-                  <th>Output</th>
-                  <th>Valid</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((r) => (
-                  <tr key={r.taxRuleId}>
-                    <td>{r.name}</td>
-                    <td translate="no">{r.ruleKey}</td>
-                    <td>{r.ruleType}</td>
-                    <td className="tabular-nums">{r.rate}</td>
-                    <td>{r.taxGroup}</td>
-                    <td translate="no">{r.outputChargeCode}</td>
-                    <td>
-                      {r.validFrom}
-                      {r.validTo ? `–${r.validTo}` : '–open'}
-                    </td>
-                    <td>
-                      {r.validTo ? null : (
-                        <form
-                          onSubmit={async (e) => {
-                            e.preventDefault();
-                            await api.supersedeTaxRule(propertyId, r.taxRuleId, {
-                              rate: superRate,
-                              validFrom: superFrom,
-                              name: r.name,
-                              ruleType: r.ruleType,
-                              taxGroup: r.taxGroup,
-                              outputChargeCode: r.outputChargeCode,
-                              ruleKey: r.ruleKey,
-                            });
-                            setMessage('Saved.');
-                            await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
-                          }}
-                        >
-                          <label>
-                            New rate{' '}
-                            <input
+          <DataTable>
+            <DataTableHead>
+              <DataTableRow>
+                <DataTableHeaderCell>Name</DataTableHeaderCell>
+                <DataTableHeaderCell>Key</DataTableHeaderCell>
+                <DataTableHeaderCell>Type</DataTableHeaderCell>
+                <DataTableHeaderCell>Rate</DataTableHeaderCell>
+                <DataTableHeaderCell>Group</DataTableHeaderCell>
+                <DataTableHeaderCell>Output</DataTableHeaderCell>
+                <DataTableHeaderCell>Valid</DataTableHeaderCell>
+                <DataTableHeaderCell />
+              </DataTableRow>
+            </DataTableHead>
+            <DataTableBody>
+              {rules.map((r) => (
+                <DataTableRow key={r.taxRuleId}>
+                  <DataTableCell>{r.name}</DataTableCell>
+                  <DataTableCell>
+                    <span translate="no">{r.ruleKey}</span>
+                  </DataTableCell>
+                  <DataTableCell>{r.ruleType}</DataTableCell>
+                  <DataTableCell>{r.rate}</DataTableCell>
+                  <DataTableCell>{r.taxGroup}</DataTableCell>
+                  <DataTableCell>
+                    <span translate="no">{r.outputChargeCode}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    {r.validFrom}
+                    {r.validTo ? `–${r.validTo}` : '–open'}
+                  </DataTableCell>
+                  <DataTableCell>
+                    {r.validTo ? null : (
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          await api.supersedeTaxRule(propertyId, r.taxRuleId, {
+                            rate: superRate,
+                            validFrom: superFrom,
+                            name: r.name,
+                            ruleType: r.ruleType,
+                            taxGroup: r.taxGroup,
+                            outputChargeCode: r.outputChargeCode,
+                            ruleKey: r.ruleKey,
+                          });
+                          setMessage('Saved.');
+                          await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
+                        }}
+                      >
+                        <Field
+                          label="New rate"
+                          control={
+                            <Input
                               value={superRate}
                               onChange={(e) => setSuperRate(e.target.value)}
                               autoComplete="off"
-                              className="tabular-nums"
                             />
-                          </label>
-                          <label>
-                            New valid from{' '}
-                            <input
+                          }
+                        />
+                        <Field
+                          label="New valid from"
+                          control={
+                            <Input
                               type="date"
                               value={superFrom}
                               onChange={(e) => setSuperFrom(e.target.value)}
                               autoComplete="off"
                             />
-                          </label>
-                          <button type="submit">Supersede</button>
-                        </form>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          }
+                        />
+                        <Button type="submit" intent="primary">
+                          Supersede
+                        </Button>
+                      </form>
+                    )}
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
           <form
             className="stack"
             onSubmit={(e) => {
@@ -700,58 +743,72 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             }}
           >
             <h2>Create Tax Rule</h2>
-            <label>
-              Name <input value={taxName} onChange={(e) => setTaxName(e.target.value)} autoComplete="off" />
-            </label>
-            <label>
-              Rule key{' '}
-              <input
-                value={taxKey}
-                onChange={(e) => setTaxKey(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-            <label>
-              Rule type{' '}
-              <select value={taxType} onChange={(e) => setTaxType(e.target.value)}>
-                <option value="PERCENTAGE">PERCENTAGE</option>
-                <option value="PER_PERSON_PER_NIGHT">PER_PERSON_PER_NIGHT</option>
-                <option value="FLAT">FLAT</option>
-              </select>
-            </label>
-            <label>
-              Rate{' '}
-              <input
-                value={taxRate}
-                onChange={(e) => setTaxRate(e.target.value)}
-                autoComplete="off"
-                className="tabular-nums"
-              />
-            </label>
-            <label>
-              Tax group{' '}
-              <input value={taxGroup} onChange={(e) => setTaxGroup(e.target.value)} autoComplete="off" />
-            </label>
-            <label>
-              Output charge code{' '}
-              <input
-                value={taxOutput}
-                onChange={(e) => setTaxOutput(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-            <label>
-              Valid from{' '}
-              <input
-                type="date"
-                value={taxFrom}
-                onChange={(e) => setTaxFrom(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <button type="submit">{createTax.isPending ? 'Saving…' : 'Create Tax Rule'}</button>
+            <Field
+              label="Name"
+              control={
+                <Input value={taxName} onChange={(e) => setTaxName(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Field
+              label="Rule key"
+              control={
+                <Input
+                  value={taxKey}
+                  onChange={(e) => setTaxKey(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Rule type"
+              control={
+                <NativeSelect value={taxType} onChange={(e) => setTaxType(e.target.value)}>
+                  <option value="PERCENTAGE">PERCENTAGE</option>
+                  <option value="PER_PERSON_PER_NIGHT">PER_PERSON_PER_NIGHT</option>
+                  <option value="FLAT">FLAT</option>
+                </NativeSelect>
+              }
+            />
+            <Field
+              label="Rate"
+              control={
+                <Input
+                  value={taxRate}
+                  onChange={(e) => setTaxRate(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Tax group"
+              control={
+                <Input value={taxGroup} onChange={(e) => setTaxGroup(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Field
+              label="Output charge code"
+              control={
+                <Input
+                  value={taxOutput}
+                  onChange={(e) => setTaxOutput(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Valid from"
+              control={
+                <Input
+                  type="date"
+                  value={taxFrom}
+                  onChange={(e) => setTaxFrom(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Button type="submit" intent="primary">
+              {createTax.isPending ? 'Saving…' : 'Create Tax Rule'}
+            </Button>
           </form>
         </>
       ) : null}
@@ -759,12 +816,12 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
       {archiveCode ? (
         <div role="dialog" aria-modal="true" className="panel">
           <p>Archive {archiveCode}?</p>
-          <button type="button" onClick={() => setArchiveCode(null)}>
+          <Button type="button" onClick={() => setArchiveCode(null)}>
             Cancel
-          </button>
-          <button type="button" onClick={() => archiveCharge.mutate(archiveCode)}>
+          </Button>
+          <Button type="button" intent="destructive" onClick={() => archiveCharge.mutate(archiveCode)}>
             Archive
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

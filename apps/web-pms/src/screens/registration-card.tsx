@@ -1,5 +1,7 @@
 import type { ReservationRead } from '@hospai/client-core';
 
+import { Button } from '@hospai/ui-kit';
+
 export function RegistrationCard({
   propertyName,
   reservation,
@@ -42,7 +44,7 @@ export function RegistrationCard({
 export function PrintRegCardControl({ canPrint }: { canPrint: boolean }) {
   return (
     <div>
-      <button
+      <Button
         type="button"
         data-testid="print-reg-card"
         disabled={!canPrint}
@@ -52,7 +54,7 @@ export function PrintRegCardControl({ canPrint }: { canPrint: boolean }) {
         }}
       >
         Print registration card
-      </button>
+      </Button>
       {!canPrint ? (
         <p className="muted">Registration card is unavailable while the property is unreachable.</p>
       ) : null}

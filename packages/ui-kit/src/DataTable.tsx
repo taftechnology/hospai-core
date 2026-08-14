@@ -1,14 +1,17 @@
-import type { ReactNode, TdHTMLAttributes, ThHTMLAttributes } from 'react';
-import type { TestIdProps } from './types.js';
+import type { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes } from 'react';
+import { statusRungClass } from './variant-map.js';
+import type { StatusRung, TestIdProps } from './types.js';
 
-export type DataTableProps = {
+export type DataTableProps = TestIdProps & {
   children?: ReactNode;
 };
 
-export function DataTable({ children }: DataTableProps) {
+export function DataTable({ children, 'data-testid': dataTestId }: DataTableProps) {
   return (
     <div className="ui-table-scroll">
-      <table className="ui-table">{children}</table>
+      <table className="ui-table" data-testid={dataTestId}>
+        {children}
+      </table>
     </div>
   );
 }
@@ -25,12 +28,27 @@ export function DataTableBody({ children }: DataTableSectionProps) {
   return <tbody>{children}</tbody>;
 }
 
-export type DataTableRowProps = TestIdProps & {
-  children?: ReactNode;
-};
+export type DataTableRowProps = TestIdProps &
+  Pick<HTMLAttributes<HTMLTableRowElement>, 'onClick'> & {
+    children?: ReactNode;
+    rung?: StatusRung;
+  };
 
-export function DataTableRow({ children, 'data-testid': dataTestId }: DataTableRowProps) {
-  return <tr data-testid={dataTestId}>{children}</tr>;
+export function DataTableRow({
+  children,
+  rung,
+  onClick,
+  'data-testid': dataTestId,
+}: DataTableRowProps) {
+  return (
+    <tr
+      className={rung ? statusRungClass(rung) : undefined}
+      data-testid={dataTestId}
+      onClick={onClick}
+    >
+      {children}
+    </tr>
+  );
 }
 
 type CellAlign = 'left' | 'center' | 'right';
@@ -63,9 +81,10 @@ export function DataTableHeaderCell({
 }
 
 export type DataTableCellProps = TestIdProps &
-  Pick<TdHTMLAttributes<HTMLTableCellElement>, 'colSpan' | 'rowSpan'> & {
+  Pick<TdHTMLAttributes<HTMLTableCellElement>, 'colSpan' | 'rowSpan' | 'onClick'> & {
     children?: ReactNode;
     align?: CellAlign;
+    rung?: StatusRung;
   };
 
 export function DataTableCell({
@@ -73,10 +92,19 @@ export function DataTableCell({
   colSpan,
   rowSpan,
   align = 'left',
+  rung,
+  onClick,
   'data-testid': dataTestId,
 }: DataTableCellProps) {
   return (
-    <td colSpan={colSpan} rowSpan={rowSpan} align={align} data-testid={dataTestId}>
+    <td
+      colSpan={colSpan}
+      rowSpan={rowSpan}
+      align={align}
+      className={rung ? statusRungClass(rung) : undefined}
+      data-testid={dataTestId}
+      onClick={onClick}
+    >
       {children}
     </td>
   );

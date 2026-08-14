@@ -1,4 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Badge,
+  Button,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+} from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { api, tenant } from '../client.js';
@@ -8,7 +18,6 @@ import {
   nightAuditBannerSeverity,
   nightAuditStepSeverity,
 } from '../status/night-audit-severity.js';
-import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 
 const MONEY_KEYS = new Set([
@@ -142,13 +151,13 @@ export function NightAuditScreen() {
       {statusQuery.isLoading ? <p className="muted">Loading…</p> : null}
       {status ? (
         <>
-          <p data-testid="audit-banner" className={statusClass(bannerSev)}>
+          <Badge rung={bannerSev} data-testid="audit-banner">
             {status.halted
               ? 'Night audit halted'
               : status.pendingOpenCount > 0
                 ? 'Pending commands still open'
                 : 'Night audit idle'}
-          </p>
+          </Badge>
           <p>
             Closing {status.businessDate}
             {' · '}
@@ -160,75 +169,71 @@ export function NightAuditScreen() {
             </Link>
           </p>
           <p>
-            <button type="button" disabled={runDisabled} onClick={() => runMutation.mutate()}>
+            <Button type="button" disabled={runDisabled} onClick={() => runMutation.mutate()}>
               Run night audit
-            </button>{' '}
-            <button
+            </Button>{' '}
+            <Button
               type="button"
               disabled={!resumeEnabled}
               onClick={() => resumeMutation.mutate()}
             >
               Resume
-            </button>
+            </Button>
           </p>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Step</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {status.steps.map((step) => (
-                  <tr key={step.step}>
-                    <td>{step.step}</td>
-                    <td className={statusClass(nightAuditStepSeverity(step.status))}>
-                      {step.status}
-                    </td>
-                    <td>
-                      {failedStep?.step === step.step ? (
-                        <button type="button" onClick={() => retryMutation.mutate(step.step)}>
-                          Retry
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable>
+            <DataTableHead>
+              <DataTableRow>
+                <DataTableHeaderCell>Step</DataTableHeaderCell>
+                <DataTableHeaderCell>Status</DataTableHeaderCell>
+                <DataTableHeaderCell />
+              </DataTableRow>
+            </DataTableHead>
+            <DataTableBody>
+              {status.steps.map((step) => (
+                <DataTableRow key={step.step}>
+                  <DataTableCell>{step.step}</DataTableCell>
+                  <DataTableCell rung={nightAuditStepSeverity(step.status)}>
+                    {step.status}
+                  </DataTableCell>
+                  <DataTableCell>
+                    {failedStep?.step === step.step ? (
+                      <Button type="button" onClick={() => retryMutation.mutate(step.step)}>
+                        Retry
+                      </Button>
+                    ) : null}
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
           <h2>Reports</h2>
           <ul>
             {status.reports.map((r) => (
               <li key={`${r.businessDate}:${r.reportId}`}>
-                <button
+                <Button
                   type="button"
                   onClick={() =>
                     setOpenReport({ businessDate: r.businessDate, reportId: r.reportId })
                   }
                 >
                   {titleCaseReportId(r.reportId)}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
           {reportQuery.data ? (
-            <div className="table-scroll">
-              <table data-testid="report-table">
-                <tbody>
-                  {Object.entries(reportQuery.data)
-                    .filter(([, v]) => typeof v !== 'object' || v === null)
-                    .map(([key, value]) => (
-                      <tr key={key}>
-                        <th>{REPORT_KEY_LABELS[key] ?? key}</th>
-                        <td>{formatReportCell(key, value)}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable data-testid="report-table">
+              <DataTableBody>
+                {Object.entries(reportQuery.data)
+                  .filter(([, v]) => typeof v !== 'object' || v === null)
+                  .map(([key, value]) => (
+                    <DataTableRow key={key}>
+                      <DataTableHeaderCell>{REPORT_KEY_LABELS[key] ?? key}</DataTableHeaderCell>
+                      <DataTableCell>{formatReportCell(key, value)}</DataTableCell>
+                    </DataTableRow>
+                  ))}
+              </DataTableBody>
+            </DataTable>
           ) : null}
         </>
       ) : null}

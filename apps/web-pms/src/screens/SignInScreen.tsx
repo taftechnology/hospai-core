@@ -2,6 +2,16 @@ import { useSignIn } from '@clerk/react/legacy';
 import { FormEvent, useState, type ReactNode } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Field,
+  Input,
+} from '@hospai/ui-kit';
+import {
   demoGateEmail,
   demoGatePassword,
   spaAuthMode,
@@ -12,17 +22,19 @@ const DEMO_UNLOCK_KEY = 'hospai.demo-unlock';
 function SignInChrome({ children }: { children?: ReactNode }) {
   return (
     <div className="sign-in" data-testid="sign-in">
-      <div className="sign-in-card">
-        <div className="app-sidebar-brand">
-          <span className="app-sidebar-mark">✦</span>
-          <p className="app-sidebar-title">
-            HospAI <span>PMS</span>
-          </p>
-        </div>
-        <h1>Sign in</h1>
-        <p className="muted">Front desk</p>
-        {children}
-      </div>
+      <Card>
+        <CardHeader>
+          <div className="app-sidebar-brand">
+            <span className="app-sidebar-mark">✦</span>
+            <p className="app-sidebar-title">
+              HospAI <span>PMS</span>
+            </p>
+          </div>
+          <CardTitle>Sign in</CardTitle>
+          <p className="muted">Front desk</p>
+        </CardHeader>
+        <CardContent>{children}</CardContent>
+      </Card>
     </div>
   );
 }
@@ -63,39 +75,39 @@ function ClerkSignInForm() {
 
   return (
     <form onSubmit={onSubmit}>
-      <label>
-        Email
-        <input
-          type="email"
-          name="email"
-          data-testid="sign-in-email"
-          autoComplete="username"
-          required
-        />
-      </label>
-      <label>
-        Password
-        <input
-          type="password"
-          name="password"
-          data-testid="sign-in-password"
-          autoComplete="current-password"
-          required
-        />
-      </label>
-      {error ? (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      ) : null}
-      <button
+      <Field
+        label="Email"
+        control={
+          <Input
+            type="email"
+            name="email"
+            data-testid="sign-in-email"
+            autoComplete="username"
+            required
+          />
+        }
+      />
+      <Field
+        label="Password"
+        control={
+          <Input
+            type="password"
+            name="password"
+            data-testid="sign-in-password"
+            autoComplete="current-password"
+            required
+          />
+        }
+      />
+      {error ? <Alert>{error}</Alert> : null}
+      <Button
         type="submit"
-        className="btn-primary"
+        intent="primary"
         data-testid="sign-in-submit"
         disabled={!isLoaded || pending}
       >
         Sign in
-      </button>
+      </Button>
     </form>
   );
 }
@@ -119,34 +131,34 @@ function PasswordGateForm() {
 
   return (
     <form onSubmit={onSubmit}>
-      <label>
-        Email
-        <input
-          type="email"
-          name="email"
-          data-testid="sign-in-email"
-          autoComplete="username"
-          required
-        />
-      </label>
-      <label>
-        Password
-        <input
-          type="password"
-          name="password"
-          data-testid="sign-in-password"
-          autoComplete="current-password"
-          required
-        />
-      </label>
-      {error ? (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      ) : null}
-      <button type="submit" className="btn-primary" data-testid="sign-in-submit">
+      <Field
+        label="Email"
+        control={
+          <Input
+            type="email"
+            name="email"
+            data-testid="sign-in-email"
+            autoComplete="username"
+            required
+          />
+        }
+      />
+      <Field
+        label="Password"
+        control={
+          <Input
+            type="password"
+            name="password"
+            data-testid="sign-in-password"
+            autoComplete="current-password"
+            required
+          />
+        }
+      />
+      {error ? <Alert>{error}</Alert> : null}
+      <Button type="submit" intent="primary" data-testid="sign-in-submit">
         Sign in
-      </button>
+      </Button>
     </form>
   );
 }
@@ -179,9 +191,7 @@ export function SignInScreen() {
 
   return (
     <SignInChrome>
-      <p className="error" role="alert">
-        Sign-in is not configured.
-      </p>
+      <Alert>Sign-in is not configured.</Alert>
     </SignInChrome>
   );
 }

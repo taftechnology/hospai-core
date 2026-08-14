@@ -1,7 +1,17 @@
 import { forwardRef, type ReactNode, type Ref, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
 import type { AriaLabelProps, InputHandlerProps, TestIdProps } from './types.js';
 
-type TextInputType = 'text' | 'search' | 'email' | 'number' | 'date' | 'password' | 'tel' | 'url';
+type TextInputType =
+  | 'text'
+  | 'search'
+  | 'email'
+  | 'number'
+  | 'date'
+  | 'time'
+  | 'password'
+  | 'tel'
+  | 'url'
+  | 'radio';
 
 export type InputProps = TestIdProps &
   AriaLabelProps &
@@ -9,6 +19,8 @@ export type InputProps = TestIdProps &
     type?: TextInputType;
     value?: string;
     defaultValue?: string;
+    checked?: boolean;
+    defaultChecked?: boolean;
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
@@ -26,6 +38,8 @@ export const Input = forwardRef(function Input(
     type = 'text',
     value,
     defaultValue,
+    checked,
+    defaultChecked,
     placeholder,
     disabled,
     readOnly,
@@ -58,6 +72,8 @@ export const Input = forwardRef(function Input(
       type={type}
       value={value}
       defaultValue={defaultValue}
+      checked={checked}
+      defaultChecked={defaultChecked}
       placeholder={placeholder}
       disabled={disabled}
       readOnly={readOnly}
@@ -157,6 +173,7 @@ export type TextareaProps = TestIdProps &
     rows?: number;
     id?: string;
     name?: string;
+    autoComplete?: string;
   };
 
 export const Textarea = forwardRef(function Textarea(
@@ -170,6 +187,7 @@ export const Textarea = forwardRef(function Textarea(
     rows,
     id,
     name,
+    autoComplete,
     'data-testid': dataTestId,
     'aria-label': ariaLabel,
     'aria-labelledby': ariaLabelledBy,
@@ -197,6 +215,7 @@ export const Textarea = forwardRef(function Textarea(
       rows={rows}
       id={id}
       name={name}
+      autoComplete={autoComplete}
       data-testid={dataTestId}
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}

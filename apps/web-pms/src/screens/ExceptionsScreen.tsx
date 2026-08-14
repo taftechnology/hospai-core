@@ -1,4 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Alert,
+  Badge,
+  Button,
+  Checkbox,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+  Textarea,
+} from '@hospai/ui-kit';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
@@ -8,7 +24,6 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
-import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { GuestNameLink } from './guest-row.js';
@@ -286,36 +301,39 @@ export function ExceptionsScreen() {
       {unsavedGuard}
       <h1 className="text-wrap-balance">Exceptions</h1>
       <div className="exceptions-filters">
-        <label>
-          Command type
-          <select
-            aria-label="Command type"
-            spellCheck={false}
-            value={commandType}
-            onChange={(e) => patchParams({ commandType: e.target.value || null })}
-          >
-            <option value="">All</option>
-            {commandOptions.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Reason
-          <input
-            aria-label="Reason"
-            autoComplete="off"
-            value={reason}
-            onChange={(e) => patchParams({ reason: e.target.value || null })}
-          />
-        </label>
+        <Field
+          label="Command type"
+          control={
+            <NativeSelect
+              aria-label="Command type"
+              value={commandType}
+              onChange={(e) => patchParams({ commandType: e.target.value || null })}
+            >
+              <option value="">All</option>
+              {commandOptions.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </NativeSelect>
+          }
+        />
+        <Field
+          label="Reason"
+          control={
+            <Input
+              aria-label="Reason"
+              autoComplete="off"
+              value={reason}
+              onChange={(e) => patchParams({ reason: e.target.value || null })}
+            />
+          }
+        />
         <fieldset>
           <legend>Resolution</legend>
           {(['open', 'resolved', 'all'] as const).map((value) => (
             <label key={value}>
-              <input
+              <Input
                 type="radio"
                 name="resolution"
                 value={value}
@@ -326,29 +344,33 @@ export function ExceptionsScreen() {
             </label>
           ))}
         </fieldset>
-        <label>
-          Business Date From
-          <input
-            type="date"
-            aria-label="Business Date From"
-            value={businessDateFrom}
-            onChange={(e) => patchParams({ businessDateFrom: e.target.value || null })}
-          />
-        </label>
-        <label>
-          Business Date To
-          <input
-            type="date"
-            aria-label="Business Date To"
-            value={businessDateTo}
-            onChange={(e) => patchParams({ businessDateTo: e.target.value || null })}
-          />
-        </label>
+        <Field
+          label="Business Date From"
+          control={
+            <Input
+              type="date"
+              aria-label="Business Date From"
+              value={businessDateFrom}
+              onChange={(e) => patchParams({ businessDateFrom: e.target.value || null })}
+            />
+          }
+        />
+        <Field
+          label="Business Date To"
+          control={
+            <Input
+              type="date"
+              aria-label="Business Date To"
+              value={businessDateTo}
+              onChange={(e) => patchParams({ businessDateTo: e.target.value || null })}
+            />
+          }
+        />
         <fieldset>
           <legend>Assigned</legend>
           {(['all', 'unassigned', 'assigned'] as const).map((value) => (
             <label key={value}>
-              <input
+              <Input
                 type="radio"
                 name="assigned"
                 value={value}
@@ -360,167 +382,172 @@ export function ExceptionsScreen() {
           ))}
         </fieldset>
         {canListMembers && members.length > 0 ? (
-          <label>
-            Assignee
-            <select
-              aria-label="Assignee"
-              spellCheck={false}
-              value={assignedTo}
-              onChange={(e) => patchParams({ assignedTo: e.target.value || null })}
-            >
-              <option value="">Anyone</option>
-              {members.map((m) => (
-                <option key={m.userId} value={m.userId}>
-                  {m.displayName ?? m.userId}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field
+            label="Assignee"
+            control={
+              <NativeSelect
+                aria-label="Assignee"
+                value={assignedTo}
+                onChange={(e) => patchParams({ assignedTo: e.target.value || null })}
+              >
+                <option value="">Anyone</option>
+                {members.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.displayName ?? m.userId}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
         ) : null}
       </div>
       {canWrite ? (
         <p>
-          <button
+          <Button
             type="button"
             disabled={selectedIds.length === 0 || inFlight}
             onClick={() => requestRetry(selectedIds)}
           >
             {retryMut.isPending ? 'Retrying…' : 'Retry Selected'}
-          </button>{' '}
-          <button
+          </Button>{' '}
+          <Button
             type="button"
             disabled={selectedIds.length === 0 || inFlight}
             onClick={() => requestResolve(selectedIds)}
           >
             {resolveMut.isPending ? 'Resolving…' : 'Resolve Selected'}
-          </button>
+          </Button>
         </p>
       ) : null}
       <p aria-live="polite">{outcome}</p>
       {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ? (
-        <p className="error">Exceptions unavailable — property unreachable</p>
+        <Alert>Exceptions unavailable — property unreachable</Alert>
       ) : listQ.isLoading ? (
         <p className="muted">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="muted">No exceptions match these filters.</p>
       ) : (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>
-                  <span className="visually-hidden">Select</span>
-                </th>
-                <th>Created</th>
-                <th>Business Date</th>
-                <th>Command Type</th>
-                <th>Reason</th>
-                <th>Assigned</th>
-                <th>Resolution</th>
-                <th>Links</th>
-                <th>Row Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const open = row.resolvedAt == null;
-                const sev = exceptionBadgeSeverity(open ? 1 : 0);
-                return (
-                  <tr
-                    key={row.exceptionId}
-                    onClick={() => setDetailId(row.exceptionId)}
-                  >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={selected.has(row.exceptionId)}
-                          onChange={(e) => {
-                            setSelected((prev) => {
-                              const next = new Set(prev);
-                              if (e.target.checked) next.add(row.exceptionId);
-                              else next.delete(row.exceptionId);
-                              return next;
-                            });
-                          }}
-                          aria-label={`Select ${row.exceptionId}`}
-                        />
-                      </label>
-                    </td>
-                    <td className="tabular-nums">{formatInstant(row.createdAt, timeZone)}</td>
-                    <td className="tabular-nums">{row.businessDate}</td>
-                    <td translate="no" className="min-w-0 truncate">
+        <DataTable>
+          <DataTableHead>
+            <DataTableRow>
+              <DataTableHeaderCell>
+                <span className="visually-hidden">Select</span>
+              </DataTableHeaderCell>
+              <DataTableHeaderCell>Created</DataTableHeaderCell>
+              <DataTableHeaderCell>Business Date</DataTableHeaderCell>
+              <DataTableHeaderCell>Command Type</DataTableHeaderCell>
+              <DataTableHeaderCell>Reason</DataTableHeaderCell>
+              <DataTableHeaderCell>Assigned</DataTableHeaderCell>
+              <DataTableHeaderCell>Resolution</DataTableHeaderCell>
+              <DataTableHeaderCell>Links</DataTableHeaderCell>
+              <DataTableHeaderCell>Row Actions</DataTableHeaderCell>
+            </DataTableRow>
+          </DataTableHead>
+          <DataTableBody>
+            {rows.map((row) => {
+              const open = row.resolvedAt == null;
+              const sev = exceptionBadgeSeverity(open ? 1 : 0);
+              return (
+                <DataTableRow key={row.exceptionId} onClick={() => setDetailId(row.exceptionId)}>
+                  <DataTableCell onClick={(e) => e.stopPropagation()}>
+                    <label>
+                      <Checkbox
+                        checked={selected.has(row.exceptionId)}
+                        onChange={(e) => {
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(row.exceptionId);
+                            else next.delete(row.exceptionId);
+                            return next;
+                          });
+                        }}
+                        aria-label={`Select ${row.exceptionId}`}
+                      />
+                    </label>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span className="tabular-nums">{formatInstant(row.createdAt, timeZone)}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span className="tabular-nums">{row.businessDate}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span translate="no" className="min-w-0 truncate">
                       {row.commandType}
-                    </td>
-                    <td className="min-w-0 truncate">{row.reason}</td>
-                    <td translate="no">{row.assignedTo ?? '—'}</td>
-                    <td>
-                      <span className={statusClass(sev)}>{open ? 'Open' : 'Resolved'}</span>
-                    </td>
-                    <td>
-                      {row.affected?.reservationId ? (
-                        <Link to={`/folio/${row.affected.reservationId}`}>Folio</Link>
-                      ) : null}
-                      {row.affected?.reservationId && row.commandType === 'reservations.check_in' ? (
-                        <>
-                          {' '}
-                          <Link to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
-                        </>
-                      ) : null}
-                      {row.affected?.roomId ? (
-                        <>
-                          {' '}
-                          <Link to="/housekeeping">Room</Link>
-                        </>
-                      ) : null}
-                      {row.affected?.guestRef ? (
-                        <>
-                          {' '}
-                          <GuestNameLink
-                            state={guestsQ.data?.states?.[row.affected.guestRef]}
-                            guestRef={row.affected.guestRef}
-                          />
-                        </>
-                      ) : null}
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {canWrite ? (
-                        <>
-                          <button type="button" onClick={() => requestRetry([row.exceptionId])}>
-                            {retryMut.isPending ? 'Retrying…' : 'Retry'}
-                          </button>{' '}
-                          <button type="button" onClick={() => requestResolve([row.exceptionId])}>
-                            {resolveMut.isPending ? 'Resolving…' : 'Resolve'}
-                          </button>{' '}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void assignMut.mutateAsync({
-                                exceptionId: row.exceptionId,
-                                assignedTo: me?.userId ?? null,
-                              })
-                            }
-                          >
-                            {assignMut.isPending ? 'Saving…' : 'Assign'}
-                          </button>{' '}
-                          <button type="button" onClick={() => setDetailId(row.exceptionId)}>
-                            Note
-                          </button>
-                        </>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span className="min-w-0 truncate">{row.reason}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span translate="no">{row.assignedTo ?? '—'}</span>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <Badge rung={sev}>{open ? 'Open' : 'Resolved'}</Badge>
+                  </DataTableCell>
+                  <DataTableCell>
+                    {row.affected?.reservationId ? (
+                      <Link to={`/folio/${row.affected.reservationId}`}>Folio</Link>
+                    ) : null}
+                    {row.affected?.reservationId && row.commandType === 'reservations.check_in' ? (
+                      <>
+                        {' '}
+                        <Link to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
+                      </>
+                    ) : null}
+                    {row.affected?.roomId ? (
+                      <>
+                        {' '}
+                        <Link to="/housekeeping">Room</Link>
+                      </>
+                    ) : null}
+                    {row.affected?.guestRef ? (
+                      <>
+                        {' '}
+                        <GuestNameLink
+                          state={guestsQ.data?.states?.[row.affected.guestRef]}
+                          guestRef={row.affected.guestRef}
+                        />
+                      </>
+                    ) : null}
+                  </DataTableCell>
+                  <DataTableCell onClick={(e) => e.stopPropagation()}>
+                    {canWrite ? (
+                      <>
+                        <Button type="button" onClick={() => requestRetry([row.exceptionId])}>
+                          {retryMut.isPending ? 'Retrying…' : 'Retry'}
+                        </Button>{' '}
+                        <Button type="button" onClick={() => requestResolve([row.exceptionId])}>
+                          {resolveMut.isPending ? 'Resolving…' : 'Resolve'}
+                        </Button>{' '}
+                        <Button
+                          type="button"
+                          onClick={() =>
+                            void assignMut.mutateAsync({
+                              exceptionId: row.exceptionId,
+                              assignedTo: me?.userId ?? null,
+                            })
+                          }
+                        >
+                          {assignMut.isPending ? 'Saving…' : 'Assign'}
+                        </Button>{' '}
+                        <Button type="button" onClick={() => setDetailId(row.exceptionId)}>
+                          Note
+                        </Button>
+                      </>
+                    ) : null}
+                  </DataTableCell>
+                </DataTableRow>
+              );
+            })}
+          </DataTableBody>
+        </DataTable>
       )}
       {nextCursor ? (
         <p>
-          <button type="button" onClick={() => patchParams({ cursor: nextCursor })}>
+          <Button type="button" onClick={() => patchParams({ cursor: nextCursor })}>
             Next
-          </button>
+          </Button>
         </p>
       ) : null}
       {detailId ? (
@@ -553,21 +580,23 @@ export function ExceptionsScreen() {
               {canWrite ? (
                 <>
                   <form onSubmit={(e) => void onNote(e)}>
-                    <label>
-                      Note
-                      <textarea
-                        aria-label="Note"
-                        autoComplete="off"
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                      />
-                    </label>
-                    <button type="submit" disabled={noteMut.isPending || !noteText.trim()}>
+                    <Field
+                      label="Note"
+                      control={
+                        <Textarea
+                          aria-label="Note"
+                          autoComplete="off"
+                          value={noteText}
+                          onChange={(e) => setNoteText(e.target.value)}
+                        />
+                      }
+                    />
+                    <Button type="submit" disabled={noteMut.isPending || !noteText.trim()}>
                       {noteMut.isPending ? 'Saving…' : 'Note'}
-                    </button>
+                    </Button>
                   </form>
                   <p>
-                    <button
+                    <Button
                       type="button"
                       onClick={() =>
                         void assignMut.mutateAsync({
@@ -577,40 +606,41 @@ export function ExceptionsScreen() {
                       }
                     >
                       Assign to Me
-                    </button>{' '}
+                    </Button>{' '}
                     {canListMembers ? (
-                      <label>
-                        Assign to
-                        <select
-                          aria-label="Assign to"
-                          spellCheck={false}
-                          defaultValue=""
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (!value) return;
-                            void assignMut.mutateAsync({
-                              exceptionId: detailId,
-                              assignedTo: value,
-                            });
-                          }}
-                        >
-                          <option value="">Select member</option>
-                          {members.map((m) => (
-                            <option key={m.userId} value={m.userId}>
-                              {m.displayName ?? m.userId}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <Field
+                        label="Assign to"
+                        control={
+                          <NativeSelect
+                            aria-label="Assign to"
+                            defaultValue=""
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (!value) return;
+                              void assignMut.mutateAsync({
+                                exceptionId: detailId,
+                                assignedTo: value,
+                              });
+                            }}
+                          >
+                            <option value="">Select member</option>
+                            {members.map((m) => (
+                              <option key={m.userId} value={m.userId}>
+                                {m.displayName ?? m.userId}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        }
+                      />
                     ) : null}{' '}
-                    <button
+                    <Button
                       type="button"
                       onClick={() =>
                         void assignMut.mutateAsync({ exceptionId: detailId, assignedTo: null })
                       }
                     >
                       Unassign
-                    </button>
+                    </Button>
                   </p>
                 </>
               ) : null}
@@ -621,12 +651,12 @@ export function ExceptionsScreen() {
       {confirm ? (
         <dialog open role="dialog" aria-labelledby="exception-confirm-title">
           <p id="exception-confirm-title">{confirm.copy}</p>
-          <button type="button" onClick={() => setConfirm(null)}>
+          <Button type="button" onClick={() => setConfirm(null)}>
             Cancel
-          </button>
-          <button type="button" onClick={confirm.run}>
+          </Button>
+          <Button type="button" onClick={confirm.run}>
             Confirm
-          </button>
+          </Button>
         </dialog>
       ) : null}
     </section>

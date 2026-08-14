@@ -13,6 +13,7 @@ import {
   RESERVATION_STATUSES,
   type ReservationStatus,
 } from '@hospai/contracts/reservation-status';
+import { Field, Input } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -407,34 +408,38 @@ export function TapeChartScreen() {
             Available
           </Link>
           <BoardSummary date={today} />
-          <label>
-            From{' '}
-            <input
-              type="date"
-              data-testid="tape-from"
-              autoComplete="off"
-              value={from ?? ''}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (to) writeWindow(next, to);
-                else setFrom(next);
-              }}
-            />
-          </label>
-          <label>
-            To{' '}
-            <input
-              type="date"
-              data-testid="tape-to"
-              autoComplete="off"
-              value={to ?? ''}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (from) writeWindow(from, next);
-                else setTo(next);
-              }}
-            />
-          </label>
+          <Field
+            label="From"
+            control={
+              <Input
+                type="date"
+                data-testid="tape-from"
+                autoComplete="off"
+                value={from ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (to) writeWindow(next, to);
+                  else setFrom(next);
+                }}
+              />
+            }
+          />
+          <Field
+            label="To"
+            control={
+              <Input
+                type="date"
+                data-testid="tape-to"
+                autoComplete="off"
+                value={to ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (from) writeWindow(from, next);
+                  else setTo(next);
+                }}
+              />
+            }
+          />
         </header>
         {body}
       </div>

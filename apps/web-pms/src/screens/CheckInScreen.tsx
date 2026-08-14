@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useState } from 'react';
+import { Button, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
@@ -129,44 +130,48 @@ export function CheckInScreen() {
       ) : null}
       <div className="stack-row">
         {roomsQ.isSuccess ? (
-          <label>
-            Room{' '}
-            <select
-              data-testid="check-in-room"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-            >
-              <option value="">Select room</option>
-              {roomOptions.map((r) => (
-                <option key={r.roomId} value={r.roomId}>
-                  {r.code}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Field
+            label="Room"
+            control={
+              <NativeSelect
+                data-testid="check-in-room"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+              >
+                <option value="">Select room</option>
+                {roomOptions.map((r) => (
+                  <option key={r.roomId} value={r.roomId}>
+                    {r.code}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
         ) : null}
-        <button type="button" disabled={!roomId || assign.isPending} onClick={() => assign.mutate()}>
+        <Button type="button" disabled={!roomId || assign.isPending} onClick={() => assign.mutate()}>
           Assign room
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          intent="primary"
           data-testid="check-in"
           disabled={!canCheckIn}
           onClick={() => checkIn.mutate()}
         >
           Check in
-        </button>
+        </Button>
       </div>
       {showOverride ? (
-        <label>
-          <input
-            type="checkbox"
-            data-testid="override-cleanliness"
-            checked={overrideCleanliness}
-            onChange={(e) => setOverrideCleanliness(e.target.checked)}
-          />{' '}
-          Override cleanliness
-        </label>
+        <Field
+          label="Override cleanliness"
+          control={
+            <Checkbox
+              data-testid="override-cleanliness"
+              checked={overrideCleanliness}
+              onChange={(e) => setOverrideCleanliness(e.target.checked)}
+            />
+          }
+        />
       ) : null}
       {message ? <p>{message}</p> : null}
       {reservationQ.isSuccess ? (

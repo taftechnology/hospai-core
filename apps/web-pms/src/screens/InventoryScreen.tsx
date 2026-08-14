@@ -2,6 +2,19 @@ import { ClassifiedError } from '@hospai/client-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import {
+  Alert,
+  Button,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -161,9 +174,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
     return (
       <div className="main" data-testid="inventory-screen">
         {unsavedGuard}
-        <div className="error" role="alert">
-          Property unreachable — cannot load inventory.
-        </div>
+        <Alert>Property unreachable — cannot load inventory.</Alert>
       </div>
     );
   }
@@ -182,9 +193,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         </p>
       ) : null}
       {createType.isError || archiveType.isError || addRoom.isError || saveType.isError ? (
-        <p className="error" role="alert">
-          {inventoryErrorCopy(createType.error ?? archiveType.error ?? addRoom.error ?? saveType.error)}
-        </p>
+        <Alert>{inventoryErrorCopy(createType.error ?? archiveType.error ?? addRoom.error ?? saveType.error)}</Alert>
       ) : null}
 
       {activeTab === 'types' ? (
@@ -192,27 +201,29 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           {types.length === 0 && typesQ.isSuccess ? (
             <p className="muted">No room types yet — create one to start selling.</p>
           ) : (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Room Count</th>
-                    <th>Occupancy</th>
-                    <th>Physical rooms</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {types.map((t) => (
-                    <tr key={t.roomTypeId}>
-                      <td translate="no">{t.code}</td>
-                      <td>{t.name}</td>
-                      <td>
-                        <label>
-                          Room Count for {t.code}{' '}
-                          <input
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Code</DataTableHeaderCell>
+                  <DataTableHeaderCell>Name</DataTableHeaderCell>
+                  <DataTableHeaderCell>Room Count</DataTableHeaderCell>
+                  <DataTableHeaderCell>Occupancy</DataTableHeaderCell>
+                  <DataTableHeaderCell>Physical rooms</DataTableHeaderCell>
+                  <DataTableHeaderCell />
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {types.map((t) => (
+                  <DataTableRow key={t.roomTypeId}>
+                    <DataTableCell>
+                      <span translate="no">{t.code}</span>
+                    </DataTableCell>
+                    <DataTableCell>{t.name}</DataTableCell>
+                    <DataTableCell>
+                      <Field
+                        label={`Room Count for ${t.code}`}
+                        control={
+                          <Input
                             type="number"
                             min={1}
                             autoComplete="off"
@@ -224,25 +235,25 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                               }))
                             }
                           />
-                        </label>
-                      </td>
-                      <td>
-                        {t.maxAdults} / {t.maxOccupancy}
-                      </td>
-                      <td>{roomsByType.get(t.roomTypeId)?.length ?? 0}</td>
-                      <td>
-                        <button type="button" onClick={() => saveType.mutate(t)}>
-                          Save Room Type
-                        </button>
-                        <button type="button" onClick={() => setArchiveTarget(t)}>
-                          Archive Room Type
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        }
+                      />
+                    </DataTableCell>
+                    <DataTableCell>
+                      {t.maxAdults} / {t.maxOccupancy}
+                    </DataTableCell>
+                    <DataTableCell>{roomsByType.get(t.roomTypeId)?.length ?? 0}</DataTableCell>
+                    <DataTableCell>
+                      <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
+                        Save Room Type
+                      </Button>
+                      <Button type="button" intent="destructive" onClick={() => setArchiveTarget(t)}>
+                        Archive Room Type
+                      </Button>
+                    </DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
           )}
 
           <form
@@ -254,52 +265,59 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
             }}
           >
             <h2>Create Room Type</h2>
-            <label>
-              Code{' '}
-              <input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                translate="no"
-              />
-            </label>
-            <label>
-              Name <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
-            </label>
-            <label>
-              Room Count{' '}
-              <input
-                type="number"
-                min={1}
-                value={roomCount}
-                onChange={(e) => setRoomCount(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              Max Occupancy{' '}
-              <input
-                type="number"
-                min={1}
-                value={maxOccupancy}
-                onChange={(e) => setMaxOccupancy(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              Max Adults{' '}
-              <input
-                type="number"
-                min={1}
-                value={maxAdults}
-                onChange={(e) => setMaxAdults(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <button type="submit" disabled={saving}>
+            <Field
+              label="Code"
+              control={
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Name"
+              control={<Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />}
+            />
+            <Field
+              label="Room Count"
+              control={
+                <Input
+                  type="number"
+                  min={1}
+                  value={roomCount}
+                  onChange={(e) => setRoomCount(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Max Occupancy"
+              control={
+                <Input
+                  type="number"
+                  min={1}
+                  value={maxOccupancy}
+                  onChange={(e) => setMaxOccupancy(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Max Adults"
+              control={
+                <Input
+                  type="number"
+                  min={1}
+                  value={maxAdults}
+                  onChange={(e) => setMaxAdults(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Button type="submit" intent="primary" disabled={saving}>
               {saving ? 'Saving…' : 'Create Room Type'}
-            </button>
+            </Button>
           </form>
         </>
       ) : (
@@ -316,34 +334,31 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     No rooms in this type — create one. Sellable count is still {t.roomCount}.
                   </p>
                 ) : (
-                  <div className="table-scroll">
-                    <table className={rooms.length > 50 ? 'content-visibility-auto' : undefined}>
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Floor</th>
-                          <th>Housekeeping</th>
-                          <th>OOO</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {inType.map((room) => {
-                          const edit = roomEdits[room.roomId] ?? {
-                            code: room.code,
-                            floor: room.floor ?? '',
-                          };
-                          return (
-                            <tr key={room.roomId}>
-                              <td>
-                                <label>
-                                  Code for {room.code}{' '}
-                                  <input
+                  <DataTable>
+                    <DataTableHead>
+                      <DataTableRow>
+                        <DataTableHeaderCell>Code</DataTableHeaderCell>
+                        <DataTableHeaderCell>Floor</DataTableHeaderCell>
+                        <DataTableHeaderCell>Housekeeping</DataTableHeaderCell>
+                        <DataTableHeaderCell>OOO</DataTableHeaderCell>
+                        <DataTableHeaderCell />
+                      </DataTableRow>
+                    </DataTableHead>
+                    <DataTableBody>
+                      {inType.map((room) => {
+                        const edit = roomEdits[room.roomId] ?? {
+                          code: room.code,
+                          floor: room.floor ?? '',
+                        };
+                        return (
+                          <DataTableRow key={room.roomId}>
+                            <DataTableCell>
+                              <Field
+                                label={`Code for ${room.code}`}
+                                control={
+                                  <Input
                                     value={edit.code}
                                     autoComplete="off"
-                                    spellCheck={false}
-                                    translate="no"
-                                    className="tabular-nums"
                                     onChange={(e) =>
                                       setRoomEdits((prev) => ({
                                         ...prev,
@@ -351,12 +366,14 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                       }))
                                     }
                                   />
-                                </label>
-                              </td>
-                              <td>
-                                <label>
-                                  Floor for {room.code}{' '}
-                                  <input
+                                }
+                              />
+                            </DataTableCell>
+                            <DataTableCell>
+                              <Field
+                                label={`Floor for ${room.code}`}
+                                control={
+                                  <Input
                                     value={edit.floor}
                                     autoComplete="off"
                                     onChange={(e) =>
@@ -366,42 +383,43 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                       }))
                                     }
                                   />
-                                </label>
-                              </td>
-                              <td>{room.status}</td>
-                              <td>
-                                {room.oooRanges.length
-                                  ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
-                                  : '—'}
-                              </td>
-                              <td>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    setSaving(true);
-                                    try {
-                                      await api.updateRoom(propertyId, room.roomId, {
-                                        code: edit.code,
-                                        floor: edit.floor || undefined,
-                                      });
-                                      setMessage('Saved.');
-                                      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
-                                    } catch (err) {
-                                      setMessage(inventoryErrorCopy(err));
-                                    } finally {
-                                      setSaving(false);
-                                    }
-                                  }}
-                                >
-                                  Save Room {room.code}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                }
+                              />
+                            </DataTableCell>
+                            <DataTableCell>{room.status}</DataTableCell>
+                            <DataTableCell>
+                              {room.oooRanges.length
+                                ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
+                                : '—'}
+                            </DataTableCell>
+                            <DataTableCell>
+                              <Button
+                                type="button"
+                                intent="primary"
+                                onClick={async () => {
+                                  setSaving(true);
+                                  try {
+                                    await api.updateRoom(propertyId, room.roomId, {
+                                      code: edit.code,
+                                      floor: edit.floor || undefined,
+                                    });
+                                    setMessage('Saved.');
+                                    await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+                                  } catch (err) {
+                                    setMessage(inventoryErrorCopy(err));
+                                  } finally {
+                                    setSaving(false);
+                                  }
+                                }}
+                              >
+                                Save Room {room.code}
+                              </Button>
+                            </DataTableCell>
+                          </DataTableRow>
+                        );
+                      })}
+                    </DataTableBody>
+                  </DataTable>
                 )}
               </section>
             );
@@ -416,34 +434,38 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
             }}
           >
             <h2>Create Room</h2>
-            <label>
-              Room type{' '}
-              <select value={roomTypeId} onChange={(e) => setRoomTypeId(e.target.value)}>
-                <option value="">Select…</option>
-                {types.map((t) => (
-                  <option key={t.roomTypeId} value={t.roomTypeId}>
-                    {t.code} {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Room code{' '}
-              <input
-                value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                translate="no"
-              />
-            </label>
-            <label>
-              Floor{' '}
-              <input value={roomFloor} onChange={(e) => setRoomFloor(e.target.value)} autoComplete="off" />
-            </label>
-            <button type="submit" disabled={saving}>
+            <Field
+              label="Room type"
+              control={
+                <NativeSelect value={roomTypeId} onChange={(e) => setRoomTypeId(e.target.value)}>
+                  <option value="">Select…</option>
+                  {types.map((t) => (
+                    <option key={t.roomTypeId} value={t.roomTypeId}>
+                      {t.code} {t.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            <Field
+              label="Room code"
+              control={
+                <Input
+                  value={roomCode}
+                  onChange={(e) => setRoomCode(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Floor"
+              control={
+                <Input value={roomFloor} onChange={(e) => setRoomFloor(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Button type="submit" intent="primary" disabled={saving}>
               {saving ? 'Saving…' : 'Create Room'}
-            </button>
+            </Button>
           </form>
         </>
       )}
@@ -451,16 +473,17 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
       {archiveTarget ? (
         <div role="dialog" aria-modal="true" className="panel overscroll-contain">
           <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
-          <button type="button" onClick={() => setArchiveTarget(null)}>
+          <Button type="button" onClick={() => setArchiveTarget(null)}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            intent="destructive"
             onClick={() => archiveType.mutate(archiveTarget.roomTypeId)}
             disabled={archiveType.isPending}
           >
             {archiveType.isPending ? 'Archiving…' : 'Archive'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

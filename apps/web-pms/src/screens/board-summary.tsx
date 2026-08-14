@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
-import { statusClass } from '../status/status-class.js';
+import { Badge } from '@hospai/ui-kit';
 
 export function BoardSummary({ date }: { date: string | null }) {
   const summaryQ = useQuery({
@@ -28,9 +28,9 @@ export function BoardSummary({ date }: { date: string | null }) {
         In-house {s.inHouse}
       </Link>
       {s.overstay > 0 ? (
-        <span data-testid="board-summary-overstay" className={`chip ${statusClass('exception')}`}>
+        <Badge rung="exception" data-testid="board-summary-overstay">
           Overstay {s.overstay}
-        </span>
+        </Badge>
       ) : null}
       <span className="chip">
         Occupancy {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}

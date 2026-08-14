@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Alert, Button, Checkbox, Field, Textarea } from '@hospai/ui-kit';
 import { api, tenant } from '../client.js';
 
 const COMMENT_MAX = 2000;
@@ -57,48 +58,49 @@ export function FrontOfficeEditor({
   return (
     <section className="stack" data-testid="front-office-editor">
       <h2>Front office</h2>
-      <label>
-        Comment{' '}
-        <textarea
-          data-testid="front-office-comment"
-          value={comment}
-          disabled={disabled}
-          onChange={(e) => setComment(e.target.value)}
-        />
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          data-testid="vip-flag"
-          checked={vip}
-          disabled={disabled}
-          onChange={(e) => setVip(e.target.checked)}
-        />{' '}
-        VIP
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          data-testid="dnd-flag"
-          checked={dnd}
-          disabled={disabled}
-          onChange={(e) => setDnd(e.target.checked)}
-        />{' '}
-        DND
-      </label>
-      <button
+      <Field
+        label="Comment"
+        control={
+          <Textarea
+            data-testid="front-office-comment"
+            value={comment}
+            disabled={disabled}
+            onChange={(e) => setComment(e.target.value)}
+          />
+        }
+      />
+      <Field
+        label="VIP"
+        control={
+          <Checkbox
+            data-testid="vip-flag"
+            checked={vip}
+            disabled={disabled}
+            onChange={(e) => setVip(e.target.checked)}
+          />
+        }
+      />
+      <Field
+        label="DND"
+        control={
+          <Checkbox
+            data-testid="dnd-flag"
+            checked={dnd}
+            disabled={disabled}
+            onChange={(e) => setDnd(e.target.checked)}
+          />
+        }
+      />
+      <Button
         type="button"
+        intent="primary"
         data-testid="front-office-save"
         disabled={saveDisabled}
         onClick={() => save.mutate()}
       >
         Save
-      </button>
-      {tooLong ? (
-        <p className="error" role="alert">
-          Comment must be 2000 characters or fewer.
-        </p>
-      ) : null}
+      </Button>
+      {tooLong ? <Alert>Comment must be 2000 characters or fewer.</Alert> : null}
       {message ? <p className="muted">{message}</p> : null}
     </section>
   );

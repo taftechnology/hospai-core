@@ -3,8 +3,8 @@ import type { ButtonIntent, ControlSize } from './types.js';
 
 const BUTTON_INTENT: Record<ButtonIntent, string> = {
   default: '',
-  primary: 'ui-btn--primary',
-  destructive: 'ui-btn--destructive',
+  primary: 'ui-btn--primary btn-primary',
+  destructive: 'ui-btn--destructive btn-destructive',
   ghost: 'ui-btn--ghost',
 };
 

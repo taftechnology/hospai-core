@@ -6,6 +6,7 @@ import {
   type FolioPaymentRow,
   type FolioReadState,
 } from '@hospai/client-core';
+import { Alert, Badge, Button, Input, NativeSelect } from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState } from 'react';
@@ -17,7 +18,6 @@ import {
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
-import { statusClass } from '../status/status-class.js';
 import { GuestNameLink } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
@@ -769,25 +769,25 @@ export function FolioScreen() {
       ) : null}
 
       {folioQ.isError ? (
-        <p className="error" data-testid="folio-unread">
+        <Alert data-testid="folio-unread">
           Folio unreadable — property unreachable
           {policy.reasons.charge ? ` · ${policy.reasons.charge}` : ''}
-        </p>
+        </Alert>
       ) : (
         <p data-testid="folio-balance">
           Balance {typeof balanceMinor === 'number' ? formatMinor(balanceMinor) : '…'}
           {held > 0 ? ` · ${formatMinor(held)} held on card` : ''}
           {noPost ? (
-            <span data-testid="no-post-chip" className={statusClass('informational')}>
+            <Badge rung="informational" data-testid="no-post-chip">
               {' '}
               No-post
-            </span>
+            </Badge>
           ) : null}
           {folioQ.data?.balanceAtRisk ? (
-            <span data-testid="balance-at-risk" className={statusClass('informational')}>
+            <Badge rung="informational" data-testid="balance-at-risk">
               {' '}
               Balance at risk
-            </span>
+            </Badge>
           ) : null}
         </p>
       )}
@@ -809,7 +809,7 @@ export function FolioScreen() {
                   {tenderMethod(p)} · {formatMinor(p.amountMinor)}
                   {p.status === 'authorized' ? (
                     <>
-                      <input
+                      <Input
                         aria-label={`capture-amount-${p.paymentId}`}
                         value={value}
                         onChange={(e) =>
@@ -817,7 +817,7 @@ export function FolioScreen() {
                         }
                         disabled={!policy.canPay}
                       />
-                      <button
+                      <Button
                         type="button"
                         disabled={!policy.canPay || capture.isPending}
                         onClick={() =>
@@ -829,28 +829,28 @@ export function FolioScreen() {
                         }
                       >
                         Capture
-                      </button>
+                      </Button>
                       {canPost ? (
-                        <button
+                        <Button
                           type="button"
                           data-testid={`void-payment-${p.paymentId}`}
                           disabled={voidPay.isPending}
                           onClick={() => voidPay.mutate(p.paymentId)}
                         >
                           Void
-                        </button>
+                        </Button>
                       ) : null}
                     </>
                   ) : null}
                   {p.status === 'captured' && canAdjust ? (
-                    <button
+                    <Button
                       type="button"
                       data-testid={`refund-payment-${p.paymentId}`}
                       disabled={refundPay.isPending}
                       onClick={() => refundPay.mutate(p.paymentId)}
                     >
                       Refund
-                    </button>
+                    </Button>
                   ) : null}
                 </li>
               );
@@ -887,26 +887,26 @@ export function FolioScreen() {
 
       <section className="stack-row">
         <h2>Post charge</h2>
-        <input
+        <Input
           aria-label="charge-code"
           value={chargeCode}
           onChange={(e) => setChargeCode(e.target.value)}
           disabled={!policy.canPostCharge}
         />
-        <input
+        <Input
           aria-label="charge-amount"
           value={chargeAmount}
           onChange={(e) => setChargeAmount(e.target.value)}
           disabled={!policy.canPostCharge}
         />
-        <button
+        <Button
           type="button"
           data-testid="add-charge"
           disabled={!policy.canPostCharge || addCharge.isPending}
           onClick={() => addCharge.mutate()}
         >
           Add charge
-        </button>
+        </Button>
         {!policy.canPostCharge && policy.reasons.charge ? (
           <p className="muted">{policy.reasons.charge}</p>
         ) : null}
@@ -920,53 +920,53 @@ export function FolioScreen() {
             No open cashier shift.
           </p>
         ) : null}
-        <input
+        <Input
           aria-label="cash-amount"
           value={cashAmount}
           onChange={(e) => setCashAmount(e.target.value)}
           disabled={!policy.canPay}
         />
-        <button
+        <Button
           type="button"
           data-testid="record-cash"
           disabled={!policy.canPay || cashPay.isPending}
           onClick={() => cashPay.mutate()}
         >
           Record cash
-        </button>
-        <input
+        </Button>
+        <Input
           aria-label="auth-amount"
           value={authAmount}
           onChange={(e) => setAuthAmount(e.target.value)}
           disabled={!policy.canPay}
         />
-        <button
+        <Button
           type="button"
           data-testid="authorize-card"
           disabled={!policy.canPay || authorize.isPending}
           onClick={() => authorize.mutate()}
         >
           Charge card
-        </button>
+        </Button>
       </section>
 
       <section>
         {policy.canCheckout ? (
           <>
             {folioQ.isError ? (
-              <p className="error" data-testid="checkout-outage-copy">
+              <Alert data-testid="checkout-outage-copy">
                 {policy.reasons.checkout ??
                   'Folio unavailable; checking out will not settle any balance.'}
-              </p>
+              </Alert>
             ) : null}
-            <button
+            <Button
               type="button"
               data-testid="check-out"
               disabled={checkOut.isPending}
               onClick={() => checkOut.mutate()}
             >
               Check out
-            </button>
+            </Button>
           </>
         ) : null}
       </section>
@@ -976,14 +976,14 @@ export function FolioScreen() {
       <details data-testid="folio-advanced">
         <summary>Advanced</summary>
         {canWrite ? (
-          <button
+          <Button
             type="button"
             data-testid="toggle-no-post"
             disabled={toggleNoPost.isPending}
             onClick={() => toggleNoPost.mutate()}
           >
             {noPost ? 'Clear no-post' : 'Set no-post'}
-          </button>
+          </Button>
         ) : null}
 
         {reservationQ.isSuccess ? (
@@ -1009,83 +1009,83 @@ export function FolioScreen() {
             <ul data-testid="folio-windows">
               {windows.map((w) => (
                 <li key={w.folioWindowId}>
-                  <span
+                  <Badge
+                    rung={w.status === 'CLOSED' ? 'informational' : 'neutral'}
                     data-testid={`window-chip-${w.folioWindowId}`}
-                    className={statusClass(w.status === 'CLOSED' ? 'informational' : 'neutral')}
                   >
                     {w.kind} {w.status} · {formatMinor(w.balanceMinor)}
-                  </span>
+                  </Badge>
                   {canAdjust && w.status === 'OPEN' ? (
-                    <button
+                    <Button
                       type="button"
                       data-testid={`close-window-${w.folioWindowId}`}
                       disabled={windowCloseDisabled(w) || closeWindow.isPending}
                       onClick={() => closeWindow.mutate(w.folioWindowId)}
                     >
                       Close
-                    </button>
+                    </Button>
                   ) : null}
                   {canAdjust && w.status === 'CLOSED' ? (
-                    <button
+                    <Button
                       type="button"
                       data-testid={`reopen-window-${w.folioWindowId}`}
                       disabled={reopenWindow.isPending}
                       onClick={() => reopenWindow.mutate(w.folioWindowId)}
                     >
                       Reopen
-                    </button>
+                    </Button>
                   ) : null}
                 </li>
               ))}
             </ul>
             {canAdjust ? (
               <div className="stack-row">
-                <input
+                <Input
                   aria-label="company-billed-party"
                   placeholder="billed party"
                   value={companyBilledParty}
                   onChange={(e) => setCompanyBilledParty(e.target.value)}
                 />
-                <button
+                <Button
                   type="button"
                   data-testid="open-company-window"
                   disabled={openCompany.isPending}
                   onClick={() => openCompany.mutate()}
                 >
                   Open COMPANY
-                </button>
+                </Button>
               </div>
             ) : null}
           </section>
         ) : canAdjust ? (
           <section className="stack-row">
             <h2>Windows</h2>
-            <input
+            <Input
               aria-label="company-billed-party"
               placeholder="billed party"
               value={companyBilledParty}
               onChange={(e) => setCompanyBilledParty(e.target.value)}
             />
-            <button
+            <Button
               type="button"
               data-testid="open-company-window"
               disabled={openCompany.isPending}
               onClick={() => openCompany.mutate()}
             >
               Open COMPANY
-            </button>
+            </Button>
           </section>
         ) : null}
 
         {showCaptureDue ? (
-          <button
+          <Button
             type="button"
             data-testid="capture-due"
             disabled={captureDueHolds.isPending}
             onClick={() => captureDueHolds.mutate()}
           >
             Capture due
-          </button>
+          </Button>
         ) : null}
 
         <ul>
@@ -1100,7 +1100,7 @@ export function FolioScreen() {
               ) : null}
               {canAdjust && transferDestsFor(node.line.folioWindowId).length > 0 ? (
                 <>
-                  <select
+                  <NativeSelect
                     data-testid={`transfer-dest-${node.line.folioLineId}`}
                     aria-label={`transfer-dest-${node.line.folioLineId}`}
                     value={
@@ -1120,8 +1120,8 @@ export function FolioScreen() {
                         {w.kind}
                       </option>
                     ))}
-                  </select>
-                  <button
+                  </NativeSelect>
+                  <Button
                     type="button"
                     data-testid={`transfer-line-${node.line.folioLineId}`}
                     disabled={transferLine.isPending}
@@ -1137,7 +1137,7 @@ export function FolioScreen() {
                     }}
                   >
                     Transfer
-                  </button>
+                  </Button>
                 </>
               ) : null}
             </li>
@@ -1174,25 +1174,25 @@ export function FolioScreen() {
 
         <section className="stack-row">
           <h2>Split charge</h2>
-          <input
+          <Input
             aria-label="split-line-id"
             placeholder="folio line id"
             value={splitLineId}
             onChange={(e) => setSplitLineId(e.target.value)}
           />
-          <input
+          <Input
             aria-label="split-a"
             placeholder="amount a"
             value={splitA}
             onChange={(e) => setSplitA(e.target.value)}
           />
-          <input
+          <Input
             aria-label="split-b"
             placeholder="amount b"
             value={splitB}
             onChange={(e) => setSplitB(e.target.value)}
           />
-          <select
+          <NativeSelect
             aria-label="split-dest-a"
             value={splitDestA || guestWindowId}
             onChange={(e) => setSplitDestA(e.target.value)}
@@ -1202,8 +1202,8 @@ export function FolioScreen() {
                 {w.kind}
               </option>
             ))}
-          </select>
-          <select
+          </NativeSelect>
+          <NativeSelect
             aria-label="split-dest-b"
             value={splitDestB || guestWindowId}
             onChange={(e) => setSplitDestB(e.target.value)}
@@ -1213,89 +1213,89 @@ export function FolioScreen() {
                 {w.kind}
               </option>
             ))}
-          </select>
-          <button
+          </NativeSelect>
+          <Button
             type="button"
             data-testid="split-charge"
             disabled={!canSplit || split.isPending || !splitLineId}
             onClick={() => split.mutate()}
           >
             Split
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-testid="split-payment"
             disabled={!canSplit || splitPayment.isPending || !splitLineId}
             onClick={() => splitPayment.mutate()}
           >
             Split payment
-          </button>
+          </Button>
           {!canSplit && splitReason ? <p className="muted">{splitReason}</p> : null}
         </section>
 
         {canAdjust ? (
           <section className="stack-row">
             <h2>Discount</h2>
-            <input
+            <Input
               aria-label="discount-line-id"
               placeholder="folio line id"
               value={discountLineId}
               onChange={(e) => setDiscountLineId(e.target.value)}
             />
-            <input
+            <Input
               aria-label="discount-reason"
               placeholder="reason"
               value={discountReason}
               onChange={(e) => setDiscountReason(e.target.value)}
             />
-            <select
+            <NativeSelect
               aria-label="discount-kind"
               value={discountKind}
               onChange={(e) => setDiscountKind(e.target.value as 'percent' | 'fixed')}
             >
               <option value="percent">percent</option>
               <option value="fixed">fixed</option>
-            </select>
-            <input
+            </NativeSelect>
+            <Input
               aria-label="discount-value"
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
             />
-            <button
+            <Button
               type="button"
               data-testid="post-discount"
               disabled={!discountReason.trim() || discount.isPending}
               onClick={() => discount.mutate()}
             >
               Post discount
-            </button>
+            </Button>
           </section>
         ) : null}
 
         {canAdjust ? (
           <section className="stack-row" data-testid="chargeback-form">
             <h2>Chargeback</h2>
-            <input
+            <Input
               aria-label="chargeback-payment-id"
               placeholder="payment id"
               value={chargebackPaymentId}
               onChange={(e) => setChargebackPaymentId(e.target.value)}
               disabled={!folioLive}
             />
-            <input
+            <Input
               aria-label="chargeback-fee"
               value={chargebackFee}
               onChange={(e) => setChargebackFee(e.target.value)}
               disabled={!folioLive}
             />
-            <input
+            <Input
               aria-label="chargeback-reason"
               placeholder="reason"
               value={chargebackReason}
               onChange={(e) => setChargebackReason(e.target.value)}
               disabled={!folioLive}
             />
-            <button
+            <Button
               type="button"
               data-testid="record-chargeback"
               disabled={
@@ -1304,14 +1304,14 @@ export function FolioScreen() {
               onClick={() => chargeback.mutate()}
             >
               Record chargeback
-            </button>
+            </Button>
           </section>
         ) : null}
 
         {canAdjust ? (
           <section className="stack-row" data-testid="fx-adjustment-form">
             <h2>FX adjustment</h2>
-            <select
+            <NativeSelect
               aria-label="fx-kind"
               value={fxKind}
               onChange={(e) => setFxKind(e.target.value as 'gain' | 'loss')}
@@ -1319,28 +1319,28 @@ export function FolioScreen() {
             >
               <option value="loss">Loss</option>
               <option value="gain">Gain</option>
-            </select>
-            <input
+            </NativeSelect>
+            <Input
               aria-label="fx-amount"
               value={fxAmount}
               onChange={(e) => setFxAmount(e.target.value)}
               disabled={!folioLive}
             />
-            <input
+            <Input
               aria-label="fx-reason"
               placeholder="reason"
               value={fxReason}
               onChange={(e) => setFxReason(e.target.value)}
               disabled={!folioLive}
             />
-            <button
+            <Button
               type="button"
               data-testid="post-fx-adjustment"
               disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending}
               onClick={() => fxAdjust.mutate()}
             >
               Post FX adjustment
-            </button>
+            </Button>
           </section>
         ) : null}
 
@@ -1356,30 +1356,30 @@ export function FolioScreen() {
                   </li>
                 ))}
             </ul>
-            <input
+            <Input
               aria-label="fx-from"
               value={fxFrom}
               onChange={(e) => setFxFrom(e.target.value)}
               disabled={!folioLive}
             />
-            <input
+            <Input
               aria-label="fx-rate"
               value={fxRate}
               onChange={(e) => setFxRate(e.target.value)}
               disabled={!folioLive}
             />
-            <button
+            <Button
               type="button"
               data-testid="create-fx-rate"
               disabled={!folioLive || createFx.isPending}
               onClick={() => createFx.mutate()}
             >
               Create FX rate
-            </button>
+            </Button>
           </details>
         ) : null}
 
-        <select
+        <NativeSelect
           aria-label="cash-currency"
           data-testid="cash-currency"
           value={selectedPayCurrency}
@@ -1391,8 +1391,8 @@ export function FolioScreen() {
               {c}
             </option>
           ))}
-        </select>
-        <select
+        </NativeSelect>
+        <NativeSelect
           aria-label="authorize-currency"
           data-testid="authorize-currency"
           value={selectedPayCurrency}
@@ -1404,7 +1404,7 @@ export function FolioScreen() {
               {c}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         {selectedPayCurrency !== ledgerCurrency ? (
           <p className="muted">Indicative — captured at the rate in force at capture.</p>
         ) : null}

@@ -1,6 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
+  Button,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+} from '@hospai/ui-kit';
+import {
   hasPropertyPermission,
   meShellStateFromQuery,
   type PropertyMe,
@@ -123,101 +135,113 @@ export function RosterScreen() {
           if (displayName.trim()) addMutation.mutate();
         }}
       >
-        <label>
-          Name{' '}
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-            autoComplete="off"
-          />
-        </label>
-        <label>
-          Email{' '}
-          <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
-        </label>
-        <label>
-          Phone{' '}
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" />
-        </label>
+        <Field
+          label="Name"
+          control={
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              autoComplete="off"
+            />
+          }
+        />
+        <Field
+          label="Email"
+          control={
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          }
+        />
+        <Field
+          label="Phone"
+          control={
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" />
+          }
+        />
         {canCompensation && (
           <>
-            <label>
-              Hourly rate{' '}
-              <input
-                type="number"
-                value={hourlyRateMinor}
-                onChange={(e) => setHourlyRateMinor(e.target.value)}
-              />
-            </label>
-            <label>
-              Currency{' '}
-              <input
-                value={hourlyRateCurrency}
-                onChange={(e) => setHourlyRateCurrency(e.target.value)}
-              />
-            </label>
-            <label>
-              Rating{' '}
-              <input type="number" value={rating} onChange={(e) => setRating(e.target.value)} />
-            </label>
-            <label>
-              Skills{' '}
-              <input value={skills} onChange={(e) => setSkills(e.target.value)} />
-            </label>
+            <Field
+              label="Hourly rate"
+              control={
+                <Input
+                  type="number"
+                  value={hourlyRateMinor}
+                  onChange={(e) => setHourlyRateMinor(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Currency"
+              control={
+                <Input
+                  value={hourlyRateCurrency}
+                  onChange={(e) => setHourlyRateCurrency(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Rating"
+              control={
+                <Input type="number" value={rating} onChange={(e) => setRating(e.target.value)} />
+              }
+            />
+            <Field
+              label="Skills"
+              control={<Input value={skills} onChange={(e) => setSkills(e.target.value)} />}
+            />
           </>
         )}
-        <button type="submit">Add</button>
+        <Button type="submit" intent="primary">
+          Add
+        </Button>
       </form>
 
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {staff.map((row) => {
-              const label = row.displayName ?? row.staffId;
-              const exited = row.exitedAt != null;
-              return (
-                <tr key={row.staffId}>
-                  <td>{label}</td>
-                  <td>
-                    {exited ? (
-                      'exited'
-                    ) : (
-                      <select
-                        aria-label={`Status for ${label}`}
-                        value={row.status}
-                        onChange={(e) => {
-                          const status = e.target.value as 'active' | 'inactive';
-                          if (status !== row.status) {
-                            statusMutation.mutate({ staffId: row.staffId, status });
-                          }
-                        }}
-                      >
-                        <option value="active">active</option>
-                        <option value="inactive">inactive</option>
-                      </select>
-                    )}
-                  </td>
-                  <td>
-                    {exited ? null : (
-                      <button type="button" onClick={() => onExit(row)}>
-                        Exit {label}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable>
+        <DataTableHead>
+          <DataTableRow>
+            <DataTableHeaderCell>Name</DataTableHeaderCell>
+            <DataTableHeaderCell>Status</DataTableHeaderCell>
+            <DataTableHeaderCell />
+          </DataTableRow>
+        </DataTableHead>
+        <DataTableBody>
+          {staff.map((row) => {
+            const label = row.displayName ?? row.staffId;
+            const exited = row.exitedAt != null;
+            return (
+              <DataTableRow key={row.staffId}>
+                <DataTableCell>{label}</DataTableCell>
+                <DataTableCell>
+                  {exited ? (
+                    'exited'
+                  ) : (
+                    <NativeSelect
+                      aria-label={`Status for ${label}`}
+                      value={row.status}
+                      onChange={(e) => {
+                        const status = e.target.value as 'active' | 'inactive';
+                        if (status !== row.status) {
+                          statusMutation.mutate({ staffId: row.staffId, status });
+                        }
+                      }}
+                    >
+                      <option value="active">active</option>
+                      <option value="inactive">inactive</option>
+                    </NativeSelect>
+                  )}
+                </DataTableCell>
+                <DataTableCell>
+                  {exited ? null : (
+                    <Button type="button" intent="destructive" onClick={() => onExit(row)}>
+                      Exit {label}
+                    </Button>
+                  )}
+                </DataTableCell>
+              </DataTableRow>
+            );
+          })}
+        </DataTableBody>
+      </DataTable>
     </section>
   );
 }

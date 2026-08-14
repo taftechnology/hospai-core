@@ -1,4 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Alert,
+  Button,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+} from '@hospai/ui-kit';
 import { useMemo, useState } from 'react';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
@@ -237,75 +250,79 @@ export function HousekeepingApp({
   return (
     <div>
       <h1>Housekeeping</h1>
-      <label>
-        Business date{' '}
-        <input
-          type="date"
-          value={businessDate}
-          onChange={(e) => setBusinessDate(e.target.value)}
-          data-testid="hk-business-date"
-        />
-      </label>
+      <Field
+        label="Business date"
+        control={
+          <Input
+            type="date"
+            value={businessDate}
+            onChange={(e) => setBusinessDate(e.target.value)}
+            data-testid="hk-business-date"
+          />
+        }
+      />
 
-      <label>
-        Filter status{' '}
-        <select
-          aria-label="Filter status"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="">All</option>
-          <option value="clean">clean</option>
-          <option value="dirty">dirty</option>
-          <option value="inspected">inspected</option>
-          <option value="out_of_order">out_of_order</option>
-        </select>
-      </label>
-      <label>
-        Floor{' '}
-        <select
-          aria-label="Filter floor"
-          value={floorFilter}
-          onChange={(e) => setFloorFilter(e.target.value)}
-        >
-          <option value="">All</option>
-          {[...new Set(rooms.map((r) => r.floor).filter((f): f is string => Boolean(f)))].map(
-            (floor) => (
-              <option key={floor} value={floor}>
-                {floor}
-              </option>
-            ),
-          )}
-        </select>
-      </label>
-      <label>
-        Assignment{' '}
-        <select
-          aria-label="Filter assignment"
-          value={assignedFilter}
-          onChange={(e) => setAssignedFilter(e.target.value)}
-        >
-          <option value="">All</option>
-          <option value="assigned">assigned</option>
-          <option value="unassigned">unassigned</option>
-        </select>
-      </label>
+      <Field
+        label="Filter status"
+        control={
+          <NativeSelect
+            aria-label="Filter status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="clean">clean</option>
+            <option value="dirty">dirty</option>
+            <option value="inspected">inspected</option>
+            <option value="out_of_order">out_of_order</option>
+          </NativeSelect>
+        }
+      />
+      <Field
+        label="Floor"
+        control={
+          <NativeSelect
+            aria-label="Filter floor"
+            value={floorFilter}
+            onChange={(e) => setFloorFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            {[...new Set(rooms.map((r) => r.floor).filter((f): f is string => Boolean(f)))].map(
+              (floor) => (
+                <option key={floor} value={floor}>
+                  {floor}
+                </option>
+              ),
+            )}
+          </NativeSelect>
+        }
+      />
+      <Field
+        label="Assignment"
+        control={
+          <NativeSelect
+            aria-label="Filter assignment"
+            value={assignedFilter}
+            onChange={(e) => setAssignedFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="assigned">assigned</option>
+            <option value="unassigned">unassigned</option>
+          </NativeSelect>
+        }
+      />
 
       {(roomsQuery.isError || assignmentsQuery.isError) && (
-        <div className="error" role="alert">
+        <Alert>
           Unable to load housekeeping board
           {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
             ? ' (property unreachable)'
             : ''}
           .
-        </div>
+        </Alert>
       )}
 
-      {rosterQuery.isError && (
-        <div className="error" role="alert">
-          Unable to load housekeepers
-        </div>
-      )}
+      {rosterQuery.isError && <Alert>Unable to load housekeepers</Alert>}
 
       {emptyRoster && <p>No housekeepers on the roster</p>}
 
@@ -332,73 +349,83 @@ export function HousekeepingApp({
             });
           }}
         >
-          <label>
-            Room{' '}
-            <select
-              aria-label="OOO room"
-              value={formRoomId}
-              onChange={(e) => setOooRoomId(e.target.value)}
-            >
-              {rooms.map((room) => (
-                <option key={room.roomId} value={room.roomId}>
-                  {room.code}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Start{' '}
-            <input
-              type="date"
-              aria-label="Start"
-              value={oooStart}
-              onChange={(e) => setOooStart(e.target.value)}
-            />
-          </label>
-          <label>
-            Return{' '}
-            <input
-              type="date"
-              aria-label="Return"
-              value={oooReturn}
-              onChange={(e) => setOooReturn(e.target.value)}
-            />
-          </label>
-          <label>
-            Reason{' '}
-            <input
-              aria-label="OOO reason"
-              value={oooReason}
-              onChange={(e) => setOooReason(e.target.value)}
-            />
-          </label>
-          <button type="submit">Set OOO</button>
+          <Field
+            label="Room"
+            control={
+              <NativeSelect
+                aria-label="OOO room"
+                value={formRoomId}
+                onChange={(e) => setOooRoomId(e.target.value)}
+              >
+                {rooms.map((room) => (
+                  <option key={room.roomId} value={room.roomId}>
+                    {room.code}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Start"
+            control={
+              <Input
+                type="date"
+                aria-label="Start"
+                value={oooStart}
+                onChange={(e) => setOooStart(e.target.value)}
+              />
+            }
+          />
+          <Field
+            label="Return"
+            control={
+              <Input
+                type="date"
+                aria-label="Return"
+                value={oooReturn}
+                onChange={(e) => setOooReturn(e.target.value)}
+              />
+            }
+          />
+          <Field
+            label="Reason"
+            control={
+              <Input
+                aria-label="OOO reason"
+                value={oooReason}
+                onChange={(e) => setOooReason(e.target.value)}
+              />
+            }
+          />
+          <Button type="submit" intent="primary">
+            Set OOO
+          </Button>
         </form>
       )}
 
-      <table data-testid="hk-board">
-        <thead>
-          <tr>
-            <th>Room</th>
-            <th>Status</th>
-            <th>Assignee</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+      <DataTable data-testid="hk-board">
+        <DataTableHead>
+          <DataTableRow>
+            <DataTableHeaderCell>Room</DataTableHeaderCell>
+            <DataTableHeaderCell>Status</DataTableHeaderCell>
+            <DataTableHeaderCell>Assignee</DataTableHeaderCell>
+            <DataTableHeaderCell />
+          </DataTableRow>
+        </DataTableHead>
+        <DataTableBody>
           {filteredRooms.map((room) => {
             const assigneeRef = byRoom.get(room.roomId);
             const assigneeLabel = assigneeRef
               ? (displayNameByStaffId.get(assigneeRef) ?? assigneeRef)
               : '—';
             return (
-              <tr key={room.roomId}>
-                <td>{room.code}</td>
-                <td>
+              <DataTableRow key={room.roomId}>
+                <DataTableCell>{room.code}</DataTableCell>
+                <DataTableCell>
                   {room.status === 'out_of_order' ? (
                     <span>out_of_order</span>
                   ) : (
-                    <select
+                    <NativeSelect
                       aria-label={`Status for ${room.code}`}
                       defaultValue={room.status}
                       onChange={(e) => {
@@ -413,15 +440,16 @@ export function HousekeepingApp({
                           {s}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   )}
                   {(room.oooRanges ?? []).map((range) => (
                     <div key={range.oooId}>
                       {range.startDate}–{range.endDate}
                       {range.reason ? ` ${range.reason}` : ''}
                       {canSetOoo ? (
-                        <button
+                        <Button
                           type="button"
+                          intent="ghost"
                           onClick={() => {
                             if (!window.confirm('Release this OOO range early?')) return;
                             const defaultReturn =
@@ -437,15 +465,15 @@ export function HousekeepingApp({
                           }}
                         >
                           Release early
-                        </button>
+                        </Button>
                       ) : null}
                     </div>
                   ))}
-                </td>
-                <td>{assigneeLabel}</td>
-                <td>
+                </DataTableCell>
+                <DataTableCell>{assigneeLabel}</DataTableCell>
+                <DataTableCell>
                   {showPicker ? (
-                    <select
+                    <NativeSelect
                       aria-label={`Assign ${room.code}`}
                       defaultValue=""
                       onChange={(e) => {
@@ -466,14 +494,14 @@ export function HousekeepingApp({
                           {person.displayName ?? person.staffId}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   ) : null}
-                </td>
-              </tr>
+                </DataTableCell>
+              </DataTableRow>
             );
           })}
-        </tbody>
-      </table>
+        </DataTableBody>
+      </DataTable>
     </div>
   );
 }

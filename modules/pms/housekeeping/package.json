@@ -21,7 +21,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@hospai/contracts": "workspace:*"
+    "@hospai/contracts": "workspace:*",
+    "@hospai/ui-kit": "workspace:*"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",

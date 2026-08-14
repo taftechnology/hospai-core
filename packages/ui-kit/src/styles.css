@@ -24,13 +24,15 @@
   font-size: 0.875rem;
 }
 
-.ui-btn--primary {
+.ui-btn--primary,
+.btn-primary {
   background: var(--action-primary-surface);
   color: var(--action-primary-fg);
   border-color: transparent;
 }
 
-.ui-btn--destructive {
+.ui-btn--destructive,
+.btn-destructive {
   background: var(--action-destructive-surface);
   color: var(--action-destructive-fg);
   border-color: transparent;

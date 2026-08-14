@@ -10,18 +10,31 @@ import {
   RESERVATION_STATUSES,
   type ReservationStatus,
 } from '@hospai/contracts/reservation-status';
-import { api, asClassified, tenant } from '../client.js';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+} from '@hospai/ui-kit';
 import type { BoardMode } from '../status/board-mode.js';
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { statusClass } from '../status/status-class.js';
+import { api, asClassified, tenant } from '../client.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
-
-export type { BoardMode };
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -62,13 +75,9 @@ function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
     },
   });
   return (
-    <button
-      type="button"
-      disabled={confirm.isPending}
-      onClick={() => confirm.mutate()}
-    >
+    <Button type="button" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
       Confirm
-    </button>
+    </Button>
   );
 }
 
@@ -88,63 +97,60 @@ function BoardTable({
   const today = timeZone ? propertyLocalToday(timeZone) : null;
 
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Guest</th>
-            <th>Room</th>
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((row) => {
-            const status = asReservationStatus(row.status);
-            const overstay =
-              mode === 'in-house' &&
-              today != null &&
-              typeof row.departureDate === 'string' &&
-              row.departureDate < today;
-            // Unrecognized wire status → informational (not a silent neutral/confirmed).
-            const rowSev = status
-              ? boardRowSeverity({ mode, status, overstay })
-              : 'informational';
-            const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
-            const guestSev = guestSeverity(guestState);
-            const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
-            return (
-              <tr key={row.reservationId} className={statusClass(rowSev)}>
-                <td className={statusClass(guestSev)}>
-                  <GuestNameLink state={guestState} guestRef={row.guestRef} />
-                  {overstay ? ' (overstay)' : ''}
-                  {row.vipFlag === true ? (
-                    <span data-testid="badge-vip"> VIP</span>
-                  ) : null}
-                  {row.dndFlag === true ? (
-                    <span data-testid="badge-dnd"> DND</span>
-                  ) : null}
-                </td>
-                <td>{roomCode}</td>
-                <td>{reservationStatusLabel(row.status)}</td>
-                <td>
-                  {mode === 'arrivals' && status === 'pending' ? (
-                    <ConfirmPendingButton reservationId={row.reservationId} />
-                  ) : null}
-                  {mode === 'arrivals' && status !== 'pending' ? (
-                    <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                  ) : null}{' '}
-                  <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
-                  <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
-                    Book for guest
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <DataTable>
+      <DataTableHead>
+        <DataTableRow>
+          <DataTableHeaderCell>Guest</DataTableHeaderCell>
+          <DataTableHeaderCell>Room</DataTableHeaderCell>
+          <DataTableHeaderCell>Status</DataTableHeaderCell>
+          <DataTableHeaderCell />
+        </DataTableRow>
+      </DataTableHead>
+      <DataTableBody>
+        {items.map((row) => {
+          const status = asReservationStatus(row.status);
+          const overstay =
+            mode === 'in-house' &&
+            today != null &&
+            typeof row.departureDate === 'string' &&
+            row.departureDate < today;
+          const rowSev = status
+            ? boardRowSeverity({ mode, status, overstay })
+            : 'informational';
+          const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
+          const guestSev = guestSeverity(guestState);
+          const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
+          return (
+            <DataTableRow key={row.reservationId} rung={rowSev}>
+              <DataTableCell rung={guestSev}>
+                <GuestNameLink state={guestState} guestRef={row.guestRef} />
+                {overstay ? ' (overstay)' : ''}
+                {row.vipFlag === true ? (
+                  <span data-testid="badge-vip"> VIP</span>
+                ) : null}
+                {row.dndFlag === true ? (
+                  <span data-testid="badge-dnd"> DND</span>
+                ) : null}
+              </DataTableCell>
+              <DataTableCell>{roomCode}</DataTableCell>
+              <DataTableCell>{reservationStatusLabel(row.status)}</DataTableCell>
+              <DataTableCell>
+                {mode === 'arrivals' && status === 'pending' ? (
+                  <ConfirmPendingButton reservationId={row.reservationId} />
+                ) : null}
+                {mode === 'arrivals' && status !== 'pending' ? (
+                  <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
+                ) : null}{' '}
+                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
+                <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                  Book for guest
+                </Link>
+              </DataTableCell>
+            </DataTableRow>
+          );
+        })}
+      </DataTableBody>
+    </DataTable>
   );
 }
 
@@ -260,16 +266,14 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     const c = asClassified(listQ.error);
     if (c.class === 'fail_closed' || listQ.error instanceof ClassifiedError) {
       return (
-        <div className="error" role="alert">
-          Property unreachable — board cannot load. This is not an empty day.
-        </div>
+        <Alert>Property unreachable — board cannot load. This is not an empty day.</Alert>
       );
     }
     if (c.class === 'unauthorized') {
       window.location.assign('/sign-in');
       return null;
     }
-    return <div className="error">Failed to load board</div>;
+    return <Alert>Failed to load board</Alert>;
   }
 
   const items = listQ.data?.items ?? [];
@@ -298,32 +302,38 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         </p>
       ) : null}
 
-      <div className="panel">
-        <header className="board-header">
-          <h1 className="board-title">{mode.replace('-', ' ')}</h1>
-          {mode !== 'in-house' ? (
-            <label>
-              Date{' '}
-              <input
-                type="date"
-                data-testid="board-date"
-                value={date ?? ''}
-                onChange={(e) => {
-                  setCursor(null);
-                  setDate(e.target.value);
-                }}
+      <Card>
+        <CardHeader>
+          <header className="board-header">
+            <CardTitle>{mode.replace('-', ' ')}</CardTitle>
+            {mode !== 'in-house' ? (
+              <Field
+                label="Date"
+                control={
+                  <Input
+                    type="date"
+                    data-testid="board-date"
+                    value={date ?? ''}
+                    onChange={(e) => {
+                      setCursor(null);
+                      setDate(e.target.value);
+                    }}
+                  />
+                }
               />
-            </label>
+            ) : null}
+            <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
+          </header>
+        </CardHeader>
+        <CardContent>
+          {body}
+          {listQ.data?.nextCursor ? (
+            <Button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>
+              Next page
+            </Button>
           ) : null}
-          <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
-        </header>
-        {body}
-        {listQ.data?.nextCursor ? (
-          <button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>
-            Next page
-          </button>
-        ) : null}
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

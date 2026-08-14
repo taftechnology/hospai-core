@@ -2,6 +2,13 @@ import { ClassifiedError } from '@hospai/client-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Button,
+  Field,
+  Input,
+  NativeSelect,
+} from '@hospai/ui-kit';
+import {
   hasOrgPermission,
   hasPropertyPermission,
   meShellStateFromQuery,
@@ -118,7 +125,6 @@ export function StaffScreen() {
   const canWriteStaff = me ? hasPropertyPermission(me, 'staff:write') : false;
   const canManageOrg = me ? hasOrgPermission(me, 'org:manage') : false;
 
-  // Clerk on the read path — avoid incidental refetch (rate / oracle exposure).
   const propertyMembersQ = useQuery({
     queryKey: ['property-members', propertyId],
     queryFn: () => api.listPropertyMembers(propertyId),
@@ -280,9 +286,7 @@ export function StaffScreen() {
       </header>
 
       {message ? (
-        <p className="error" role="status" data-testid="staff-message">
-          {message}
-        </p>
+        <Alert data-testid="staff-message">{message}</Alert>
       ) : null}
 
       <section data-testid="property-staff-section" className="board-group">
@@ -304,35 +308,45 @@ export function StaffScreen() {
               addPropertyMut.mutate();
             }}
           >
-            <input
-              type="email"
-              required
-              placeholder="Email"
-              value={propEmail}
-              onChange={(e) => setPropEmail(e.target.value)}
-              aria-label="Property member email"
+            <Field
+              label="Property member email"
+              control={
+                <Input
+                  type="email"
+                  required
+                  placeholder="Email"
+                  value={propEmail}
+                  onChange={(e) => setPropEmail(e.target.value)}
+                  aria-label="Property member email"
+                />
+              }
             />
-            <select
-              value={propRole}
-              onChange={(e) => setPropRole(e.target.value as PropertyWriteRole)}
-              aria-label="Property member role"
-            >
-              {PROPERTY_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-            <button type="submit" disabled={addPropertyMut.isPending}>
+            <Field
+              label="Property member role"
+              control={
+                <NativeSelect
+                  value={propRole}
+                  onChange={(e) => setPropRole(e.target.value as PropertyWriteRole)}
+                  aria-label="Property member role"
+                >
+                  {PROPERTY_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            <Button type="submit" intent="primary" disabled={addPropertyMut.isPending}>
               Add
-            </button>
+            </Button>
           </form>
         ) : null}
 
         {propertyMembersQ.isPending ? (
           <p className="muted">Loading…</p>
         ) : propertyMembersQ.isError ? (
-          <p className="error">Could not load property members</p>
+          <Alert>Could not load property members</Alert>
         ) : (
           <ul className="staff-roster" data-testid="property-roster">
             {(propertyMembersQ.data?.members ?? []).map((m) => {
@@ -359,7 +373,7 @@ export function StaffScreen() {
                   {canWriteStaff ? (
                     <>
                       {(PROPERTY_ROLES as readonly string[]).includes(m.role) ? (
-                        <select
+                        <NativeSelect
                           aria-label={`Role for ${m.userId}`}
                           value={m.role}
                           onChange={(e) =>
@@ -371,15 +385,15 @@ export function StaffScreen() {
                               {r}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       ) : (
                         <span className="muted" data-testid={`property-role-readonly-${m.userId}`}>
                           {m.role}
                         </span>
                       )}
-                      <button type="button" onClick={() => void removePropertyMember(m)}>
+                      <Button type="button" intent="destructive" onClick={() => void removePropertyMember(m)}>
                         Remove
-                      </button>
+                      </Button>
                     </>
                   ) : null}
                 </li>
@@ -413,34 +427,44 @@ export function StaffScreen() {
                 addOrgMut.mutate();
               }}
             >
-              <input
-                type="email"
-                required
-                placeholder="Email"
-                value={orgEmail}
-                onChange={(e) => setOrgEmail(e.target.value)}
-                aria-label="Org member email"
+              <Field
+                label="Org member email"
+                control={
+                  <Input
+                    type="email"
+                    required
+                    placeholder="Email"
+                    value={orgEmail}
+                    onChange={(e) => setOrgEmail(e.target.value)}
+                    aria-label="Org member email"
+                  />
+                }
               />
-              <select
-                value={orgRole}
-                onChange={(e) => setOrgRole(e.target.value as OrgRole)}
-                aria-label="Org member role"
-              >
-                {ORG_ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-              <button type="submit" disabled={addOrgMut.isPending}>
+              <Field
+                label="Org member role"
+                control={
+                  <NativeSelect
+                    value={orgRole}
+                    onChange={(e) => setOrgRole(e.target.value as OrgRole)}
+                    aria-label="Org member role"
+                  >
+                    {ORG_ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Button type="submit" intent="primary" disabled={addOrgMut.isPending}>
                 Add
-              </button>
+              </Button>
             </form>
 
             {orgMembersQ.isPending ? (
               <p className="muted">Loading…</p>
             ) : orgMembersQ.isError ? (
-              <p className="error">Could not load org members</p>
+              <Alert>Could not load org members</Alert>
             ) : (
               <ul className="staff-roster" data-testid="org-roster">
                 {(orgMembersQ.data?.members ?? []).map((m) => {
@@ -464,7 +488,7 @@ export function StaffScreen() {
                           Account no longer exists
                         </span>
                       ) : null}
-                      <select
+                      <NativeSelect
                         aria-label={`Org role for ${m.userId}`}
                         value={m.role}
                         onChange={(e) =>
@@ -476,10 +500,10 @@ export function StaffScreen() {
                             {r}
                           </option>
                         ))}
-                      </select>
-                      <button type="button" onClick={() => void removeOrgMember(m.userId)}>
+                      </NativeSelect>
+                      <Button type="button" intent="destructive" onClick={() => void removeOrgMember(m.userId)}>
                         Remove
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}

@@ -10,6 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Alert, Button, Field, Input } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -368,45 +369,47 @@ export function BookingScreen() {
       <section className="stack">
         <h2>Dates</h2>
         {!timeZone ? <p className="muted">Waiting for property timezone…</p> : null}
-        <label>
-          Arrival{' '}
-          <input
-            type="date"
-            data-testid="arrival-date"
-            value={arrivalDate}
-            onChange={(e) => {
-              setArrivalDate(e.target.value);
-              setRoomTypeId(null);
-            }}
-          />
-        </label>
-        <label>
-          Departure{' '}
-          <input
-            type="date"
-            data-testid="departure-date"
-            value={departureDate}
-            onChange={(e) => {
-              setDepartureDate(e.target.value);
-              setRoomTypeId(null);
-            }}
-          />
-        </label>
+        <Field
+          label="Arrival"
+          control={
+            <Input
+              type="date"
+              data-testid="arrival-date"
+              value={arrivalDate}
+              onChange={(e) => {
+                setArrivalDate(e.target.value);
+                setRoomTypeId(null);
+              }}
+            />
+          }
+        />
+        <Field
+          label="Departure"
+          control={
+            <Input
+              type="date"
+              data-testid="departure-date"
+              value={departureDate}
+              onChange={(e) => {
+                setDepartureDate(e.target.value);
+                setRoomTypeId(null);
+              }}
+            />
+          }
+        />
         {dateCapBlocked ? (
-          <p className="error" role="alert">
-            Stay exceeds the 90-night availability query limit — shorten dates.
-          </p>
+          <Alert>Stay exceeds the 90-night availability query limit — shorten dates.</Alert>
         ) : null}
       </section>
 
       <section className="stack">
         <h2>Room type</h2>
         {availErrorClassified ? (
-          <p className="error" role="alert">
+          <Alert>
             {availDateRangeExceeded
               ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
               : `Availability unavailable (${availErrorClassified.class}). Confirm blocked until a fresh quote.`}
-          </p>
+          </Alert>
         ) : null}
         {availQ.isSuccess && selectable.length === 0 ? (
           <p className="muted" role="status">
@@ -417,7 +420,7 @@ export function BookingScreen() {
           {selectable.map((id) => (
             <li key={id}>
               <label>
-                <input
+                <Input
                   type="radio"
                   name="roomType"
                   value={id}
@@ -449,26 +452,30 @@ export function BookingScreen() {
 
       <section className="stack">
         <h2>Party</h2>
-        <label>
-          Adults{' '}
-          <input
-            type="number"
-            min={1}
-            data-testid="adults"
-            value={adults}
-            onChange={(e) => setAdults(Number(e.target.value))}
-          />
-        </label>
-        <label>
-          Children{' '}
-          <input
-            type="number"
-            min={0}
-            data-testid="children"
-            value={children}
-            onChange={(e) => setChildren(Number(e.target.value))}
-          />
-        </label>
+        <Field
+          label="Adults"
+          control={
+            <Input
+              type="number"
+              min={1}
+              data-testid="adults"
+              value={String(adults)}
+              onChange={(e) => setAdults(Number(e.target.value))}
+            />
+          }
+        />
+        <Field
+          label="Children"
+          control={
+            <Input
+              type="number"
+              min={0}
+              data-testid="children"
+              value={String(children)}
+              onChange={(e) => setChildren(Number(e.target.value))}
+            />
+          }
+        />
       </section>
 
       <section className="stack">
@@ -479,21 +486,23 @@ export function BookingScreen() {
           </p>
         ) : (
           <>
-            <label>
-              Find existing{' '}
-              <input
-                data-testid="guest-find"
-                type="search"
-                autoComplete="off"
-                value={findQ}
-                onChange={(e) => setFindQ(e.target.value)}
-              />
-            </label>
+            <Field
+              label="Find existing"
+              control={
+                <Input
+                  data-testid="guest-find"
+                  type="search"
+                  autoComplete="off"
+                  value={findQ}
+                  onChange={(e) => setFindQ(e.target.value)}
+                />
+              }
+            />
             {findHits.length > 0 ? (
               <ul>
                 {findHits.map((hit) => (
                   <li key={hit.guestId}>
-                    <button
+                    <Button
                       type="button"
                       onClick={() => {
                         setContextGuestRef(hit.guestId);
@@ -501,68 +510,71 @@ export function BookingScreen() {
                       }}
                     >
                       {hit.profile.displayName}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
             ) : null}
-            <label>
-              Name{' '}
-              <input
-                data-testid="guest-name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-            </label>
-            <label>
-              Email{' '}
-              <input
-                data-testid="guest-email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            <label>
-              Phone{' '}
-              <input
-                data-testid="guest-phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </label>
+            <Field
+              label="Name"
+              control={
+                <Input
+                  data-testid="guest-name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Email"
+              control={
+                <Input
+                  data-testid="guest-email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Phone"
+              control={
+                <Input
+                  data-testid="guest-phone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              }
+            />
           </>
         )}
       </section>
 
-      <button
+      <Button
         type="button"
+        intent="primary"
         data-testid="confirm-book"
         disabled={!confirmEnabled || bookMutation.isPending}
         onClick={() => bookMutation.mutate('confirmed')}
       >
         Confirm booking
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         data-testid="hold-book"
         disabled={!confirmEnabled || bookMutation.isPending}
         onClick={() => bookMutation.mutate('pending')}
       >
         Hold
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         data-testid="quote-book"
         disabled={!quoteEnabled || bookMutation.isPending}
         onClick={() => bookMutation.mutate('inquiry')}
       >
         Quote
-      </button>
-      {message ? (
-        <p className="error" role="alert" data-testid="book-message">
-          {message}
-        </p>
-      ) : null}
+      </Button>
+      {message ? <Alert data-testid="book-message">{message}</Alert> : null}
     </div>
   );
 }

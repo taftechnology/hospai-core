@@ -148,6 +148,9 @@ importers:
       '@hospai/contracts':
         specifier: workspace:*
         version: link:../../../packages/contracts
+      '@hospai/ui-kit':
+        specifier: workspace:*
+        version: link:../../../packages/ui-kit
     devDependencies:
       '@tanstack/react-query':
         specifier: ^5.74.4

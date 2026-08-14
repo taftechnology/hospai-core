@@ -2,6 +2,22 @@ import { ClassifiedError } from '@hospai/client-core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 
 type GuestProfile = { displayName: string; email?: string; phone?: string };
@@ -72,49 +88,43 @@ export function GuestsDirectoryScreen() {
 
   let results: ReactNode;
   if (failClosed) {
-    results = (
-      <p className="error" role="alert">
-        Guest directory unavailable — organization unreachable.
-      </p>
-    );
+    results = <Alert>Guest directory unavailable — organization unreachable.</Alert>;
   } else if (listQ.isLoading) {
     results = <p className="muted">Loading…</p>;
   } else if (page.items.length === 0) {
     results = <p className="muted">{q ? 'No guests match that search.' : 'No guests yet.'}</p>;
   } else {
     results = (
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {page.items.map((row) => (
-              <tr key={row.guestId}>
-                <td className="min-w-0 truncate">
-                  <Link
-                    to={`/guests/${encodeURIComponent(row.guestId)}`}
-                    data-testid="guest-profile-link"
-                  >
-                    {row.profile.displayName}
-                  </Link>
-                  <div translate="no" className="muted truncate" title={row.guestId}>
-                    {row.guestId}
-                  </div>
-                </td>
-                <td className="min-w-0 truncate">{row.profile.email ?? ''}</td>
-                <td className="min-w-0 truncate">{row.profile.phone ?? ''}</td>
-                <td className="tabular-nums">{formatCreated(row.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable>
+        <DataTableHead>
+          <DataTableRow>
+            <DataTableHeaderCell>Name</DataTableHeaderCell>
+            <DataTableHeaderCell>Email</DataTableHeaderCell>
+            <DataTableHeaderCell>Phone</DataTableHeaderCell>
+            <DataTableHeaderCell>Created</DataTableHeaderCell>
+          </DataTableRow>
+        </DataTableHead>
+        <DataTableBody>
+          {page.items.map((row) => (
+            <DataTableRow key={row.guestId}>
+              <DataTableCell>
+                <Link
+                  to={`/guests/${encodeURIComponent(row.guestId)}`}
+                  data-testid="guest-profile-link"
+                >
+                  {row.profile.displayName}
+                </Link>
+                <div translate="no" className="muted truncate" title={row.guestId}>
+                  {row.guestId}
+                </div>
+              </DataTableCell>
+              <DataTableCell>{row.profile.email ?? ''}</DataTableCell>
+              <DataTableCell>{row.profile.phone ?? ''}</DataTableCell>
+              <DataTableCell>{formatCreated(row.createdAt)}</DataTableCell>
+            </DataTableRow>
+          ))}
+        </DataTableBody>
+      </DataTable>
     );
   }
 
@@ -128,30 +138,36 @@ export function GuestsDirectoryScreen() {
 
   return (
     <div>
-      <div className="panel" aria-live="polite">
-        <header className="board-header">
-          <h1 className="board-title text-wrap-balance">Guests</h1>
-          <label>
-            Name, email, or phone{' '}
-            <input
-              role="search"
-              type="search"
-              name="guest-search"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Ada Lovelace, ada@…, or 5550100…"
-              data-testid="guest-directory-search"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+      <div aria-live="polite">
+      <Card>
+        <CardHeader>
+          <header className="board-header">
+            <CardTitle>Guests</CardTitle>
+            <Field
+              label="Name, email, or phone"
+              control={
+                <Input
+                  type="search"
+                  name="guest-search"
+                  autoComplete="off"
+                  placeholder="Ada Lovelace, ada@…, or 5550100…"
+                  data-testid="guest-directory-search"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                />
+              }
             />
-          </label>
-        </header>
-        {results}
-        {page.nextCursor ? (
-          <button type="button" onClick={goNext}>
-            Next
-          </button>
-        ) : null}
+          </header>
+        </CardHeader>
+        <CardContent>
+          {results}
+          {page.nextCursor ? (
+            <Button type="button" onClick={goNext}>
+              Next
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
       </div>
     </div>
   );

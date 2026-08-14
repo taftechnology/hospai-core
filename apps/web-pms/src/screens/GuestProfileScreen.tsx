@@ -2,10 +2,25 @@ import { ClassifiedError } from '@hospai/client-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+} from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
-import { statusClass } from '../status/status-class.js';
 import type { StatusSeverity } from '../status/types.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -167,174 +182,189 @@ export function GuestProfileScreen() {
     <div data-testid="guest-profile">
       {unsavedGuard}
       {contactFailClosed ? (
-        <p className="error" role="alert">
-          Guest profile unavailable — organization unreachable.
-        </p>
+        <Alert>Guest profile unavailable — organization unreachable.</Alert>
       ) : guestQ.isLoading ? (
         <p className="muted">Loading…</p>
       ) : guest ? (
-        <section className="panel">
-          <header className="board-header">
-            <h1 className="board-title text-wrap-balance">{heading}</h1>
-            {canBook ? (
-              <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
-                Book for guest
-              </Link>
-            ) : null}
-          </header>
-          <p>
-            PII: <strong>{guest.erased ? 'Erased' : 'Live'}</strong>
-          </p>
-          {guest.erased ? null : (
-            <dl>
-              <div>
-                <dt>Name</dt>
-                <dd>{guest.profile.displayName}</dd>
-              </div>
-              {guest.profile.email ? (
-                <div>
-                  <dt>Email</dt>
-                  <dd>{guest.profile.email}</dd>
-                </div>
+        <Card>
+          <CardHeader>
+            <header className="board-header">
+              <CardTitle>{heading}</CardTitle>
+              {canBook ? (
+                <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
+                  Book for guest
+                </Link>
               ) : null}
-              {guest.profile.phone ? (
+            </header>
+          </CardHeader>
+          <CardContent>
+            <p>
+              PII: <strong>{guest.erased ? 'Erased' : 'Live'}</strong>
+            </p>
+            {guest.erased ? null : (
+              <dl>
                 <div>
-                  <dt>Phone</dt>
-                  <dd>{guest.profile.phone}</dd>
+                  <dt>Name</dt>
+                  <dd>{guest.profile.displayName}</dd>
                 </div>
-              ) : null}
-            </dl>
-          )}
-          {canWrite && !guest.erased ? (
-            editing ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!displayName.trim()) {
-                    setEditError('Name is required.');
-                    return;
-                  }
-                  saveM.mutate();
-                }}
-              >
-                {editError ? (
-                  <p className="error" role="alert">
-                    {editError}
-                  </p>
+                {guest.profile.email ? (
+                  <div>
+                    <dt>Email</dt>
+                    <dd>{guest.profile.email}</dd>
+                  </div>
                 ) : null}
-                <label>
-                  Name{' '}
-                  <input
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    autoComplete="off"
-                    required
+                {guest.profile.phone ? (
+                  <div>
+                    <dt>Phone</dt>
+                    <dd>{guest.profile.phone}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            )}
+            {canWrite && !guest.erased ? (
+              editing ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!displayName.trim()) {
+                      setEditError('Name is required.');
+                      return;
+                    }
+                    saveM.mutate();
+                  }}
+                >
+                  {editError ? <Alert>{editError}</Alert> : null}
+                  <Field
+                    label="Name"
+                    control={
+                      <Input
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        autoComplete="off"
+                        required
+                      />
+                    }
                   />
-                </label>
-                <label>
-                  Email{' '}
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="off"
+                  <Field
+                    label="Email"
+                    control={
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
                   />
-                </label>
-                <label>
-                  Phone{' '}
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" />
-                </label>
-                <button type="submit" disabled={saveM.isPending}>
-                  {saveM.isPending ? 'Saving…' : 'Save'}
-                </button>
-                <button type="button" onClick={() => setEditing(false)}>
-                  Cancel
-                </button>
-              </form>
-            ) : (
-              <button type="button" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-            )
-          ) : null}
-          {canErase && !guest.erased ? (
-            <button type="button" data-testid="guest-erase" onClick={() => setConfirmErase(true)}>
-              Erase
-            </button>
-          ) : null}
-        </section>
+                  <Field
+                    label="Phone"
+                    control={
+                      <Input
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  <Button type="submit" disabled={saveM.isPending}>
+                    {saveM.isPending ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button type="button" onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
+                <Button type="button" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              )
+            ) : null}
+            {canErase && !guest.erased ? (
+              <Button type="button" data-testid="guest-erase" onClick={() => setConfirmErase(true)}>
+                Erase
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
       ) : (
-        <p className="error">Guest not found.</p>
+        <Alert>Guest not found.</Alert>
       )}
 
-      <section className="panel" data-testid="guest-stays">
-        <h2>Stays</h2>
-        {staysFailClosed ? (
-          <p className="error" role="alert">
-            Stay history unavailable — property unreachable.
-          </p>
-        ) : staysQ.isLoading ? (
-          <p className="muted">Loading…</p>
-        ) : stays.items.length === 0 ? (
-          <p className="muted">No stays at this property.</p>
-        ) : (
-          <div className="table-scroll">
-            <table>
+      <section data-testid="guest-stays">
+      <Card>
+        <CardHeader>
+          <h2>Stays</h2>
+        </CardHeader>
+        <CardContent>
+          {staysFailClosed ? (
+            <Alert>Stay history unavailable — property unreachable.</Alert>
+          ) : staysQ.isLoading ? (
+            <p className="muted">Loading…</p>
+          ) : stays.items.length === 0 ? (
+            <p className="muted">No stays at this property.</p>
+          ) : (
+            <DataTable>
               <caption>Stays at this property.</caption>
-              <thead>
-                <tr>
-                  <th>Reservation</th>
-                  <th>Dates</th>
-                  <th>Status</th>
-                  <th>Room</th>
-                  <th>Party</th>
-                </tr>
-              </thead>
-              <tbody>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Reservation</DataTableHeaderCell>
+                  <DataTableHeaderCell>Dates</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell>Room</DataTableHeaderCell>
+                  <DataTableHeaderCell>Party</DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
                 {stays.items.map((row) => (
-                  <tr key={row.reservationId}>
-                    <td translate="no">
+                  <DataTableRow key={row.reservationId}>
+                    <DataTableCell>
                       <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
-                    </td>
-                    <td className="tabular-nums">
+                    </DataTableCell>
+                    <DataTableCell>
                       {row.arrivalDate} → {row.departureDate}
-                    </td>
-                    <td className={statusClass(staySeverity(row.status))}>
+                    </DataTableCell>
+                    <DataTableCell rung={staySeverity(row.status)}>
                       {reservationStatusLabel(row.status)}
-                    </td>
-                    <td className="min-w-0 truncate">
+                    </DataTableCell>
+                    <DataTableCell>
                       {row.roomId ? (roomsById.get(row.roomId) ?? '') : ''}
-                    </td>
-                    <td className="tabular-nums">
+                    </DataTableCell>
+                    <DataTableCell>
                       {row.adults}+{row.children}
                       {row.vipFlag ? <span data-testid="badge-vip"> VIP</span> : null}
                       {row.dndFlag ? <span data-testid="badge-dnd"> DND</span> : null}
-                    </td>
-                  </tr>
+                    </DataTableCell>
+                  </DataTableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </DataTableBody>
+            </DataTable>
+          )}
+        </CardContent>
+      </Card>
       </section>
 
       {confirmErase ? (
-        <div role="dialog" aria-modal="true" className="panel overscroll-contain">
-          <p>
-            This permanently destroys the guest’s contact details. Stay records remain. This cannot be
-            undone.
-          </p>
-          <button type="button" onClick={() => setConfirmErase(false)} aria-label="Cancel erase">
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => eraseM.mutate()}
-            disabled={eraseM.isPending}
-            data-testid="guest-erase-confirm"
-          >
-            {eraseM.isPending ? 'Erasing…' : 'Erase guest'}
-          </button>
+        <div role="dialog" aria-modal="true">
+        <Card>
+          <CardContent>
+            <p>
+              This permanently destroys the guest’s contact details. Stay records remain. This cannot be
+              undone.
+            </p>
+            <Button type="button" onClick={() => setConfirmErase(false)} aria-label="Cancel erase">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="destructive"
+              onClick={() => eraseM.mutate()}
+              disabled={eraseM.isPending}
+              data-testid="guest-erase-confirm"
+            >
+              {eraseM.isPending ? 'Erasing…' : 'Erase guest'}
+            </Button>
+          </CardContent>
+        </Card>
         </div>
       ) : null}
     </div>

@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
+import { Alert, Badge, Button, Field, Input } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
 import { formatMinor, formatVarianceMinor, parseMajorToMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { shiftSeverity } from '../status/shift-severity.js';
-import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 
 type ShiftBody = {
@@ -88,7 +88,7 @@ function ShiftCloseForm() {
   if (openQ.isError) {
     const c = asClassified(openQ.error);
     if (c.class === 'fail_closed') {
-      return <p className="error">Shift unavailable — property unreachable</p>;
+      return <Alert>Shift unavailable — property unreachable</Alert>;
     }
     return <p className="muted">Shift status unavailable</p>;
   }
@@ -121,17 +121,19 @@ function ShiftCloseForm() {
           closeMut.mutate(shiftId);
         }}
       >
-        <label>
-          Closing count
-          <input
-            aria-label="closing-count"
-            value={closingMajor}
-            onChange={(e) => setClosingMajor(e.target.value)}
-          />
-        </label>
-        <button type="submit" disabled={closeMut.isPending}>
+        <Field
+          label="Closing count"
+          control={
+            <Input
+              aria-label="closing-count"
+              value={closingMajor}
+              onChange={(e) => setClosingMajor(e.target.value)}
+            />
+          }
+        />
+        <Button type="submit" disabled={closeMut.isPending}>
           Close shift
-        </button>
+        </Button>
       </form>
       {message ? <p className="muted">{message}</p> : null}
     </div>
@@ -180,9 +182,9 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
   return (
     <div className="panel stack" data-testid="shift-receipt">
       <h1>Shift receipt</h1>
-      <p className={statusClass(sev)} data-testid="receipt-status">
+      <Badge rung={sev} data-testid="receipt-status">
         {shift.status}
-      </p>
+      </Badge>
       <dl>
         <div>
           <dt>Shift</dt>
@@ -210,7 +212,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         </div>
       </dl>
       {shift.status === 'FORCE_CLOSED' ? (
-        <p className={statusClass('exception')}>Drawer never counted.</p>
+        <Badge rung="exception">Drawer never counted.</Badge>
       ) : null}
       <Link to="/arrivals">Back to board</Link>
     </div>

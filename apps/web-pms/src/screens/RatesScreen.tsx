@@ -1,6 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import {
+  Alert,
+  Button,
+  Checkbox,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
+  Field,
+  Input,
+  NativeSelect,
+  Textarea,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -92,28 +107,28 @@ function RateCell(props: {
 }) {
   const [raw, setRaw] = useState(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
   return (
-    <label>
-      Rate for {props.code} on {props.stayDate}{' '}
-      <input
-        value={raw}
-        autoComplete="off"
-        inputMode="decimal"
-        className="tabular-nums"
-        onChange={(e) => setRaw(e.target.value)}
-        onBlur={async () => {
-          if (raw.trim() === '') return;
-          const amountMinor = parseMajorToMinor(raw);
-          if (!Number.isFinite(amountMinor)) return;
-          await api.putRateDay(props.propertyId, {
-            roomTypeId: props.roomTypeId,
-            ratePlanId: props.ratePlanId,
-            stayDate: props.stayDate,
-            amountMinor,
-            currency: props.currency,
-          });
-        }}
-      />
-    </label>
+    <Field
+      label={`Rate for ${props.code} on ${props.stayDate}`}
+      control={
+        <Input
+          value={raw}
+          autoComplete="off"
+          onChange={(e) => setRaw(e.target.value)}
+          onBlur={async () => {
+            if (raw.trim() === '') return;
+            const amountMinor = parseMajorToMinor(raw);
+            if (!Number.isFinite(amountMinor)) return;
+            await api.putRateDay(props.propertyId, {
+              roomTypeId: props.roomTypeId,
+              ratePlanId: props.ratePlanId,
+              stayDate: props.stayDate,
+              amountMinor,
+              currency: props.currency,
+            });
+          }}
+        />
+      }
+    />
   );
 }
 
@@ -249,41 +264,39 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       ) : null}
 
       {plansFailClosed || typesFailClosed ? (
-        <div className="error" role="alert">
-          Property unreachable — cannot load rates.
-        </div>
+        <Alert>Property unreachable — cannot load rates.</Alert>
       ) : null}
 
       {activeTab === 'plans' && !plansFailClosed ? (
         <>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Cancel</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {plans.map((p) => (
-                  <tr key={p.ratePlanId}>
-                    <td translate="no">{p.code}</td>
-                    <td>{p.name}</td>
-                    <td>{p.cancelPenaltyType}</td>
-                    <td>
-                      {p.ratePlanId === 'BAR' ? null : (
-                        <button type="button" onClick={() => setArchivePlan(p)}>
-                          Archive {p.code}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable>
+            <DataTableHead>
+              <DataTableRow>
+                <DataTableHeaderCell>Code</DataTableHeaderCell>
+                <DataTableHeaderCell>Name</DataTableHeaderCell>
+                <DataTableHeaderCell>Cancel</DataTableHeaderCell>
+                <DataTableHeaderCell />
+              </DataTableRow>
+            </DataTableHead>
+            <DataTableBody>
+              {plans.map((p) => (
+                <DataTableRow key={p.ratePlanId}>
+                  <DataTableCell>
+                    <span translate="no">{p.code}</span>
+                  </DataTableCell>
+                  <DataTableCell>{p.name}</DataTableCell>
+                  <DataTableCell>{p.cancelPenaltyType}</DataTableCell>
+                  <DataTableCell>
+                    {p.ratePlanId === 'BAR' ? null : (
+                      <Button type="button" intent="destructive" onClick={() => setArchivePlan(p)}>
+                        Archive {p.code}
+                      </Button>
+                    )}
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTableBody>
+          </DataTable>
           <form
             className="stack"
             onSubmit={(e) => {
@@ -292,70 +305,83 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             }}
           >
             <h2>Create Rate Plan</h2>
-            <label>
-              Code{' '}
-              <input
-                value={planCode}
-                onChange={(e) => setPlanCode(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                translate="no"
-              />
-            </label>
-            <label>
-              Name <input value={planName} onChange={(e) => setPlanName(e.target.value)} autoComplete="off" />
-            </label>
-            <label>
-              Cancel penalty{' '}
-              <select value={cancelType} onChange={(e) => setCancelType(e.target.value)}>
-                <option value="none">none</option>
-                <option value="first_night">first_night</option>
-                <option value="nights">nights</option>
-                <option value="percent">percent</option>
-                <option value="full">full</option>
-              </select>
-            </label>
-            <label>
-              Grace hours{' '}
-              <input
-                type="number"
-                min={0}
-                value={graceHours}
-                onChange={(e) => setGraceHours(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            {cancelType === 'nights' ? (
-              <label>
-                Penalty nights{' '}
-                <input
-                  type="number"
-                  min={1}
-                  value={penaltyNights}
-                  onChange={(e) => setPenaltyNights(e.target.value)}
+            <Field
+              label="Code"
+              control={
+                <Input
+                  value={planCode}
+                  onChange={(e) => setPlanCode(e.target.value)}
                   autoComplete="off"
                 />
-              </label>
+              }
+            />
+            <Field
+              label="Name"
+              control={
+                <Input value={planName} onChange={(e) => setPlanName(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Field
+              label="Cancel penalty"
+              control={
+                <NativeSelect value={cancelType} onChange={(e) => setCancelType(e.target.value)}>
+                  <option value="none">none</option>
+                  <option value="first_night">first_night</option>
+                  <option value="nights">nights</option>
+                  <option value="percent">percent</option>
+                  <option value="full">full</option>
+                </NativeSelect>
+              }
+            />
+            <Field
+              label="Grace hours"
+              control={
+                <Input
+                  type="number"
+                  min={0}
+                  value={graceHours}
+                  onChange={(e) => setGraceHours(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            {cancelType === 'nights' ? (
+              <Field
+                label="Penalty nights"
+                control={
+                  <Input
+                    type="number"
+                    min={1}
+                    value={penaltyNights}
+                    onChange={(e) => setPenaltyNights(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
             ) : null}
             {cancelType === 'percent' ? (
-              <label>
-                Penalty bps{' '}
-                <input
-                  type="number"
-                  min={1}
-                  value={penaltyBps}
-                  onChange={(e) => setPenaltyBps(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
+              <Field
+                label="Penalty bps"
+                control={
+                  <Input
+                    type="number"
+                    min={1}
+                    value={penaltyBps}
+                    onChange={(e) => setPenaltyBps(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
             ) : null}
-            <label>
-              Policy{' '}
-              <textarea value={policyText} onChange={(e) => setPolicyText(e.target.value)} autoComplete="off" />
-            </label>
-            <button type="submit" disabled={createPlan.isPending}>
+            <Field
+              label="Policy"
+              control={
+                <Textarea value={policyText} onChange={(e) => setPolicyText(e.target.value)} autoComplete="off" />
+              }
+            />
+            <Button type="submit" intent="primary" disabled={createPlan.isPending}>
               {createPlan.isPending ? 'Saving…' : 'Create Rate Plan'}
-            </button>
+            </Button>
           </form>
         </>
       ) : null}
@@ -370,73 +396,77 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             <p className="muted" translate="no">
               Ledger currency {currency}
             </p>
-            <label>
-              From{' '}
-              <input
-                type="date"
-                value={from}
-                autoComplete="off"
-                onChange={(e) => setWindow(e.target.value, to)}
-              />
-            </label>
-            <label>
-              To{' '}
-              <input
-                type="date"
-                value={to}
-                autoComplete="off"
-                onChange={(e) => setWindow(from, e.target.value)}
-              />
-            </label>
-            <label>
-              Rate plan{' '}
-              <select value={plan} onChange={(e) => setWindow(from, to, e.target.value)}>
-                {plans.map((p) => (
-                  <option key={p.ratePlanId} value={p.ratePlanId}>
-                    {p.code}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    {dates.map((d) => (
-                      <th key={d} className="tabular-nums">
-                        {d}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {types.map((t) => (
-                    <tr key={t.roomTypeId}>
-                      <td>
-                        <span translate="no">{t.code}</span> {t.name}
-                      </td>
-                      {dates.map((d) => {
-                        const row = dayMap.get(`${t.roomTypeId}:${d}`);
-                        return (
-                          <td key={d}>
-                            <RateCell
-                              code={t.code}
-                              roomTypeId={t.roomTypeId}
-                              stayDate={d}
-                              amountMinor={row?.amountMinor ?? null}
-                              currency={currency}
-                              ratePlanId={plan}
-                              propertyId={propertyId}
-                            />
-                          </td>
-                        );
-                      })}
-                    </tr>
+            <Field
+              label="From"
+              control={
+                <Input
+                  type="date"
+                  value={from}
+                  autoComplete="off"
+                  onChange={(e) => setWindow(e.target.value, to)}
+                />
+              }
+            />
+            <Field
+              label="To"
+              control={
+                <Input
+                  type="date"
+                  value={to}
+                  autoComplete="off"
+                  onChange={(e) => setWindow(from, e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Rate plan"
+              control={
+                <NativeSelect value={plan} onChange={(e) => setWindow(from, to, e.target.value)}>
+                  {plans.map((p) => (
+                    <option key={p.ratePlanId} value={p.ratePlanId}>
+                      {p.code}
+                    </option>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </NativeSelect>
+              }
+            />
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Type</DataTableHeaderCell>
+                  {dates.map((d) => (
+                    <DataTableHeaderCell key={d} align="right">
+                      {d}
+                    </DataTableHeaderCell>
+                  ))}
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {types.map((t) => (
+                  <DataTableRow key={t.roomTypeId}>
+                    <DataTableCell>
+                      <span translate="no">{t.code}</span> {t.name}
+                    </DataTableCell>
+                    {dates.map((d) => {
+                      const row = dayMap.get(`${t.roomTypeId}:${d}`);
+                      return (
+                        <DataTableCell key={d}>
+                          <RateCell
+                            code={t.code}
+                            roomTypeId={t.roomTypeId}
+                            stayDate={d}
+                            amountMinor={row?.amountMinor ?? null}
+                            currency={currency}
+                            ratePlanId={plan}
+                            propertyId={propertyId}
+                          />
+                        </DataTableCell>
+                      );
+                    })}
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
 
             <form
               className="stack"
@@ -469,48 +499,52 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             >
               <h2>Bulk fill</h2>
               {types.map((t) => (
-                <label key={t.roomTypeId}>
-                  <input
-                    type="checkbox"
-                    checked={typeIds.has(t.roomTypeId)}
-                    onChange={(e) => {
-                      const next = new Set(typeIds);
-                      if (e.target.checked) next.add(t.roomTypeId);
-                      else next.delete(t.roomTypeId);
-                      setSelectedTypes(next);
-                    }}
-                  />{' '}
-                  {t.code}
-                </label>
+                <Field
+                  key={t.roomTypeId}
+                  label={t.code}
+                  control={
+                    <Checkbox
+                      checked={typeIds.has(t.roomTypeId)}
+                      onChange={(e) => {
+                        const next = new Set(typeIds);
+                        if (e.target.checked) next.add(t.roomTypeId);
+                        else next.delete(t.roomTypeId);
+                        setSelectedTypes(next);
+                      }}
+                    />
+                  }
+                />
               ))}
               {WEEKDAYS.map((w) => (
-                <label key={w.n}>
-                  <input
-                    type="checkbox"
-                    checked={weekdays.has(w.n)}
-                    onChange={(e) => {
-                      const next = new Set(weekdays);
-                      if (e.target.checked) next.add(w.n);
-                      else next.delete(w.n);
-                      setWeekdays(next);
-                    }}
-                  />{' '}
-                  {w.label}
-                </label>
-              ))}
-              <label>
-                Bulk amount{' '}
-                <input
-                  value={bulkAmount}
-                  onChange={(e) => setBulkAmount(e.target.value)}
-                  autoComplete="off"
-                  inputMode="decimal"
-                  className="tabular-nums"
+                <Field
+                  key={w.n}
+                  label={w.label}
+                  control={
+                    <Checkbox
+                      checked={weekdays.has(w.n)}
+                      onChange={(e) => {
+                        const next = new Set(weekdays);
+                        if (e.target.checked) next.add(w.n);
+                        else next.delete(w.n);
+                        setWeekdays(next);
+                      }}
+                    />
+                  }
                 />
-              </label>
-              <button type="submit" disabled={savingBulk}>
+              ))}
+              <Field
+                label="Bulk amount"
+                control={
+                  <Input
+                    value={bulkAmount}
+                    onChange={(e) => setBulkAmount(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              <Button type="submit" intent="primary" disabled={savingBulk}>
                 {savingBulk ? 'Saving…' : 'Fill Selected Days'}
-              </button>
+              </Button>
             </form>
           </>
         )
@@ -527,51 +561,55 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             <p className="muted">
               Closed to arrival / departure apply to the stay’s boundary nights.
             </p>
-            <label>
-              From{' '}
-              <input
-                type="date"
-                value={from}
-                autoComplete="off"
-                onChange={(e) => setWindow(e.target.value, to)}
-              />
-            </label>
-            <label>
-              To{' '}
-              <input
-                type="date"
-                value={to}
-                autoComplete="off"
-                onChange={(e) => setWindow(from, e.target.value)}
-              />
-            </label>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    {dates.map((d) => (
-                      <th key={d}>{d}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {types.map((t) => (
-                    <tr key={t.roomTypeId}>
-                      <td>
-                        <span translate="no">{t.code}</span> {t.name}
-                      </td>
-                      {dates.map((d) => {
-                        const row = restMap.get(`${t.roomTypeId}:${d}`);
-                        return (
-                          <td key={d}>
-                            <label>
-                              Min LOS for {t.code} on {d}{' '}
-                              <input
+            <Field
+              label="From"
+              control={
+                <Input
+                  type="date"
+                  value={from}
+                  autoComplete="off"
+                  onChange={(e) => setWindow(e.target.value, to)}
+                />
+              }
+            />
+            <Field
+              label="To"
+              control={
+                <Input
+                  type="date"
+                  value={to}
+                  autoComplete="off"
+                  onChange={(e) => setWindow(from, e.target.value)}
+                />
+              }
+            />
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Type</DataTableHeaderCell>
+                  {dates.map((d) => (
+                    <DataTableHeaderCell key={d}>{d}</DataTableHeaderCell>
+                  ))}
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {types.map((t) => (
+                  <DataTableRow key={t.roomTypeId}>
+                    <DataTableCell>
+                      <span translate="no">{t.code}</span> {t.name}
+                    </DataTableCell>
+                    {dates.map((d) => {
+                      const row = restMap.get(`${t.roomTypeId}:${d}`);
+                      return (
+                        <DataTableCell key={d}>
+                          <Field
+                            label={`Min LOS for ${t.code} on ${d}`}
+                            control={
+                              <Input
                                 type="number"
                                 min={1}
                                 autoComplete="off"
-                                defaultValue={row?.minLos ?? ''}
+                                defaultValue={row?.minLos != null ? String(row.minLos) : ''}
                                 onBlur={async (e) => {
                                   const v = e.target.value.trim();
                                   await api.putRestrictionDay(propertyId, {
@@ -585,14 +623,16 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                   });
                                 }}
                               />
-                            </label>
-                            <label>
-                              Max LOS for {t.code} on {d}{' '}
-                              <input
+                            }
+                          />
+                          <Field
+                            label={`Max LOS for ${t.code} on ${d}`}
+                            control={
+                              <Input
                                 type="number"
                                 min={1}
                                 autoComplete="off"
-                                defaultValue={row?.maxLos ?? ''}
+                                defaultValue={row?.maxLos != null ? String(row.maxLos) : ''}
                                 onBlur={async (e) => {
                                   const v = e.target.value.trim();
                                   await api.putRestrictionDay(propertyId, {
@@ -606,11 +646,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                   });
                                 }}
                               />
-                            </label>
-                            <label>
-                              CTA for {t.code} on {d}{' '}
-                              <input
-                                type="checkbox"
+                            }
+                          />
+                          <Field
+                            label={`CTA for ${t.code} on ${d}`}
+                            control={
+                              <Checkbox
                                 defaultChecked={row?.cta ?? false}
                                 onChange={async (e) => {
                                   await api.putRestrictionDay(propertyId, {
@@ -624,11 +665,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                   });
                                 }}
                               />
-                            </label>
-                            <label>
-                              CTD for {t.code} on {d}{' '}
-                              <input
-                                type="checkbox"
+                            }
+                          />
+                          <Field
+                            label={`CTD for ${t.code} on ${d}`}
+                            control={
+                              <Checkbox
                                 defaultChecked={row?.ctd ?? false}
                                 onChange={async (e) => {
                                   await api.putRestrictionDay(propertyId, {
@@ -642,11 +684,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                   });
                                 }}
                               />
-                            </label>
-                            <label>
-                              Stop sell for {t.code} on {d}{' '}
-                              <input
-                                type="checkbox"
+                            }
+                          />
+                          <Field
+                            label={`Stop sell for ${t.code} on ${d}`}
+                            control={
+                              <Checkbox
                                 defaultChecked={row?.stopSell ?? false}
                                 onChange={async (e) => {
                                   await api.putRestrictionDay(propertyId, {
@@ -660,15 +703,15 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                   });
                                 }}
                               />
-                            </label>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                            }
+                          />
+                        </DataTableCell>
+                      );
+                    })}
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
           </>
         )
       ) : null}
@@ -676,12 +719,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       {archivePlan ? (
         <div role="dialog" aria-modal="true" className="panel">
           <p>Archive {archivePlan.code}? It will stop being sellable.</p>
-          <button type="button" onClick={() => setArchivePlan(null)}>
+          <Button type="button" onClick={() => setArchivePlan(null)}>
             Cancel
-          </button>
-          <button type="button" onClick={() => doArchivePlan.mutate(archivePlan.ratePlanId)}>
+          </Button>
+          <Button type="button" intent="destructive" onClick={() => doArchivePlan.mutate(archivePlan.ratePlanId)}>
             Archive
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

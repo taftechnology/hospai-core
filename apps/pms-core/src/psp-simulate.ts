@@ -1,5 +1,9 @@
 export type PspAuthorizeResult =
   | { outcome: 'approved'; gatewayReference: string; cardBrand: string; cardLast4: string }
+  | { outcome: 'declined'; reason: string }
+  | { outcome: 'timeout' };
+
+export type PspVoidResult =
   | { outcome: 'approved'; gatewayReference: string }
   | { outcome: 'declined'; reason: string }
   | { outcome: 'timeout' };
@@ -67,7 +71,7 @@ export async function simulateCapture(
 export async function simulateVoid(
   input: { paymentId: string; gatewayReference: string },
   outcome: PspSimulateOutcome | null,
-): Promise<PspAuthorizeResult> {
+): Promise<PspVoidResult> {
   void input.paymentId;
   const mode = outcome?.void ?? 'approved';
   if (mode === 'declined') return { outcome: 'declined', reason: 'simulated_decline' };

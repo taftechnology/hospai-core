@@ -47,6 +47,22 @@ function heldAmount(payments: FolioPaymentRow[]): number {
   return sum;
 }
 
+function chargeDescription(
+  chargeCode: string,
+  codes: Array<{ code: string; name: string }> | undefined,
+): string {
+  const hit = codes?.find((c) => c.code === chargeCode);
+  return hit?.name ?? chargeCode;
+}
+
+function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' {
+  if (p.tenderType === 'CASH') return 'Cash';
+  if (p.tenderType === 'CARD') return 'Card';
+  if (p.status === 'authorized') return 'Card';
+  if (p.status === 'captured' && p.gatewayReference == null) return 'Cash';
+  return 'Card';
+}
+
 export function FolioScreen() {
   const { reservationId = '' } = useParams();
   const propertyId = tenant.propertyId;
@@ -122,6 +138,16 @@ export function FolioScreen() {
     queryKey: ['property', propertyId],
     queryFn: () => api.getProperty(propertyId),
     retry: false,
+  });
+  const roomsQ = useQuery({
+    queryKey: ['rooms', propertyId],
+    queryFn: () => api.listRooms(propertyId),
+    enabled: Boolean(propertyId),
+  });
+  const chargeCodesQ = useQuery({
+    queryKey: ['charge-codes', propertyId],
+    queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
+    enabled: Boolean(propertyId),
   });
 
   const policy = folioActionPolicy({
@@ -711,6 +737,16 @@ export function FolioScreen() {
   const editorDisabled =
     writeDenied ||
     Boolean(reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status));
+  const roomCode = (() => {
+    const roomId = reservationQ.data?.roomId;
+    if (!roomId) return undefined;
+    const code = roomsQ.data?.rooms.find((r) => r.roomId === roomId)?.code;
+    return code && code.length > 0 ? code : undefined;
+  })();
+  const chargeCodes = (chargeCodesQ.data?.codes ?? []) as Array<{ code: string; name: string }>;
+  const tenderPayments = payments.filter(
+    (p) => p.status === 'authorized' || p.status === 'captured',
+  );
 
   return (
     <div className="panel">
@@ -723,7 +759,7 @@ export function FolioScreen() {
         {reservationQ.data
           ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationQ.data.status}`
           : null}
-        {reservationQ.data?.roomId ? ` · room ${reservationQ.data.roomId}` : null}
+        {roomCode ? ` · room ${roomCode} ` : null}
       </p>
       {guestRef ? (
         <p>
@@ -754,173 +790,58 @@ export function FolioScreen() {
           ) : null}
         </p>
       )}
-      {canWrite ? (
-        <button
-          type="button"
-          data-testid="toggle-no-post"
-          disabled={toggleNoPost.isPending}
-          onClick={() => toggleNoPost.mutate()}
-        >
-          {noPost ? 'Clear no-post' : 'Set no-post'}
-        </button>
-      ) : null}
-
-      {reservationQ.isSuccess ? (
-        <FrontOfficeEditor
-          reservationId={reservationId}
-          frontOfficeComment={reservationQ.data.frontOfficeComment}
-          vipFlag={reservationQ.data.vipFlag}
-          dndFlag={reservationQ.data.dndFlag}
-          disabled={editorDisabled}
-        />
-      ) : null}
-      <PrintRegCardControl canPrint={canPrint} />
-      <RegistrationCard
-        propertyName={propertyQ.data?.property?.name ?? null}
-        reservation={reservationQ.data}
-        displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
-      />
-
-      {windows.length > 0 ? (
-        <section>
-          <h2>Windows</h2>
-          <ul data-testid="folio-windows">
-            {windows.map((w) => (
-              <li key={w.folioWindowId}>
-                <span
-                  data-testid={`window-chip-${w.folioWindowId}`}
-                  className={statusClass(w.status === 'CLOSED' ? 'informational' : 'neutral')}
-                >
-                  {w.kind} {w.status} · {formatMinor(w.balanceMinor)}
-                </span>
-                {canAdjust && w.status === 'OPEN' ? (
-                  <button
-                    type="button"
-                    data-testid={`close-window-${w.folioWindowId}`}
-                    disabled={windowCloseDisabled(w) || closeWindow.isPending}
-                    onClick={() => closeWindow.mutate(w.folioWindowId)}
-                  >
-                    Close
-                  </button>
-                ) : null}
-                {canAdjust && w.status === 'CLOSED' ? (
-                  <button
-                    type="button"
-                    data-testid={`reopen-window-${w.folioWindowId}`}
-                    disabled={reopenWindow.isPending}
-                    onClick={() => reopenWindow.mutate(w.folioWindowId)}
-                  >
-                    Reopen
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {canAdjust ? (
-            <div className="stack-row">
-              <input
-                aria-label="company-billed-party"
-                placeholder="billed party"
-                value={companyBilledParty}
-                onChange={(e) => setCompanyBilledParty(e.target.value)}
-              />
-              <button
-                type="button"
-                data-testid="open-company-window"
-                disabled={openCompany.isPending}
-                onClick={() => openCompany.mutate()}
-              >
-                Open COMPANY
-              </button>
-            </div>
-          ) : null}
-        </section>
-      ) : canAdjust ? (
-        <section className="stack-row">
-          <h2>Windows</h2>
-          <input
-            aria-label="company-billed-party"
-            placeholder="billed party"
-            value={companyBilledParty}
-            onChange={(e) => setCompanyBilledParty(e.target.value)}
-          />
-          <button
-            type="button"
-            data-testid="open-company-window"
-            disabled={openCompany.isPending}
-            onClick={() => openCompany.mutate()}
-          >
-            Open COMPANY
-          </button>
-        </section>
-      ) : null}
 
       <section>
-        <h2>Holds</h2>
+        <h2>Tenders</h2>
         {paymentsQ.isError ? (
           <p className="muted">Payments unavailable</p>
-        ) : payments.filter((p) => p.status === 'authorized').length === 0 ? (
-          <p className="muted">No authorized holds</p>
+        ) : tenderPayments.length === 0 ? (
+          <p className="muted">No tenders</p>
         ) : (
           <ul>
-            {payments
-              .filter((p) => p.status === 'authorized')
-              .map((p) => {
-                const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
-                const defaultAmt = formatMinor(remaining);
-                const value = captureAmounts[p.paymentId] ?? defaultAmt;
-                return (
-                  <li key={p.paymentId}>
-                    {p.paymentId} · {formatMinor(p.amountMinor)} · {p.status}
-                    {p.gatewayReference ? ` · ${p.gatewayReference}` : ''}
-                    <input
-                      aria-label={`capture-amount-${p.paymentId}`}
-                      value={value}
-                      onChange={(e) =>
-                        setCaptureAmounts((prev) => ({ ...prev, [p.paymentId]: e.target.value }))
-                      }
-                      disabled={!policy.canPay}
-                    />
-                    <button
-                      type="button"
-                      disabled={!policy.canPay || capture.isPending}
-                      onClick={() =>
-                        capture.mutate({
-                          paymentId: p.paymentId,
-                          amountMinor: Math.round(Number(value) * 100),
-                          opId: `capture:${p.paymentId}:${crypto.randomUUID()}`,
-                        })
-                      }
-                    >
-                      Capture
-                    </button>
-                    {canPost ? (
+            {tenderPayments.map((p) => {
+              const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
+              const defaultAmt = formatMinor(remaining);
+              const value = captureAmounts[p.paymentId] ?? defaultAmt;
+              return (
+                <li key={p.paymentId}>
+                  {tenderMethod(p)} · {formatMinor(p.amountMinor)}
+                  {p.status === 'authorized' ? (
+                    <>
+                      <input
+                        aria-label={`capture-amount-${p.paymentId}`}
+                        value={value}
+                        onChange={(e) =>
+                          setCaptureAmounts((prev) => ({ ...prev, [p.paymentId]: e.target.value }))
+                        }
+                        disabled={!policy.canPay}
+                      />
                       <button
                         type="button"
-                        data-testid={`void-payment-${p.paymentId}`}
-                        disabled={voidPay.isPending}
-                        onClick={() => voidPay.mutate(p.paymentId)}
+                        disabled={!policy.canPay || capture.isPending}
+                        onClick={() =>
+                          capture.mutate({
+                            paymentId: p.paymentId,
+                            amountMinor: Math.round(Number(value) * 100),
+                            opId: `capture:${p.paymentId}:${crypto.randomUUID()}`,
+                          })
+                        }
                       >
-                        Void
+                        Capture
                       </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-          </ul>
-        )}
-      </section>
-
-      {payments.some((p) => p.status === 'captured') ? (
-        <section>
-          <h2>Captured</h2>
-          <ul>
-            {payments
-              .filter((p) => p.status === 'captured')
-              .map((p) => (
-                <li key={p.paymentId}>
-                  {p.paymentId} · {formatMinor(p.amountMinor)} · captured
-                  {canAdjust ? (
+                      {canPost ? (
+                        <button
+                          type="button"
+                          data-testid={`void-payment-${p.paymentId}`}
+                          disabled={voidPay.isPending}
+                          onClick={() => voidPay.mutate(p.paymentId)}
+                        >
+                          Void
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {p.status === 'captured' && canAdjust ? (
                     <button
                       type="button"
                       data-testid={`refund-payment-${p.paymentId}`}
@@ -931,21 +852,11 @@ export function FolioScreen() {
                     </button>
                   ) : null}
                 </li>
-              ))}
+              );
+            })}
           </ul>
-        </section>
-      ) : null}
-
-      {showCaptureDue ? (
-        <button
-          type="button"
-          data-testid="capture-due"
-          disabled={captureDueHolds.isPending}
-          onClick={() => captureDueHolds.mutate()}
-        >
-          Capture due
-        </button>
-      ) : null}
+        )}
+      </section>
 
       <section>
         <h2>Lines</h2>
@@ -958,65 +869,12 @@ export function FolioScreen() {
                 {node.orphanTax ? (
                   <strong className="error">Orphan tax (data defect) </strong>
                 ) : null}
-                {node.line.chargeCode}{' '}
-                {node.line.txnCurrency !== ledgerCurrency || (node.line.fxRate && node.line.fxRate !== '1') ? (
-                  <span data-testid="line-fx">
-                    {node.line.txnCurrency} {formatMinor(node.line.amountMinor)} → {ledgerCurrency}{' '}
-                    {formatMinor(node.line.ledgerAmountMinor)} @ {node.line.fxRate ?? '1'}
-                  </span>
-                ) : (
-                  formatMinor(node.line.ledgerAmountMinor)
-                )}
-                {node.line.source ? ` · ${node.line.source}` : ''}
-                {canAdjust && transferDestsFor(node.line.folioWindowId).length > 0 ? (
-                  <>
-                    <select
-                      data-testid={`transfer-dest-${node.line.folioLineId}`}
-                      aria-label={`transfer-dest-${node.line.folioLineId}`}
-                      value={
-                        transferDest[node.line.folioLineId] ??
-                        transferDestsFor(node.line.folioWindowId)[0]?.folioWindowId ??
-                        ''
-                      }
-                      onChange={(e) =>
-                        setTransferDest((prev) => ({
-                          ...prev,
-                          [node.line.folioLineId]: e.target.value,
-                        }))
-                      }
-                    >
-                      {transferDestsFor(node.line.folioWindowId).map((w) => (
-                        <option key={w.folioWindowId} value={w.folioWindowId}>
-                          {w.kind}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid={`transfer-line-${node.line.folioLineId}`}
-                      disabled={transferLine.isPending}
-                      onClick={() => {
-                        const dest =
-                          transferDest[node.line.folioLineId] ??
-                          transferDestsFor(node.line.folioWindowId)[0]?.folioWindowId;
-                        if (!dest) return;
-                        transferLine.mutate({
-                          folioLineId: node.line.folioLineId,
-                          destinationFolioWindowId: dest,
-                        });
-                      }}
-                    >
-                      Transfer
-                    </button>
-                  </>
-                ) : null}
+                {chargeDescription(node.line.chargeCode, chargeCodes)}{' '}
+                {formatMinor(node.line.ledgerAmountMinor)}
                 {node.taxes.length > 0 ? (
                   <ul>
                     {node.taxes.map((t) => (
-                      <li key={t.line.folioLineId}>
-                        tax {formatMinor(t.line.ledgerAmountMinor)}
-                        {t.line.taxRuleId ? ` · ${t.line.taxRuleId}` : ''}
-                      </li>
+                      <li key={t.line.folioLineId}>Tax {formatMinor(t.line.ledgerAmountMinor)}</li>
                     ))}
                   </ul>
                 ) : null}
@@ -1026,36 +884,8 @@ export function FolioScreen() {
         )}
       </section>
 
-      <section>
-        <h2>Queued this reservation</h2>
-        {queued.forReservation.length === 0 ? (
-          <p className="muted">None</p>
-        ) : (
-          <ul>
-            {queued.forReservation.map((e) => (
-              <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                {e.commandId} · {e.idempotencyKey.slice(0, 8)}…
-              </li>
-            ))}
-          </ul>
-        )}
-        {queued.other.length > 0 ? (
-          <>
-            <h3>Other queued commands</h3>
-            <ul>
-              {queued.other.map((e) => (
-                <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                  {e.commandId}
-                  {e.reservationId ? ` · ${e.reservationId}` : ' · (untagged)'}
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
-      </section>
-
       <section className="stack-row">
-        <h2>Add charge</h2>
+        <h2>Post charge</h2>
         <input
           aria-label="charge-code"
           value={chargeCode}
@@ -1082,26 +912,13 @@ export function FolioScreen() {
       </section>
 
       <section className="stack-row">
-        <h2>Cash</h2>
+        <h2>Take payment</h2>
         {openShiftQ.isSuccess &&
         (openShiftQ.data as { shift?: unknown } | undefined)?.shift == null ? (
           <p className="muted" data-testid="cash-no-shift-warn">
-            No open shift — this payment will be unattributed until close discloses the count.
+            No open cashier shift.
           </p>
         ) : null}
-        <select
-          aria-label="cash-currency"
-          data-testid="cash-currency"
-          value={selectedPayCurrency}
-          disabled={!policy.canPay || !folioLive}
-          onChange={(e) => setPayCurrency(e.target.value)}
-        >
-          {payCurrencies.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
         <input
           aria-label="cash-amount"
           value={cashAmount}
@@ -1116,231 +933,21 @@ export function FolioScreen() {
         >
           Record cash
         </button>
-      </section>
-
-      <section className="stack-row">
-        <h2>Authorize card</h2>
-        <select
-          aria-label="authorize-currency"
-          data-testid="authorize-currency"
-          value={selectedPayCurrency}
-          disabled={!policy.canPay || !folioLive}
-          onChange={(e) => setPayCurrency(e.target.value)}
-        >
-          {payCurrencies.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
         <input
           aria-label="auth-amount"
           value={authAmount}
           onChange={(e) => setAuthAmount(e.target.value)}
           disabled={!policy.canPay}
         />
-        {selectedPayCurrency !== ledgerCurrency ? (
-          <p className="muted">Indicative — captured at the rate in force at capture.</p>
-        ) : null}
         <button
           type="button"
           data-testid="authorize-card"
           disabled={!policy.canPay || authorize.isPending}
           onClick={() => authorize.mutate()}
         >
-          Authorize
+          Charge card
         </button>
       </section>
-
-      <section className="stack-row">
-        <h2>Split charge</h2>
-        <input
-          aria-label="split-line-id"
-          placeholder="folio line id"
-          value={splitLineId}
-          onChange={(e) => setSplitLineId(e.target.value)}
-        />
-        <input
-          aria-label="split-a"
-          placeholder="amount a"
-          value={splitA}
-          onChange={(e) => setSplitA(e.target.value)}
-        />
-        <input
-          aria-label="split-b"
-          placeholder="amount b"
-          value={splitB}
-          onChange={(e) => setSplitB(e.target.value)}
-        />
-        <select
-          aria-label="split-dest-a"
-          value={splitDestA || guestWindowId}
-          onChange={(e) => setSplitDestA(e.target.value)}
-        >
-          {openWindows.map((w) => (
-            <option key={w.folioWindowId} value={w.folioWindowId}>
-              {w.kind}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="split-dest-b"
-          value={splitDestB || guestWindowId}
-          onChange={(e) => setSplitDestB(e.target.value)}
-        >
-          {openWindows.map((w) => (
-            <option key={w.folioWindowId} value={w.folioWindowId}>
-              {w.kind}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          data-testid="split-charge"
-          disabled={!canSplit || split.isPending || !splitLineId}
-          onClick={() => split.mutate()}
-        >
-          Split
-        </button>
-        <button
-          type="button"
-          data-testid="split-payment"
-          disabled={!canSplit || splitPayment.isPending || !splitLineId}
-          onClick={() => splitPayment.mutate()}
-        >
-          Split payment
-        </button>
-        {!canSplit && splitReason ? <p className="muted">{splitReason}</p> : null}
-      </section>
-
-      {canAdjust ? (
-        <section className="stack-row">
-          <h2>Discount</h2>
-          <input
-            aria-label="discount-line-id"
-            placeholder="folio line id"
-            value={discountLineId}
-            onChange={(e) => setDiscountLineId(e.target.value)}
-          />
-          <input
-            aria-label="discount-reason"
-            placeholder="reason"
-            value={discountReason}
-            onChange={(e) => setDiscountReason(e.target.value)}
-          />
-          <select
-            aria-label="discount-kind"
-            value={discountKind}
-            onChange={(e) => setDiscountKind(e.target.value as 'percent' | 'fixed')}
-          >
-            <option value="percent">percent</option>
-            <option value="fixed">fixed</option>
-          </select>
-          <input
-            aria-label="discount-value"
-            value={discountValue}
-            onChange={(e) => setDiscountValue(e.target.value)}
-          />
-          <button
-            type="button"
-            data-testid="post-discount"
-            disabled={!discountReason.trim() || discount.isPending}
-            onClick={() => discount.mutate()}
-          >
-            Post discount
-          </button>
-        </section>
-      ) : null}
-
-      {canAdjust ? (
-        <section className="stack-row" data-testid="chargeback-form">
-          <h2>Chargeback</h2>
-          <input
-            aria-label="chargeback-payment-id"
-            placeholder="payment id"
-            value={chargebackPaymentId}
-            onChange={(e) => setChargebackPaymentId(e.target.value)}
-            disabled={!folioLive}
-          />
-          <input
-            aria-label="chargeback-fee"
-            value={chargebackFee}
-            onChange={(e) => setChargebackFee(e.target.value)}
-            disabled={!folioLive}
-          />
-          <input
-            aria-label="chargeback-reason"
-            placeholder="reason"
-            value={chargebackReason}
-            onChange={(e) => setChargebackReason(e.target.value)}
-            disabled={!folioLive}
-          />
-          <button
-            type="button"
-            data-testid="record-chargeback"
-            disabled={!folioLive || !chargebackPaymentId || !chargebackReason.trim() || chargeback.isPending}
-            onClick={() => chargeback.mutate()}
-          >
-            Record chargeback
-          </button>
-        </section>
-      ) : null}
-
-      {canAdjust ? (
-        <section className="stack-row" data-testid="fx-adjustment-form">
-          <h2>FX adjustment</h2>
-          <select
-            aria-label="fx-kind"
-            value={fxKind}
-            onChange={(e) => setFxKind(e.target.value as 'gain' | 'loss')}
-            disabled={!folioLive}
-          >
-            <option value="loss">Loss</option>
-            <option value="gain">Gain</option>
-          </select>
-          <input
-            aria-label="fx-amount"
-            value={fxAmount}
-            onChange={(e) => setFxAmount(e.target.value)}
-            disabled={!folioLive}
-          />
-          <input
-            aria-label="fx-reason"
-            placeholder="reason"
-            value={fxReason}
-            onChange={(e) => setFxReason(e.target.value)}
-            disabled={!folioLive}
-          />
-          <button
-            type="button"
-            data-testid="post-fx-adjustment"
-            disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending}
-            onClick={() => fxAdjust.mutate()}
-          >
-            Post FX adjustment
-          </button>
-        </section>
-      ) : null}
-
-      {canConfigureFx ? (
-        <details data-testid="fx-rates-editor">
-          <summary>FX rates</summary>
-          <ul>
-            {(fxRatesQ.data?.rates ?? [])
-              .filter((r) => r.effectiveTo === null)
-              .map((r) => (
-                <li key={r.quoteId}>
-                  {r.fromCurrency}→{r.toCurrency} @ {r.rate}
-                </li>
-              ))}
-          </ul>
-          <input aria-label="fx-from" value={fxFrom} onChange={(e) => setFxFrom(e.target.value)} disabled={!folioLive} />
-          <input aria-label="fx-rate" value={fxRate} onChange={(e) => setFxRate(e.target.value)} disabled={!folioLive} />
-          <button type="button" data-testid="create-fx-rate" disabled={!folioLive || createFx.isPending} onClick={() => createFx.mutate()}>
-            Create FX rate
-          </button>
-        </details>
-      ) : null}
 
       <section>
         {policy.canCheckout ? (
@@ -1364,6 +971,443 @@ export function FolioScreen() {
       </section>
 
       {message ? <p data-testid="folio-message">{message}</p> : null}
+
+      <details data-testid="folio-advanced">
+        <summary>Advanced</summary>
+        {canWrite ? (
+          <button
+            type="button"
+            data-testid="toggle-no-post"
+            disabled={toggleNoPost.isPending}
+            onClick={() => toggleNoPost.mutate()}
+          >
+            {noPost ? 'Clear no-post' : 'Set no-post'}
+          </button>
+        ) : null}
+
+        {reservationQ.isSuccess ? (
+          <FrontOfficeEditor
+            reservationId={reservationId}
+            frontOfficeComment={reservationQ.data.frontOfficeComment}
+            vipFlag={reservationQ.data.vipFlag}
+            dndFlag={reservationQ.data.dndFlag}
+            disabled={editorDisabled}
+          />
+        ) : null}
+        <PrintRegCardControl canPrint={canPrint} />
+        <RegistrationCard
+          propertyName={propertyQ.data?.property?.name ?? null}
+          reservation={reservationQ.data}
+          displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
+          roomLabel={roomCode ?? null}
+        />
+
+        {windows.length > 0 ? (
+          <section>
+            <h2>Windows</h2>
+            <ul data-testid="folio-windows">
+              {windows.map((w) => (
+                <li key={w.folioWindowId}>
+                  <span
+                    data-testid={`window-chip-${w.folioWindowId}`}
+                    className={statusClass(w.status === 'CLOSED' ? 'informational' : 'neutral')}
+                  >
+                    {w.kind} {w.status} · {formatMinor(w.balanceMinor)}
+                  </span>
+                  {canAdjust && w.status === 'OPEN' ? (
+                    <button
+                      type="button"
+                      data-testid={`close-window-${w.folioWindowId}`}
+                      disabled={windowCloseDisabled(w) || closeWindow.isPending}
+                      onClick={() => closeWindow.mutate(w.folioWindowId)}
+                    >
+                      Close
+                    </button>
+                  ) : null}
+                  {canAdjust && w.status === 'CLOSED' ? (
+                    <button
+                      type="button"
+                      data-testid={`reopen-window-${w.folioWindowId}`}
+                      disabled={reopenWindow.isPending}
+                      onClick={() => reopenWindow.mutate(w.folioWindowId)}
+                    >
+                      Reopen
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {canAdjust ? (
+              <div className="stack-row">
+                <input
+                  aria-label="company-billed-party"
+                  placeholder="billed party"
+                  value={companyBilledParty}
+                  onChange={(e) => setCompanyBilledParty(e.target.value)}
+                />
+                <button
+                  type="button"
+                  data-testid="open-company-window"
+                  disabled={openCompany.isPending}
+                  onClick={() => openCompany.mutate()}
+                >
+                  Open COMPANY
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : canAdjust ? (
+          <section className="stack-row">
+            <h2>Windows</h2>
+            <input
+              aria-label="company-billed-party"
+              placeholder="billed party"
+              value={companyBilledParty}
+              onChange={(e) => setCompanyBilledParty(e.target.value)}
+            />
+            <button
+              type="button"
+              data-testid="open-company-window"
+              disabled={openCompany.isPending}
+              onClick={() => openCompany.mutate()}
+            >
+              Open COMPANY
+            </button>
+          </section>
+        ) : null}
+
+        {showCaptureDue ? (
+          <button
+            type="button"
+            data-testid="capture-due"
+            disabled={captureDueHolds.isPending}
+            onClick={() => captureDueHolds.mutate()}
+          >
+            Capture due
+          </button>
+        ) : null}
+
+        <ul>
+          {fold.roots.map((node) => (
+            <li key={`adv-${node.line.folioLineId}`}>
+              {node.line.txnCurrency !== ledgerCurrency ||
+              (node.line.fxRate && node.line.fxRate !== '1') ? (
+                <span data-testid="line-fx">
+                  {node.line.txnCurrency} {formatMinor(node.line.amountMinor)} → {ledgerCurrency}{' '}
+                  {formatMinor(node.line.ledgerAmountMinor)} @ {node.line.fxRate ?? '1'}
+                </span>
+              ) : null}
+              {canAdjust && transferDestsFor(node.line.folioWindowId).length > 0 ? (
+                <>
+                  <select
+                    data-testid={`transfer-dest-${node.line.folioLineId}`}
+                    aria-label={`transfer-dest-${node.line.folioLineId}`}
+                    value={
+                      transferDest[node.line.folioLineId] ??
+                      transferDestsFor(node.line.folioWindowId)[0]?.folioWindowId ??
+                      ''
+                    }
+                    onChange={(e) =>
+                      setTransferDest((prev) => ({
+                        ...prev,
+                        [node.line.folioLineId]: e.target.value,
+                      }))
+                    }
+                  >
+                    {transferDestsFor(node.line.folioWindowId).map((w) => (
+                      <option key={w.folioWindowId} value={w.folioWindowId}>
+                        {w.kind}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    data-testid={`transfer-line-${node.line.folioLineId}`}
+                    disabled={transferLine.isPending}
+                    onClick={() => {
+                      const dest =
+                        transferDest[node.line.folioLineId] ??
+                        transferDestsFor(node.line.folioWindowId)[0]?.folioWindowId;
+                      if (!dest) return;
+                      transferLine.mutate({
+                        folioLineId: node.line.folioLineId,
+                        destinationFolioWindowId: dest,
+                      });
+                    }}
+                  >
+                    Transfer
+                  </button>
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+
+        <section>
+          <h2>Queued this reservation</h2>
+          {queued.forReservation.length === 0 ? (
+            <p className="muted">None</p>
+          ) : (
+            <ul>
+              {queued.forReservation.map((e) => (
+                <li key={`${e.commandId}-${e.idempotencyKey}`}>
+                  {e.commandId} · {e.idempotencyKey.slice(0, 8)}…
+                </li>
+              ))}
+            </ul>
+          )}
+          {queued.other.length > 0 ? (
+            <>
+              <h3>Other queued commands</h3>
+              <ul>
+                {queued.other.map((e) => (
+                  <li key={`${e.commandId}-${e.idempotencyKey}`}>
+                    {e.commandId}
+                    {e.reservationId ? ` · ${e.reservationId}` : ' · (untagged)'}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </section>
+
+        <section className="stack-row">
+          <h2>Split charge</h2>
+          <input
+            aria-label="split-line-id"
+            placeholder="folio line id"
+            value={splitLineId}
+            onChange={(e) => setSplitLineId(e.target.value)}
+          />
+          <input
+            aria-label="split-a"
+            placeholder="amount a"
+            value={splitA}
+            onChange={(e) => setSplitA(e.target.value)}
+          />
+          <input
+            aria-label="split-b"
+            placeholder="amount b"
+            value={splitB}
+            onChange={(e) => setSplitB(e.target.value)}
+          />
+          <select
+            aria-label="split-dest-a"
+            value={splitDestA || guestWindowId}
+            onChange={(e) => setSplitDestA(e.target.value)}
+          >
+            {openWindows.map((w) => (
+              <option key={w.folioWindowId} value={w.folioWindowId}>
+                {w.kind}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="split-dest-b"
+            value={splitDestB || guestWindowId}
+            onChange={(e) => setSplitDestB(e.target.value)}
+          >
+            {openWindows.map((w) => (
+              <option key={w.folioWindowId} value={w.folioWindowId}>
+                {w.kind}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            data-testid="split-charge"
+            disabled={!canSplit || split.isPending || !splitLineId}
+            onClick={() => split.mutate()}
+          >
+            Split
+          </button>
+          <button
+            type="button"
+            data-testid="split-payment"
+            disabled={!canSplit || splitPayment.isPending || !splitLineId}
+            onClick={() => splitPayment.mutate()}
+          >
+            Split payment
+          </button>
+          {!canSplit && splitReason ? <p className="muted">{splitReason}</p> : null}
+        </section>
+
+        {canAdjust ? (
+          <section className="stack-row">
+            <h2>Discount</h2>
+            <input
+              aria-label="discount-line-id"
+              placeholder="folio line id"
+              value={discountLineId}
+              onChange={(e) => setDiscountLineId(e.target.value)}
+            />
+            <input
+              aria-label="discount-reason"
+              placeholder="reason"
+              value={discountReason}
+              onChange={(e) => setDiscountReason(e.target.value)}
+            />
+            <select
+              aria-label="discount-kind"
+              value={discountKind}
+              onChange={(e) => setDiscountKind(e.target.value as 'percent' | 'fixed')}
+            >
+              <option value="percent">percent</option>
+              <option value="fixed">fixed</option>
+            </select>
+            <input
+              aria-label="discount-value"
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+            />
+            <button
+              type="button"
+              data-testid="post-discount"
+              disabled={!discountReason.trim() || discount.isPending}
+              onClick={() => discount.mutate()}
+            >
+              Post discount
+            </button>
+          </section>
+        ) : null}
+
+        {canAdjust ? (
+          <section className="stack-row" data-testid="chargeback-form">
+            <h2>Chargeback</h2>
+            <input
+              aria-label="chargeback-payment-id"
+              placeholder="payment id"
+              value={chargebackPaymentId}
+              onChange={(e) => setChargebackPaymentId(e.target.value)}
+              disabled={!folioLive}
+            />
+            <input
+              aria-label="chargeback-fee"
+              value={chargebackFee}
+              onChange={(e) => setChargebackFee(e.target.value)}
+              disabled={!folioLive}
+            />
+            <input
+              aria-label="chargeback-reason"
+              placeholder="reason"
+              value={chargebackReason}
+              onChange={(e) => setChargebackReason(e.target.value)}
+              disabled={!folioLive}
+            />
+            <button
+              type="button"
+              data-testid="record-chargeback"
+              disabled={
+                !folioLive || !chargebackPaymentId || !chargebackReason.trim() || chargeback.isPending
+              }
+              onClick={() => chargeback.mutate()}
+            >
+              Record chargeback
+            </button>
+          </section>
+        ) : null}
+
+        {canAdjust ? (
+          <section className="stack-row" data-testid="fx-adjustment-form">
+            <h2>FX adjustment</h2>
+            <select
+              aria-label="fx-kind"
+              value={fxKind}
+              onChange={(e) => setFxKind(e.target.value as 'gain' | 'loss')}
+              disabled={!folioLive}
+            >
+              <option value="loss">Loss</option>
+              <option value="gain">Gain</option>
+            </select>
+            <input
+              aria-label="fx-amount"
+              value={fxAmount}
+              onChange={(e) => setFxAmount(e.target.value)}
+              disabled={!folioLive}
+            />
+            <input
+              aria-label="fx-reason"
+              placeholder="reason"
+              value={fxReason}
+              onChange={(e) => setFxReason(e.target.value)}
+              disabled={!folioLive}
+            />
+            <button
+              type="button"
+              data-testid="post-fx-adjustment"
+              disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending}
+              onClick={() => fxAdjust.mutate()}
+            >
+              Post FX adjustment
+            </button>
+          </section>
+        ) : null}
+
+        {canConfigureFx ? (
+          <details data-testid="fx-rates-editor">
+            <summary>FX rates</summary>
+            <ul>
+              {(fxRatesQ.data?.rates ?? [])
+                .filter((r) => r.effectiveTo === null)
+                .map((r) => (
+                  <li key={r.quoteId}>
+                    {r.fromCurrency}→{r.toCurrency} @ {r.rate}
+                  </li>
+                ))}
+            </ul>
+            <input
+              aria-label="fx-from"
+              value={fxFrom}
+              onChange={(e) => setFxFrom(e.target.value)}
+              disabled={!folioLive}
+            />
+            <input
+              aria-label="fx-rate"
+              value={fxRate}
+              onChange={(e) => setFxRate(e.target.value)}
+              disabled={!folioLive}
+            />
+            <button
+              type="button"
+              data-testid="create-fx-rate"
+              disabled={!folioLive || createFx.isPending}
+              onClick={() => createFx.mutate()}
+            >
+              Create FX rate
+            </button>
+          </details>
+        ) : null}
+
+        <select
+          aria-label="cash-currency"
+          data-testid="cash-currency"
+          value={selectedPayCurrency}
+          disabled={!policy.canPay || !folioLive}
+          onChange={(e) => setPayCurrency(e.target.value)}
+        >
+          {payCurrencies.map((c) => (
+            <option key={`cash-${c}`} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="authorize-currency"
+          data-testid="authorize-currency"
+          value={selectedPayCurrency}
+          disabled={!policy.canPay || !folioLive}
+          onChange={(e) => setPayCurrency(e.target.value)}
+        >
+          {payCurrencies.map((c) => (
+            <option key={`auth-${c}`} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        {selectedPayCurrency !== ledgerCurrency ? (
+          <p className="muted">Indicative — captured at the rate in force at capture.</p>
+        ) : null}
+      </details>
     </div>
   );
 }

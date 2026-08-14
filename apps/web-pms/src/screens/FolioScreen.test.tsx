@@ -28,6 +28,8 @@ const createFxRate = vi.fn();
 const supersedeFxRate = vi.fn();
 const recordChargeback = vi.fn();
 const postFxAdjustment = vi.fn();
+const listRooms = vi.fn();
+const listChargeCodes = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -70,6 +72,8 @@ vi.mock('../client.js', () => ({
     supersedeFxRate: (...args: unknown[]) => supersedeFxRate(...args),
     recordChargeback: (...args: unknown[]) => recordChargeback(...args),
     postFxAdjustment: (...args: unknown[]) => postFxAdjustment(...args),
+    listRooms: (...args: unknown[]) => listRooms(...args),
+    listChargeCodes: (...args: unknown[]) => listChargeCodes(...args),
   },
 }));
 
@@ -96,6 +100,10 @@ function renderFolio() {
  * React swallows mouse events when props.disabled is true (DOM enable / fireEvent
  * still no-op). Reach mutationFn by calling the fiber onClick directly.
  */
+function advanced() {
+  return screen.getByTestId('folio-advanced') as HTMLDetailsElement;
+}
+
 function invokeReactClick(el: HTMLElement) {
   const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
   if (!key) throw new Error('missing __reactProps$ on element');
@@ -129,6 +137,7 @@ const ownerMe = {
     'folio:adjust',
     'reservations:read',
     'reservations:write',
+    'settings:configure',
   ],
   orgPermissions: ['org:read'],
 };
@@ -162,6 +171,11 @@ const miscLine = {
 describe('FolioScreen wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listRooms.mockResolvedValue({ ok: true, rooms: [] });
+    listChargeCodes.mockResolvedValue({
+      ok: true,
+      codes: [{ code: 'MISC', name: 'Misc', status: 'active', taxGroup: null }],
+    });
     getOpenShift.mockResolvedValue({ ok: true, shift: { shiftId: 's1' } });
     // Default: authority unknown → fail open (split not permission-gated)
     getMe.mockRejectedValue(
@@ -234,6 +248,8 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('cash-no-shift-warn')).toBeTruthy());
+    expect(screen.getByTestId('cash-no-shift-warn').textContent).toMatch(/^No open cashier shift\.?$/);
+    expect(screen.queryByText(/unattributed until close discloses the count/i)).toBeNull();
     const btn = screen.getByTestId('record-cash') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     await act(async () => {
@@ -933,5 +949,174 @@ describe('FolioScreen wiring', () => {
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('balance-at-risk')).toBeTruthy());
+  });
+
+  it('first paint is a bill: guest, dates, room code, balance, lines, post, card, cash', async () => {
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_101',
+          code: '101',
+          roomTypeId: 'rt',
+          status: 'clean',
+          floor: '1',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, roomId: 'rm_101' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+
+    renderFolio();
+    await waitFor(() => {
+      expect(screen.getByTestId('guest-profile-link').textContent).toMatch(/Ada Lovelace/);
+      expect(document.body.textContent).toMatch(/\broom 101\b/);
+    });
+    expect(document.body.textContent).toMatch(/2026-08-08/);
+    expect(document.body.textContent).toMatch(/2026-08-10/);
+    expect(document.body.textContent).toMatch(/\broom 101\b/);
+    expect(document.body.textContent).not.toMatch(/rm_101/);
+    expect(screen.getByTestId('folio-balance')).toBeTruthy();
+    expect(screen.getByTestId('folio-lines').textContent).toMatch(/Misc/);
+    expect(screen.getByTestId('folio-lines').textContent).toMatch(/50\.00/);
+    expect(screen.getByTestId('add-charge')).toBeTruthy();
+    expect(screen.getByTestId('authorize-card')).toBeTruthy();
+    expect(screen.getByTestId('record-cash')).toBeTruthy();
+    expect(advanced().open).toBe(false);
+  });
+
+  it('Advanced descendants stay collapsed: COMPANY, split, chargeback, FX, queued', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-advanced')).toBeTruthy());
+    expect(advanced().open).toBe(false);
+    expect(advanced().querySelector('[data-testid="open-company-window"]')).toBeTruthy();
+    expect(advanced().querySelector('[data-testid="split-charge"]')).toBeTruthy();
+    expect(advanced().querySelector('[data-testid="chargeback-form"]')).toBeTruthy();
+    expect(advanced().querySelector('[data-testid="fx-rates-editor"]')).toBeTruthy();
+    expect(advanced().textContent).toMatch(/Queued this reservation/);
+  });
+
+  it('tenders show Card/Cash amounts and hide payment ids', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_auth',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'authorized',
+          purpose: 'STAY',
+          tenderType: 'CARD',
+          gatewayReference: 'sim_pay_auth',
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          paymentId: 'pay_cap',
+          reservationId: 'res_1',
+          amountMinor: 2000,
+          currency: 'USD',
+          status: 'captured',
+          purpose: 'STAY',
+          gatewayReference: 'gw2',
+          capturedAmountMinor: 2000,
+          createdAt: 2,
+          updatedAt: 2,
+        },
+        {
+          paymentId: 'pay_cash',
+          reservationId: 'res_1',
+          amountMinor: 1500,
+          currency: 'USD',
+          status: 'captured',
+          purpose: 'STAY',
+          tenderType: 'CASH',
+          gatewayReference: null,
+          capturedAmountMinor: 1500,
+          createdAt: 3,
+          updatedAt: 3,
+        },
+      ],
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('void-payment-pay_auth')).toBeTruthy());
+    const authLi = screen.getByTestId('void-payment-pay_auth').closest('li')!;
+    expect(authLi.textContent).toMatch(/Card/);
+    expect(authLi.textContent).toMatch(/50\.00/);
+    expect(authLi.textContent).not.toMatch(/pay_auth/);
+    expect(authLi.textContent).not.toMatch(/sim_/);
+    const cashLi = [...document.querySelectorAll('li')].find(
+      (li) => /Cash/.test(li.textContent ?? '') && /15\.00/.test(li.textContent ?? ''),
+    );
+    expect(cashLi).toBeTruthy();
+    expect(cashLi!.textContent).not.toMatch(/pay_cash/);
+    const firstPaintHeadings = [...document.querySelectorAll('h2')]
+      .filter((h) => !h.closest('[data-testid="folio-advanced"]'))
+      .map((h) => h.textContent ?? '');
+    expect(firstPaintHeadings).not.toContain('Holds');
+    expect(firstPaintHeadings).not.toContain('Captured');
+    expect(firstPaintHeadings.some((t) => /Tenders|Payments/.test(t))).toBe(true);
+  });
+
+  it('happy path copy has no unattributed sentence or simulate', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-balance')).toBeTruthy());
+    expect(screen.queryByText(/unattributed until close discloses the count/i)).toBeNull();
+    expect(screen.queryByText(/simulate/i)).toBeNull();
   });
 });

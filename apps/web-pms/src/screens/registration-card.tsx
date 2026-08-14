@@ -4,13 +4,16 @@ export function RegistrationCard({
   propertyName,
   reservation,
   displayName,
+  roomLabel,
 }: {
   propertyName: string | null;
   reservation: ReservationRead | undefined;
   displayName: string | null;
+  roomLabel?: string | null;
 }) {
   const adults = reservation?.adults ?? 1;
   const children = reservation?.children ?? 0;
+  const roomText = roomLabel !== undefined ? roomLabel : reservation?.roomId;
   return (
     <div data-testid="reg-card" className="reg-card">
       <h2>Registration card</h2>
@@ -23,7 +26,7 @@ export function RegistrationCard({
             {reservation.arrivalDate} → {reservation.departureDate}
           </p>
           <p>Room type {reservation.roomTypeId}</p>
-          {reservation.roomId ? <p>Room {reservation.roomId}</p> : null}
+          {roomText ? <p>Room {roomText}</p> : null}
           <p>
             Adults {adults} · Children {children}
           </p>

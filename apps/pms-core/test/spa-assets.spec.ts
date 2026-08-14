@@ -14,6 +14,6 @@ describe('same-origin SPA assets', () => {
   it('GET / serves SPA index (banner retired)', async () => {
     const res = await worker.fetch(new Request('http://localhost/'), env);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('HospAI Front Desk');
+    expect(await res.text()).toContain('HospAI PMS');
   });
 });

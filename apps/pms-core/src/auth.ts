@@ -75,7 +75,17 @@ export async function resolveActor(request: Request, env: PmsEnv): Promise<Actor
     );
   }
 
-  const state = await authenticateClerkSession(request, env);
+  const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');
+  const protocolToken = protocolHeader?.split(',')[0]?.trim() ?? '';
+  const clerkPrefix = 'hospai.clerk.';
+  const clerkRequest = protocolToken.startsWith(clerkPrefix)
+    ? new Request(request.url, {
+        method: request.method,
+        headers: { authorization: `Bearer ${protocolToken.slice(clerkPrefix.length)}` },
+      })
+    : request;
+
+  const state = await authenticateClerkSession(clerkRequest, env);
 
   if (!state.isAuthenticated) {
     return unauthorized('Invalid or missing session.');

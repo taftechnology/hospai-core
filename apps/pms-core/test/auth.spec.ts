@@ -1,7 +1,7 @@
 import { env, listDurableObjectIds } from 'cloudflare:test';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveOrgStub } from '@hospai/tenant-router';
-import { __setAuthenticateRequestForTest } from '../src/auth.js';
+import { __setAuthenticateRequestForTest, resolveActor } from '../src/auth.js';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate } from '../src/registry.js';
@@ -251,5 +251,135 @@ describe('Clerk path (mocked)', () => {
       clerkEnv,
     );
     expect(denied.status).toBe(401);
+  });
+});
+
+describe('Clerk WebSocket protocol (mocked)', () => {
+  const clerkEnv = {
+    ...env,
+    HOSPAI_ALLOW_DEV_ACTOR: undefined,
+    CLERK_SECRET_KEY: 'sk_test',
+    CLERK_PUBLISHABLE_KEY: 'pk_test',
+    CLERK_JWT_KEY: 'pem',
+  };
+
+  afterEach(() => {
+    __setAuthenticateRequestForTest(null);
+  });
+
+  it('dev-actor protocol unchanged when flags on', async () => {
+    const authenticateRequest = vi.fn();
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const devEnv = {
+      ...env,
+      HOSPAI_UNSAFE_LOCAL: '1',
+      HOSPAI_ALLOW_DEV_ACTOR: '1',
+    };
+
+    const result = await resolveActor(
+      new Request('http://localhost/v1/properties/prop_x/front-desk/stream', {
+        headers: { 'Sec-WebSocket-Protocol': 'hospai.dev-actor.user_x' },
+      }),
+      devEnv,
+    );
+
+    expect(result).toEqual({ userId: 'user_x', source: 'dev' });
+    expect(authenticateRequest).not.toHaveBeenCalled();
+  });
+
+  it('Clerk protocol success builds Bearer request', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({ userId: 'user_clerk_ws' }),
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const result = await resolveActor(
+      new Request('http://localhost/v1/properties/prop_x/front-desk/stream', {
+        headers: { 'Sec-WebSocket-Protocol': 'hospai.clerk.session_jwt' },
+      }),
+      clerkEnv,
+    );
+
+    expect(result).toEqual({ userId: 'user_clerk_ws', source: 'clerk' });
+    expect(authenticateRequest).toHaveBeenCalledTimes(1);
+    const authHeader = authenticateRequest.mock.calls[0][0].headers.get('authorization');
+    expect(authHeader).toBe('Bearer session_jwt');
+  });
+
+  it('bad JWT on Clerk protocol returns 401', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: false,
+      toAuth: () => null,
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const result = await resolveActor(
+      new Request('http://localhost/v1/properties/prop_x/front-desk/stream', {
+        headers: { 'Sec-WebSocket-Protocol': 'hospai.clerk.session_jwt' },
+      }),
+      clerkEnv,
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+    expect(await (result as Response).json()).toEqual({
+      error: 'unauthenticated',
+      message: 'Invalid or missing session.',
+    });
+  });
+
+  it('Clerk unconfigured returns 401 without treating JWT as dev actor', async () => {
+    const authenticateRequest = vi.fn();
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const unconfiguredEnv = {
+      ...env,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      CLERK_SECRET_KEY: undefined,
+      CLERK_PUBLISHABLE_KEY: undefined,
+    };
+
+    const result = await resolveActor(
+      new Request('http://localhost/v1/properties/prop_x/front-desk/stream', {
+        headers: { 'Sec-WebSocket-Protocol': 'hospai.clerk.session_jwt' },
+      }),
+      unconfiguredEnv,
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+    const body = (await (result as Response).json()) as { message: string };
+    expect(body.message).toMatch(/^Authentication unavailable\./);
+    expect(authenticateRequest).not.toHaveBeenCalled();
+  });
+
+  it('prefix isolation: hospai.clerk protocol uses Clerk path even when dev flags on', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({ userId: 'user_clerk_ws' }),
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const devAndClerkEnv = {
+      ...env,
+      HOSPAI_UNSAFE_LOCAL: '1',
+      HOSPAI_ALLOW_DEV_ACTOR: '1',
+      CLERK_SECRET_KEY: 'sk_test',
+      CLERK_PUBLISHABLE_KEY: 'pk_test',
+      CLERK_JWT_KEY: 'pem',
+    };
+
+    const result = await resolveActor(
+      new Request('http://localhost/v1/properties/prop_x/front-desk/stream', {
+        headers: { 'Sec-WebSocket-Protocol': 'hospai.clerk.session_jwt, leftover' },
+      }),
+      devAndClerkEnv,
+    );
+
+    expect(result).toEqual({ userId: 'user_clerk_ws', source: 'clerk' });
+    const authHeader = authenticateRequest.mock.calls[0][0].headers.get('authorization');
+    expect(authHeader).toBe('Bearer session_jwt');
   });
 });

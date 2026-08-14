@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { useEffect, useState } from 'react';
 import { Button, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
 
@@ -60,7 +61,7 @@ export function CheckInScreen() {
         setMessage('Room assignment refused — property unreachable.');
         return;
       }
-      setMessage(`Assign failed (${c.class})`);
+      setMessage(classifiedUserMessage(c, { fallback: 'Assign failed' }));
     },
     onSuccess: () => setMessage('Room assigned'),
   });
@@ -88,7 +89,7 @@ export function CheckInScreen() {
         setMessage('Check-in refused.');
         return;
       }
-      setMessage(`Check-in failed (${c.class})`);
+      setMessage(classifiedUserMessage(c, { fallback: 'Check-in failed' }));
     },
     onSuccess: (result) => {
       if (result.classified.class === 'provisional') {

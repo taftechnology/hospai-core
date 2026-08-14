@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Alert, Button, Field, Input } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor } from '../money.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -355,7 +356,7 @@ export function BookingScreen() {
         );
         return;
       }
-      setMessage(`Booking failed (${code ?? c.class})`);
+      setMessage(classifiedUserMessage(c, { fallback: 'Booking failed', knownCode: code }));
     },
   });
 
@@ -408,7 +409,7 @@ export function BookingScreen() {
           <Alert>
             {availDateRangeExceeded
               ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
-              : `Availability unavailable (${availErrorClassified.class}). Confirm blocked until a fresh quote.`}
+              : `Availability unavailable — ${classifiedUserMessage(availErrorClassified, {})}. Confirm blocked until a fresh quote.`}
           </Alert>
         ) : null}
         {availQ.isSuccess && selectable.length === 0 ? (

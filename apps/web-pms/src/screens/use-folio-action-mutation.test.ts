@@ -38,4 +38,16 @@ describe('messageForFolioMutationError', () => {
       'Forbidden — insufficient permission.',
     );
   });
+
+  it('unknown class does not paint the class token', () => {
+    const err = new ClassifiedError({
+      class: 'server_error',
+      status: 500,
+      body: {},
+      retryAfterMs: null,
+    });
+    const msg = messageForFolioMutationError(err, 'Cash failed');
+    expect(msg).not.toMatch(/server_error/);
+    expect(msg).toMatch(/Something went wrong/i);
+  });
 });

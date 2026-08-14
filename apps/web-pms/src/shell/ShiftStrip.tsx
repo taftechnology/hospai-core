@@ -5,6 +5,7 @@ import { Button, Field, Input } from '@hospai/ui-kit';
 import { useEffect, useRef, useState } from 'react';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import {
   formatMinor,
   isCurrentOrPreviousBusinessDate,
@@ -65,7 +66,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
         );
         return;
       }
-      setMessage(`Open shift failed (${c.class})`);
+      setMessage(classifiedUserMessage(c, { fallback: 'Open shift failed' }));
     },
   });
 

@@ -618,8 +618,11 @@ describe('BookingScreen', () => {
     );
     renderBook('/book', { allowQueryRetry: true });
     await waitFor(() =>
-      expect(screen.getByText(/Availability unavailable \(read_stale\)/i)).toBeTruthy(),
+      expect(
+        screen.getByText(/Availability unavailable.*Confirm blocked until a fresh quote/i),
+      ).toBeTruthy(),
     );
+    expect(screen.queryByText(/read_stale/i)).toBeNull();
     expect(getAvailability.mock.calls.length).toBe(3);
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
   });

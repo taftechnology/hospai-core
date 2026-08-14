@@ -6,6 +6,7 @@ import {
   type UseMutationResult,
 } from '@tanstack/react-query';
 import { asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 
 export function messageForFolioMutationError(err: unknown, fallback: string): string {
   const c = asClassified(err);
@@ -27,7 +28,7 @@ export function messageForFolioMutationError(err: unknown, fallback: string): st
   if (c.class === 'queue_unavailable') {
     return 'Could not queue — queue unavailable.';
   }
-  return `${fallback} (${c.class})`;
+  return classifiedUserMessage(c, { fallback });
 }
 
 /**

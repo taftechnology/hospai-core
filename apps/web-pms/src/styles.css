@@ -663,3 +663,31 @@ details.side-panel summary {
     clip: auto;
   }
 }
+
+.sign-in {
+  min-block-size: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  padding: 1.5rem;
+}
+
+.sign-in-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  inline-size: min(100%, 22rem);
+}
+
+.sign-in-card h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+}
+
+.sign-in-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-block-start: 1rem;
+}

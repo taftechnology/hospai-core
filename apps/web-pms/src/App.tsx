@@ -22,6 +22,7 @@ import { RatesRoute } from './screens/RatesRoute.js';
 import { RatesScreen } from './screens/RatesScreen.js';
 import { SettingsRoute } from './screens/SettingsRoute.js';
 import { SettingsScreen } from './screens/SettingsScreen.js';
+import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 
@@ -76,7 +77,7 @@ export function App() {
             </Route>
             <Route path="housekeeping/*" element={<HousekeepingScreen />} />
           </Route>
-          <Route path="sign-in" element={<p className="main">Sign in required</p>} />
+          <Route path="sign-in" element={<SignInScreen />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

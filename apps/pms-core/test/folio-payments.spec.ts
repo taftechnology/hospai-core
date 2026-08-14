@@ -1083,8 +1083,8 @@ describe('folio payments DO', () => {
     if (listed.ok) {
       expect(listed.payments).toHaveLength(1);
       expect(listed.payments[0]).toMatchObject({ paymentId, tenderType: 'CASH' });
-      expect(listed.payments[0].cardLast4 ?? null).toBeNull();
-      expect(listed.payments[0].cardBrand ?? null).toBeNull();
+      expect(listed.payments[0]?.cardLast4 ?? null).toBeNull();
+      expect(listed.payments[0]?.cardBrand ?? null).toBeNull();
     }
   });
 
@@ -1166,8 +1166,8 @@ describe('folio payments DO', () => {
         tenderType: 'CARD',
         gatewayReference: `sim_${paymentId}`,
       });
-      expect(listed.payments[0].cardLast4 ?? null).toBeNull();
-      expect(listed.payments[0].cardBrand ?? null).toBeNull();
+      expect(listed.payments[0]?.cardLast4 ?? null).toBeNull();
+      expect(listed.payments[0]?.cardBrand ?? null).toBeNull();
     }
   });
 });

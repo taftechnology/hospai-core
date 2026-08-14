@@ -236,7 +236,7 @@ either.
 
 - [ ] **Guest CRM depth** — merge, consent, stay-history richness beyond the directory that
       already exists. Do not block P0; Book already has find-existing.
-- [ ] **Card last-4 / brand on tenders** — keep the simulate gateway; the UI must not say
+- [x] **Card last-4 / brand on tenders** — keep the simulate gateway; the UI must not say
       simulate. Pair with P0-2.
 - [ ] **One hotel voice** — advisor quote, LOI, or a GM who would trial. Not engineering.
 - [x] **Hide lab copy** leftover scan: `ariVersion`, `fail_closed` strings, `idempotencyKey`,

@@ -361,7 +361,7 @@ No `v1-http-routes.ts` append. No catalog. No migration. No `demo-seed.ts` shift
 | 5 | New Worker routes or catalog commands | Forbidden |
 | 6 | New DO tables / schema / last-4 column | Forbidden |
 | 7 | Real PSP / PCI | Simulate stays; UI silent about it |
-| 8 | **P1** card last-4 / brand on tenders | Pair later; method is enough for P0-2 |
+| 8 | **P1** card last-4 / brand on tenders | Pair later; method is enough for P0-2. P1 card last-4 / brand (2026-08-14) lifts the schema freeze; method-only fallback remains for legacy rows. |
 | 9 | Seed folio lines / minibar / payments | Live 8-minute beat |
 | 10 | Seed `folio.open_shift` | SPA auto-open instead |
 | 11 | Gate cash on open shift | Q4 unchanged |

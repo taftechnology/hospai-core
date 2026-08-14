@@ -65,6 +65,28 @@ function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' {
   return 'Card';
 }
 
+const BRAND_LABEL: Record<string, string> = {
+  visa: 'Visa',
+  mastercard: 'Mastercard',
+  amex: 'Amex',
+  discover: 'Discover',
+};
+
+function formatBrandLabel(brand: string): string {
+  const mapped = BRAND_LABEL[brand.toLowerCase()];
+  if (mapped) return mapped;
+  return brand.charAt(0).toUpperCase() + brand.slice(1).toLowerCase();
+}
+
+function tenderLabel(p: FolioPaymentRow): string {
+  if (tenderMethod(p) === 'Cash') return 'Cash';
+  if (p.cardLast4) {
+    if (p.cardBrand) return `${formatBrandLabel(p.cardBrand)} •••• ${p.cardLast4}`;
+    return `Card •••• ${p.cardLast4}`;
+  }
+  return 'Card';
+}
+
 export function FolioScreen() {
   const { reservationId = '' } = useParams();
   const propertyId = tenant.propertyId;
@@ -807,7 +829,7 @@ export function FolioScreen() {
               const value = captureAmounts[p.paymentId] ?? defaultAmt;
               return (
                 <li key={p.paymentId}>
-                  {tenderMethod(p)} · {formatMinor(p.amountMinor)}
+                  {tenderLabel(p)} · {formatMinor(p.amountMinor)}
                   {p.status === 'authorized' ? (
                     <>
                       <Input

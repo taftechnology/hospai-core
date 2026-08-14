@@ -1178,6 +1178,21 @@ describe('FolioScreen wiring', () => {
           updatedAt: 1,
         },
         {
+          paymentId: 'pay_token',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'captured',
+          purpose: 'STAY',
+          tenderType: 'CARD',
+          cardBrand: 'visa',
+          cardLast4: '4242',
+          gatewayReference: 'sim_pay_token',
+          capturedAmountMinor: 5000,
+          createdAt: 2,
+          updatedAt: 2,
+        },
+        {
           paymentId: 'pay_cap',
           reservationId: 'res_1',
           amountMinor: 2000,
@@ -1186,8 +1201,8 @@ describe('FolioScreen wiring', () => {
           purpose: 'STAY',
           gatewayReference: 'gw2',
           capturedAmountMinor: 2000,
-          createdAt: 2,
-          updatedAt: 2,
+          createdAt: 3,
+          updatedAt: 3,
         },
         {
           paymentId: 'pay_cash',
@@ -1199,8 +1214,23 @@ describe('FolioScreen wiring', () => {
           tenderType: 'CASH',
           gatewayReference: null,
           capturedAmountMinor: 1500,
-          createdAt: 3,
-          updatedAt: 3,
+          createdAt: 4,
+          updatedAt: 4,
+        },
+        {
+          paymentId: 'pay_no_brand',
+          reservationId: 'res_1',
+          amountMinor: 3000,
+          currency: 'USD',
+          status: 'captured',
+          purpose: 'STAY',
+          tenderType: 'CARD',
+          cardLast4: '9999',
+          cardBrand: null,
+          gatewayReference: 'sim_pay_no_brand',
+          capturedAmountMinor: 3000,
+          createdAt: 5,
+          updatedAt: 5,
         },
       ],
     });
@@ -1210,12 +1240,31 @@ describe('FolioScreen wiring', () => {
     const authLi = screen.getByTestId('void-payment-pay_auth').closest('li')!;
     expect(authLi.textContent).toMatch(/Card/);
     expect(authLi.textContent).toMatch(/50\.00/);
+    expect(authLi.textContent).not.toMatch(/4242/);
+    expect(authLi.textContent).not.toMatch(/••••/);
     expect(authLi.textContent).not.toMatch(/pay_auth/);
     expect(authLi.textContent).not.toMatch(/sim_/);
+    const tokenLi = [...document.querySelectorAll('li')].find(
+      (li) =>
+        /Visa/.test(li.textContent ?? '') &&
+        /4242/.test(li.textContent ?? '') &&
+        /••••/.test(li.textContent ?? '') &&
+        /50\.00/.test(li.textContent ?? ''),
+    );
+    expect(tokenLi).toBeTruthy();
+    expect(tokenLi!.textContent).not.toMatch(/simulate/i);
+    expect(tokenLi!.textContent).not.toMatch(/sim_/);
+    expect(tokenLi!.textContent).not.toMatch(/pay_token/);
+    const noBrandLi = [...document.querySelectorAll('li')].find(
+      (li) => /Card •••• 9999/.test(li.textContent ?? ''),
+    );
+    expect(noBrandLi).toBeTruthy();
     const cashLi = [...document.querySelectorAll('li')].find(
       (li) => /Cash/.test(li.textContent ?? '') && /15\.00/.test(li.textContent ?? ''),
     );
     expect(cashLi).toBeTruthy();
+    expect(cashLi!.textContent).not.toMatch(/4242/);
+    expect(cashLi!.textContent).not.toMatch(/••••/);
     expect(cashLi!.textContent).not.toMatch(/pay_cash/);
     const firstPaintHeadings = [...document.querySelectorAll('h2')]
       .filter((h) => !h.closest('[data-testid="folio-advanced"]'))

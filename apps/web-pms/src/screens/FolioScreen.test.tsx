@@ -446,7 +446,8 @@ describe('FolioScreen wiring', () => {
       expect(screen.getByTestId('folio-message').textContent).toMatch(/queued/i),
     );
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/^Checked out\.?$/);
-    expect(screen.getByText(/checked_in/i)).toBeTruthy();
+    expect(screen.getByText(/· In house/)).toBeTruthy();
+    expect(screen.queryByText(/checked_in/)).toBeNull();
   });
 
   it('54: confirm dialog yes sends overrideBalance; dismiss does not check out', async () => {

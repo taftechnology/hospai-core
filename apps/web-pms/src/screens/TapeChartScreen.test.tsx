@@ -147,6 +147,11 @@ describe('TapeChartScreen', () => {
 
   afterEach(() => cleanup());
 
+  it('titles the tape Room Plan', () => {
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    expect(screen.getByRole('heading', { name: /room plan/i })).toBeTruthy();
+  });
+
   it('seeds from/to from property-local today through today+6 when Pacific differs from UTC', async () => {
     tzState.current = 'America/Los_Angeles';
     vi.useFakeTimers({

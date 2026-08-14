@@ -175,14 +175,15 @@ describe('NightAuditScreen', () => {
       }),
     );
     renderScreen();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'revenue' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: /revenue/i })).toBeTruthy());
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'revenue' }));
+      fireEvent.click(screen.getByRole('button', { name: /revenue/i }));
     });
     await waitFor(() => expect(getNightAuditReport).toHaveBeenCalledWith('prop_demo', '2026-03-01', 'revenue'));
     await waitFor(() => expect(screen.getByTestId('report-table')).toBeTruthy());
     expect(screen.getByTestId('report-table').textContent).toMatch(/150\.00/);
     expect(screen.getByTestId('report-table').textContent).toMatch(/12\.00/);
+    expect(screen.queryByText(/\{/)).toBeNull();
   });
 
   it('open exceptions link points at /exceptions?resolution=open', async () => {

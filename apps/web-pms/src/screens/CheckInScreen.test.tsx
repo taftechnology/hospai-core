@@ -10,6 +10,7 @@ const getReservation = vi.fn();
 const postGuestsBatch = vi.fn();
 const getProperty = vi.fn();
 const updateFrontOffice = vi.fn();
+const listRooms = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -29,6 +30,7 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     getProperty: (...args: unknown[]) => getProperty(...args),
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
+    listRooms: (...args: unknown[]) => listRooms(...args),
   },
 }));
 
@@ -74,6 +76,31 @@ describe('CheckInScreen', () => {
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
     });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_1',
+          code: '101',
+          roomTypeId: 'rt',
+          status: 'clean',
+          floor: '1',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+        {
+          roomId: 'rm_12',
+          code: '12',
+          roomTypeId: 'rt',
+          status: 'clean',
+          floor: '1',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+      ],
+    });
   });
 
   afterEach(() => {
@@ -84,9 +111,10 @@ describe('CheckInScreen', () => {
     renderCheckIn();
     await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByText(/assignment is optional/i)).toBeNull();
-
-    fireEvent.change(screen.getByPlaceholderText(/room id/i), { target: { value: 'rm_1' } });
+    expect(screen.queryByPlaceholderText(/room id/i)).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
+    expect((screen.getByRole('option', { name: '101' }) as HTMLOptionElement).value).toBe('rm_1');
+    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(false);
 
     checkIn.mockRejectedValueOnce(
@@ -99,6 +127,7 @@ describe('CheckInScreen', () => {
     );
     fireEvent.click(screen.getByTestId('check-in'));
     await waitFor(() => expect(screen.getByTestId('override-cleanliness')).toBeTruthy());
+    expect(checkIn.mock.calls[0]?.[3]).toMatchObject({ roomId: 'rm_1' });
   });
 
   it('12: print-reg-card enabled when reservation + resolved guest', async () => {

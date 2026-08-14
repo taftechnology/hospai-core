@@ -399,7 +399,7 @@ export function TapeChartScreen() {
   return (
     <div>
       <header className="board-header">
-        <h1 className="board-title">Board</h1>
+        <h1 className="board-title">Room Plan</h1>
         <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
         <Link to={from && to ? windowSearch(from, to, 'available') : '/board?view=available'}>
           Available

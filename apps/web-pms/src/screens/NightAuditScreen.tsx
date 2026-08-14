@@ -38,12 +38,23 @@ type NightAuditStatus = {
   reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
 };
 
+const REPORT_KEY_LABELS: Record<string, string> = {
+  roomNet: 'Room net',
+  taxTotal: 'Tax',
+  businessDate: 'Business date',
+};
+
+function titleCaseReportId(id: string): string {
+  if (!id) return id;
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
 function formatReportCell(key: string, value: unknown): string {
   if (typeof value === 'number' && (MONEY_KEYS.has(key) || key.endsWith('Minor'))) {
     return formatMinor(value);
   }
   if (value == null) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'object') return '';
   return String(value);
 }
 
@@ -196,7 +207,7 @@ export function NightAuditScreen() {
                     setOpenReport({ businessDate: r.businessDate, reportId: r.reportId })
                   }
                 >
-                  {r.reportId}
+                  {titleCaseReportId(r.reportId)}
                 </button>
               </li>
             ))}
@@ -208,7 +219,7 @@ export function NightAuditScreen() {
                   .filter(([, v]) => typeof v !== 'object' || v === null)
                   .map(([key, value]) => (
                     <tr key={key}>
-                      <th>{key}</th>
+                      <th>{REPORT_KEY_LABELS[key] ?? key}</th>
                       <td>{formatReportCell(key, value)}</td>
                     </tr>
                   ))}

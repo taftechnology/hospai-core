@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
+import { formatMinor } from '../money.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 
@@ -116,6 +117,39 @@ export function BookingScreen() {
     retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
+
+  const lastNight =
+    arrivalDate && departureDate ? addCalendarDays(departureDate, -1) : null;
+  const ratesQ = useQuery({
+    queryKey: ['rate-days', propertyId, arrivalDate, lastNight, roomTypeId],
+    queryFn: () =>
+      api.listRateDays(propertyId, {
+        fromDate: arrivalDate,
+        toDate: lastNight!,
+        roomTypeId: roomTypeId!,
+        ratePlanId: 'BAR',
+      }),
+    enabled: Boolean(roomTypeId && arrivalDate && lastNight && lastNight >= arrivalDate),
+    retry: false,
+  });
+  const stayQuoteMinor = useMemo(() => {
+    if (!arrivalDate || !lastNight || lastNight < arrivalDate) return null;
+    const nights: string[] = [];
+    let cur = arrivalDate;
+    while (cur <= lastNight) {
+      nights.push(cur);
+      cur = addCalendarDays(cur, 1);
+    }
+    const days = (ratesQ.data?.days ?? []) as Array<{ stayDate?: unknown; amountMinor?: unknown }>;
+    const byDate = new Map<string, number>();
+    for (const d of days) {
+      if (typeof d.stayDate === 'string' && typeof d.amountMinor === 'number') {
+        byDate.set(d.stayDate, d.amountMinor);
+      }
+    }
+    if (nights.length === 0 || nights.some((n) => !byDate.has(n))) return null;
+    return nights.reduce((sum, n) => sum + (byDate.get(n) ?? 0), 0);
+  }, [arrivalDate, lastNight, ratesQ.data]);
 
   const typesQ = useQuery({
     queryKey: ['room-types', propertyId, 'active'],
@@ -330,7 +364,6 @@ export function BookingScreen() {
         <Link to="/arrivals">← Arrivals</Link>
       </p>
       <h1>Book</h1>
-      <p className="muted">Type-only stay — no rate quote in this screen.</p>
 
       <section className="stack">
         <h2>Dates</h2>
@@ -405,9 +438,12 @@ export function BookingScreen() {
           ))}
         </ul>
         {quoteAriVersion != null ? (
-          <p className="muted" data-testid="quote-version">
-            Quote ariVersion {quoteAriVersion}
+          <p className="visually-hidden" data-testid="quote-version">
+            {quoteAriVersion}
           </p>
+        ) : null}
+        {stayQuoteMinor != null ? (
+          <p data-testid="stay-quote">${formatMinor(stayQuoteMinor)}</p>
         ) : null}
       </section>
 
@@ -439,7 +475,7 @@ export function BookingScreen() {
         <h2>Guest</h2>
         {contextMode && contextDisplayName ? (
           <p data-testid="context-guest">
-            Booking for {contextDisplayName} ({contextGuestRef})
+            Booking for {contextDisplayName}
           </p>
         ) : (
           <>

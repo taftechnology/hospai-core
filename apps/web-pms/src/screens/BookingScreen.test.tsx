@@ -10,6 +10,7 @@ const createReservation = vi.fn();
 const postGuestsBatch = vi.fn();
 const listRoomTypes = vi.fn();
 const searchGuests = vi.fn();
+const listRateDays = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -29,6 +30,7 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...a: unknown[]) => postGuestsBatch(...a),
     listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
     searchGuests: (...a: unknown[]) => searchGuests(...a),
+    listRateDays: (...a: unknown[]) => listRateDays(...a),
   },
 }));
 
@@ -140,6 +142,7 @@ describe('BookingScreen', () => {
       classified: { class: 'live' },
       body: { items: [], nextCursor: null },
     });
+    listRateDays.mockResolvedValue({ ok: true, days: [] });
   });
 
   afterEach(() => {
@@ -180,6 +183,37 @@ describe('BookingScreen', () => {
       expect(screen.getByText(/Availability unavailable/i)).toBeTruthy(),
     );
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('paints a dollar stay quote from BAR nights and hides ariVersion copy', async () => {
+    listRateDays.mockResolvedValue({
+      ok: true,
+      days: [
+        { stayDate: '2026-08-11', amountMinor: 15000 },
+        { stayDate: '2026-08-12', amountMinor: 15000 },
+      ],
+    });
+    renderBook();
+    await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-08-11'));
+    fireEvent.change(screen.getByTestId('departure-date'), { target: { value: '2026-08-13' } });
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toBe('$300.00'));
+    expect(screen.queryByText(/Type-only stay/i)).toBeNull();
+    expect(screen.queryByText(/ariVersion/i)).toBeNull();
+    expect(screen.getByTestId('quote-version')).toBeTruthy();
+  });
+
+  it('omits stay-quote when a night is missing', async () => {
+    listRateDays.mockResolvedValue({
+      ok: true,
+      days: [{ stayDate: '2026-08-10', amountMinor: 15000 }],
+    });
+    renderBook();
+    await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
+    await waitFor(() => expect(screen.getByTestId('quote-version')).toBeTruthy());
+    expect(screen.queryByTestId('stay-quote')).toBeNull();
   });
 
   it('zero selectable types shows dates copy; Confirm disabled', async () => {
@@ -271,6 +305,7 @@ describe('BookingScreen', () => {
     await waitFor(() =>
       expect(screen.getByTestId('context-guest').textContent).toMatch(/Maria/),
     );
+    expect(screen.getByTestId('context-guest').textContent).not.toMatch(/g_ctx/);
     await waitFor(() => expect(screen.getByText('rt_king')).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /rt_king/i }));
     fireEvent.click(screen.getByTestId('confirm-book'));

@@ -9,6 +9,7 @@ const listGuestStays = vi.fn();
 const updateGuest = vi.fn();
 const eraseGuest = vi.fn();
 const getMe = vi.fn();
+const listRooms = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -22,6 +23,7 @@ vi.mock('../client.js', () => ({
     updateGuest: (...args: unknown[]) => updateGuest(...args),
     eraseGuest: (...args: unknown[]) => eraseGuest(...args),
     getMe: (...args: unknown[]) => getMe(...args),
+    listRooms: (...args: unknown[]) => listRooms(...args),
   },
 }));
 
@@ -79,6 +81,21 @@ describe('GuestProfileScreen', () => {
       nextCursor: null,
     });
     eraseGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_101',
+          code: '101',
+          roomTypeId: 'rt_king',
+          status: 'clean',
+          floor: '1',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+      ],
+    });
   });
 
   afterEach(() => cleanup());
@@ -89,6 +106,8 @@ describe('GuestProfileScreen', () => {
     expect(screen.getByText('ada@ex.com')).toBeTruthy();
     expect(screen.getByText('5550100')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'res_1' }).getAttribute('href')).toBe('/folio/res_1');
+    expect(screen.getByText('101')).toBeTruthy();
+    expect(screen.queryByText('rm_101')).toBeNull();
     expect(screen.getByTestId('guest-book').getAttribute('href')).toBe('/book?guestRef=g1');
     expect(screen.queryByText(/merge/i)).toBeNull();
     expect(screen.queryByText(/consent/i)).toBeNull();

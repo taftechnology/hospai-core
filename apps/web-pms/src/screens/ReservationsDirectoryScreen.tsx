@@ -10,6 +10,7 @@ import {
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 
@@ -168,7 +169,7 @@ export function ReservationsDirectoryScreen() {
 
   function roomLabel(row: FrontDeskItem): string {
     if (!row.roomId) return '';
-    return roomsById.get(row.roomId) ?? (row.roomId.length > 8 ? `${row.roomId.slice(0, 8)}…` : row.roomId);
+    return roomsById.get(row.roomId) ?? '';
   }
 
   if (!searching && listQ.isError) {
@@ -258,7 +259,7 @@ export function ReservationsDirectoryScreen() {
               <td>
                 <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
               </td>
-              <td>{row.status}</td>
+              <td>{reservationStatusLabel(row.status)}</td>
               <td className="tabular-nums">
                 {row.arrivalDate} → {row.departureDate}
               </td>

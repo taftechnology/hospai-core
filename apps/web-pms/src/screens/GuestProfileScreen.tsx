@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { statusClass } from '../status/status-class.js';
 import type { StatusSeverity } from '../status/types.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
@@ -90,6 +91,14 @@ export function GuestProfileScreen() {
     queryFn: () => api.listGuestStays(propertyId, guestRef),
     enabled: Boolean(guestRef),
   });
+  const roomsQ = useQuery({
+    queryKey: ['rooms', propertyId],
+    queryFn: () => api.listRooms(propertyId),
+    retry: false,
+  });
+  const roomsById = new Map(
+    (roomsQ.data?.rooms ?? []).map((r) => [r.roomId, r.code] as const),
+  );
 
   const guest = asGuestRead(guestQ.data);
   const stays = asStayPage(staysQ.data);
@@ -290,8 +299,12 @@ export function GuestProfileScreen() {
                   <td className="tabular-nums">
                     {row.arrivalDate} → {row.departureDate}
                   </td>
-                  <td className={statusClass(staySeverity(row.status))}>{row.status}</td>
-                  <td className="min-w-0 truncate">{row.roomId ?? ''}</td>
+                  <td className={statusClass(staySeverity(row.status))}>
+                    {reservationStatusLabel(row.status)}
+                  </td>
+                  <td className="min-w-0 truncate">
+                    {row.roomId ? (roomsById.get(row.roomId) ?? '') : ''}
+                  </td>
                   <td className="tabular-nums">
                     {row.adults}+{row.children}
                     {row.vipFlag ? <span data-testid="badge-vip"> VIP</span> : null}

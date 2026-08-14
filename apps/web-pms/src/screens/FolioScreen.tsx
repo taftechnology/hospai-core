@@ -16,6 +16,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { formatMinor } from '../money.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { statusClass } from '../status/status-class.js';
 import { GuestNameLink } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
@@ -757,7 +758,7 @@ export function FolioScreen() {
       <p>
         {guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : reservationId}
         {reservationQ.data
-          ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationQ.data.status}`
+          ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationStatusLabel(reservationQ.data.status)}`
           : null}
         {roomCode ? ` · room ${roomCode} ` : null}
       </p>

@@ -39,6 +39,11 @@ export function CheckInScreen() {
     queryFn: () => api.getProperty(tenant.propertyId),
     retry: false,
   });
+  const roomsQ = useQuery({
+    queryKey: ['rooms', tenant.propertyId],
+    queryFn: () => api.listRooms(tenant.propertyId),
+    retry: false,
+  });
 
   useEffect(() => {
     const preassigned = reservationQ.data?.roomId;
@@ -103,6 +108,12 @@ export function CheckInScreen() {
   const editorDisabled = Boolean(
     reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status),
   );
+  const rooms = roomsQ.data?.rooms ?? [];
+  const typedRooms = reservationQ.data?.roomTypeId
+    ? rooms.filter((r) => r.roomTypeId === reservationQ.data?.roomTypeId)
+    : rooms;
+  const roomOptions = typedRooms.length > 0 ? typedRooms : rooms;
+  const selectedCode = rooms.find((r) => r.roomId === roomId)?.code;
 
   return (
     <div className="panel">
@@ -117,11 +128,23 @@ export function CheckInScreen() {
         </p>
       ) : null}
       <div className="stack-row">
-        <input
-          placeholder="room id"
-          value={roomId}
-          onChange={(e) => setRoomId(e.target.value)}
-        />
+        {roomsQ.isSuccess ? (
+          <label>
+            Room{' '}
+            <select
+              data-testid="check-in-room"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+            >
+              <option value="">Select room</option>
+              {roomOptions.map((r) => (
+                <option key={r.roomId} value={r.roomId}>
+                  {r.code}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <button type="button" disabled={!roomId || assign.isPending} onClick={() => assign.mutate()}>
           Assign room
         </button>
@@ -160,6 +183,7 @@ export function CheckInScreen() {
         propertyName={propertyQ.data?.property?.name ?? null}
         reservation={reservationQ.data}
         displayName={displayName}
+        roomLabel={selectedCode ?? null}
       />
     </div>
   );

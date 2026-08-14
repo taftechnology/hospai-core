@@ -19,6 +19,7 @@ import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 
 export type { BoardMode };
 
@@ -76,11 +77,13 @@ function BoardTable({
   items,
   states,
   timeZone,
+  roomsById,
 }: {
   mode: BoardMode;
   items: FrontDeskItem[];
   states: Record<string, GuestRowState>;
   timeZone: string | null;
+  roomsById: Map<string, string>;
 }) {
   const today = timeZone ? propertyLocalToday(timeZone) : null;
 
@@ -88,8 +91,9 @@ function BoardTable({
     <table>
       <thead>
         <tr>
-          <th>Reservation</th>
           <th>Guest</th>
+          <th>Room</th>
+          <th>Status</th>
           <th />
         </tr>
       </thead>
@@ -107,14 +111,12 @@ function BoardTable({
             : 'informational';
           const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
           const guestSev = guestSeverity(guestState);
+          const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
           return (
             <tr key={row.reservationId} className={statusClass(rowSev)}>
-              <td>
-                {row.reservationId}
-                {overstay ? ' (overstay)' : ''}
-              </td>
               <td className={statusClass(guestSev)}>
                 <GuestNameLink state={guestState} guestRef={row.guestRef} />
+                {overstay ? ' (overstay)' : ''}
                 {row.vipFlag === true ? (
                   <span data-testid="badge-vip"> VIP</span>
                 ) : null}
@@ -122,6 +124,8 @@ function BoardTable({
                   <span data-testid="badge-dnd"> DND</span>
                 ) : null}
               </td>
+              <td>{roomCode}</td>
+              <td>{reservationStatusLabel(row.status)}</td>
               <td>
                 {mode === 'arrivals' && status === 'pending' ? (
                   <ConfirmPendingButton reservationId={row.reservationId} />
@@ -146,10 +150,12 @@ function DeparturesBoard({
   items,
   states,
   timeZone,
+  roomsById,
 }: {
   items: FrontDeskItem[];
   states: Record<string, GuestRowState>;
   timeZone: string | null;
+  roomsById: Map<string, string>;
 }) {
   const { dueOut, departed, other } = partitionDepartures(items);
   const sections: Array<{ title: string; rows: FrontDeskItem[] }> = [
@@ -171,6 +177,7 @@ function DeparturesBoard({
               items={section.rows}
               states={states}
               timeZone={timeZone}
+              roomsById={roomsById}
             />
           )}
         </section>
@@ -224,6 +231,17 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
 
+  const roomsQ = useQuery({
+    queryKey: ['rooms', tenant.propertyId],
+    queryFn: () => api.listRooms(tenant.propertyId),
+    retry: false,
+  });
+  const roomsById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of roomsQ.data?.rooms ?? []) map.set(r.roomId, r.code);
+    return map;
+  }, [roomsQ.data]);
+
   const refs = useMemo(
     () => [...new Set((listQ.data?.items ?? []).map((i) => i.guestRef))],
     [listQ.data],
@@ -263,9 +281,11 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   } else if (items.length === 0) {
     body = <p className="muted">No reservations for this view</p>;
   } else if (mode === 'departures') {
-    body = <DeparturesBoard items={items} states={states} timeZone={timeZone} />;
+    body = <DeparturesBoard items={items} states={states} timeZone={timeZone} roomsById={roomsById} />;
   } else {
-    body = <BoardTable mode={mode} items={items} states={states} timeZone={timeZone} />;
+    body = (
+      <BoardTable mode={mode} items={items} states={states} timeZone={timeZone} roomsById={roomsById} />
+    );
   }
 
   return (

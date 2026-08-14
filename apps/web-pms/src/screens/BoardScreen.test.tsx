@@ -9,6 +9,7 @@ const getInHouse = vi.fn();
 const postGuestsBatch = vi.fn();
 const confirmReservation = vi.fn();
 const getFrontOfficeSummary = vi.fn();
+const listRooms = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -25,6 +26,7 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     confirmReservation: (...args: unknown[]) => confirmReservation(...args),
     getFrontOfficeSummary: (...args: unknown[]) => getFrontOfficeSummary(...args),
+    listRooms: (...args: unknown[]) => listRooms(...args),
   },
 }));
 
@@ -111,6 +113,21 @@ describe('BoardScreen folio links', () => {
       overstay: 0,
       occupancy: { occupiedRooms: 0, sellableRooms: 1 },
     });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_101',
+          code: '101',
+          roomTypeId: 'rt',
+          status: 'clean',
+          floor: '1',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+      ],
+    });
   });
 
   afterEach(() => cleanup());
@@ -168,9 +185,8 @@ describe('BoardScreen folio links', () => {
       nextCursor: null,
     });
     renderBoard('arrivals');
-    await waitFor(() => expect(screen.getByText('res_pend')).toBeTruthy());
-    expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy();
-    const row = screen.getByText('res_pend').closest('tr');
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy());
+    const row = screen.getByRole('button', { name: /^Confirm$/i }).closest('tr');
     expect(row?.className).toMatch(/status-attention/);
   });
 
@@ -212,6 +228,33 @@ describe('BoardScreen folio links', () => {
     renderBoard('in-house');
     await waitFor(() => expect(getInHouse).toHaveBeenCalled());
     expect(getArrivals).not.toHaveBeenCalled();
+  });
+
+  it('guest name leads; room code; In house copy', async () => {
+    getInHouse.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          ...item,
+          roomId: 'rm_101',
+          status: 'checked_in' as const,
+        },
+      ],
+      nextCursor: null,
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'resolved', displayName: 'Ada' } },
+    });
+    renderBoard('in-house');
+    await waitFor(() => expect(screen.getByText('Ada')).toBeTruthy());
+    expect(screen.getByText('101')).toBeTruthy();
+    expect(screen.queryByText('checked_in')).toBeNull();
+    expect(screen.getByText('In house')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /^Folio$/i }).getAttribute('href')).toBe(
+      '/folio/res_board_1',
+    );
   });
 });
 
@@ -261,6 +304,7 @@ describe('BoardScreen live invalidation', () => {
       overstay: 0,
       occupancy: { occupiedRooms: 0, sellableRooms: 1 },
     });
+    listRooms.mockResolvedValue({ ok: true, rooms: [] });
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/arrivals?date=2026-08-13']}>

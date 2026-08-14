@@ -18,15 +18,21 @@ export function BoardSummary({ date }: { date: string | null }) {
 
   return (
     <div data-testid="board-summary" className="board-summary tabular-nums">
-      <Link to={`/arrivals?date=${encodeURIComponent(date)}`}>Arrivals {s.arrivals}</Link>
-      <Link to={`/departures?date=${encodeURIComponent(date)}`}>Due out {s.departuresDue}</Link>
-      <Link to="/in-house">In-house {s.inHouse}</Link>
+      <Link className="chip" to={`/arrivals?date=${encodeURIComponent(date)}`}>
+        Arrivals {s.arrivals}
+      </Link>
+      <Link className="chip" to={`/departures?date=${encodeURIComponent(date)}`}>
+        Due out {s.departuresDue}
+      </Link>
+      <Link className="chip" to="/in-house">
+        In-house {s.inHouse}
+      </Link>
       {s.overstay > 0 ? (
-        <span data-testid="board-summary-overstay" className={statusClass('exception')}>
+        <span data-testid="board-summary-overstay" className={`chip ${statusClass('exception')}`}>
           Overstay {s.overstay}
         </span>
       ) : null}
-      <span>
+      <span className="chip">
         Occupancy {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}
       </span>
     </div>

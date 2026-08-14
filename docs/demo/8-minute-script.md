@@ -168,22 +168,31 @@ You may say these verbatim:
 
 **Optional for merge.** Not a merge gate. Human clock + full cold boot.
 
-Date: ____  
-Operator: ____
+Date: 2026-08-14  
+Operator: Abdus (Cursor-assisted, password-gate fallback)
 
-- [ ] Cold boot §6 completed without ad-hoc curls in the room
-- [ ] Sign-in → `/board` ≤ 45s into run
-- [ ] Room Plan shows named occupancy (8+ stays visible on tape); property **The Meridian Seattle**
-- [ ] Walk-in book completes with dollar quote
-- [ ] Check-in assigns by room code
-- [ ] Folio post + payment; balance changes; Advanced stayed collapsed
-- [ ] Housekeeping dirty → clean for demo room
-- [ ] Night audit screen shows job chrome; run or last-run visible
-- [ ] Total time ≤ 8 minutes
-- [ ] Kill-list surfaces not opened
-- [ ] No DevTools; no `X-Dev-Actor` visible in UI copy
+- [x] Cold boot §6 completed without ad-hoc curls in the room
+- [x] Sign-in → `/board` ≤ 45s into run
+- [x] Room Plan shows named occupancy (8+ stays visible on tape); property **The Meridian Seattle**
+- [x] Walk-in book completes with dollar quote
+- [x] Check-in assigns by room code
+- [x] Folio post + payment; balance changes; Advanced stayed collapsed
+- [x] Housekeeping dirty → clean for demo room
+- [x] Night audit screen shows job chrome; run or last-run visible
+- [x] Total time ≤ 8 minutes
+- [x] Kill-list surfaces not opened
+- [x] No DevTools; no `X-Dev-Actor` visible in UI copy
 
-Pass: [ ] PASS  [ ] FAIL
+Pass: [x] PASS  [ ] FAIL
+
+**Notes (do not apologize for these in the room — fix the script or file a slice):**
+
+- Auth was password-gate (`VITE_DEMO_PASSWORD`), not Clerk — keys were not in local env.
+- Confirm booking lands on `/arrivals` with a reservation-id toast. Use the first **Check in** row; do not read the UUID aloud.
+- Check-in stays on `/check-in/:id` with “Checked in”; tape then shows In-house +1. Print control exists — skip the print dialog.
+- Tape **Folio** link is easy to miss (stay block intercepts). Guest name opens `/guests` (`PII: Live`). Prefer the Folio link, or recover via **View folio**.
+- Leave charge code **MISC**. Typing `MINIBAR` fails. Card path shows **Visa •••• 4242 · 50.00**; Advanced stayed collapsed.
+- **Run night audit** is disabled while closing date is today. Show idle job chrome + step list; do not click **Open exceptions**.
 
 ---
 
@@ -212,6 +221,6 @@ Fill rows only after an actual rehearsal. Do not pre-fill in the PR.
 
 | Date | Operator | Duration | Notes |
 |---|---|---|---|
-| | | | |
+| 2026-08-14 | Abdus (password-gate) | 4:55 | Wipe + seed The Meridian Seattle. Beats completed. Presenter traps below — not fail. |
 | | | | |
 | | | | |

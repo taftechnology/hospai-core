@@ -54,9 +54,11 @@ describe('me authority helpers', () => {
     const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
     expect(ids).toContain('board');
     expect(ids).toContain('reservations');
+    expect(ids).not.toContain('in-house');
+    expect(ids).not.toContain('departures');
   });
 
-  it('filterNavEntries: live guests:read includes guests at order 36 between reservations and book', () => {
+  it('filterNavEntries: live guests:read includes guests at order 60 after book', () => {
     const me: PropertyMe = {
       ...baseMe,
       permissions: ['reservations:read', 'reservations:write', 'guests:read'],
@@ -68,9 +70,9 @@ describe('me authority helpers', () => {
     const guests = ids.indexOf('guests');
     const book = ids.indexOf('book');
     expect(reservations).toBeGreaterThan(-1);
-    expect(guests).toBeGreaterThan(reservations);
-    expect(book).toBeGreaterThan(guests);
-    expect(NAV_ENTRIES.find((e) => e.id === 'guests')?.order).toBe(36);
+    expect(book).toBeGreaterThan(reservations);
+    expect(guests).toBeGreaterThan(book);
+    expect(NAV_ENTRIES.find((e) => e.id === 'guests')?.order).toBe(60);
   });
 
   it('filterNavEntries: without guests:read omits guests', () => {
@@ -164,21 +166,20 @@ describe('me authority helpers', () => {
     expect(ids).toContain('settings');
   });
 
-  it('filterNavEntries: live property:read includes exceptions at order 65', () => {
+  it('filterNavEntries: live property:read includes exceptions at order 130 after Settings', () => {
     const me: PropertyMe = {
       ...baseMe,
-      permissions: ['reservations:read', 'property:read'],
+      permissions: ['reservations:read', 'property:read', 'settings:configure'],
     };
     const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
     const ids = filtered.map((e) => e.id);
     expect(ids).toContain('exceptions');
     const exceptions = NAV_ENTRIES.find((e) => e.id === 'exceptions');
-    expect(exceptions?.order).toBe(65);
-    const night = filtered.findIndex((e) => e.id === 'night-audit');
-    const exc = filtered.findIndex((e) => e.id === 'exceptions');
+    expect(exceptions?.order).toBe(130);
     const settings = filtered.findIndex((e) => e.id === 'settings');
-    expect(exc).toBeGreaterThan(night === -1 ? -1 : night);
-    if (settings !== -1) expect(exc).toBeLessThan(settings);
+    const exc = filtered.findIndex((e) => e.id === 'exceptions');
+    expect(settings).toBeGreaterThan(-1);
+    expect(exc).toBeGreaterThan(settings);
   });
 
   it('canShowShellOpen: pending false; unknown true; live needs folio:post', () => {

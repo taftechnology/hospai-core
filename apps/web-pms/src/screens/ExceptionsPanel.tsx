@@ -15,18 +15,25 @@ export function ExceptionsPanel() {
 
   const count = countQ.data?.exceptionCount ?? 0;
   const badgeSev = exceptionBadgeSeverity(count);
+  const failClosed =
+    countQ.isError && asClassified(countQ.error).class === 'fail_closed';
 
   return (
-    <section id="replay-exceptions" className="panel" data-testid="exceptions-panel">
-      <h2>
+    <details
+      id="replay-exceptions"
+      className="side-panel"
+      data-testid="exceptions-panel"
+      open={count > 0 || countQ.isError}
+    >
+      <summary>
         <Link to="/exceptions">
           Exceptions{' '}
           <span className={`badge ${statusClass(badgeSev)}`}>{count}</span>
         </Link>
-      </h2>
-      {countQ.isError && asClassified(countQ.error).class === 'fail_closed' ? (
+      </summary>
+      {failClosed ? (
         <p className="error">Exceptions unavailable — property unreachable</p>
       ) : null}
-    </section>
+    </details>
   );
 }

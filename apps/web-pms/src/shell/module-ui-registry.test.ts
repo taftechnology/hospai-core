@@ -3,24 +3,34 @@ import { ALL_NAV } from './module-ui-registry.js';
 import { NAV_ENTRIES } from './nav.js';
 
 describe('module UI nav merge', () => {
-  it('inserts housekeeping between in-house and departures by order', () => {
+  it('sorts primary then quiet ids; housekeeping at 50; no in-house/departures', () => {
     expect(ALL_NAV.map((e) => e.id)).toEqual([
       'board',
       'arrivals',
-      'in-house',
-      'housekeeping',
-      'departures',
       'reservations',
-      'guests',
       'book',
-      'inventory',
+      'housekeeping',
+      'guests',
       'rates',
+      'night-audit',
+      'settings',
+      'inventory',
       'staff',
       'roster',
-      'night-audit',
       'exceptions',
-      'settings',
     ]);
+    expect(ALL_NAV.map((e) => e.id)).not.toContain('in-house');
+    expect(ALL_NAV.map((e) => e.id)).not.toContain('departures');
     expect(NAV_ENTRIES.every((e) => typeof e.order === 'number')).toBe(true);
+
+    expect(ALL_NAV.find((e) => e.id === 'board')?.label).toBe('Room Plan');
+    expect(ALL_NAV.find((e) => e.id === 'arrivals')?.label).toBe('Front Desk');
+    expect(ALL_NAV.find((e) => e.id === 'book')?.label).toBe('New Booking');
+    expect(ALL_NAV.find((e) => e.id === 'night-audit')?.label).toBe('Night Audit');
+
+    for (const id of ['inventory', 'staff', 'roster', 'exceptions'] as const) {
+      expect(ALL_NAV.find((e) => e.id === id)?.tone).toBe('quiet');
+    }
+    expect(ALL_NAV.find((e) => e.id === 'housekeeping')?.tone).not.toBe('quiet');
   });
 });

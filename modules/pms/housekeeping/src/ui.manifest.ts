@@ -7,7 +7,7 @@ export const housekeepingUi = {
       id: 'housekeeping',
       label: 'Housekeeping',
       path: '/housekeeping',
-      order: 25,
+      order: 50,
       permission: 'housekeeping:read',
     },
   ],

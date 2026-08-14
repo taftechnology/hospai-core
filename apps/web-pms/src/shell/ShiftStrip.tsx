@@ -155,8 +155,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   return (
     <div className="shift-strip">
       <span className={statusClass(sev)} data-testid="open-shift-badge">
-        Open shift <strong>{shift.shiftId}</strong> · float {formatMinor(shift.openingFloat)} · cash
-        posts {shift.attributedCashCount}
+        Open shift · float {formatMinor(shift.openingFloat)} · cash posts {shift.attributedCashCount}
       </span>
       <Link to="/shift">Close</Link>
       {message ? <p className="muted">{message}</p> : null}

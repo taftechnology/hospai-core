@@ -9,7 +9,7 @@ describe('@hospai/pms-housekeeping/ui export', () => {
         expect.objectContaining({
           id: 'housekeeping',
           path: '/housekeeping',
-          order: 25,
+          order: 50,
           permission: 'housekeeping:read',
         }),
       ]),

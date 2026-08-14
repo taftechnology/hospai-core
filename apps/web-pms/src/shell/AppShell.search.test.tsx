@@ -16,6 +16,7 @@ vi.mock('../client.js', () => ({
     }),
     getOpenShift: async () => ({ ok: true, shift: null }),
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
+    openShift: async () => ({ ok: true }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
     getProvisionalExceptions: async () => ({ items: [] }),
     searchReservations: (...a: unknown[]) => searchReservations(...a),
@@ -117,11 +118,15 @@ describe('AppShell reservation search', () => {
     getMe.mockResolvedValue(liveMe);
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).toMatch(
+      /guest name/i,
+    );
     fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Ada' } });
     await waitFor(() => expect(searchReservations).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText(/res_hit/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Ada/ })).toBeTruthy());
+    expect(screen.queryByText(/res_hit/)).toBeNull();
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
-    fireEvent.click(screen.getByText(/res_hit/));
+    fireEvent.click(screen.getByRole('button', { name: /Ada/ }));
     await waitFor(() => {
       expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/folio/res_hit');
     });

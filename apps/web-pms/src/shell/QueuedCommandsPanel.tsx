@@ -11,11 +11,9 @@ export function QueuedCommandsPanel() {
   const entries = q.data ?? [];
 
   return (
-    <section className="panel">
-      <h2>Queued commands</h2>
-      {entries.length === 0 ? (
-        <p className="muted">None this session</p>
-      ) : (
+    <details className="side-panel" open={entries.length > 0}>
+      <summary>Queued commands</summary>
+      {entries.length > 0 ? (
         <ul>
           {entries.map((e) => (
             <li key={`${e.commandId}-${e.idempotencyKey}`}>
@@ -23,8 +21,8 @@ export function QueuedCommandsPanel() {
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
       <p className="muted">Session-scoped — lost on reload</p>
-    </section>
+    </details>
   );
 }

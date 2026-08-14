@@ -67,10 +67,11 @@ describe('AppShell boot path', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole('navigation', { name: /front desk/i })).toBeTruthy();
-    expect(screen.getByText('HospAI')).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: /hospai pms/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /hospai pms/i })).toBeTruthy();
+    expect(document.querySelector('aside')).toBeTruthy();
     // fail_closed on /me → fail open: full nav after settle (not withheld forever)
-    await waitFor(() => expect(screen.getByRole('link', { name: /arrivals/i })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('link', { name: /front desk/i })).toBeTruthy());
     expect(screen.getByText(/Queued commands/i)).toBeTruthy();
     expect(screen.getByTestId('exceptions-panel')).toBeTruthy();
     expect(screen.getByText('board-outlet')).toBeTruthy();
@@ -92,7 +93,7 @@ describe('AppShell boot path', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole('navigation', { name: /front desk/i })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: /hospai pms/i })).toBeTruthy();
     expect(screen.getByText(/Queued commands/i)).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId('folio-unread')).toBeTruthy());
     expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);

@@ -2,23 +2,26 @@
   color-scheme: light;
 
   /* --- primitives (literals allowed only on --color-*) --- */
-  --color-ink: #1a1f24;
-  --color-muted: #5c6670;
-  --color-line: #d5dbe1;
-  --color-bg: #f3f5f7;
+  --color-ink: #2D2926;
+  --color-muted: #575245;
+  --color-line: #E8E4D8;
+  --color-bg: #F9F8F4;
   --color-surface-base: #ffffff;
+  --color-selected: #F1EFE9;
+  --color-primary: #4A5D4E;
+  --color-accent: #C18C5D;
 
   --color-status-settled-fg: #0d5c2e;
-  --color-status-settled-surface: #e8f5ee;
-  --color-status-informational-fg: #1a4a6e;
-  --color-status-informational-surface: #e8f1f8;
+  --color-status-settled-surface: #E8F2EA;
+  --color-status-informational-fg: #3A4F40;
+  --color-status-informational-surface: #EEF1EC;
   --color-status-attention-fg: #8a5a00;
-  --color-status-attention-surface: #fff6e5;
+  --color-status-attention-surface: #FBF4E8;
   --color-status-exception-fg: #9b1c1c;
-  --color-status-exception-surface: #fff5f5;
+  --color-status-exception-surface: #FBF3F0;
 
   --color-action-primary-fg: #ffffff;
-  --color-action-primary-surface: #1a4a6e;
+  --color-action-primary-surface: #4A5D4E;
   --color-action-destructive-fg: #ffffff;
   --color-action-destructive-surface: #9b1c1c;
 
@@ -30,8 +33,12 @@
   --line: var(--color-line);
   --bg: var(--color-bg);
   --panel: var(--color-surface-base);
+  --selected: var(--color-selected);
+  --primary: var(--color-primary);
   --danger: var(--color-status-exception-fg);
   --warn: var(--color-status-attention-fg);
+
+  --radius: 8px;
 
   /* --- status semantics --- */
   --status-settled-fg: var(--color-status-settled-fg);

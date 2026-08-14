@@ -17,8 +17,146 @@ a {
 
 .app-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  display: flex;
+}
+
+.app-sidebar {
+  width: 16rem;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.app-sidebar-mark {
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--action-primary-surface);
+  color: var(--action-primary-fg);
+  border-radius: var(--radius);
+  font-weight: 700;
+}
+
+.app-sidebar-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-sidebar-title span {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.app-sidebar nav {
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.app-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.app-nav-quiet {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.app-nav-list a {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.app-nav-list a[aria-current='page'] {
+  background: var(--selected);
+  color: var(--primary);
+  font-weight: 600;
+  border-bottom: 0;
+}
+
+.app-nav-list a:hover:not([aria-current='page']) {
+  background: color-mix(in srgb, var(--selected) 60%, transparent);
+  color: var(--ink);
+}
+
+.app-nav-quiet a {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.app-sidebar-footer {
+  padding: 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--selected);
+  font-size: 0.75rem;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-rail {
+  height: 4rem;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.ops-rail-search {
+  position: relative;
+  width: min(24rem, 100%);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--selected);
+  border: 1px solid var(--line);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .top-bar,
@@ -51,11 +189,6 @@ a {
   display: flex;
   gap: 1rem;
   align-items: center;
-}
-
-.nav a[aria-current='page'] {
-  font-weight: 700;
-  border-bottom: 2px solid var(--ink);
 }
 
 .main {
@@ -260,6 +393,19 @@ button {
   border-bottom: none;
 }
 
+details.side-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+
+details.side-panel summary {
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 .board-header {
   display: flex;
   gap: 1rem;
@@ -300,18 +446,42 @@ button {
 
 .reservation-search {
   position: relative;
-  margin-left: auto;
+  width: 100%;
+}
+
+.reservation-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem 0.5rem 2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.reservation-search-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+  display: flex;
 }
 
 .reservation-search ul {
   position: absolute;
   z-index: 2;
+  left: 0;
   right: 0;
   margin: 0.25rem 0 0;
   padding: 0.25rem 0;
   list-style: none;
   background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   min-width: 16rem;
 }
 
@@ -321,6 +491,27 @@ button {
   text-align: left;
   background: transparent;
   border: 0;
+}
+
+.board-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.board-summary a,
+.board-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--selected);
+  border: 1px solid var(--line);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 @media screen {
@@ -334,6 +525,9 @@ button {
 }
 
 @media print {
+  aside,
+  .app-sidebar,
+  .ops-rail,
   .top-bar,
   .shift-strip,
   .side-panels,
@@ -349,4 +543,3 @@ button {
     clip: auto;
   }
 }
-

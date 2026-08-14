@@ -1,8 +1,8 @@
 {
-  "total": 459,
+  "total": 455,
   "byTag": {
-    "button": 93,
-    "input": 108,
+    "button": 91,
+    "input": 106,
     "select": 27,
     "textarea": 4,
     "table": 17,
@@ -13,5 +13,5 @@
     "td": 72
   },
   "generatedAt": "2026-08-14",
-  "note": "Counted from apps/web-pms/src and modules/pms/housekeeping/src/ui excluding tests. Lower in batches 2–7 with baseline update in same commit."
+  "note": "Batch 2 shell adoption. Lower in batches 3–7 with baseline update in same commit."
 }

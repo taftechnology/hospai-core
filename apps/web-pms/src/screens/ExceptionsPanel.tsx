@@ -1,8 +1,8 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Alert, Badge } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
-import { statusClass } from '../status/status-class.js';
 
 export function ExceptionsPanel() {
   const propertyId = tenant.propertyId;
@@ -28,12 +28,10 @@ export function ExceptionsPanel() {
       <summary>
         <Link to="/exceptions">
           Exceptions{' '}
-          <span className={`badge ${statusClass(badgeSev)}`}>{count}</span>
+          <Badge rung={badgeSev}>{count}</Badge>
         </Link>
       </summary>
-      {failClosed ? (
-        <p className="error">Exceptions unavailable — property unreachable</p>
-      ) : null}
+      {failClosed ? <Alert>Exceptions unavailable — property unreachable</Alert> : null}
     </details>
   );
 }

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
+import { Alert, Button, Input } from '@hospai/ui-kit';
 import {
   filterNavEntries,
   hasPropertyPermission,
@@ -138,18 +139,15 @@ function ReservationSearch() {
       <span className="reservation-search-icon">
         <SearchIcon size={14} />
       </span>
-      <input
+      <Input
         data-testid="reservation-search"
+        type="search"
         placeholder="Guest name or reservation"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={onKeyDown}
       />
-      {failClosed ? (
-        <p className="error" role="alert">
-          Search unavailable — property unreachable.
-        </p>
-      ) : null}
+      {failClosed ? <Alert>Search unavailable — property unreachable.</Alert> : null}
       {debounced.length > 0 && items.length > 0 ? (
         <ul data-testid="reservation-search-results">
           {items.map((hit) => {
@@ -167,11 +165,11 @@ function ReservationSearch() {
                     guestRef={hit.guestRef}
                   />
                 ) : null}{' '}
-                <button type="button" onClick={() => goFolio(hit.reservationId)}>
+                <Button type="button" intent="ghost" onClick={() => goFolio(hit.reservationId)}>
                   {primary}
                   {primary && meta ? ' · ' : ''}
                   {meta}
-                </button>
+                </Button>
               </li>
             );
           })}
@@ -260,9 +258,7 @@ export function AppShell() {
           <strong>HospAI PMS</strong>
         </header>
         <main className="main">
-          <div className="error" role="alert" data-testid="me-no-access">
-            You don&apos;t have access to this property.
-          </div>
+          <Alert data-testid="me-no-access">You don&apos;t have access to this property.</Alert>
         </main>
       </div>
     );

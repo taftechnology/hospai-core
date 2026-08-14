@@ -1,7 +1,8 @@
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
+import { Button, Field, Input } from '@hospai/ui-kit';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import {
@@ -126,17 +127,19 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
               openMut.mutate();
             }}
           >
-            <label>
-              Opening float
-              <input
-                aria-label="opening-float"
-                value={floatMajor}
-                onChange={(e) => setFloatMajor(e.target.value)}
-              />
-            </label>
-            <button type="submit" disabled={openMut.isPending}>
+            <Field
+              label="Opening float"
+              control={
+                <Input
+                  aria-label="opening-float"
+                  value={floatMajor}
+                  onChange={(e) => setFloatMajor(e.target.value)}
+                />
+              }
+            />
+            <Button type="submit" intent="primary" disabled={openMut.isPending}>
               Open shift
-            </button>
+            </Button>
           </form>
         ) : null}
         {message ? <p className="muted">{message}</p> : null}

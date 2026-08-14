@@ -109,6 +109,8 @@ pnpm demo:seed
 
 This provisions **Harborlight Hospitality** / **The Meridian Seattle** (`org_demo` / `prop_demo` — same ids as `apps/web-pms/.env.example`): ~20 rooms, BAR rates, and today’s board (8 in-house, 4 arrivals, 3 due out). Re-run is safe (idempotent).
 
+Meeting script: [`docs/demo/8-minute-script.md`](docs/demo/8-minute-script.md)
+
 If a dry run left the hotel dirty, wipe local persist and seed again:
 
 1. Stop `pnpm --filter @hospai/pms-core dev`

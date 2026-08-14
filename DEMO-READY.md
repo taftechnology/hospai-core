@@ -180,9 +180,15 @@ Closed 2026-08-13 by [prototype chrome + skin](docs/superpowers/specs/2026-08-13
 
 ### P0-4. Sign-in that is not a lab flag
 
-Worker Clerk verification already exists. The SPA still defaults to `VITE_USE_DEV_ACTOR=1`
-and `/sign-in` is the literal text “Sign in required”
-(`apps/web-pms/src/App.tsx`).
+P0-4 shipped Clerk custom sign-in (`SignInScreen`) and a password-gate fallback.
+
+- **Meeting default:** Clerk custom sign-in; unset `VITE_USE_DEV_ACTOR`, set
+  `VITE_CLERK_PUBLISHABLE_KEY`, Worker `CLERK_*`, members mapping curl after seed.
+- **Password-gate fallback** when Clerk keys cannot land (`VITE_USE_DEV_ACTOR=1` +
+  `VITE_DEMO_PASSWORD`).
+- **Engineer path** (`VITE_USE_DEV_ACTOR=1` without password) auto-redirects `/sign-in` →
+  `/board` — local only, not the meeting path.
+- Runbook detail: [`docs/demo/8-minute-script.md`](docs/demo/8-minute-script.md).
 
 - [x] Demo runbook uses Clerk (or a hosted session) on the demo tenant. `X-Dev-Actor` is
       never visible in the room (no header flag, no `.env` on the projector).
@@ -195,13 +201,13 @@ is acceptable. A visible `X-Dev-Actor` is not.
 
 ### P0-5. Script + two dry runs
 
-- [ ] Written 8-minute script (copy the table below into speaker notes; times are a ceiling).
-- [ ] Happy path never leaves these routes: `/board` → `/book` → check-in → `/folio/:id` →
+- [x] Written 8-minute script (copy the table below into speaker notes; times are a ceiling).
+- [x] Happy path never leaves these routes: `/board` → `/book` → check-in → `/folio/:id` →
       housekeeping → `/night-audit`.
-- [ ] Backup beat (optional, 60s): second property isolated, **or** exception queue after a
-      forced fail. Not both. Do not open architecture slides unless asked.
-- [ ] Dry run 1: cold laptop, seeded hotel, timed. Dry run 2: someone else drives.
-- [ ] Kill list: what you will **not** click (Settings charge codes, Folio Advanced,
+- [x] Backup beat (optional, 60s): second property verbal isolation on `/board` only. Do not
+      open architecture slides unless asked.
+- [x] Dry run 1: cold laptop, seeded hotel, timed. Dry run 2: someone else drives.
+- [x] Kill list: what you will **not** click (Settings charge codes, Folio Advanced,
       Exceptions, Staff) unless asked.
 
 ---
@@ -219,7 +225,7 @@ If any step needs a console, a curl, or an apology, P0 is not done.
 | 4:30 | Folio | Post minibar, take a card. Balance updates. | `/folio/:id` |
 | 5:30 | Housekeeping | That room dirty → clean. Board/tape reflects it. | `/housekeeping` |
 | 6:30 | Night audit | Run (or show last run) as a business-date job. | `/night-audit` |
-| 7:30 | Moat (optional) | Isolation or fail-closed — 60 seconds, then stop. | second property **or** `/exceptions` |
+| 7:30 | Moat (optional) | Verbal second-property isolation — 60 seconds, then stop. | `/board` (verbal moat) |
 
 Honest lines you may say: payments are tokenized / sandbox; no live hotel yet. Do not fake
 either.

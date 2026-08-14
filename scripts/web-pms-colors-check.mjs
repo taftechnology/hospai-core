@@ -12,8 +12,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const cssRoot = join(root, 'apps/web-pms');
+const cssRoots = [join(root, 'apps/web-pms'), join(root, 'packages/ui-kit')];
 const MIN_CONTRAST = 4.5;
+
+/** Spec §4 — chrome and action pairs (fg prop, surface prop). */
+const CHROME_PAIRS = [
+  ['--ink', '--bg'],
+  ['--ink', '--panel'],
+  ['--muted', '--bg'],
+  ['--muted', '--panel'],
+  ['--muted', '--selected'],
+  ['--primary', '--selected'],
+  ['--primary', '--bg'],
+  ['--action-primary-fg', '--action-primary-surface'],
+  ['--action-destructive-fg', '--action-destructive-surface'],
+];
 
 const NAMED_COLORS = new Set([
   'white',
@@ -273,6 +286,25 @@ export function checkColors({ cssByFile }) {
   }
 
   let contrastOk = 0;
+  for (const [fgProp, surfaceProp] of CHROME_PAIRS) {
+    const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
+    const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
+    if (!fgHex) {
+      errors.push(`${fgProp}: could not resolve to hex for chrome pair check`);
+      continue;
+    }
+    if (!surfaceHex) {
+      errors.push(`${surfaceProp}: could not resolve to hex for chrome pair check`);
+      continue;
+    }
+    const ratio = contrastRatio(fgHex, surfaceHex);
+    if (ratio < MIN_CONTRAST) {
+      errors.push(`${fgProp} vs ${surfaceProp}: contrast ${ratio.toFixed(2)} < ${MIN_CONTRAST}`);
+    } else {
+      contrastOk += 1;
+    }
+  }
+
   for (const fgProp of statusFgs) {
     const rung = fgProp.replace(/^--status-/, '').replace(/-fg$/, '');
     const surfaceProp = `--status-${rung}-surface`;
@@ -359,6 +391,19 @@ function selfTest() {
     failed = true;
   }
 
+  // C4 — ui-kit literal on non --color-* must fail rule 1.
+  const uiKitBad = checkColors({
+    cssByFile: {
+      'packages/ui-kit/src/styles.css': `
+        .ui-btn { color: #ff0000; }
+      `,
+    },
+  });
+  if (uiKitBad.ok || !uiKitBad.errors.some((e) => /colour literal/.test(e))) {
+    console.error('self-test C4 FAILED: expected literal rejection in ui-kit fixture', uiKitBad);
+    failed = true;
+  }
+
   if (failed) process.exit(1);
   console.log('check:web-pms-colors --self-test OK');
 }
@@ -366,9 +411,9 @@ function selfTest() {
 if (process.argv.includes('--self-test')) {
   selfTest();
 } else {
-  const files = walkCss(cssRoot);
+  const files = cssRoots.flatMap((dir) => walkCss(dir));
   if (files.length === 0) {
-    console.error('No CSS files under apps/web-pms');
+    console.error('No CSS files under apps/web-pms or packages/ui-kit');
     process.exit(1);
   }
   const cssByFile = Object.fromEntries(

@@ -25,6 +25,7 @@ import { SettingsScreen } from './screens/SettingsScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
+import { UiGallery } from './dev/UiGallery.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -78,6 +79,9 @@ export function App() {
             <Route path="housekeeping/*" element={<HousekeepingScreen />} />
           </Route>
           <Route path="sign-in" element={<SignInScreen />} />
+          {import.meta.env.DEV ? (
+            <Route path="dev/ui" element={<UiGallery />} />
+          ) : null}
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

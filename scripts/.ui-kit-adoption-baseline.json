@@ -1,0 +1,17 @@
+{
+  "total": 459,
+  "byTag": {
+    "button": 93,
+    "input": 108,
+    "select": 27,
+    "textarea": 4,
+    "table": 17,
+    "thead": 16,
+    "tbody": 17,
+    "tr": 33,
+    "th": 72,
+    "td": 72
+  },
+  "generatedAt": "2026-08-14",
+  "note": "Counted from apps/web-pms/src and modules/pms/housekeeping/src/ui excluding tests. Lower in batches 2–7 with baseline update in same commit."
+}

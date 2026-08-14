@@ -12,6 +12,7 @@ const RULE_IDS = [
   'no-dom-in-client-core',
   'no-fetch-in-components',
   'no-inline-styles-in-web-pms',
+  'no-raw-controls-in-web-pms',
 ] as const;
 
 describe('eslint-plugin-hospai', () => {
@@ -22,8 +23,12 @@ describe('eslint-plugin-hospai', () => {
   it('enables all rules in recommended', () => {
     const rules = plugin.configs.recommended.rules;
     expect(Object.keys(rules)).toEqual(RULE_IDS.map((id) => `hospai/${id}`));
-    for (const rule of Object.values(rules)) {
-      expect(rule).toBe('error');
+    for (const [id, level] of Object.entries(rules)) {
+      if (id === 'hospai/no-raw-controls-in-web-pms') {
+        expect(level).toBe('warn');
+      } else {
+        expect(level).toBe('error');
+      }
     }
   });
 });

@@ -9,6 +9,7 @@ export default defineConfig({
       ['src/screens/**/*.test.tsx', 'jsdom'],
       ['src/shell/**/*.test.tsx', 'jsdom'],
       ['src/providers/**/*.test.tsx', 'jsdom'],
+      ['src/dev/**/*.test.tsx', 'jsdom'],
     ],
   },
 });

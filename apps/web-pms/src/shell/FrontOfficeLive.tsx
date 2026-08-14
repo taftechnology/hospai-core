@@ -9,6 +9,7 @@ import {
 } from '@hospai/client-core';
 import { hasPropertyPermission, type Authority } from '../auth/me.js';
 import { tenant } from '../client.js';
+import { getClerkSessionToken } from '../providers/clerk-credentials.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from './PropertyTimeZone.js';
 import { StaleWatermark } from './StaleWatermark.js';
@@ -83,6 +84,16 @@ function invalidateFrontOffice(queryClient: ReturnType<typeof useQueryClient>) {
   }
 }
 
+export function frontOfficeAuthProtocol(opts: {
+  useDevActor: boolean;
+  devActor: string;
+  clerkToken: string | null;
+}): string[] | undefined {
+  if (opts.useDevActor) return [`hospai.dev-actor.${opts.devActor}`];
+  if (opts.clerkToken) return [`hospai.clerk.${opts.clerkToken}`];
+  return undefined;
+}
+
 export function FrontOfficeLive({
   authority,
   createSocket = productionCreateSocket,
@@ -108,12 +119,7 @@ export function FrontOfficeLive({
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const protocols =
-      import.meta.env.VITE_USE_DEV_ACTOR === '1'
-        ? [`hospai.dev-actor.${import.meta.env.VITE_DEV_ACTOR || 'user_owner'}`]
-        : undefined;
-
-    const connect = () => {
+    const open = (protocols: string | string[] | undefined) => {
       if (cancelled) return;
       const socket = createSocket(frontOfficeStreamUrl(tenant.propertyId), protocols);
       if (!socket) return;
@@ -157,6 +163,31 @@ export function FrontOfficeLive({
         if (cancelled) return;
         if (seenSnapshot.current) setStale(true);
       };
+    };
+
+    const connect = () => {
+      if (cancelled) return;
+      if (import.meta.env.VITE_USE_DEV_ACTOR === '1') {
+        open(
+          frontOfficeAuthProtocol({
+            useDevActor: true,
+            devActor: import.meta.env.VITE_DEV_ACTOR || 'user_owner',
+            clerkToken: null,
+          }),
+        );
+        return;
+      }
+      void (async () => {
+        const clerkToken = await getClerkSessionToken();
+        if (cancelled) return;
+        open(
+          frontOfficeAuthProtocol({
+            useDevActor: false,
+            devActor: 'user_owner',
+            clerkToken,
+          }),
+        );
+      })();
     };
 
     connect();

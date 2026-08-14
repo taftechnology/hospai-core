@@ -83,36 +83,38 @@ export function GuestsDirectoryScreen() {
     results = <p className="muted">{q ? 'No guests match that search.' : 'No guests yet.'}</p>;
   } else {
     results = (
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {page.items.map((row) => (
-            <tr key={row.guestId}>
-              <td className="min-w-0 truncate">
-                <Link
-                  to={`/guests/${encodeURIComponent(row.guestId)}`}
-                  data-testid="guest-profile-link"
-                >
-                  {row.profile.displayName}
-                </Link>
-                <div translate="no" className="muted truncate" title={row.guestId}>
-                  {row.guestId}
-                </div>
-              </td>
-              <td className="min-w-0 truncate">{row.profile.email ?? ''}</td>
-              <td className="min-w-0 truncate">{row.profile.phone ?? ''}</td>
-              <td className="tabular-nums">{formatCreated(row.createdAt)}</td>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Created</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {page.items.map((row) => (
+              <tr key={row.guestId}>
+                <td className="min-w-0 truncate">
+                  <Link
+                    to={`/guests/${encodeURIComponent(row.guestId)}`}
+                    data-testid="guest-profile-link"
+                  >
+                    {row.profile.displayName}
+                  </Link>
+                  <div translate="no" className="muted truncate" title={row.guestId}>
+                    {row.guestId}
+                  </div>
+                </td>
+                <td className="min-w-0 truncate">{row.profile.email ?? ''}</td>
+                <td className="min-w-0 truncate">{row.profile.phone ?? ''}</td>
+                <td className="tabular-nums">{formatCreated(row.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
@@ -126,24 +128,24 @@ export function GuestsDirectoryScreen() {
 
   return (
     <div>
-      <header className="board-header">
-        <h1 className="board-title text-wrap-balance">Guests</h1>
-        <label>
-          Name, email, or phone{' '}
-          <input
-            role="search"
-            type="search"
-            name="guest-search"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Ada Lovelace, ada@…, or 5550100…"
-            data-testid="guest-directory-search"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </label>
-      </header>
       <div className="panel" aria-live="polite">
+        <header className="board-header">
+          <h1 className="board-title text-wrap-balance">Guests</h1>
+          <label>
+            Name, email, or phone{' '}
+            <input
+              role="search"
+              type="search"
+              name="guest-search"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Ada Lovelace, ada@…, or 5550100…"
+              data-testid="guest-directory-search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          </label>
+        </header>
         {results}
         {page.nextCursor ? (
           <button type="button" onClick={goNext}>

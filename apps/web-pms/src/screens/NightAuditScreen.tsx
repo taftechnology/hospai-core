@@ -171,32 +171,34 @@ export function NightAuditScreen() {
               Resume
             </button>
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Step</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {status.steps.map((step) => (
-                <tr key={step.step}>
-                  <td>{step.step}</td>
-                  <td className={statusClass(nightAuditStepSeverity(step.status))}>
-                    {step.status}
-                  </td>
-                  <td>
-                    {failedStep?.step === step.step ? (
-                      <button type="button" onClick={() => retryMutation.mutate(step.step)}>
-                        Retry
-                      </button>
-                    ) : null}
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {status.steps.map((step) => (
+                  <tr key={step.step}>
+                    <td>{step.step}</td>
+                    <td className={statusClass(nightAuditStepSeverity(step.status))}>
+                      {step.status}
+                    </td>
+                    <td>
+                      {failedStep?.step === step.step ? (
+                        <button type="button" onClick={() => retryMutation.mutate(step.step)}>
+                          Retry
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <h2>Reports</h2>
           <ul>
             {status.reports.map((r) => (
@@ -213,18 +215,20 @@ export function NightAuditScreen() {
             ))}
           </ul>
           {reportQuery.data ? (
-            <table data-testid="report-table">
-              <tbody>
-                {Object.entries(reportQuery.data)
-                  .filter(([, v]) => typeof v !== 'object' || v === null)
-                  .map(([key, value]) => (
-                    <tr key={key}>
-                      <th>{REPORT_KEY_LABELS[key] ?? key}</th>
-                      <td>{formatReportCell(key, value)}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table data-testid="report-table">
+                <tbody>
+                  {Object.entries(reportQuery.data)
+                    .filter(([, v]) => typeof v !== 'object' || v === null)
+                    .map(([key, value]) => (
+                      <tr key={key}>
+                        <th>{REPORT_KEY_LABELS[key] ?? key}</th>
+                        <td>{formatReportCell(key, value)}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </>
       ) : null}

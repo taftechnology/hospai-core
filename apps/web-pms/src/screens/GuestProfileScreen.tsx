@@ -166,15 +166,6 @@ export function GuestProfileScreen() {
   return (
     <div data-testid="guest-profile">
       {unsavedGuard}
-      <header className="board-header">
-        <h1 className="board-title text-wrap-balance">{heading}</h1>
-        {canBook ? (
-          <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
-            Book for guest
-          </Link>
-        ) : null}
-      </header>
-
       {contactFailClosed ? (
         <p className="error" role="alert">
           Guest profile unavailable — organization unreachable.
@@ -183,6 +174,14 @@ export function GuestProfileScreen() {
         <p className="muted">Loading…</p>
       ) : guest ? (
         <section className="panel">
+          <header className="board-header">
+            <h1 className="board-title text-wrap-balance">{heading}</h1>
+            {canBook ? (
+              <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
+                Book for guest
+              </Link>
+            ) : null}
+          </header>
           <p>
             PII: <strong>{guest.erased ? 'Erased' : 'Live'}</strong>
           </p>
@@ -279,41 +278,43 @@ export function GuestProfileScreen() {
         ) : stays.items.length === 0 ? (
           <p className="muted">No stays at this property.</p>
         ) : (
-          <table>
-            <caption>Stays at this property.</caption>
-            <thead>
-              <tr>
-                <th>Reservation</th>
-                <th>Dates</th>
-                <th>Status</th>
-                <th>Room</th>
-                <th>Party</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stays.items.map((row) => (
-                <tr key={row.reservationId}>
-                  <td translate="no">
-                    <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
-                  </td>
-                  <td className="tabular-nums">
-                    {row.arrivalDate} → {row.departureDate}
-                  </td>
-                  <td className={statusClass(staySeverity(row.status))}>
-                    {reservationStatusLabel(row.status)}
-                  </td>
-                  <td className="min-w-0 truncate">
-                    {row.roomId ? (roomsById.get(row.roomId) ?? '') : ''}
-                  </td>
-                  <td className="tabular-nums">
-                    {row.adults}+{row.children}
-                    {row.vipFlag ? <span data-testid="badge-vip"> VIP</span> : null}
-                    {row.dndFlag ? <span data-testid="badge-dnd"> DND</span> : null}
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <caption>Stays at this property.</caption>
+              <thead>
+                <tr>
+                  <th>Reservation</th>
+                  <th>Dates</th>
+                  <th>Status</th>
+                  <th>Room</th>
+                  <th>Party</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {stays.items.map((row) => (
+                  <tr key={row.reservationId}>
+                    <td translate="no">
+                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
+                    </td>
+                    <td className="tabular-nums">
+                      {row.arrivalDate} → {row.departureDate}
+                    </td>
+                    <td className={statusClass(staySeverity(row.status))}>
+                      {reservationStatusLabel(row.status)}
+                    </td>
+                    <td className="min-w-0 truncate">
+                      {row.roomId ? (roomsById.get(row.roomId) ?? '') : ''}
+                    </td>
+                    <td className="tabular-nums">
+                      {row.adults}+{row.children}
+                      {row.vipFlag ? <span data-testid="badge-vip"> VIP</span> : null}
+                      {row.dndFlag ? <span data-testid="badge-dnd"> DND</span> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 

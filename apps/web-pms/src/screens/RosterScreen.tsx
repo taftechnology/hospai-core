@@ -170,52 +170,54 @@ export function RosterScreen() {
         <button type="submit">Add</button>
       </form>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {staff.map((row) => {
-            const label = row.displayName ?? row.staffId;
-            const exited = row.exitedAt != null;
-            return (
-              <tr key={row.staffId}>
-                <td>{label}</td>
-                <td>
-                  {exited ? (
-                    'exited'
-                  ) : (
-                    <select
-                      aria-label={`Status for ${label}`}
-                      value={row.status}
-                      onChange={(e) => {
-                        const status = e.target.value as 'active' | 'inactive';
-                        if (status !== row.status) {
-                          statusMutation.mutate({ staffId: row.staffId, status });
-                        }
-                      }}
-                    >
-                      <option value="active">active</option>
-                      <option value="inactive">inactive</option>
-                    </select>
-                  )}
-                </td>
-                <td>
-                  {exited ? null : (
-                    <button type="button" onClick={() => onExit(row)}>
-                      Exit {label}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {staff.map((row) => {
+              const label = row.displayName ?? row.staffId;
+              const exited = row.exitedAt != null;
+              return (
+                <tr key={row.staffId}>
+                  <td>{label}</td>
+                  <td>
+                    {exited ? (
+                      'exited'
+                    ) : (
+                      <select
+                        aria-label={`Status for ${label}`}
+                        value={row.status}
+                        onChange={(e) => {
+                          const status = e.target.value as 'active' | 'inactive';
+                          if (status !== row.status) {
+                            statusMutation.mutate({ staffId: row.staffId, status });
+                          }
+                        }}
+                      >
+                        <option value="active">active</option>
+                        <option value="inactive">inactive</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    {exited ? null : (
+                      <button type="button" onClick={() => onExit(row)}>
+                        Exit {label}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

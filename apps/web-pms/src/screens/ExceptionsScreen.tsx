@@ -282,7 +282,7 @@ export function ExceptionsScreen() {
   const selectedIds = rows.filter((r) => selected.has(r.exceptionId)).map((r) => r.exceptionId);
 
   return (
-    <section className="exceptions-workbench panel" data-testid="exceptions-workbench">
+    <section className="panel" data-testid="exceptions-workbench">
       {unsavedGuard}
       <h1 className="text-wrap-balance">Exceptions</h1>
       <div className="exceptions-filters">
@@ -404,115 +404,117 @@ export function ExceptionsScreen() {
       ) : rows.length === 0 ? (
         <p className="muted">No exceptions match these filters.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>
-                <span className="visually-hidden">Select</span>
-              </th>
-              <th>Created</th>
-              <th>Business Date</th>
-              <th>Command Type</th>
-              <th>Reason</th>
-              <th>Assigned</th>
-              <th>Resolution</th>
-              <th>Links</th>
-              <th>Row Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const open = row.resolvedAt == null;
-              const sev = exceptionBadgeSeverity(open ? 1 : 0);
-              return (
-                <tr
-                  key={row.exceptionId}
-                  onClick={() => setDetailId(row.exceptionId)}
-                >
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(row.exceptionId)}
-                        onChange={(e) => {
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(row.exceptionId);
-                            else next.delete(row.exceptionId);
-                            return next;
-                          });
-                        }}
-                        aria-label={`Select ${row.exceptionId}`}
-                      />
-                    </label>
-                  </td>
-                  <td className="tabular-nums">{formatInstant(row.createdAt, timeZone)}</td>
-                  <td className="tabular-nums">{row.businessDate}</td>
-                  <td translate="no" className="min-w-0 truncate">
-                    {row.commandType}
-                  </td>
-                  <td className="min-w-0 truncate">{row.reason}</td>
-                  <td translate="no">{row.assignedTo ?? '—'}</td>
-                  <td>
-                    <span className={statusClass(sev)}>{open ? 'Open' : 'Resolved'}</span>
-                  </td>
-                  <td>
-                    {row.affected?.reservationId ? (
-                      <Link to={`/folio/${row.affected.reservationId}`}>Folio</Link>
-                    ) : null}
-                    {row.affected?.reservationId && row.commandType === 'reservations.check_in' ? (
-                      <>
-                        {' '}
-                        <Link to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
-                      </>
-                    ) : null}
-                    {row.affected?.roomId ? (
-                      <>
-                        {' '}
-                        <Link to="/housekeeping">Room</Link>
-                      </>
-                    ) : null}
-                    {row.affected?.guestRef ? (
-                      <>
-                        {' '}
-                        <GuestNameLink
-                          state={guestsQ.data?.states?.[row.affected.guestRef]}
-                          guestRef={row.affected.guestRef}
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>
+                  <span className="visually-hidden">Select</span>
+                </th>
+                <th>Created</th>
+                <th>Business Date</th>
+                <th>Command Type</th>
+                <th>Reason</th>
+                <th>Assigned</th>
+                <th>Resolution</th>
+                <th>Links</th>
+                <th>Row Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const open = row.resolvedAt == null;
+                const sev = exceptionBadgeSeverity(open ? 1 : 0);
+                return (
+                  <tr
+                    key={row.exceptionId}
+                    onClick={() => setDetailId(row.exceptionId)}
+                  >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(row.exceptionId)}
+                          onChange={(e) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(row.exceptionId);
+                              else next.delete(row.exceptionId);
+                              return next;
+                            });
+                          }}
+                          aria-label={`Select ${row.exceptionId}`}
                         />
-                      </>
-                    ) : null}
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    {canWrite ? (
-                      <>
-                        <button type="button" onClick={() => requestRetry([row.exceptionId])}>
-                          {retryMut.isPending ? 'Retrying…' : 'Retry'}
-                        </button>{' '}
-                        <button type="button" onClick={() => requestResolve([row.exceptionId])}>
-                          {resolveMut.isPending ? 'Resolving…' : 'Resolve'}
-                        </button>{' '}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void assignMut.mutateAsync({
-                              exceptionId: row.exceptionId,
-                              assignedTo: me?.userId ?? null,
-                            })
-                          }
-                        >
-                          {assignMut.isPending ? 'Saving…' : 'Assign'}
-                        </button>{' '}
-                        <button type="button" onClick={() => setDetailId(row.exceptionId)}>
-                          Note
-                        </button>
-                      </>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                      </label>
+                    </td>
+                    <td className="tabular-nums">{formatInstant(row.createdAt, timeZone)}</td>
+                    <td className="tabular-nums">{row.businessDate}</td>
+                    <td translate="no" className="min-w-0 truncate">
+                      {row.commandType}
+                    </td>
+                    <td className="min-w-0 truncate">{row.reason}</td>
+                    <td translate="no">{row.assignedTo ?? '—'}</td>
+                    <td>
+                      <span className={statusClass(sev)}>{open ? 'Open' : 'Resolved'}</span>
+                    </td>
+                    <td>
+                      {row.affected?.reservationId ? (
+                        <Link to={`/folio/${row.affected.reservationId}`}>Folio</Link>
+                      ) : null}
+                      {row.affected?.reservationId && row.commandType === 'reservations.check_in' ? (
+                        <>
+                          {' '}
+                          <Link to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
+                        </>
+                      ) : null}
+                      {row.affected?.roomId ? (
+                        <>
+                          {' '}
+                          <Link to="/housekeeping">Room</Link>
+                        </>
+                      ) : null}
+                      {row.affected?.guestRef ? (
+                        <>
+                          {' '}
+                          <GuestNameLink
+                            state={guestsQ.data?.states?.[row.affected.guestRef]}
+                            guestRef={row.affected.guestRef}
+                          />
+                        </>
+                      ) : null}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canWrite ? (
+                        <>
+                          <button type="button" onClick={() => requestRetry([row.exceptionId])}>
+                            {retryMut.isPending ? 'Retrying…' : 'Retry'}
+                          </button>{' '}
+                          <button type="button" onClick={() => requestResolve([row.exceptionId])}>
+                            {resolveMut.isPending ? 'Resolving…' : 'Resolve'}
+                          </button>{' '}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void assignMut.mutateAsync({
+                                exceptionId: row.exceptionId,
+                                assignedTo: me?.userId ?? null,
+                              })
+                            }
+                          >
+                            {assignMut.isPending ? 'Saving…' : 'Assign'}
+                          </button>{' '}
+                          <button type="button" onClick={() => setDetailId(row.exceptionId)}>
+                            Note
+                          </button>
+                        </>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
       {nextCursor ? (
         <p>

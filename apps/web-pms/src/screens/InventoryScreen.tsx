@@ -169,7 +169,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
   }
 
   return (
-    <div className="main" data-testid="inventory-screen">
+    <div className="panel" data-testid="inventory-screen">
       {unsavedGuard}
       <h1>Inventory</h1>
       <nav className="nav">
@@ -192,55 +192,57 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           {types.length === 0 && typesQ.isSuccess ? (
             <p className="muted">No room types yet — create one to start selling.</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Room Count</th>
-                  <th>Occupancy</th>
-                  <th>Physical rooms</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {types.map((t) => (
-                  <tr key={t.roomTypeId}>
-                    <td translate="no">{t.code}</td>
-                    <td>{t.name}</td>
-                    <td>
-                      <label>
-                        Room Count for {t.code}{' '}
-                        <input
-                          type="number"
-                          min={1}
-                          autoComplete="off"
-                          value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
-                          onChange={(e) =>
-                            setTypeEdits((prev) => ({
-                              ...prev,
-                              [t.roomTypeId]: { roomCount: e.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-                    </td>
-                    <td>
-                      {t.maxAdults} / {t.maxOccupancy}
-                    </td>
-                    <td>{roomsByType.get(t.roomTypeId)?.length ?? 0}</td>
-                    <td>
-                      <button type="button" onClick={() => saveType.mutate(t)}>
-                        Save Room Type
-                      </button>
-                      <button type="button" onClick={() => setArchiveTarget(t)}>
-                        Archive Room Type
-                      </button>
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Room Count</th>
+                    <th>Occupancy</th>
+                    <th>Physical rooms</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {types.map((t) => (
+                    <tr key={t.roomTypeId}>
+                      <td translate="no">{t.code}</td>
+                      <td>{t.name}</td>
+                      <td>
+                        <label>
+                          Room Count for {t.code}{' '}
+                          <input
+                            type="number"
+                            min={1}
+                            autoComplete="off"
+                            value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
+                            onChange={(e) =>
+                              setTypeEdits((prev) => ({
+                                ...prev,
+                                [t.roomTypeId]: { roomCount: e.target.value },
+                              }))
+                            }
+                          />
+                        </label>
+                      </td>
+                      <td>
+                        {t.maxAdults} / {t.maxOccupancy}
+                      </td>
+                      <td>{roomsByType.get(t.roomTypeId)?.length ?? 0}</td>
+                      <td>
+                        <button type="button" onClick={() => saveType.mutate(t)}>
+                          Save Room Type
+                        </button>
+                        <button type="button" onClick={() => setArchiveTarget(t)}>
+                          Archive Room Type
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
           <form
@@ -314,90 +316,92 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     No rooms in this type — create one. Sellable count is still {t.roomCount}.
                   </p>
                 ) : (
-                  <table className={rooms.length > 50 ? 'content-visibility-auto' : undefined}>
-                    <thead>
-                      <tr>
-                        <th>Code</th>
-                        <th>Floor</th>
-                        <th>Housekeeping</th>
-                        <th>OOO</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inType.map((room) => {
-                        const edit = roomEdits[room.roomId] ?? {
-                          code: room.code,
-                          floor: room.floor ?? '',
-                        };
-                        return (
-                          <tr key={room.roomId}>
-                            <td>
-                              <label>
-                                Code for {room.code}{' '}
-                                <input
-                                  value={edit.code}
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  translate="no"
-                                  className="tabular-nums"
-                                  onChange={(e) =>
-                                    setRoomEdits((prev) => ({
-                                      ...prev,
-                                      [room.roomId]: { ...edit, code: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </label>
-                            </td>
-                            <td>
-                              <label>
-                                Floor for {room.code}{' '}
-                                <input
-                                  value={edit.floor}
-                                  autoComplete="off"
-                                  onChange={(e) =>
-                                    setRoomEdits((prev) => ({
-                                      ...prev,
-                                      [room.roomId]: { ...edit, floor: e.target.value },
-                                    }))
-                                  }
-                                />
-                              </label>
-                            </td>
-                            <td>{room.status}</td>
-                            <td>
-                              {room.oooRanges.length
-                                ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
-                                : '—'}
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setSaving(true);
-                                  try {
-                                    await api.updateRoom(propertyId, room.roomId, {
-                                      code: edit.code,
-                                      floor: edit.floor || undefined,
-                                    });
-                                    setMessage('Saved.');
-                                    await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
-                                  } catch (err) {
-                                    setMessage(inventoryErrorCopy(err));
-                                  } finally {
-                                    setSaving(false);
-                                  }
-                                }}
-                              >
-                                Save Room {room.code}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div className="table-scroll">
+                    <table className={rooms.length > 50 ? 'content-visibility-auto' : undefined}>
+                      <thead>
+                        <tr>
+                          <th>Code</th>
+                          <th>Floor</th>
+                          <th>Housekeeping</th>
+                          <th>OOO</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inType.map((room) => {
+                          const edit = roomEdits[room.roomId] ?? {
+                            code: room.code,
+                            floor: room.floor ?? '',
+                          };
+                          return (
+                            <tr key={room.roomId}>
+                              <td>
+                                <label>
+                                  Code for {room.code}{' '}
+                                  <input
+                                    value={edit.code}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    translate="no"
+                                    className="tabular-nums"
+                                    onChange={(e) =>
+                                      setRoomEdits((prev) => ({
+                                        ...prev,
+                                        [room.roomId]: { ...edit, code: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              </td>
+                              <td>
+                                <label>
+                                  Floor for {room.code}{' '}
+                                  <input
+                                    value={edit.floor}
+                                    autoComplete="off"
+                                    onChange={(e) =>
+                                      setRoomEdits((prev) => ({
+                                        ...prev,
+                                        [room.roomId]: { ...edit, floor: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              </td>
+                              <td>{room.status}</td>
+                              <td>
+                                {room.oooRanges.length
+                                  ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
+                                  : '—'}
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setSaving(true);
+                                    try {
+                                      await api.updateRoom(propertyId, room.roomId, {
+                                        code: edit.code,
+                                        floor: edit.floor || undefined,
+                                      });
+                                      setMessage('Saved.');
+                                      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+                                    } catch (err) {
+                                      setMessage(inventoryErrorCopy(err));
+                                    } finally {
+                                      setSaving(false);
+                                    }
+                                  }}
+                                >
+                                  Save Room {room.code}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </section>
             );

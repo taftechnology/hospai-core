@@ -96,7 +96,7 @@ function ShiftCloseForm() {
   const open = openQ.data as { ok?: boolean; shift?: { shiftId: string } | null } | undefined;
   if (!open?.shift) {
     return (
-      <div className="stack">
+      <div className="panel stack">
         <h1>Close shift</h1>
         <p className="muted">
           No open shift. Open one from the strip above, or review a recent shift from the force-close
@@ -110,7 +110,7 @@ function ShiftCloseForm() {
   const shiftId = open.shift.shiftId;
 
   return (
-    <div className="stack">
+    <div className="panel stack">
       <h1>Close shift</h1>
       <p>
         Shift <strong>{shiftId}</strong> — enter closing count (blind; expected cash is not shown).
@@ -178,7 +178,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         : formatVarianceMinor(shift.variance);
 
   return (
-    <div className="stack" data-testid="shift-receipt">
+    <div className="panel stack" data-testid="shift-receipt">
       <h1>Shift receipt</h1>
       <p className={statusClass(sev)} data-testid="receipt-status">
         {shift.status}

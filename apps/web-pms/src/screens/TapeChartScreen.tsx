@@ -398,44 +398,46 @@ export function TapeChartScreen() {
 
   return (
     <div>
-      <header className="board-header">
-        <h1 className="board-title">Room Plan</h1>
-        <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
-        <Link to={from && to ? windowSearch(from, to, 'available') : '/board?view=available'}>
-          Available
-        </Link>
-        <BoardSummary date={today} />
-        <label>
-          From{' '}
-          <input
-            type="date"
-            data-testid="tape-from"
-            autoComplete="off"
-            value={from ?? ''}
-            onChange={(e) => {
-              const next = e.target.value;
-              if (to) writeWindow(next, to);
-              else setFrom(next);
-            }}
-          />
-        </label>
-        <label>
-          To{' '}
-          <input
-            type="date"
-            data-testid="tape-to"
-            autoComplete="off"
-            value={to ?? ''}
-            onChange={(e) => {
-              const next = e.target.value;
-              if (from) writeWindow(from, next);
-              else setTo(next);
-            }}
-          />
-        </label>
-      </header>
       <div className="visually-hidden" aria-live="polite" />
-      <div className="panel">{body}</div>
+      <div className="panel">
+        <header className="board-header">
+          <h1 className="board-title">Room Plan</h1>
+          <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
+          <Link to={from && to ? windowSearch(from, to, 'available') : '/board?view=available'}>
+            Available
+          </Link>
+          <BoardSummary date={today} />
+          <label>
+            From{' '}
+            <input
+              type="date"
+              data-testid="tape-from"
+              autoComplete="off"
+              value={from ?? ''}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (to) writeWindow(next, to);
+                else setFrom(next);
+              }}
+            />
+          </label>
+          <label>
+            To{' '}
+            <input
+              type="date"
+              data-testid="tape-to"
+              autoComplete="off"
+              value={to ?? ''}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (from) writeWindow(from, next);
+                else setTo(next);
+              }}
+            />
+          </label>
+        </header>
+        {body}
+      </div>
     </div>
   );
 }

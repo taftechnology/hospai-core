@@ -318,7 +318,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
   }
 
   return (
-    <div className="main" data-testid="settings-screen">
+    <div className="panel" data-testid="settings-screen">
       {unsavedGuard}
       <h1>Settings</h1>
       <nav className="nav">
@@ -548,43 +548,45 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           {charges.length === 0 && chargesQ.isSuccess ? (
             <p className="muted">No charge codes.</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Tax group</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {charges.map((c) => (
-                  <tr key={c.code}>
-                    <td translate="no">{c.code}</td>
-                    <td>{c.name}</td>
-                    <td>{c.status}</td>
-                    <td>{c.taxGroup ?? '—'}</td>
-                    <td>
-                      {SYSTEM_CHARGE_CODES.has(c.code) ? (
-                        <span className="muted">System code — cannot archive.</span>
-                      ) : c.status === 'archived' ? (
-                        <button
-                          type="button"
-                          onClick={() => api.setChargeCodeStatus(propertyId, c.code, 'active')}
-                        >
-                          Restore {c.code}
-                        </button>
-                      ) : (
-                        <button type="button" onClick={() => setArchiveCode(c.code)}>
-                          Archive {c.code}
-                        </button>
-                      )}
-                    </td>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Tax group</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {charges.map((c) => (
+                    <tr key={c.code}>
+                      <td translate="no">{c.code}</td>
+                      <td>{c.name}</td>
+                      <td>{c.status}</td>
+                      <td>{c.taxGroup ?? '—'}</td>
+                      <td>
+                        {SYSTEM_CHARGE_CODES.has(c.code) ? (
+                          <span className="muted">System code — cannot archive.</span>
+                        ) : c.status === 'archived' ? (
+                          <button
+                            type="button"
+                            onClick={() => api.setChargeCodeStatus(propertyId, c.code, 'active')}
+                          >
+                            Restore {c.code}
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => setArchiveCode(c.code)}>
+                            Archive {c.code}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <form
             className="stack"
@@ -618,76 +620,78 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           <p className="muted">
             Superseding closes this rule and opens a new one. Posted tax lines stay.
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Key</th>
-                <th>Type</th>
-                <th>Rate</th>
-                <th>Group</th>
-                <th>Output</th>
-                <th>Valid</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r) => (
-                <tr key={r.taxRuleId}>
-                  <td>{r.name}</td>
-                  <td translate="no">{r.ruleKey}</td>
-                  <td>{r.ruleType}</td>
-                  <td className="tabular-nums">{r.rate}</td>
-                  <td>{r.taxGroup}</td>
-                  <td translate="no">{r.outputChargeCode}</td>
-                  <td>
-                    {r.validFrom}
-                    {r.validTo ? `–${r.validTo}` : '–open'}
-                  </td>
-                  <td>
-                    {r.validTo ? null : (
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          await api.supersedeTaxRule(propertyId, r.taxRuleId, {
-                            rate: superRate,
-                            validFrom: superFrom,
-                            name: r.name,
-                            ruleType: r.ruleType,
-                            taxGroup: r.taxGroup,
-                            outputChargeCode: r.outputChargeCode,
-                            ruleKey: r.ruleKey,
-                          });
-                          setMessage('Saved.');
-                          await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
-                        }}
-                      >
-                        <label>
-                          New rate{' '}
-                          <input
-                            value={superRate}
-                            onChange={(e) => setSuperRate(e.target.value)}
-                            autoComplete="off"
-                            className="tabular-nums"
-                          />
-                        </label>
-                        <label>
-                          New valid from{' '}
-                          <input
-                            type="date"
-                            value={superFrom}
-                            onChange={(e) => setSuperFrom(e.target.value)}
-                            autoComplete="off"
-                          />
-                        </label>
-                        <button type="submit">Supersede</button>
-                      </form>
-                    )}
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Key</th>
+                  <th>Type</th>
+                  <th>Rate</th>
+                  <th>Group</th>
+                  <th>Output</th>
+                  <th>Valid</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rules.map((r) => (
+                  <tr key={r.taxRuleId}>
+                    <td>{r.name}</td>
+                    <td translate="no">{r.ruleKey}</td>
+                    <td>{r.ruleType}</td>
+                    <td className="tabular-nums">{r.rate}</td>
+                    <td>{r.taxGroup}</td>
+                    <td translate="no">{r.outputChargeCode}</td>
+                    <td>
+                      {r.validFrom}
+                      {r.validTo ? `–${r.validTo}` : '–open'}
+                    </td>
+                    <td>
+                      {r.validTo ? null : (
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            await api.supersedeTaxRule(propertyId, r.taxRuleId, {
+                              rate: superRate,
+                              validFrom: superFrom,
+                              name: r.name,
+                              ruleType: r.ruleType,
+                              taxGroup: r.taxGroup,
+                              outputChargeCode: r.outputChargeCode,
+                              ruleKey: r.ruleKey,
+                            });
+                            setMessage('Saved.');
+                            await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
+                          }}
+                        >
+                          <label>
+                            New rate{' '}
+                            <input
+                              value={superRate}
+                              onChange={(e) => setSuperRate(e.target.value)}
+                              autoComplete="off"
+                              className="tabular-nums"
+                            />
+                          </label>
+                          <label>
+                            New valid from{' '}
+                            <input
+                              type="date"
+                              value={superFrom}
+                              onChange={(e) => setSuperFrom(e.target.value)}
+                              autoComplete="off"
+                            />
+                          </label>
+                          <button type="submit">Supersede</button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <form
             className="stack"
             onSubmit={(e) => {

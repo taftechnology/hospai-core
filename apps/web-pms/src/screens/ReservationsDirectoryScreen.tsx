@@ -198,39 +198,41 @@ export function ReservationsDirectoryScreen() {
       hits.length === 0 ? (
         <p className="muted">No reservations in this window.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Reservation</th>
-              <th>Guest</th>
-            </tr>
-          </thead>
-          <tbody>
-            {hits.map((hit) => (
-              <tr key={hit.reservationId}>
-                <td translate="no">
-                  <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>
-                    {hit.reservationId}
-                  </Link>
-                </td>
-                <td>
-                  {hit.guestRef ? (
-                    <GuestNameLink
-                      state={
-                        hit.displayName
-                          ? { kind: 'resolved', displayName: hit.displayName }
-                          : undefined
-                      }
-                      guestRef={hit.guestRef}
-                    />
-                  ) : (
-                    (hit.displayName ?? '')
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Reservation</th>
+                <th>Guest</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {hits.map((hit) => (
+                <tr key={hit.reservationId}>
+                  <td translate="no">
+                    <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>
+                      {hit.reservationId}
+                    </Link>
+                  </td>
+                  <td>
+                    {hit.guestRef ? (
+                      <GuestNameLink
+                        state={
+                          hit.displayName
+                            ? { kind: 'resolved', displayName: hit.displayName }
+                            : undefined
+                        }
+                        guestRef={hit.guestRef}
+                      />
+                    ) : (
+                      (hit.displayName ?? '')
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
   } else if (windowParam !== 'all' && date == null) {
     body = <p className="muted">Loading…</p>;
@@ -240,70 +242,72 @@ export function ReservationsDirectoryScreen() {
     body = <p className="muted">No reservations in this window.</p>;
   } else {
     body = (
-      <table>
-        <thead>
-          <tr>
-            <th>Reservation</th>
-            <th>Guest</th>
-            <th>Status</th>
-            <th>Dates</th>
-            <th>Room</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((row) => (
-            <tr key={row.reservationId}>
-              <td translate="no">
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
-              </td>
-              <td>
-                <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
-              </td>
-              <td>{reservationStatusLabel(row.status)}</td>
-              <td className="tabular-nums">
-                {row.arrivalDate} → {row.departureDate}
-              </td>
-              <td className="truncate min-w-0">{roomLabel(row)}</td>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Reservation</th>
+              <th>Guest</th>
+              <th>Status</th>
+              <th>Dates</th>
+              <th>Room</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((row) => (
+              <tr key={row.reservationId}>
+                <td translate="no">
+                  <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>{row.reservationId}</Link>
+                </td>
+                <td>
+                  <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
+                </td>
+                <td>{reservationStatusLabel(row.status)}</td>
+                <td className="tabular-nums">
+                  {row.arrivalDate} → {row.departureDate}
+                </td>
+                <td className="truncate min-w-0">{roomLabel(row)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
   return (
     <div>
-      <header className="board-header">
-        <h1 className="board-title">Reservations</h1>
-        <nav className="stack-row">
-          <Link to={tabSearch('today', date)}>Today</Link>
-          <Link to={tabSearch('tomorrow', date)}>Tomorrow</Link>
-          <Link to={tabSearch('week', date)}>This Week</Link>
-          <Link to={tabSearch('all', date)}>All</Link>
-        </nav>
-        <div className="stack-row">
-          <button type="button" onClick={() => setStatus(null)}>
-            All statuses
-          </button>
-          <button type="button" onClick={() => setStatus(ACTIVE_STATUS)}>
-            Active
-          </button>
-          <button type="button" onClick={() => setStatus(TERMINAL_STATUS)}>
-            Terminal
-          </button>
-        </div>
-        <label>
-          Search{' '}
-          <input
-            type="search"
-            autoComplete="off"
-            placeholder="Reservation id or guest name…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
-      </header>
       <div className="panel">
+        <header className="board-header">
+          <h1 className="board-title">Reservations</h1>
+          <nav className="stack-row">
+            <Link to={tabSearch('today', date)}>Today</Link>
+            <Link to={tabSearch('tomorrow', date)}>Tomorrow</Link>
+            <Link to={tabSearch('week', date)}>This Week</Link>
+            <Link to={tabSearch('all', date)}>All</Link>
+          </nav>
+          <div className="stack-row">
+            <button type="button" onClick={() => setStatus(null)}>
+              All statuses
+            </button>
+            <button type="button" onClick={() => setStatus(ACTIVE_STATUS)}>
+              Active
+            </button>
+            <button type="button" onClick={() => setStatus(TERMINAL_STATUS)}>
+              Terminal
+            </button>
+          </div>
+          <label>
+            Search{' '}
+            <input
+              type="search"
+              autoComplete="off"
+              placeholder="Reservation id or guest name…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </label>
+        </header>
         {body}
         {!searching && listQ.data?.nextCursor ? (
           <button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>

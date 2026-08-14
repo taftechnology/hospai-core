@@ -234,7 +234,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   }
 
   return (
-    <div className="main" data-testid="rates-screen">
+    <div className="panel" data-testid="rates-screen">
       {unsavedGuard}
       <h1>Rates</h1>
       <nav className="nav">
@@ -256,32 +256,34 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
       {activeTab === 'plans' && !plansFailClosed ? (
         <>
-          <table>
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Cancel</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {plans.map((p) => (
-                <tr key={p.ratePlanId}>
-                  <td translate="no">{p.code}</td>
-                  <td>{p.name}</td>
-                  <td>{p.cancelPenaltyType}</td>
-                  <td>
-                    {p.ratePlanId === 'BAR' ? null : (
-                      <button type="button" onClick={() => setArchivePlan(p)}>
-                        Archive {p.code}
-                      </button>
-                    )}
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Cancel</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {plans.map((p) => (
+                  <tr key={p.ratePlanId}>
+                    <td translate="no">{p.code}</td>
+                    <td>{p.name}</td>
+                    <td>{p.cancelPenaltyType}</td>
+                    <td>
+                      {p.ratePlanId === 'BAR' ? null : (
+                        <button type="button" onClick={() => setArchivePlan(p)}>
+                          Archive {p.code}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <form
             className="stack"
             onSubmit={(e) => {
@@ -396,43 +398,45 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 ))}
               </select>
             </label>
-            <table>
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  {dates.map((d) => (
-                    <th key={d} className="tabular-nums">
-                      {d}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {types.map((t) => (
-                  <tr key={t.roomTypeId}>
-                    <td>
-                      <span translate="no">{t.code}</span> {t.name}
-                    </td>
-                    {dates.map((d) => {
-                      const row = dayMap.get(`${t.roomTypeId}:${d}`);
-                      return (
-                        <td key={d}>
-                          <RateCell
-                            code={t.code}
-                            roomTypeId={t.roomTypeId}
-                            stayDate={d}
-                            amountMinor={row?.amountMinor ?? null}
-                            currency={currency}
-                            ratePlanId={plan}
-                            propertyId={propertyId}
-                          />
-                        </td>
-                      );
-                    })}
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    {dates.map((d) => (
+                      <th key={d} className="tabular-nums">
+                        {d}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {types.map((t) => (
+                    <tr key={t.roomTypeId}>
+                      <td>
+                        <span translate="no">{t.code}</span> {t.name}
+                      </td>
+                      {dates.map((d) => {
+                        const row = dayMap.get(`${t.roomTypeId}:${d}`);
+                        return (
+                          <td key={d}>
+                            <RateCell
+                              code={t.code}
+                              roomTypeId={t.roomTypeId}
+                              stayDate={d}
+                              amountMinor={row?.amountMinor ?? null}
+                              currency={currency}
+                              ratePlanId={plan}
+                              propertyId={propertyId}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <form
               className="stack"
@@ -541,128 +545,130 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 onChange={(e) => setWindow(from, e.target.value)}
               />
             </label>
-            <table>
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  {dates.map((d) => (
-                    <th key={d}>{d}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {types.map((t) => (
-                  <tr key={t.roomTypeId}>
-                    <td>
-                      <span translate="no">{t.code}</span> {t.name}
-                    </td>
-                    {dates.map((d) => {
-                      const row = restMap.get(`${t.roomTypeId}:${d}`);
-                      return (
-                        <td key={d}>
-                          <label>
-                            Min LOS for {t.code} on {d}{' '}
-                            <input
-                              type="number"
-                              min={1}
-                              autoComplete="off"
-                              defaultValue={row?.minLos ?? ''}
-                              onBlur={async (e) => {
-                                const v = e.target.value.trim();
-                                await api.putRestrictionDay(propertyId, {
-                                  roomTypeId: t.roomTypeId,
-                                  stayDate: d,
-                                  minLos: v ? Number(v) : null,
-                                  maxLos: row?.maxLos ?? null,
-                                  cta: row?.cta ?? false,
-                                  ctd: row?.ctd ?? false,
-                                  stopSell: row?.stopSell ?? false,
-                                });
-                              }}
-                            />
-                          </label>
-                          <label>
-                            Max LOS for {t.code} on {d}{' '}
-                            <input
-                              type="number"
-                              min={1}
-                              autoComplete="off"
-                              defaultValue={row?.maxLos ?? ''}
-                              onBlur={async (e) => {
-                                const v = e.target.value.trim();
-                                await api.putRestrictionDay(propertyId, {
-                                  roomTypeId: t.roomTypeId,
-                                  stayDate: d,
-                                  minLos: row?.minLos ?? null,
-                                  maxLos: v ? Number(v) : null,
-                                  cta: row?.cta ?? false,
-                                  ctd: row?.ctd ?? false,
-                                  stopSell: row?.stopSell ?? false,
-                                });
-                              }}
-                            />
-                          </label>
-                          <label>
-                            CTA for {t.code} on {d}{' '}
-                            <input
-                              type="checkbox"
-                              defaultChecked={row?.cta ?? false}
-                              onChange={async (e) => {
-                                await api.putRestrictionDay(propertyId, {
-                                  roomTypeId: t.roomTypeId,
-                                  stayDate: d,
-                                  minLos: row?.minLos ?? null,
-                                  maxLos: row?.maxLos ?? null,
-                                  cta: e.target.checked,
-                                  ctd: row?.ctd ?? false,
-                                  stopSell: row?.stopSell ?? false,
-                                });
-                              }}
-                            />
-                          </label>
-                          <label>
-                            CTD for {t.code} on {d}{' '}
-                            <input
-                              type="checkbox"
-                              defaultChecked={row?.ctd ?? false}
-                              onChange={async (e) => {
-                                await api.putRestrictionDay(propertyId, {
-                                  roomTypeId: t.roomTypeId,
-                                  stayDate: d,
-                                  minLos: row?.minLos ?? null,
-                                  maxLos: row?.maxLos ?? null,
-                                  cta: row?.cta ?? false,
-                                  ctd: e.target.checked,
-                                  stopSell: row?.stopSell ?? false,
-                                });
-                              }}
-                            />
-                          </label>
-                          <label>
-                            Stop sell for {t.code} on {d}{' '}
-                            <input
-                              type="checkbox"
-                              defaultChecked={row?.stopSell ?? false}
-                              onChange={async (e) => {
-                                await api.putRestrictionDay(propertyId, {
-                                  roomTypeId: t.roomTypeId,
-                                  stayDate: d,
-                                  minLos: row?.minLos ?? null,
-                                  maxLos: row?.maxLos ?? null,
-                                  cta: row?.cta ?? false,
-                                  ctd: row?.ctd ?? false,
-                                  stopSell: e.target.checked,
-                                });
-                              }}
-                            />
-                          </label>
-                        </td>
-                      );
-                    })}
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    {dates.map((d) => (
+                      <th key={d}>{d}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {types.map((t) => (
+                    <tr key={t.roomTypeId}>
+                      <td>
+                        <span translate="no">{t.code}</span> {t.name}
+                      </td>
+                      {dates.map((d) => {
+                        const row = restMap.get(`${t.roomTypeId}:${d}`);
+                        return (
+                          <td key={d}>
+                            <label>
+                              Min LOS for {t.code} on {d}{' '}
+                              <input
+                                type="number"
+                                min={1}
+                                autoComplete="off"
+                                defaultValue={row?.minLos ?? ''}
+                                onBlur={async (e) => {
+                                  const v = e.target.value.trim();
+                                  await api.putRestrictionDay(propertyId, {
+                                    roomTypeId: t.roomTypeId,
+                                    stayDate: d,
+                                    minLos: v ? Number(v) : null,
+                                    maxLos: row?.maxLos ?? null,
+                                    cta: row?.cta ?? false,
+                                    ctd: row?.ctd ?? false,
+                                    stopSell: row?.stopSell ?? false,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              Max LOS for {t.code} on {d}{' '}
+                              <input
+                                type="number"
+                                min={1}
+                                autoComplete="off"
+                                defaultValue={row?.maxLos ?? ''}
+                                onBlur={async (e) => {
+                                  const v = e.target.value.trim();
+                                  await api.putRestrictionDay(propertyId, {
+                                    roomTypeId: t.roomTypeId,
+                                    stayDate: d,
+                                    minLos: row?.minLos ?? null,
+                                    maxLos: v ? Number(v) : null,
+                                    cta: row?.cta ?? false,
+                                    ctd: row?.ctd ?? false,
+                                    stopSell: row?.stopSell ?? false,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              CTA for {t.code} on {d}{' '}
+                              <input
+                                type="checkbox"
+                                defaultChecked={row?.cta ?? false}
+                                onChange={async (e) => {
+                                  await api.putRestrictionDay(propertyId, {
+                                    roomTypeId: t.roomTypeId,
+                                    stayDate: d,
+                                    minLos: row?.minLos ?? null,
+                                    maxLos: row?.maxLos ?? null,
+                                    cta: e.target.checked,
+                                    ctd: row?.ctd ?? false,
+                                    stopSell: row?.stopSell ?? false,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              CTD for {t.code} on {d}{' '}
+                              <input
+                                type="checkbox"
+                                defaultChecked={row?.ctd ?? false}
+                                onChange={async (e) => {
+                                  await api.putRestrictionDay(propertyId, {
+                                    roomTypeId: t.roomTypeId,
+                                    stayDate: d,
+                                    minLos: row?.minLos ?? null,
+                                    maxLos: row?.maxLos ?? null,
+                                    cta: row?.cta ?? false,
+                                    ctd: e.target.checked,
+                                    stopSell: row?.stopSell ?? false,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label>
+                              Stop sell for {t.code} on {d}{' '}
+                              <input
+                                type="checkbox"
+                                defaultChecked={row?.stopSell ?? false}
+                                onChange={async (e) => {
+                                  await api.putRestrictionDay(propertyId, {
+                                    roomTypeId: t.roomTypeId,
+                                    stayDate: d,
+                                    minLos: row?.minLos ?? null,
+                                    maxLos: row?.maxLos ?? null,
+                                    cta: row?.cta ?? false,
+                                    ctd: row?.ctd ?? false,
+                                    stopSell: e.target.checked,
+                                  });
+                                }}
+                              />
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )
       ) : null}

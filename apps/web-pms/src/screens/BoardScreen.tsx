@@ -88,61 +88,63 @@ function BoardTable({
   const today = timeZone ? propertyLocalToday(timeZone) : null;
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Guest</th>
-          <th>Room</th>
-          <th>Status</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((row) => {
-          const status = asReservationStatus(row.status);
-          const overstay =
-            mode === 'in-house' &&
-            today != null &&
-            typeof row.departureDate === 'string' &&
-            row.departureDate < today;
-          // Unrecognized wire status → informational (not a silent neutral/confirmed).
-          const rowSev = status
-            ? boardRowSeverity({ mode, status, overstay })
-            : 'informational';
-          const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
-          const guestSev = guestSeverity(guestState);
-          const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
-          return (
-            <tr key={row.reservationId} className={statusClass(rowSev)}>
-              <td className={statusClass(guestSev)}>
-                <GuestNameLink state={guestState} guestRef={row.guestRef} />
-                {overstay ? ' (overstay)' : ''}
-                {row.vipFlag === true ? (
-                  <span data-testid="badge-vip"> VIP</span>
-                ) : null}
-                {row.dndFlag === true ? (
-                  <span data-testid="badge-dnd"> DND</span>
-                ) : null}
-              </td>
-              <td>{roomCode}</td>
-              <td>{reservationStatusLabel(row.status)}</td>
-              <td>
-                {mode === 'arrivals' && status === 'pending' ? (
-                  <ConfirmPendingButton reservationId={row.reservationId} />
-                ) : null}
-                {mode === 'arrivals' && status !== 'pending' ? (
-                  <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                ) : null}{' '}
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
-                <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
-                  Book for guest
-                </Link>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Guest</th>
+            <th>Room</th>
+            <th>Status</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((row) => {
+            const status = asReservationStatus(row.status);
+            const overstay =
+              mode === 'in-house' &&
+              today != null &&
+              typeof row.departureDate === 'string' &&
+              row.departureDate < today;
+            // Unrecognized wire status → informational (not a silent neutral/confirmed).
+            const rowSev = status
+              ? boardRowSeverity({ mode, status, overstay })
+              : 'informational';
+            const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
+            const guestSev = guestSeverity(guestState);
+            const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
+            return (
+              <tr key={row.reservationId} className={statusClass(rowSev)}>
+                <td className={statusClass(guestSev)}>
+                  <GuestNameLink state={guestState} guestRef={row.guestRef} />
+                  {overstay ? ' (overstay)' : ''}
+                  {row.vipFlag === true ? (
+                    <span data-testid="badge-vip"> VIP</span>
+                  ) : null}
+                  {row.dndFlag === true ? (
+                    <span data-testid="badge-dnd"> DND</span>
+                  ) : null}
+                </td>
+                <td>{roomCode}</td>
+                <td>{reservationStatusLabel(row.status)}</td>
+                <td>
+                  {mode === 'arrivals' && status === 'pending' ? (
+                    <ConfirmPendingButton reservationId={row.reservationId} />
+                  ) : null}
+                  {mode === 'arrivals' && status !== 'pending' ? (
+                    <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
+                  ) : null}{' '}
+                  <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
+                  <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                    Book for guest
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -290,25 +292,6 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
   return (
     <div>
-      <header className="board-header">
-        <h1 className="board-title">{mode.replace('-', ' ')}</h1>
-        {mode !== 'in-house' ? (
-          <label>
-            Date{' '}
-            <input
-              type="date"
-              data-testid="board-date"
-              value={date ?? ''}
-              onChange={(e) => {
-                setCursor(null);
-                setDate(e.target.value);
-              }}
-            />
-          </label>
-        ) : null}
-        <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
-      </header>
-
       {createdBanner ? (
         <p className="panel" role="status" data-testid="created-banner">
           Reservation {createdBanner} created
@@ -316,6 +299,24 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
       ) : null}
 
       <div className="panel">
+        <header className="board-header">
+          <h1 className="board-title">{mode.replace('-', ' ')}</h1>
+          {mode !== 'in-house' ? (
+            <label>
+              Date{' '}
+              <input
+                type="date"
+                data-testid="board-date"
+                value={date ?? ''}
+                onChange={(e) => {
+                  setCursor(null);
+                  setDate(e.target.value);
+                }}
+              />
+            </label>
+          ) : null}
+          <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
+        </header>
         {body}
         {listQ.data?.nextCursor ? (
           <button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>

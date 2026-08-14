@@ -435,9 +435,31 @@ summary:focus-visible,
   gap: 0.5rem;
 }
 
-/* Placeholder: the class is a bare hook (panel does the layout work).
-   The class is removed from the markup in batch 0b, which drops this rule. */
-.exceptions-workbench {
+/* --- bounded table scroll (batch 0b) --- */
+/* top: 0, not 4rem: overflow-x:auto forces overflow-y, so the wrapper is
+   the scroll container and sticky resolves against it. */
+.table-scroll {
+  overflow-x: auto;
+  max-block-size: 70vh;
+  overscroll-behavior: contain;
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+@media print {
+  .table-scroll {
+    max-block-size: none;
+    overflow: visible;
+  }
+
+  .table-scroll thead th {
+    position: static;
+  }
 }
 
 .badge {

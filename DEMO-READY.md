@@ -239,7 +239,7 @@ either.
 - [ ] **Card last-4 / brand on tenders** — keep the simulate gateway; the UI must not say
       simulate. Pair with P0-2.
 - [ ] **One hotel voice** — advisor quote, LOI, or a GM who would trial. Not engineering.
-- [ ] **Hide lab copy** leftover scan: `ariVersion`, `fail_closed` strings, `idempotencyKey`,
+- [x] **Hide lab copy** leftover scan: `ariVersion`, `fail_closed` strings, `idempotencyKey`,
       `billed party` placeholders, `user_owner` anywhere visible.
 
 ---

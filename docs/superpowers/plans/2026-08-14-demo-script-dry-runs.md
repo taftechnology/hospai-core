@@ -133,7 +133,7 @@ Copy DEMO-READY times as a **ceiling**. Each row adds exact UI steps:
 
 **Produces:** Single presenter artifact with all 12 sections above — copy-ready, not bullet stubs.
 
-- [ ] **Step 1: Create `docs/demo/` and write sections 1–5 (metadata + boot + runbooks)**
+- [x] **Step 1: Create `docs/demo/` and write sections 1–5 (metadata + boot + runbooks)**
 
 Title block + cold-laptop boot table copied from README (§1 env templates, §2 dual terminals, §3 `pnpm demo:seed`, wipe steps README:114–118). Clerk runbook in spec §5.1 order including mapping curl:
 
@@ -146,11 +146,11 @@ curl -sS -X POST http://127.0.0.1:8787/v1/orgs/org_demo/members \
 
 Password-gate and engineer-not-meeting paragraphs per spec §5.2–5.3.
 
-- [ ] **Step 2: Write timed beats (section 6) from DEMO-READY table + beat detail**
+- [x] **Step 2: Write timed beats (section 6) from DEMO-READY table + beat detail**
 
 Include a markdown table mirroring DEMO-READY:213–222 with an added **Clicks & spoken line** column. Lock D1 (walk-in primary / Amira fallback) and D2 (James Whitaker `101`) in prose. Route discipline: no DevTools or in-room curl.
 
-- [ ] **Step 3: Write kill list, backup beat, honest lines (sections 7–9)**
+- [x] **Step 3: Write kill list, backup beat, honest lines (sections 7–9)**
 
 Kill list = spec §7.2 table (Settings `/settings/charges`, Folio Advanced `folio-advanced`, Exceptions `/exceptions`, Staff `/staff`, sidebar secondary, raw ids, DevTools, `.env`, `/dev/ui` conditional).
 
@@ -158,7 +158,7 @@ Backup = D3 verbal moat on `/board` only — **skippable**, clearly marked.
 
 Honest lines = DEMO-READY:224–225 quoted verbatim.
 
-- [ ] **Step 4: Write dry-run sections (10–12) with empty checkboxes**
+- [x] **Step 4: Write dry-run sections (10–12) with empty checkboxes**
 
 Dry run 1 items per spec §8.2 (cold boot, ≤45s sign-in, 8+ stays, walk-in book, check-in by code, folio post+payment, HK dirty→clean, night audit chrome, ≤8 min, kill list respected, no DevTools).
 
@@ -168,11 +168,11 @@ Add explicit note: **Dry run 1 optional for merge; Dry run 2 requires another hu
 
 Dry run log: 3+ empty row templates — do not fill unless rehearsal was actually run.
 
-- [ ] **Step 5: Self-review against spec §11 deliverable checks 1–10**
+- [x] **Step 5: Self-review against spec §11 deliverable checks 1–10**
 
 Confirm no stub headings, every beat has clicks/copy, no `/exceptions` in backup, placeholders only for secrets.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/demo/8-minute-script.md
@@ -200,7 +200,7 @@ EOF
 
 **Forbidden this commit:** `docs/demo/8-minute-script.md` edits (Task 1 owns it); any product path; ticking this plan file (Task 4).
 
-- [ ] **Step 1: Replace stale P0-4 paragraph (lines 183–185)**
+- [x] **Step 1: Replace stale P0-4 paragraph (lines 183–185)**
 
 Remove claim that `/sign-in` is literal "Sign in required" and that SPA defaults to dev actor for the **demo** path. Replace with accurate post-P0-4 summary, e.g.:
 
@@ -211,11 +211,11 @@ Remove claim that `/sign-in` is literal "Sign in required" and that SPA defaults
 
 Keep P0-4 checkboxes ticked (`- [x]`).
 
-- [ ] **Step 2: Tick P0-5 checkboxes (lines 196–205)**
+- [x] **Step 2: Tick P0-5 checkboxes (lines 196–205)**
 
 Change all five `- [ ]` to `- [x]`. Update backup-beat line (201–202) to match spec lock: **second property verbal isolation only** (remove "or exception queue"). Update 8-minute table moat row (222): primary surface = verbal isolation on `/board`; remove `/exceptions` as an option.
 
-- [ ] **Step 3 (optional): README one-liner**
+- [x] **Step 3 (optional): README one-liner**
 
 After README §3 seed paragraph (~line 110), add:
 
@@ -223,7 +223,7 @@ After README §3 seed paragraph (~line 110), add:
 
 Skip if redundant with existing P0-5 mapping curl pointer.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add DEMO-READY.md README.md
@@ -251,7 +251,7 @@ EOF
 
 **Forbidden this commit:** any source edit; filling dry-run PASS boxes unless Task 1 rehearsal actually happened.
 
-- [ ] **Step 1: Confirm docs-only diff**
+- [x] **Step 1: Confirm docs-only diff**
 
 ```bash
 git diff --name-only origin/main...HEAD
@@ -264,7 +264,7 @@ Expected touches: `docs/demo/8-minute-script.md`, `DEMO-READY.md`, optionally `R
 git diff --name-only | grep -E '^(apps/|packages/|package\.json|scripts/demo-seed)' && echo FAIL || echo ok
 ```
 
-- [ ] **Step 2: Pin frozen heads (no codegen drift)**
+- [x] **Step 2: Pin frozen heads (no codegen drift)**
 
 ```bash
 pnpm generate:ddl
@@ -274,11 +274,11 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "COMMAND
 
 Expect: `COMMAND_CATALOG` length **77**; `V1_HTTP_ROUTE_AUDIT[127].id === 'post_demo_seed'`.
 
-- [ ] **Step 3: Optional Dry run 1 (human, not merge gate)**
+- [x] **Step 3: Optional Dry run 1 (human, not merge gate)**
 
 If implementer runs a timed rehearsal: fill **Dry run log** rows in `docs/demo/8-minute-script.md` only — do not check PASS boxes in the PR unless the run actually happened. If not run, leave checklists empty and proceed.
 
-- [ ] **Step 4: Commit (only if Step 3 filled log)**
+- [x] **Step 4: Commit (only if Step 3 filled log)**
 
 If dry-run log was updated:
 
@@ -305,15 +305,15 @@ If no rehearsal: **skip commit** — Task 3 is verify-only.
 
 **Forbidden this commit:** product code; starting UI convergence batches 1–7.
 
-- [ ] **Step 1: Re-run Task 3 grep if Tasks 1–2 landed in separate commits**
+- [x] **Step 1: Re-run Task 3 grep if Tasks 1–2 landed in separate commits**
 
 Confirm still docs-only.
 
-- [ ] **Step 2: Tick every `- [ ]` on Tasks 1–4 in this file**
+- [x] **Step 2: Tick every `- [ ]` on Tasks 1–4 in this file**
 
 Do not backfill other plans.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-14-demo-script-dry-runs.md
@@ -331,16 +331,16 @@ EOF
 
 ## Spec §14 reviewer checklist (copied; implementation must satisfy)
 
-- [ ] Verified-current-state §1.1 matches tree: routes in `App.tsx`, `SignInScreen` real, seed command, catalog **77**, route **127**, no `docs/demo/` yet, stale DEMO-READY P0-4 prose noted.
-- [ ] Invariants include no Worker/SPA change, heads frozen, P0-4 auth stands, one backup beat, human dry runs.
-- [ ] Deliverable path **`docs/demo/8-minute-script.md`** locked; dry-run checkboxes at bottom of same file.
-- [ ] Backup beat **second property isolation** — exception queue explicitly rejected with reason.
-- [ ] Clerk runbook + mapping curl + order + password-gate + engineer-not-meeting path all specified.
-- [ ] Kill list matches DEMO-READY plus lab surfaces; `/dev/ui` mentioned as conditional.
-- [ ] Scope-out names product code, CI rehearsal, second property seed, exception staging.
-- [ ] Acceptance tests §11 and plan tasks present.
-- [ ] Folded vs deferred leftovers §10 present in spec.
-- [ ] Walk-in primary / Amira fallback and James Whitaker `101` tape click locked in plan Task 1.
+- [x] Verified-current-state §1.1 matches tree: routes in `App.tsx`, `SignInScreen` real, seed command, catalog **77**, route **127**, no `docs/demo/` yet, stale DEMO-READY P0-4 prose noted.
+- [x] Invariants include no Worker/SPA change, heads frozen, P0-4 auth stands, one backup beat, human dry runs.
+- [x] Deliverable path **`docs/demo/8-minute-script.md`** locked; dry-run checkboxes at bottom of same file.
+- [x] Backup beat **second property isolation** — exception queue explicitly rejected with reason.
+- [x] Clerk runbook + mapping curl + order + password-gate + engineer-not-meeting path all specified.
+- [x] Kill list matches DEMO-READY plus lab surfaces; `/dev/ui` mentioned as conditional.
+- [x] Scope-out names product code, CI rehearsal, second property seed, exception staging.
+- [x] Acceptance tests §11 and plan tasks present.
+- [x] Folded vs deferred leftovers §10 present in spec.
+- [x] Walk-in primary / Amira fallback and James Whitaker `101` tape click locked in plan Task 1.
 
 ---
 

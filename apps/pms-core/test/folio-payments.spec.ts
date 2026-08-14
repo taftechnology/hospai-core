@@ -974,7 +974,12 @@ describe('folio payments DO', () => {
     expect(getPay.status).toBe(200);
     expect(await getPay.json()).toMatchObject({
       ok: true,
-      payment: { paymentId, status: 'captured' },
+      payment: {
+        paymentId,
+        status: 'captured',
+        cardLast4: '4242',
+        cardBrand: 'visa',
+      },
     });
 
     const listPay = await worker.fetch(

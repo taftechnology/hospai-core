@@ -1178,6 +1178,21 @@ describe('FolioScreen wiring', () => {
           updatedAt: 1,
         },
         {
+          paymentId: 'pay_auth_token',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'authorized',
+          purpose: 'STAY',
+          tenderType: 'CARD',
+          cardBrand: 'visa',
+          cardLast4: '4242',
+          gatewayReference: 'sim_pay_auth_token',
+          capturedAmountMinor: 0,
+          createdAt: 1.5,
+          updatedAt: 1.5,
+        },
+        {
           paymentId: 'pay_token',
           reservationId: 'res_1',
           amountMinor: 5000,
@@ -1244,6 +1259,13 @@ describe('FolioScreen wiring', () => {
     expect(authLi.textContent).not.toMatch(/••••/);
     expect(authLi.textContent).not.toMatch(/pay_auth/);
     expect(authLi.textContent).not.toMatch(/sim_/);
+    const authTokenLi = screen.getByTestId('void-payment-pay_auth_token').closest('li')!;
+    expect(authTokenLi.textContent).toMatch(/Visa/);
+    expect(authTokenLi.textContent).toMatch(/••••/);
+    expect(authTokenLi.textContent).toMatch(/4242/);
+    expect(authTokenLi.textContent).toMatch(/50\.00/);
+    expect(authTokenLi.textContent).not.toMatch(/pay_auth_token/);
+    expect(authTokenLi.textContent).not.toMatch(/sim_/);
     const tokenLi = [...document.querySelectorAll('li')].find(
       (li) =>
         /Visa/.test(li.textContent ?? '') &&

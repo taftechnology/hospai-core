@@ -987,8 +987,182 @@ describe('folio payments DO', () => {
     expect(listPay.status).toBe(200);
     const listed = (await listPay.json()) as { ok: true; payments: unknown[] };
     expect(listed.payments).toHaveLength(1);
-    expect(listed.payments[0]).toMatchObject({ tenderType: 'CARD' });
+    expect(listed.payments[0]).toMatchObject({
+      tenderType: 'CARD',
+      cardLast4: '4242',
+      cardBrand: 'visa',
+    });
 
     expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
+  });
+
+  it('card display tokens: authorize persists card_last4 and card_brand on readPayment', async () => {
+    const actor = 'user_pay_card_tokens_1';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_card_tokens_1';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-card-tokens-1'),
+    ).toMatchObject({
+      ok: true,
+      status: 'authorized',
+      gatewayReference: `sim_${paymentId}`,
+    });
+
+    const read = await stub.readPayment(paymentId);
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.payment).toMatchObject({
+        gatewayReference: `sim_${paymentId}`,
+        cardLast4: '4242',
+        cardBrand: 'visa',
+      });
+    }
+  });
+
+  it('card display tokens: listPaymentsForReservation includes cardLast4 and cardBrand', async () => {
+    const actor = 'user_pay_card_tokens_2';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_card_tokens_2';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 3000, 'idem-card-tokens-2'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.payments).toHaveLength(1);
+      expect(listed.payments[0]).toMatchObject({
+        paymentId,
+        tenderType: 'CARD',
+        cardLast4: '4242',
+        cardBrand: 'visa',
+      });
+    }
+  });
+
+  it('card display tokens: cash payment omits card fields on list', async () => {
+    const actor = 'user_pay_card_tokens_3';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_card_tokens_3';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_cash_${crypto.randomUUID()}`;
+    const cashBody = { paymentId, reservationId, amountMinor: 1500 };
+    const cash = await stub.tryRecordCashPayment(
+      { kind: 'user', userId: actor },
+      {
+        ...cashBody,
+        idempotencyKey: `idem-cash-${paymentId}`,
+        requestFingerprint: await fingerprintPayload(cashBody),
+      },
+    );
+    expect(cash).toMatchObject({ ok: true, status: 'captured' });
+
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.payments).toHaveLength(1);
+      expect(listed.payments[0]).toMatchObject({ paymentId, tenderType: 'CASH' });
+      expect(listed.payments[0].cardLast4 ?? null).toBeNull();
+      expect(listed.payments[0].cardBrand ?? null).toBeNull();
+    }
+  });
+
+  it('card display tokens: PSP override lever persists amex / 0005', async () => {
+    const actor = 'user_pay_card_tokens_4';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_card_tokens_4';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    await stub.setPspSimulateOutcomeForTest({ cardBrand: 'amex', cardLast4: '0005' });
+    try {
+      const paymentId = `pay_${crypto.randomUUID()}`;
+      expect(
+        await authorizePayment(stub, actor, reservationId, paymentId, 4000, 'idem-card-tokens-4'),
+      ).toMatchObject({ ok: true, status: 'authorized' });
+
+      const read = await stub.readPayment(paymentId);
+      expect(read.ok).toBe(true);
+      if (read.ok) {
+        expect(read.payment).toMatchObject({ cardLast4: '0005', cardBrand: 'amex' });
+      }
+
+      const listed = await stub.listPaymentsForReservation(reservationId);
+      expect(listed.ok).toBe(true);
+      if (listed.ok) {
+        expect(listed.payments[0]).toMatchObject({
+          cardLast4: '0005',
+          cardBrand: 'amex',
+        });
+      }
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+  });
+
+  it('card display tokens: legacy NULL columns — no synthesis from gatewayReference', async () => {
+    const actor = 'user_pay_card_tokens_5';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_card_tokens_5';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_legacy4242_${crypto.randomUUID()}`;
+    await stub.setPspSimulateOutcomeForTest({ authorize: 'approved', failAfterAdapter: true });
+    try {
+      expect(await authorizePayment(stub, actor, reservationId, paymentId, 2000, 'idem-card-tokens-5')).toEqual({
+        ok: false,
+        error: 'psp_adapter_failed',
+      });
+
+      await stub.applyPaymentEventForTest({
+        type: 'payment.authorized',
+        eventId: crypto.randomUUID(),
+        gatewayReference: `sim_${paymentId}`,
+        payload: {
+          propertyId,
+          paymentId,
+          reservationId,
+          amountMinor: 2000,
+          currency: 'USD',
+          purpose: 'STAY',
+        },
+      });
+    } finally {
+      await stub.setPspSimulateOutcomeForTest(null);
+    }
+
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.payments).toHaveLength(1);
+      expect(listed.payments[0]).toMatchObject({
+        paymentId,
+        tenderType: 'CARD',
+        gatewayReference: `sim_${paymentId}`,
+      });
+      expect(listed.payments[0].cardLast4 ?? null).toBeNull();
+      expect(listed.payments[0].cardBrand ?? null).toBeNull();
+    }
   });
 });

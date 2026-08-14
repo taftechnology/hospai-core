@@ -291,6 +291,8 @@ type PaymentRow = {
   fx_rate_at: number | null;
   balance_at_risk: number;
   last_payment_event_id: string | null;
+  card_last4: string | null;
+  card_brand: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -12644,7 +12646,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
                 capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
-                created_at, updated_at
+                card_last4, card_brand, created_at, updated_at
          FROM payment WHERE payment_id = ?`,
         paymentId,
       )
@@ -12686,7 +12688,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
                 capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
-                created_at, updated_at
+                card_last4, card_brand, created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
         idempotencyKey,
       )
@@ -13087,6 +13089,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     capturedAmountMinor: number | null;
     tenderType: 'CARD' | 'CASH';
     shiftId: string | null;
+    cardLast4: string | null;
+    cardBrand: string | null;
     createdAt: number;
     updatedAt: number;
   } {
@@ -13100,6 +13104,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       capturedAmountMinor: row.captured_amount_minor,
       tenderType: row.tender_type,
       shiftId: row.shift_id,
+      cardLast4: row.card_last4,
+      cardBrand: row.card_brand,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -13346,9 +13352,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         if (adapterResult.outcome === 'approved') {
           const updated = this.ctx.storage.sql.exec(
             `UPDATE payment
-             SET status = 'authorized', gateway_reference = ?, updated_at = ?
+             SET status = 'authorized',
+                 gateway_reference = ?,
+                 card_last4 = ?,
+                 card_brand = ?,
+                 updated_at = ?
              WHERE payment_id = ? AND status = 'pending'`,
             adapterResult.gatewayReference,
+            adapterResult.cardLast4,
+            adapterResult.cardBrand,
             now,
             input.paymentId,
           );
@@ -14759,6 +14771,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           capturedAmountMinor: number | null;
           tenderType: 'CARD' | 'CASH';
           shiftId: string | null;
+          cardLast4: string | null;
+          cardBrand: string | null;
           createdAt: number;
           updatedAt: number;
           dispute: {
@@ -14792,6 +14806,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           createdAt: number;
           updatedAt: number;
           tenderType: 'CARD' | 'CASH';
+          cardLast4: string | null;
+          cardBrand: string | null;
           dispute: {
             disputeId: string;
             status: 'open' | 'closed';
@@ -14811,7 +14827,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT payment_id, reservation_id, amount_minor, currency, status, purpose, gateway_reference,
-                captured_amount_minor, created_at, updated_at, tender_type
+                captured_amount_minor, created_at, updated_at, tender_type, card_last4, card_brand
          FROM payment WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -14828,6 +14844,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       created_at: number;
       updated_at: number;
       tender_type: 'CARD' | 'CASH';
+      card_last4: string | null;
+      card_brand: string | null;
     }>;
 
     return {
@@ -14844,6 +14862,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         tenderType: row.tender_type,
+        cardLast4: row.card_last4,
+        cardBrand: row.card_brand,
         dispute: this.readPaymentDisputeSync(row.payment_id),
       })),
     };

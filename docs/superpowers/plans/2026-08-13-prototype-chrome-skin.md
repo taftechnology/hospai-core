@@ -94,7 +94,7 @@
 
 **Forbidden this commit:** `AppShell.tsx`, `nav.ts`, screens, Worker, catalog, `CLASS_DENYLIST`, Tailwind, `packages/ui-kit`.
 
-- [ ] **Step 1: Replace chrome primitives and status hex in `tokens.css`**
+- [x] **Step 1: Replace chrome primitives and status hex in `tokens.css`**
 
 Keep the two-layer structure (primitives on `--color-*`, aliases as `var(...)`). Replace the primitive block with **exactly**:
 
@@ -148,7 +148,7 @@ Do **not** put `#C18C5D` on any `--status-*-fg`. Keep existing `--status-*-borde
 
 Informational must **not** remain `#1a4a6e`. Primary action surface must **not** remain `#1a4a6e`.
 
-- [ ] **Step 2: Add chrome layout CSS in `styles.css` (classes only; TSX lands in Task 2)**
+- [x] **Step 2: Add chrome layout CSS in `styles.css` (classes only; TSX lands in Task 2)**
 
 Replace `.app-shell` grid with flex frame. Add (names locked):
 
@@ -308,11 +308,11 @@ Print `@media print`: hide `aside`, `.ops-rail`, `.shift-strip`, `.side-panels`,
 
 `.board-summary a` / occupancy span: apply `.chip` (Task 3 will add the class; CSS can target `.board-summary a` now).
 
-- [ ] **Step 3: `index.html`**
+- [x] **Step 3: `index.html`**
 
 `<title>HospAI PMS</title>`. Load IBM Plex Sans 400/600/700 (Google Fonts `<link>` **or** self-hosted `@font-face` under `apps/web-pms/public`). No new display font.
 
-- [ ] **Step 4: Run colour gate**
+- [x] **Step 4: Run colour gate**
 
 ```bash
 pnpm check:web-pms-colors
@@ -320,7 +320,7 @@ pnpm check:web-pms-colors
 
 Expected: OK. Informational fg is not `#1a4a6e`. If red, **darken the fg** (not the script).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/styles/tokens.css apps/web-pms/src/styles.css apps/web-pms/index.html
@@ -350,7 +350,7 @@ EOF
 
 **Forbidden this commit:** `v1-http-routes.ts`, catalog, migrations, `demo-seed.ts`, Folio Advanced IA, BookingScreen quote, CheckInScreen picker, Tailwind, `lucide-react`, `WhistleIcon`.
 
-- [ ] **Step 1: Write failing nav / shell assertions**
+- [x] **Step 1: Write failing nav / shell assertions**
 
 `module-ui-registry.test.ts` — replace the housekeeping-between-in-house test:
 
@@ -407,7 +407,7 @@ expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/cash posts 3
 expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/shift_1/);
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/shell/module-ui-registry.test.ts src/auth/me.test.ts src/shell/AppShell.boot.test.tsx src/shell/AppShell.me.test.tsx src/shell/AppShell.search.test.tsx src/shell/ShiftStrip.test.tsx
@@ -415,7 +415,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/shell/module-ui-registry.test.
 
 Expected: FAIL — old nav ids/labels, no `<aside>`, `/front desk/` aria, badge still contains `shift_1`.
 
-- [ ] **Step 3: Minimal implementation**
+- [x] **Step 3: Minimal implementation**
 
 **`icons.tsx`:** copy **verbatim** the function bodies of these exports from `/Users/iamabdus/ai-coding-2/hospai-pms-prototype/src/components/Icons.tsx`: `RoomPlanIcon`, `CheckIcon`, `CalendarIcon`, `PlusIcon`, `BedIcon`, `UserIcon`, `CreditCardIcon`, `NightAuditIcon`, `SettingsIcon`, `PropertyIcon`, `WarningIcon`, `SearchIcon`. Default `size = 14`. `currentColor`. Functions, not `export class`. **Do not** copy `WhistleIcon` / `DashboardIcon` / `FolioIcon` / etc.
 
@@ -489,7 +489,7 @@ No-access header may keep a simple **HospAI PMS** wordmark (no sidebar required)
 
 Do not add `getNightAudit` to AppShell mocks. If a test fails because the query is missing, you added a forbidden call.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/shell src/auth/me.test.ts src/screens/ExceptionsPanel.test.tsx
@@ -499,7 +499,7 @@ pnpm check:module-manifests
 
 Expected: PASS. Housekeeping still in `ALL_NAV`. `App.tsx` still has `/in-house` and `/departures` routes (do not delete).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/shell/icons.tsx \
@@ -545,7 +545,7 @@ EOF
 
 **Forbidden this commit:** AppShell rewrites, Worker, seed, folio Advanced moves, Tailwind, visible `ariVersion`, free-text room id fallback on happy path.
 
-- [ ] **Step 1: Status label helper + failing screen assertions**
+- [x] **Step 1: Status label helper + failing screen assertions**
 
 ```ts
 // apps/web-pms/src/status/reservation-status-label.ts
@@ -583,7 +583,7 @@ Unit test: each wire → locked label. Unknown `'nope'` → `'nope'`.
 
 **Night audit:** step names still `PRE_CHECK` … `ARCHIVE`. `getByRole('button', { name: /revenue/i })` (not exact `'revenue'`). `report-table` still `/150\.00/` `/12\.00/`. `queryByText(/\{/)` null on the happy path (no JSON blob). Humanize known report keys: `roomNet` → Room net, `taxTotal` → Tax, `businessDate` → Business date. Title-case `reportId` for the button (`revenue` → Revenue). Remove `JSON.stringify` from the visible path (delete helper or stop calling it).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -600,7 +600,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
 
 Expected: FAIL — missing helper file; heading still Board; placeholder room id; `checked_in` still visible; quote paragraph still present.
 
-- [ ] **Step 3: Minimal implementation**
+- [x] **Step 3: Minimal implementation**
 
 **Tape title** only + `BoardSummary` children get `className="chip"` (overstay keeps `statusClass('exception')` in addition).
 
@@ -620,7 +620,7 @@ Expected: FAIL — missing helper file; heading still Board; placeholder room id
 
 Do not restyle tape blocks with prototype colours. `statusClass` stays.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run
@@ -629,7 +629,7 @@ pnpm check:web-pms-colors
 
 Expected: PASS. Folio first-paint suite green aside from the In house matcher.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/status/reservation-status-label.ts \
@@ -655,7 +655,7 @@ EOF
 - Modify: `docs/superpowers/specs/2026-08-13-demo-tenant-seed-design.md` P0-3 leftover
 - Modify: `DEMO-READY.md` P0-3 checkboxes
 
-- [ ] **Step 1: Folio-first-paint leftover rows**
+- [x] **Step 1: Folio-first-paint leftover rows**
 
 For rows 1 (chrome + skin), 12 (hide `shiftId`), 13 (In house copy), 15 (`ui-kit` / Tailwind / prototype palette), replace the Notes with a closed pointer:
 
@@ -665,7 +665,7 @@ For rows 1 (chrome + skin), 12 (hide `shiftId`), 13 (In house copy), 15 (`ui-kit
 
 Do not reopen Advanced. Do not tick P0-4.
 
-- [ ] **Step 2: Demo-tenant-seed P0-3 leftover**
+- [x] **Step 2: Demo-tenant-seed P0-3 leftover**
 
 Where it says P0-3 will put **name** on the rail / chrome out of scope, add:
 
@@ -673,7 +673,7 @@ Where it says P0-3 will put **name** on the rail / chrome out of scope, add:
 **Closed 2026-08-13** by [prototype chrome + skin](./2026-08-13-prototype-chrome-skin-design.md) (property name on the ops rail).
 ```
 
-- [ ] **Step 3: Tick DEMO-READY P0-3**
+- [x] **Step 3: Tick DEMO-READY P0-3**
 
 Mark every P0-3 checkbox `[x]` (Shell, Tokens, Screens). Under the section add:
 
@@ -683,7 +683,7 @@ Closed 2026-08-13 by [prototype chrome + skin](docs/superpowers/specs/2026-08-13
 
 Do **not** tick P0-4 / P0-5 / P1. Do **not** edit ARCHITECTURE.md §16.4.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-13-folio-first-paint-design.md \
@@ -702,7 +702,7 @@ EOF
 
 **Spec:** §2, §14.1–3.
 
-- [ ] **Step 1: Hygiene pins**
+- [x] **Step 1: Hygiene pins**
 
 ```bash
 pnpm --filter @hospai/do-runtime build
@@ -715,7 +715,7 @@ git diff --exit-code -- apps/pms-core/src/demo-seed.ts apps/pms-core/src/demo-se
 
 Expected: empty diffs. `PROPERTY_SCHEMA_HEAD === 25`. `ORG_SCHEMA_HEAD === 7`. `NIGHT_AUDIT_STEPS.length === 7`. `COMMAND_CATALOG.length === 77`. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `[127]=post_demo_seed` still last. `CLASS_DENYLIST` untouched. No `lucide-react` / `motion` / `tailwind` in `apps/web-pms/package.json`.
 
-- [ ] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
+- [x] **Step 2: `checks` job — copy `.github/workflows/ci.yml` in order**
 
 ```bash
 pnpm install
@@ -745,7 +745,7 @@ pnpm lint
 
 Expected: all exit 0. `check:web-pms-colors` reports informational fg ≠ `#1a4a6e`.
 
-- [ ] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
+- [x] **Step 3: pms-core vitest shards (no `--` before `--shard`)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
@@ -764,8 +764,8 @@ If typecheck fails, fix in a **new** commit (`fix(types): …`) — never mix ty
 
 **Last commit.** Docs only. Tick `- [x]` on Tasks 1–6 steps in **this** file. Do not backfill historical plans. Do not mix typecheck or code fixes.
 
-- [ ] **Step 1: Mark checkboxes**
-- [ ] **Step 2: Commit**
+- [x] **Step 1: Mark checkboxes**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-13-prototype-chrome-skin.md

@@ -172,26 +172,26 @@ export function classifiedUserMessage(
 - Unknown class + no handled `knownCode` → **Something went wrong — try again or ask a manager.**
 - Preserve screen-specific messages that are already operator English (`Room assignment refused — property unreachable.`, `Shift unavailable — property unreachable`, etc.) — helper is for the **fallback** paths only.
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 `classified-user-message.test.ts`:
 - `classifiedUserMessage({ class: 'fail_closed' }, { fallback: 'Booking failed' })` does **not** match `/fail_closed/`.
 - Unknown class does not contain raw token; contains **Something went wrong**.
 - `forbidden` with permission body returns **Requires permission** line.
 
-- [ ] **Step 2: Implement helper**
+- [x] **Step 2: Implement helper**
 
 Create `apps/web-pms/src/copy/classified-user-message.ts` per D5. No client-core export.
 
-- [ ] **Step 3: Refactor `messageForFolioMutationError`**
+- [x] **Step 3: Refactor `messageForFolioMutationError`**
 
 Replace inline `` `${fallback} (${c.class})` `` tail with `classifiedUserMessage`. Keep idempotency / not_configured / queue_unavailable strings (already operator English).
 
-- [ ] **Step 4: Wire Booking, Check-in, ShiftStrip**
+- [x] **Step 4: Wire Booking, Check-in, ShiftStrip**
 
 Replace all `` `… (${c.class})` `` / `` `… (${code ?? c.class})` `` happy-path fallbacks. Booking availability alert: use helper instead of `` `Availability unavailable (${availErrorClassified.class})` ``.
 
-- [ ] **Step 5: Run targeted tests**
+- [x] **Step 5: Run targeted tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -202,7 +202,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/screens/CheckInScreen.test.tsx
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web-pms/src/copy/classified-user-message.ts \
@@ -250,28 +250,28 @@ EOF
 - Replace `Confirmation {reservation.reservationId}` → **`Confirmation #`** + last 8 chars of id.
 - Replace `Room type {reservation.roomTypeId}` → **`Room type {humanName}`** from directory (`name`, fallback `code`, then **Room type unavailable** — never `rt_*`).
 
-- [ ] **Step 1: Update failing tests**
+- [x] **Step 1: Update failing tests**
 
 `CheckInScreen.test.tsx`:
 - Heading: `getByRole('heading', { name: /check in/i })` does **not** match `/res_/`. With resolved guest **Ada Lovelace**, heading is **Check in Ada Lovelace**.
 - Add `listRoomTypes` to the `vi.mock('../client.js')` api object (today it is missing).
 - Reg card print test (~133–163): reservationId **`res_demo_arr_04`** (D7.9); expect **Confirmation #** + last 8; expect room type human name; `not.toMatch(/res_/)`; `not.toMatch(/rt_/)`.
 
-- [ ] **Step 2: Implement heading + listRoomTypes compose**
+- [x] **Step 2: Implement heading + listRoomTypes compose**
 
 Wire `RegistrationCard` with `roomTypeLabel` from types map.
 
-- [ ] **Step 3: Implement registration-card copy**
+- [x] **Step 3: Implement registration-card copy**
 
 Confirmation # truncation + room type line per D2.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/CheckInScreen.test.tsx
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/CheckInScreen.tsx \
@@ -326,7 +326,7 @@ EOF
 
 **BookingScreen.test.tsx (D7.3):** change `beforeEach` `listRoomTypes` from `{ roomTypes: [] }` to a named King Deluxe row so existing radio clicks keep working without painting `rt_king`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 - `AppShell.search.test.tsx`: mock `{ displayName: 'Maria', status: 'checked_in' }` → visible meta includes **In house**, not `checked_in`.
 - `BookingScreen.test.tsx`: idempotency test (~393–410) expects new copy, `not.toMatch(/idempotency/i)`.
@@ -334,11 +334,11 @@ EOF
 - `HousekeepingApp.test.tsx`: option labels title case.
 - `queued-command-line.test.ts`: output matches **Queued action**, rejects `post_folio_charge` / idempotency substrings.
 
-- [ ] **Step 2: Implement compose + copy changes**
+- [x] **Step 2: Implement compose + copy changes**
 
 Apply table above. Import `reservationStatusLabel` in `AppShell.tsx` `hitMeta`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -352,7 +352,7 @@ pnpm --filter @hospai/pms-housekeeping exec vitest run src/ui/HousekeepingApp.te
 
 (Adjust package filter to match monorepo name for housekeeping module if different — grep `package.json` name under `modules/pms/housekeeping`.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web-pms/src/copy/queued-command-line.ts \
@@ -398,17 +398,17 @@ EOF
 
 **Forbidden this commit:** Exceptions workbench, Settings, Staff, Inventory deep IA.
 
-- [ ] **Step 1: Update failing tests**
+- [x] **Step 1: Update failing tests**
 
 - Directory/profile: `getByRole('link', { name: /res_dir_1/ })` and `getByText(/res_hit/)` today — change to **View folio**; `href` still `/folio/{id}` (D7.8).
 - ShiftScreen: close-form `<strong>` and receipt `<dd>` do not contain `shift_` wire id; heading stays **Close shift** / **Shift receipt**.
 - Folio Advanced (expand in test): placeholder not **billed party**; button **Open company folio**; queued other list has no `reservationId` suffix (D7.7). Mutation fallback **Open COMPANY failed** → operator English without `COMPANY`.
 
-- [ ] **Step 2: Implement kill-list copy**
+- [x] **Step 2: Implement kill-list copy**
 
 Reuse `queuedCommandLine` from Task 3 for Folio Advanced queued `<ul>`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -418,7 +418,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/screens/FolioScreen.test.tsx
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/FolioScreen.tsx \
@@ -452,7 +452,7 @@ EOF
 
 **Forbidden this commit:** new product features; ticking this plan (Task 6).
 
-- [ ] **Step 1: Run grep-shaped acceptance (spec §7.1–7)**
+- [x] **Step 1: Run grep-shaped acceptance (spec §7.1–7)**
 
 ```bash
 # 1 — ariVersion: only BookingScreen wire + visually-hidden
@@ -480,13 +480,13 @@ rg 'paymentId' apps/web-pms/src/screens/FolioScreen.tsx
 
 Expectations documented in spec §7. Fix any regressions before Step 2.
 
-- [ ] **Step 2: Run web-pms test suite (or targeted superset)**
+- [x] **Step 2: Run web-pms test suite (or targeted superset)**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run
 ```
 
-- [ ] **Step 3: Pin frozen heads**
+- [x] **Step 3: Pin frozen heads**
 
 ```bash
 pnpm generate:ddl
@@ -496,11 +496,11 @@ pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "COMMAND
 
 Expect: catalog **77**; route **[127] = post_demo_seed**; schema heads **25** / **7**.
 
-- [ ] **Step 4: Tick DEMO-READY P1 lab-copy checkbox (lines 242–243)**
+- [x] **Step 4: Tick DEMO-READY P1 lab-copy checkbox (lines 242–243)**
 
-Change `- [ ] **Hide lab copy**` → `- [x]`.
+Change `- [x] **Hide lab copy**` → `- [x]`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add DEMO-READY.md
@@ -525,15 +525,15 @@ EOF
 
 **Forbidden this commit:** product code.
 
-- [ ] **Step 1: Re-run Task 5 grep if Tasks 1–4 landed in separate commits**
+- [x] **Step 1: Re-run Task 5 grep if Tasks 1–4 landed in separate commits**
 
 Confirm acceptance still green.
 
-- [ ] **Step 2: Tick every `- [ ]` on Tasks 1–6 in this file**
+- [x] **Step 2: Tick every `- [x]` on Tasks 1–6 in this file**
 
 Do not backfill other plans.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-14-hide-lab-copy.md

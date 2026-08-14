@@ -11,6 +11,7 @@ const postGuestsBatch = vi.fn();
 const getProperty = vi.fn();
 const updateFrontOffice = vi.fn();
 const listRooms = vi.fn();
+const listRoomTypes = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -31,6 +32,7 @@ vi.mock('../client.js', () => ({
     getProperty: (...args: unknown[]) => getProperty(...args),
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
+    listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
   },
 }));
 
@@ -76,6 +78,10 @@ describe('CheckInScreen', () => {
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
     });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [{ roomTypeId: 'rt', code: 'KNG', name: 'King Room' }],
+    });
     listRooms.mockResolvedValue({
       ok: true,
       rooms: [
@@ -110,6 +116,11 @@ describe('CheckInScreen', () => {
   it('53: Check-in disabled without a room; ROOM_NOT_READY shows override', async () => {
     renderCheckIn();
     await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    await waitFor(() => {
+      const heading = screen.getByRole('heading', { name: /check in/i });
+      expect(heading.textContent).toMatch(/Check in Ada Lovelace/i);
+      expect(heading.textContent).not.toMatch(/res_/);
+    });
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByPlaceholderText(/room id/i)).toBeNull();
     await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
@@ -134,7 +145,7 @@ describe('CheckInScreen', () => {
     const print = vi.fn();
     vi.stubGlobal('print', print);
     getReservation.mockResolvedValue({
-      reservationId: 'res_1',
+      reservationId: 'res_demo_arr_04',
       roomTypeId: 'rt',
       guestRef: 'g1',
       piiKeyId: 'k',
@@ -152,7 +163,11 @@ describe('CheckInScreen', () => {
       expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(false),
     );
     const card = screen.getByTestId('reg-card');
-    expect(card.textContent).toMatch(/res_1/);
+    expect(card.textContent).toMatch(/Confirmation #/);
+    expect(card.textContent).toMatch(/o_arr_04/);
+    expect(card.textContent).not.toMatch(/res_/);
+    expect(card.textContent).toMatch(/King Room/);
+    expect(card.textContent).not.toMatch(/rt_/);
     expect(card.textContent).toMatch(/Ada Lovelace/);
     expect(card.textContent).toMatch(/2026-08-11/);
     expect(card.textContent).toMatch(/2026-08-12/);

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -46,6 +46,23 @@ export function CheckInScreen() {
     queryFn: () => api.listRooms(tenant.propertyId),
     retry: false,
   });
+  const typesQ = useQuery({
+    queryKey: ['room-types', tenant.propertyId, 'active'],
+    queryFn: () => api.listRoomTypes(tenant.propertyId, { status: 'active' }),
+    retry: false,
+  });
+
+  const typeDir = useMemo(() => {
+    const m = new Map<string, { code: string; name: string }>();
+    for (const t of (typesQ.data?.roomTypes ?? []) as Array<{
+      roomTypeId: string;
+      code: string;
+      name: string;
+    }>) {
+      m.set(t.roomTypeId, { code: t.code, name: t.name });
+    }
+    return m;
+  }, [typesQ.data]);
 
   useEffect(() => {
     const preassigned = reservationQ.data?.roomId;
@@ -116,13 +133,16 @@ export function CheckInScreen() {
     : rooms;
   const roomOptions = typedRooms.length > 0 ? typedRooms : rooms;
   const selectedCode = rooms.find((r) => r.roomId === roomId)?.code;
+  const roomTypeId = reservationQ.data?.roomTypeId;
+  const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
+  const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
 
   return (
     <div className="panel">
       <p>
         <Link to="/arrivals">← Arrivals</Link>
       </p>
-      <h1>Check in {reservationId}</h1>
+      <h1>Check in {displayName ?? 'guest'}</h1>
       <p className="muted">A room is required to check in.</p>
       {reservationQ.isSuccess ? (
         <p>
@@ -190,6 +210,7 @@ export function CheckInScreen() {
         reservation={reservationQ.data}
         displayName={displayName}
         roomLabel={selectedCode ?? null}
+        roomTypeLabel={roomTypeLabel}
       />
     </div>
   );

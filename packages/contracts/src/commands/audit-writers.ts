@@ -48,6 +48,10 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'rates.archive_promo',
   'invoice.generate',
   'invoice.void',
+  'city_ledger.create_account',
+  'city_ledger.update_account',
+  'city_ledger.receive_payment',
+  'city_ledger.generate_statement',
   'rates.update_room_type_rate',
   'rates.bulk_update',
   'rates.upsert_day',
@@ -76,4 +80,12 @@ export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string
   { id: 'roster.update', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.status', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.exit', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
+  {
+    id: 'city_ledger.archive_account',
+    reason: 'Terminal status flip; appendAuditLogSync in txn (same pattern as config.put_domain exemption class)',
+  },
+  {
+    id: 'city_ledger.post_charge',
+    reason: 'Internal-only; invoked from folio.close_window / night audit; audit correlation via parent command audit row + entry source',
+  },
 ];

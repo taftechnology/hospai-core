@@ -47,6 +47,7 @@ import {
   DERIVED_RATE_PLANS_V30_SQL,
   PROMO_CODES_V31_SQL,
   INVOICE_GENERATION_V32_SQL,
+  CITY_LEDGER_AR_V33_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -228,16 +229,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 32', () => {
+  it('applies property migrations through version 33', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(32);
+    expect(v1).toBe(33);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(32);
-    expect(sql.schemaVersion).toHaveLength(32);
+    expect(v2).toBe(33);
+    expect(sql.schemaVersion).toHaveLength(33);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32,
+      26, 27, 28, 29, 30, 31, 32, 33,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -629,7 +630,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(32);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(33);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -903,5 +904,27 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(INVOICE_GENERATION_V32_SQL.trim());
+  });
+
+  it('property schema head is 33 after city_ledger_ar', () => {
+    const v33 = PROPERTY_MIGRATIONS.find((m) => m.version === 33);
+    expect(v33?.name).toBe('city_ledger_ar');
+    expect(v33?.statements[0]).toContain('CREATE TABLE city_ledger_account');
+    expect(v33?.statements.some((s) => s.includes('city_ledger_charge_window'))).toBe(true);
+    expect(v33?.statements.some((s) => s.includes('folio_window_billed_party_city_ledger_insert'))).toBe(
+      true,
+    );
+  });
+
+  it('migrations/do-property/0033_city_ledger_ar.sql matches CITY_LEDGER_AR_V33_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0033_city_ledger_ar.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(CITY_LEDGER_AR_V33_SQL.trim());
   });
 });

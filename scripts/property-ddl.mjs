@@ -78,6 +78,7 @@ if (process.argv.includes('--self-test')) {
   let DERIVED_RATE_PLANS_V30_SQL;
   let PROMO_CODES_V31_SQL;
   let INVOICE_GENERATION_V32_SQL;
+  let CITY_LEDGER_AR_V33_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -124,6 +125,7 @@ if (process.argv.includes('--self-test')) {
       DERIVED_RATE_PLANS_V30_SQL,
       PROMO_CODES_V31_SQL,
       INVOICE_GENERATION_V32_SQL,
+      CITY_LEDGER_AR_V33_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -457,6 +459,16 @@ const doPropertyTargets = [
 
 `,
     sql: INVOICE_GENERATION_V32_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0033_city_ledger_ar.sql'),
+    header: `-- PropertyDO city ledger / AR — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE city_ledger_account → city_ledger_entry → indexes → billed_party triggers.
+
+`,
+    sql: CITY_LEDGER_AR_V33_SQL,
   },
 ];
 

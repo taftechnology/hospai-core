@@ -38,6 +38,15 @@ import {
   INVOICE_R2_UNBOUND,
   INVOICE_REQUIRED,
   FOLIO_BALANCE_DUE,
+  CITY_LEDGER_ACCOUNT_NOT_FOUND,
+  CITY_LEDGER_ACCOUNT_EXISTS,
+  CITY_LEDGER_ACCOUNT_ARCHIVED,
+  CITY_LEDGER_CREDIT_LIMIT_EXCEEDED,
+  CITY_LEDGER_BILLED_PARTY_INVALID,
+  CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE,
+  CITY_LEDGER_STATEMENT_NOT_FOUND,
+  CITY_LEDGER_R2_UNBOUND,
+  CITY_LEDGER_CHARGE_ALREADY_POSTED,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -161,6 +170,15 @@ describe('fingerprintPayload', () => {
     expect(INVOICE_R2_UNBOUND).toBe('invoice_r2_unbound');
     expect(INVOICE_REQUIRED).toBe('invoice_required');
     expect(FOLIO_BALANCE_DUE).toBe('folio_balance_due');
+    expect(CITY_LEDGER_ACCOUNT_NOT_FOUND).toBe('city_ledger_account_not_found');
+    expect(CITY_LEDGER_ACCOUNT_EXISTS).toBe('city_ledger_account_exists');
+    expect(CITY_LEDGER_ACCOUNT_ARCHIVED).toBe('city_ledger_account_archived');
+    expect(CITY_LEDGER_CREDIT_LIMIT_EXCEEDED).toBe('city_ledger_credit_limit_exceeded');
+    expect(CITY_LEDGER_BILLED_PARTY_INVALID).toBe('city_ledger_billed_party_invalid');
+    expect(CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE).toBe('city_ledger_payment_exceeds_balance');
+    expect(CITY_LEDGER_STATEMENT_NOT_FOUND).toBe('city_ledger_statement_not_found');
+    expect(CITY_LEDGER_R2_UNBOUND).toBe('city_ledger_r2_unbound');
+    expect(CITY_LEDGER_CHARGE_ALREADY_POSTED).toBe('city_ledger_charge_already_posted');
     expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
     expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
     expect(ROUTING_RULE_CONFLICT).toBe('routing_rule_conflict');

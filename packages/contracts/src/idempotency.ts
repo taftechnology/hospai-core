@@ -112,6 +112,16 @@ export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;
 export const INVOICE_REQUIRED = 'invoice_required' as const;
 export const FOLIO_BALANCE_DUE = 'folio_balance_due' as const;
 
+export const CITY_LEDGER_ACCOUNT_NOT_FOUND = 'city_ledger_account_not_found' as const;
+export const CITY_LEDGER_ACCOUNT_EXISTS = 'city_ledger_account_exists' as const;
+export const CITY_LEDGER_ACCOUNT_ARCHIVED = 'city_ledger_account_archived' as const;
+export const CITY_LEDGER_CREDIT_LIMIT_EXCEEDED = 'city_ledger_credit_limit_exceeded' as const;
+export const CITY_LEDGER_BILLED_PARTY_INVALID = 'city_ledger_billed_party_invalid' as const;
+export const CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE = 'city_ledger_payment_exceeds_balance' as const;
+export const CITY_LEDGER_STATEMENT_NOT_FOUND = 'city_ledger_statement_not_found' as const;
+export const CITY_LEDGER_R2_UNBOUND = 'city_ledger_r2_unbound' as const;
+export const CITY_LEDGER_CHARGE_ALREADY_POSTED = 'city_ledger_charge_already_posted' as const;
+
 export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
 export const ROUTING_RULE_CONFLICT = 'routing_rule_conflict' as const;

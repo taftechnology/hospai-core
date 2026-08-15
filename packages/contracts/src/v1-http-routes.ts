@@ -782,4 +782,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'rooms.delete',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_folio_reconcile_payment',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.reconcile_payment',
+    entitlement: 'pms.core',
+  },
 ];

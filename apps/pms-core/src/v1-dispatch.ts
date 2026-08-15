@@ -64,6 +64,7 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  PAYMENT_NOT_RECONCILABLE,
   HOLD_EXPIRED,
   INQUIRY_EXPIRED,
   ROOM_REQUIRED,
@@ -5175,6 +5176,63 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const paymentId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    outcome?: string;
+    gatewayReference?: string;
+    idempotencyKey?: string;
+  };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  if (body.outcome !== 'authorized' && body.outcome !== 'declined') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprintInput =
+    body.gatewayReference != null
+      ? { paymentId, outcome: body.outcome, gatewayReference: body.gatewayReference }
+      : { paymentId, outcome: body.outcome };
+  const fingerprint = await fingerprintPayload(fingerprintInput);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    paymentId,
+    outcome: body.outcome as 'authorized' | 'declined',
+    ...(body.gatewayReference != null ? { gatewayReference: body.gatewayReference } : {}),
+  };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReconcilePayment']>>>({
+    env: ctx.env,
+    commandId: 'folio.reconcile_payment',
+    routeId: 'post_folio_reconcile_payment',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryReconcilePayment(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
@@ -5377,6 +5435,7 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
 function mapPaymentCommandErrorStatus(error: string): number {
   if (error === PSP_UNAVAILABLE) return 501;
   if (error === IDEM_KEY_REUSED) return 409;
+  if (error === PAYMENT_NOT_RECONCILABLE) return 409;
   if (error === NOT_FOUND) return 404;
   if (
     error === PAYMENT_NOT_CAPTURABLE ||
@@ -7508,6 +7567,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'rooms.delete',
     entitlement: 'pms.core',
     handler: handleDeleteRoom,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/payments\/([^/]+)\/reconcile$/,
+    permission: 'folio:post',
+    commandId: 'folio.reconcile_payment',
+    entitlement: 'pms.core',
+    handler: handlePostFolioReconcilePayment,
   },
 ];
 

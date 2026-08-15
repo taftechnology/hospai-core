@@ -906,6 +906,22 @@ export function createClient(opts: {
         },
       );
     },
+    async reconcilePayment(
+      propertyId: string,
+      paymentId: string,
+      input: { outcome: 'authorized' | 'declined'; gatewayReference?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/payments/${enc(paymentId)}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
     async refundPayment(
       propertyId: string,
       paymentId: string,

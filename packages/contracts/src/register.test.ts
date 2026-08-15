@@ -666,6 +666,13 @@ describe('command catalog', () => {
       commandId: 'rooms.delete',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[133]?.id).toBe('post_folio_reconcile_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[133]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:post',
+      commandId: 'folio.reconcile_payment',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(56);
     expect(COMMAND_CATALOG).toHaveLength(81);

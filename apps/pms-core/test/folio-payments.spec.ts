@@ -1424,3 +1424,93 @@ describe('folio.reconcile_payment (unknown exit)', () => {
     expect(listed.ok && listed.payments).toHaveLength(1);
   });
 });
+
+async function postReconcilePayment(
+  propertyId: string,
+  actor: string,
+  paymentId: string,
+  body: { outcome: 'authorized' | 'declined'; gatewayReference?: string; idempotencyKey?: string },
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/payments/${encodeURIComponent(paymentId)}/reconcile`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify(body),
+      },
+    ),
+    env,
+  );
+}
+
+describe('POST /payments/:id/reconcile (HTTP case 6)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  it('200 happy — unknown → authorized', async () => {
+    const actor = 'user_recon_http_ok';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_http_ok';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    const { paymentId } = await unknownPaymentViaTimeout(stub, actor, reservationId, 1500);
+
+    const res = await postReconcilePayment(propertyId, actor, paymentId, {
+      outcome: 'authorized',
+      idempotencyKey: `idem-http-recon-ok-${crypto.randomUUID()}`,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, paymentId, status: 'authorized' });
+  });
+
+  it('409 payment_not_reconcilable on authorized payment', async () => {
+    const actor = 'user_recon_http_409';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_http_409';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 2000, `idem-auth-http-409`),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    const res = await postReconcilePayment(propertyId, actor, paymentId, {
+      outcome: 'declined',
+      idempotencyKey: `idem-http-recon-409-${crypto.randomUUID()}`,
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ ok: false, error: 'payment_not_reconcilable' });
+  });
+
+  it('404 unknown payment id', async () => {
+    const actor = 'user_recon_http_404';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await postReconcilePayment(propertyId, actor, 'pay_missing', {
+      outcome: 'authorized',
+      idempotencyKey: `idem-http-recon-404-${crypto.randomUUID()}`,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('400 missing idempotencyKey', async () => {
+    const actor = 'user_recon_http_400';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await postReconcilePayment(propertyId, actor, 'pay_any', {
+      outcome: 'authorized',
+    } as { outcome: 'authorized' });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'invalid_body' });
+  });
+});

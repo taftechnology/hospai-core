@@ -98,6 +98,7 @@ import {
   PAYMENT_NOT_CAPTURABLE,
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
+  REFUND_EXCEEDS_REMAINING,
   SHIFT_NOT_FOUND,
   SHIFT_ALREADY_OPEN,
   SHIFT_NOT_OPEN,
@@ -13498,7 +13499,33 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }>;
       const capture = captureRows[0];
       if (!capture) throw new Error(NOT_FOUND);
-      const refundLineId = event.payload.folioLineId ?? `${event.payload.paymentId}:refund`;
+
+      const refundTxn = event.payload.amountMinor;
+      if (!Number.isInteger(refundTxn) || refundTxn <= 0) throw new Error(MONEY_INVALID);
+      const capturedBase = payment.captured_amount_minor ?? payment.amount_minor;
+      const refundedBase = payment.refunded_amount_minor ?? 0;
+      const remaining = capturedBase - refundedBase;
+      if (refundTxn > remaining) throw new Error(REFUND_EXCEEDS_REMAINING);
+
+      let refundLineId = event.payload.folioLineId;
+      if (!refundLineId) {
+        const countRows = this.ctx.storage.sql
+          .exec(
+            `SELECT COUNT(*) AS c FROM folio_line
+             WHERE source = 'PAYMENT_REFUND' AND split_of = ?`,
+            capture.folio_line_id,
+          )
+          .toArray() as Array<{ c: number }>;
+        const n = Number(countRows[0]?.c ?? 0) + 1;
+        refundLineId = `${event.payload.paymentId}:refund:${n}`;
+      }
+
+      const ledgerRatio =
+        Math.abs(capture.amount_minor) > 0
+          ? Math.abs(capture.ledger_amount_minor) / Math.abs(capture.amount_minor)
+          : 1;
+      const ledgerRefundMinor = Math.round(refundTxn * ledgerRatio);
+
       this.assertChargeCodeSync('PAYMENT', { requireActive: true });
       this.insertFolioLineSync({
         folioLineId: refundLineId,
@@ -13506,9 +13533,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId: payment.reservation_id,
         chargeCode: 'PAYMENT',
         posted: {
-          amountMinor: Math.abs(capture.amount_minor),
+          amountMinor: refundTxn,
           txnCurrency: currencyCode(capture.txn_currency),
-          ledgerAmountMinor: Math.abs(capture.ledger_amount_minor),
+          ledgerAmountMinor: ledgerRefundMinor,
           fxRate: capture.fx_rate,
           fxRateAt: capture.fx_rate_at,
         },
@@ -13517,8 +13544,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         paymentId: null,
         businessDate: this.resolvePostingBusinessDateSync(),
       });
+
+      const newRefunded = refundedBase + refundTxn;
+      const terminal = newRefunded >= capturedBase;
       this.ctx.storage.sql.exec(
-        `UPDATE payment SET status = 'refunded', last_payment_event_id = ?, updated_at = ? WHERE payment_id = ?`,
+        `UPDATE payment
+         SET refunded_amount_minor = ?,
+             status = ?,
+             last_payment_event_id = ?,
+             updated_at = ?
+         WHERE payment_id = ?`,
+        newRefunded,
+        terminal ? 'refunded' : 'captured',
         event.eventId,
         now,
         event.payload.paymentId,
@@ -14435,12 +14472,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryRefundPayment(
     actor: ActorContext,
-    input: { paymentId: string },
+    input: { paymentId: string; amountMinor: number },
     idem: IdempotencyKey,
   ): Promise<
-    | { ok: true; paymentId: string; status: 'refunded' }
+    | { ok: true; paymentId: string; status: 'captured' | 'refunded'; refundedAmountMinor: number }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof PAYMENT_NOT_REFUNDABLE }
+    | { ok: false; error: typeof REFUND_EXCEEDS_REMAINING }
+    | { ok: false; error: typeof MONEY_INVALID }
     | { ok: false; error: typeof PSP_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof WINDOW_CLOSED }
@@ -14459,25 +14498,56 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+
     const payment = this.readPaymentRowSync(input.paymentId);
     if (!payment) return { ok: false, error: NOT_FOUND };
+
+    const capturedBase = payment.captured_amount_minor ?? payment.amount_minor;
+    const refundedBase = payment.refunded_amount_minor ?? 0;
+    const remainingMinor = capturedBase - refundedBase;
+
     if (payment.status === 'refunded') {
       if (payment.refund_fingerprint === idem.fingerprint) {
-        return { ok: true, paymentId: payment.payment_id, status: 'refunded' };
+        return {
+          ok: true,
+          paymentId: payment.payment_id,
+          status: 'refunded',
+          refundedAmountMinor: capturedBase,
+        };
       }
       return { ok: false, error: IDEM_KEY_REUSED };
     }
+
+    if (input.amountMinor > remainingMinor) {
+      return { ok: false, error: REFUND_EXCEEDS_REMAINING };
+    }
+
     if (payment.status !== 'captured') {
       return { ok: false, error: PAYMENT_NOT_REFUNDABLE };
     }
-    const refundAmount = payment.captured_amount_minor ?? payment.amount_minor;
+
+    const prior = this.lookupIdempotentResponse<{
+      ok: true;
+      paymentId: string;
+      status: 'captured' | 'refunded';
+      refundedAmountMinor: number;
+    }>(idem);
+    if (prior === 'fingerprint_mismatch') {
+      return { ok: false, error: IDEM_KEY_REUSED };
+    }
+    if (prior) {
+      return prior;
+    }
 
     if (payment.tender_type === 'CARD') {
       if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
       const adapterResult = await simulateRefund(
         {
           paymentId: input.paymentId,
-          amountMinor: refundAmount,
+          amountMinor: input.amountMinor,
           gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
           currency: payment.currency,
         },
@@ -14493,78 +14563,133 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     try {
       return this.ctx.storage.transactionSync(() => {
-        const updated = this.ctx.storage.sql.exec(
-          `UPDATE payment
-           SET status = 'refunded', refund_fingerprint = ?, updated_at = ?
-           WHERE payment_id = ? AND status = 'captured'`,
-          idem.fingerprint,
-          Date.now(),
-          input.paymentId,
-        );
-        if (updated.rowsWritten === 0) {
+        return runIdempotent(this.ctx.storage.sql, idem, () => {
           const current = this.readPaymentRowSync(input.paymentId);
           if (!current) return { ok: false as const, error: NOT_FOUND };
-          if (current.status === 'refunded' && current.refund_fingerprint === idem.fingerprint) {
-            return { ok: true as const, paymentId: current.payment_id, status: 'refunded' as const };
+
+          const currentCapturedBase = current.captured_amount_minor ?? current.amount_minor;
+          const currentRefundedBase = current.refunded_amount_minor ?? 0;
+          const currentRemaining = currentCapturedBase - currentRefundedBase;
+
+          if (current.status === 'refunded') {
+            if (current.refund_fingerprint === idem.fingerprint) {
+              return {
+                ok: true as const,
+                paymentId: current.payment_id,
+                status: 'refunded' as const,
+                refundedAmountMinor: currentCapturedBase,
+              };
+            }
+            throw new IdempotencyKeyReused();
           }
-          return { ok: false as const, error: PAYMENT_NOT_REFUNDABLE };
-        }
+          if (current.status !== 'captured') {
+            throw new Error(PAYMENT_NOT_REFUNDABLE);
+          }
+          if (input.amountMinor > currentRemaining) {
+            throw new Error(REFUND_EXCEEDS_REMAINING);
+          }
 
-        const refundEventId = crypto.randomUUID();
-        const applied = this.applyPaymentEventSync({
-          type: 'payment.refunded',
-          eventId: refundEventId,
-          gatewayReference: payment.gateway_reference,
-          payload: {
-            propertyId,
-            paymentId: input.paymentId,
-            reservationId: payment.reservation_id,
-            amountMinor: refundAmount,
-            currency: payment.currency,
-            folioLineId: `${input.paymentId}:refund`,
-          },
-        });
-        const refundLineId = applied.folioLineId ?? `${input.paymentId}:refund`;
+          const captureLineId = `${input.paymentId}:capture`;
+          const captureRows = this.ctx.storage.sql
+            .exec(
+              `SELECT folio_line_id FROM folio_line WHERE folio_line_id = ? OR payment_id = ? LIMIT 1`,
+              captureLineId,
+              input.paymentId,
+            )
+            .toArray() as Array<{ folio_line_id: string }>;
+          const captureFolioLineId = captureRows[0]?.folio_line_id;
+          if (!captureFolioLineId) throw new Error(NOT_FOUND);
 
-        this.appendPropertyOutbox({
-          eventId: refundEventId,
-          eventType: 'folio.payment_refunded',
-          payload: {
-            propertyId,
-            paymentId: input.paymentId,
-            reservationId: payment.reservation_id,
-            amountMinor: refundAmount,
-            currency: payment.currency,
-            folioLineId: refundLineId,
-          },
-        });
-        this.appendPropertyOutbox({
-          eventId: crypto.randomUUID(),
-          eventType: 'payment.refunded',
-          payload: {
-            version: 1,
-            propertyId,
-            paymentId: input.paymentId,
-            reservationId: payment.reservation_id,
-            amountMinor: refundAmount,
-            currency: payment.currency,
-            folioLineId: refundLineId,
+          const countRows = this.ctx.storage.sql
+            .exec(
+              `SELECT COUNT(*) AS c FROM folio_line
+               WHERE source = 'PAYMENT_REFUND' AND split_of = ?`,
+              captureFolioLineId,
+            )
+            .toArray() as Array<{ c: number }>;
+          const refundLineId = `${input.paymentId}:refund:${Number(countRows[0]?.c ?? 0) + 1}`;
+
+          const refundEventId = crypto.randomUUID();
+          const refundGatewayReference = `${payment.gateway_reference ?? `sim_${input.paymentId}`}:${refundLineId}`;
+          const applied = this.applyPaymentEventSync({
+            type: 'payment.refunded',
             eventId: refundEventId,
-            gatewayReference: payment.gateway_reference,
-          },
+            gatewayReference: refundGatewayReference,
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: payment.reservation_id,
+              amountMinor: input.amountMinor,
+              currency: payment.currency,
+              folioLineId: refundLineId,
+            },
+          });
+          if (!applied.applied) {
+            throw new Error(PAYMENT_NOT_REFUNDABLE);
+          }
+          const appliedRefundLineId = applied.folioLineId ?? refundLineId;
+
+          this.ctx.storage.sql.exec(
+            `UPDATE payment SET refund_fingerprint = ? WHERE payment_id = ?`,
+            idem.fingerprint,
+            input.paymentId,
+          );
+
+          const updated = this.readPaymentRowSync(input.paymentId)!;
+          const newRefundedAmountMinor = updated.refunded_amount_minor ?? 0;
+          const terminalStatus = updated.status === 'refunded' ? 'refunded' : 'captured';
+
+          this.appendPropertyOutbox({
+            eventId: refundEventId,
+            eventType: 'folio.payment_refunded',
+            payload: {
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: payment.reservation_id,
+              amountMinor: input.amountMinor,
+              currency: payment.currency,
+              folioLineId: appliedRefundLineId,
+            },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'payment.refunded',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: payment.reservation_id,
+              amountMinor: input.amountMinor,
+              currency: payment.currency,
+              folioLineId: appliedRefundLineId,
+              eventId: refundEventId,
+              gatewayReference: payment.gateway_reference,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.refund',
+            entityType: 'payment',
+            entityId: input.paymentId,
+            beforeJson: { status: 'captured', refundedAmountMinor: currentRefundedBase },
+            afterJson: {
+              status: terminalStatus,
+              amountMinor: input.amountMinor,
+              refundedAmountMinor: newRefundedAmountMinor,
+            },
+            reservationId: payment.reservation_id,
+          });
+
+          return {
+            ok: true as const,
+            paymentId: input.paymentId,
+            status: terminalStatus,
+            refundedAmountMinor: newRefundedAmountMinor,
+          };
         });
-        this.appendAuditLogSync({
-          actor: this.auditActorSync(actor),
-          commandId: 'folio.refund',
-          entityType: 'payment',
-          entityId: input.paymentId,
-          beforeJson: { status: 'captured' },
-          afterJson: { status: 'refunded', amountMinor: refundAmount },
-          reservationId: payment.reservation_id,
-        });
-        return { ok: true as const, paymentId: input.paymentId, status: 'refunded' as const };
       });
     } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

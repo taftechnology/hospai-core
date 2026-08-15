@@ -4,6 +4,7 @@ import {
   PAYMENT_NOT_REFUNDABLE,
   PAYMENT_NOT_VOIDABLE,
   PSP_UNAVAILABLE,
+  REFUND_EXCEEDS_REMAINING,
   fingerprintPayload,
 } from '@hospai/contracts';
 import { addCalendarDays } from './date-helpers';
@@ -142,18 +143,20 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     expect(await capture(stub, paymentId, 8000)).toMatchObject({ ok: true });
     const before = await stub.readFolio(reservationId);
     const balanceBefore = before.ok ? before.balanceMinor : 0;
+    const remaining = 8000;
     expect(
       await stub.tryRefundPayment(
         TEST_OWNER_ACTOR,
-        { paymentId },
-        await idemFor(`refund-${paymentId}`, { paymentId }),
+        { paymentId, amountMinor: remaining },
+        await idemFor(`refund-${paymentId}`, { paymentId, amountMinor: remaining }),
       ),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: true, status: 'refunded', refundedAmountMinor: remaining });
     const pay = await stub.readPayment(paymentId);
     expect(pay.ok && pay.payment.status).toBe('refunded');
     const folio = await stub.readFolio(reservationId);
     expect(folio.ok).toBe(true);
     const refundLine = folio.ok ? folio.lines.find((l) => l.source === 'PAYMENT_REFUND') : undefined;
+    expect(refundLine?.folioLineId).toBe(`${paymentId}:refund:1`);
     expect(refundLine).toMatchObject({
       amountMinor: 8000,
       splitOf: `${paymentId}:capture`,
@@ -175,8 +178,8 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     expect(
       await stub.tryRefundPayment(
         TEST_OWNER_ACTOR,
-        { paymentId },
-        await idemFor(`refund-${paymentId}`, { paymentId }),
+        { paymentId, amountMinor: 3000 },
+        await idemFor(`refund-${paymentId}`, { paymentId, amountMinor: 3000 }),
       ),
     ).toMatchObject({ ok: false, error: PAYMENT_NOT_REFUNDABLE });
   });
@@ -200,10 +203,10 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     expect(
       await stub.tryRefundPayment(
         TEST_OWNER_ACTOR,
-        { paymentId: cashId },
-        await idemFor(`refund-${cashId}`, { paymentId: cashId }),
+        { paymentId: cashId, amountMinor: 2500 },
+        await idemFor(`refund-${cashId}`, { paymentId: cashId, amountMinor: 2500 }),
       ),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: true, status: 'refunded', refundedAmountMinor: 2500 });
     const pay = await stub.readPayment(cashId);
     expect(pay.ok && pay.payment.status).toBe('refunded');
     await stub.setPspSimulateOutcomeForTest(null);
@@ -216,17 +219,154 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     const paymentId = `pay_${crypto.randomUUID()}`;
     expect(await authorize(stub, reservationId, paymentId, 6000)).toMatchObject({ ok: true });
     expect(await capture(stub, paymentId, 6000)).toMatchObject({ ok: true });
-    const idem = await idemFor(`refund-${paymentId}`, { paymentId });
-    expect(await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId }, idem)).toMatchObject({
-      ok: true,
-    });
-    expect(await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId }, idem)).toMatchObject({
-      ok: true,
-    });
+    const remaining = 6000;
+    const idem = await idemFor(`refund-${paymentId}`, { paymentId, amountMinor: remaining });
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: remaining }, idem),
+    ).toMatchObject({ ok: true, status: 'refunded', refundedAmountMinor: remaining });
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: remaining }, idem),
+    ).toMatchObject({ ok: true, status: 'refunded', refundedAmountMinor: remaining });
     const refunds = (await stub.listFolioLinesForReservation(reservationId)).filter(
       (l) => l.source === 'PAYMENT_REFUND',
     );
     expect(refunds).toHaveLength(1);
+    expect(refunds[0]?.folioLineId).toBe(`${paymentId}:refund:1`);
+  });
+
+  it('33: partial then remaining refund — :refund:1 then :refund:2, captured then refunded', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 10_000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 10_000)).toMatchObject({ ok: true });
+    const before = await stub.readFolio(reservationId);
+    const balanceBefore = before.ok ? before.balanceMinor : 0;
+
+    const idemA = await idemFor(`refund-a-${paymentId}`, { paymentId, amountMinor: 4000 });
+    const idemB = await idemFor(`refund-b-${paymentId}`, { paymentId, amountMinor: 6000 });
+    expect(idemA.key).not.toBe(idemB.key);
+    expect(idemA.fingerprint).not.toBe(idemB.fingerprint);
+
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: 4000 }, idemA),
+    ).toMatchObject({ ok: true, status: 'captured', refundedAmountMinor: 4000 });
+
+    const midPay = await stub.readPayment(paymentId);
+    expect(midPay.ok && midPay.payment.refundedAmountMinor).toBe(4000);
+
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: 6000 }, idemB),
+    ).toMatchObject({ ok: true, status: 'refunded', refundedAmountMinor: 10_000 });
+
+    const pay = await stub.readPayment(paymentId);
+    expect(pay.ok && pay.payment.status).toBe('refunded');
+    expect(pay.ok && pay.payment.refundedAmountMinor).toBe(10_000);
+
+    const lines = await stub.readFolio(reservationId);
+    expect(lines.ok).toBe(true);
+    if (!lines.ok) throw new Error('folio');
+    expect(lines.lines.find((l) => l.folioLineId === `${paymentId}:refund:1`)).toMatchObject({
+      amountMinor: 4000,
+      paymentId: null,
+    });
+    expect(lines.lines.find((l) => l.folioLineId === `${paymentId}:refund:2`)).toMatchObject({
+      amountMinor: 6000,
+      paymentId: null,
+    });
+
+    const captureLine = lines.lines.find((l) => l.folioLineId === `${paymentId}:capture`);
+    expect(captureLine).toMatchObject({ amountMinor: -10_000, source: 'PAYMENT' });
+
+    const after = await stub.readFolio(reservationId);
+    expect(after.ok && after.balanceMinor).toBe(balanceBefore + 10_000);
+  });
+
+  it('34: over-refund → refund_exceeds_remaining', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 5000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 5000)).toMatchObject({ ok: true });
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: 5001 },
+        await idemFor(`ref-over-${paymentId}`, { paymentId, amountMinor: 5001 }),
+      ),
+    ).toMatchObject({ ok: false, error: REFUND_EXCEEDS_REMAINING });
+  });
+
+  it('38: idempotent replay skips PSP (declined lever would fail)', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 7000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 7000)).toMatchObject({ ok: true });
+    const idem = await idemFor(`ref-idem-${paymentId}`, { paymentId, amountMinor: 7000 });
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: 7000 }, idem),
+    ).toMatchObject({ ok: true });
+    await stub.setPspSimulateOutcomeForTest({ refund: 'declined' });
+    expect(
+      await stub.tryRefundPayment(TEST_OWNER_ACTOR, { paymentId, amountMinor: 7000 }, idem),
+    ).toMatchObject({ ok: true });
+    await stub.setPspSimulateOutcomeForTest(null);
+  });
+
+  it('39: different idempotency keys same amount → two refund lines', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 10_000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 10_000)).toMatchObject({ ok: true });
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: 3000 },
+        await idemFor(`ref-a-${paymentId}`, { paymentId, amountMinor: 3000 }),
+      ),
+    ).toMatchObject({ ok: true, status: 'captured', refundedAmountMinor: 3000 });
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: 3000 },
+        await idemFor(`ref-b-${paymentId}`, { paymentId, amountMinor: 3000 }),
+      ),
+    ).toMatchObject({ ok: true, status: 'captured', refundedAmountMinor: 6000 });
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    const refunds = lines.filter((l) => l.source === 'PAYMENT_REFUND');
+    expect(refunds.map((l) => l.folioLineId).sort()).toEqual(
+      [`${paymentId}:refund:1`, `${paymentId}:refund:2`].sort(),
+    );
+  });
+
+  it('37: card partial refund posts PAYMENT_REFUND line for requested amount', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 5000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 5000)).toMatchObject({ ok: true });
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: 2500 },
+        await idemFor(`ref-partial-${paymentId}`, { paymentId, amountMinor: 2500 }),
+      ),
+    ).toMatchObject({ ok: true, status: 'captured', refundedAmountMinor: 2500 });
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok).toBe(true);
+    if (!folio.ok) throw new Error('folio');
+    expect(folio.lines.find((l) => l.folioLineId === `${paymentId}:refund:1`)).toMatchObject({
+      amountMinor: 2500,
+      source: 'PAYMENT_REFUND',
+      paymentId: null,
+    });
   });
 
   it('32: capture-due two STAY holds FIFO until 0; DAMAGE untouched', async () => {
@@ -288,8 +428,8 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     expect(
       await stub.tryRefundPayment(
         TEST_OWNER_ACTOR,
-        { paymentId },
-        await idemFor(`refund-${paymentId}`, { paymentId }),
+        { paymentId, amountMinor: 4000 },
+        await idemFor(`refund-${paymentId}`, { paymentId, amountMinor: 4000 }),
       ),
     ).toMatchObject({ ok: false, error: PAYMENT_NOT_REFUNDABLE });
     expect(await capture(stub, paymentId, 4000)).toMatchObject({

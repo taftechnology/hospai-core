@@ -173,20 +173,21 @@ describe('folio FX payments — authorize / capture / cash / refund', () => {
     expect(
       await stub.trySupersedeFxRate(TEST_OWNER_ACTOR, supersede, await idemFor(`sup-${supersede.quoteId}`, supersede)),
     ).toMatchObject({ ok: true });
+    const partial = 5000;
     expect(
       await stub.tryRefundPayment(
         TEST_OWNER_ACTOR,
-        { paymentId },
-        await idemFor(`ref-${paymentId}`, { paymentId }),
+        { paymentId, amountMinor: partial },
+        await idemFor(`ref-${paymentId}`, { paymentId, amountMinor: partial }),
       ),
-    ).toMatchObject({ ok: true, status: 'refunded' });
+    ).toMatchObject({ ok: true, status: 'captured', refundedAmountMinor: partial });
     const folio = await stub.readFolio(reservationId);
     expect(folio.ok).toBe(true);
     if (!folio.ok) throw new Error('folio');
-    const refund = folio.lines.find((l) => l.folioLineId === `${paymentId}:refund`);
+    const refund = folio.lines.find((l) => l.folioLineId === `${paymentId}:refund:1`);
     expect(refund).toMatchObject({
-      amountMinor: 10000,
-      ledgerAmountMinor: 11000,
+      amountMinor: partial,
+      ledgerAmountMinor: 5500,
       fxRate: '1.10',
       paymentId: null,
     });

@@ -64,4 +64,19 @@ jobs:
       # Eight shards: singleWorker + isolatedStorage:false (Workflows-forced) accumulates
       # D1/DO state across the suite; four shards still exhausted GHA (workerd fetch
       # timeout → fail-closed 503). Unsharded local runs segfault workerd.
-      - run: pnpm --filter @hospai/pms-core exec vitest run --shard=${{ matrix.shard }}/8
+      # reservations-ledger.property.spec.ts is a separate job: its five-seed sold-ledger
+      # sequences saturate the shared events queue and invalidate DOs in the same isolate.
+      - run: pnpm --filter @hospai/pms-core exec vitest run --shard=${{ matrix.shard }}/8 --exclude test/reservations-ledger.property.spec.ts
+
+  test-pms-core-ledger-prop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm build
+      - run: pnpm --filter @hospai/pms-core exec vitest run test/reservations-ledger.property.spec.ts

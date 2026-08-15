@@ -5,6 +5,7 @@ import {
   LINE_NOT_TRANSFERABLE,
   fingerprintPayload,
 } from '@hospai/contracts';
+import { computeTax } from '@hospai/money';
 import { addCalendarDays } from './date-helpers';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
@@ -184,8 +185,9 @@ describe('folio FX split / transfer / discount', () => {
   it('29: 10% discount on EUR ROOM posts at the frozen capture rate', async () => {
     const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
     const reservationId = `res_${crypto.randomUUID()}`;
-    await seedReservation(stub, reservationId);
+    const arrival = await seedReservation(stub, reservationId);
     await createEurRate(stub);
+    await seedRoomTax(stub, arrival);
     const sourceId = `fl_${crypto.randomUUID()}`;
     const room = {
       folioLineId: sourceId,
@@ -215,6 +217,21 @@ describe('folio FX split / transfer / discount', () => {
       ledgerAmountMinor: -1100,
       txnCurrency: 'EUR',
       fxRate: '1.10',
+    });
+    const discountLine = folio.lines.find((l) => l.chargeCode === 'DISCOUNT');
+    expect(discountLine).toBeTruthy();
+    if (!discountLine) throw new Error('discount');
+    const roomTax = folio.lines.find((l) => l.source === 'TAX' && l.taxOf === sourceId);
+    expect(roomTax).toMatchObject({
+      amountMinor: computeTax(11_000, '0.10'),
+      ledgerAmountMinor: computeTax(11_000, '0.10'),
+    });
+    const discountTax = folio.lines.find((l) => l.source === 'TAX' && l.taxOf === discountLine.folioLineId);
+    expect(discountTax).toMatchObject({
+      amountMinor: computeTax(-1100, '0.10'),
+      ledgerAmountMinor: computeTax(-1100, '0.10'),
+      txnCurrency: 'USD',
+      fxRate: '1',
     });
   });
 

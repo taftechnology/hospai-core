@@ -290,6 +290,16 @@ async function seedRoomTaxRule(
   ).toBe(201);
 }
 
+async function getFolio(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
+}
+
 async function dispatchPendingBatch(messages: PendingCommandMessage[]): Promise<void> {
   const batch = createMessageBatch(
     'hospai-pending-commands',
@@ -1189,5 +1199,61 @@ describe('tax posting matrix', () => {
     const lines = await stub.listFolioLinesForReservation(reservationId);
     expect(lines.filter((l) => l.folioLineId === discountLineId)).toHaveLength(1);
     expect(lines.filter((l) => l.source === 'TAX' && l.taxOf === discountLineId)).toHaveLength(1);
+  });
+
+  it('Test 23: HTTP POST discount then GET folio includes tax child on discount line', async () => {
+    const owner = `user_tax_disc_http_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_http_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    await seedRoomTaxRule(
+      propertyId,
+      owner,
+      arrival,
+      `tr_http_${crypto.randomUUID()}`,
+      `room_http_${crypto.randomUUID()}`,
+      '0.10',
+    );
+
+    const { folioLineId: roomLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'ROOM',
+      amountMinor: 10_000,
+      idempotencyKey: `idem-room-http-${crypto.randomUUID()}`,
+    });
+
+    const discountLineId = `disc_http_${crypto.randomUUID()}`;
+    const discountRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/${encodeURIComponent(roomLineId)}/discount`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+          body: JSON.stringify({
+            kind: 'percent',
+            bps: 1000,
+            reason: 'http comp',
+            folioLineId: discountLineId,
+            idempotencyKey: `idem-disc-http-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(discountRes.status).toBe(200);
+    const posted = (await discountRes.json()) as { ok: true; folioLineId: string };
+    expect(posted).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const folioRes = await getFolio(propertyId, owner, reservationId);
+    expect(folioRes.status).toBe(200);
+    const body = (await folioRes.json()) as {
+      ok: true;
+      lines: Array<{ source: string; taxOf?: string; amountMinor: number }>;
+    };
+    const taxChild = body.lines.find((l) => l.source === 'TAX' && l.taxOf === posted.folioLineId);
+    expect(taxChild).toMatchObject({ amountMinor: computeTax(-1000, '0.10') });
   });
 });

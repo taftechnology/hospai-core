@@ -2635,6 +2635,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         } else if (step === 'ROLL_BUSINESS_DATE') {
           this.runRollStepSync(businessDate);
         } else if (step === 'POST_ROOM_CHARGES') {
+          if (this.readConfigValueSync('pms.night_audit.auto_extend') === true) {
+            this.runAutoExtendSync(businessDate);
+          }
           this.postRoomChargesSync(businessDate);
         } else if (step === 'CLOSE_CASHIER_SHIFTS') {
           this.forceCloseCashierShiftsSync(businessDate);
@@ -3062,6 +3065,161 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId: reservation.reservation_id,
       });
     }
+  }
+
+  private runAutoExtendSync(businessDate: string): { extendedCount: number; skippedCount: number } {
+    const dueOutDate = enumerateFromDate(businessDate, 2)[1]!;
+    const candidates = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id, room_type_id, allocated_room_type_id, arrival_date, departure_date,
+                rate_plan_id, guest_ref, pii_key_id, room_id
+         FROM reservation
+         WHERE status = 'checked_in' AND departure_date = ?
+         ORDER BY reservation_id ASC`,
+        dueOutDate,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      allocated_room_type_id: string;
+      arrival_date: string;
+      departure_date: string;
+      rate_plan_id: string;
+      guest_ref: string;
+      pii_key_id: string;
+      room_id: string | null;
+    }>;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    let extendedCount = 0;
+    let skippedCount = 0;
+
+    for (const reservation of candidates) {
+      const newDeparture = enumerateFromDate(reservation.departure_date, 2)[1]!;
+      const addedNight = dueOutDate;
+      const allocatedId = reservation.allocated_room_type_id || reservation.room_type_id;
+      const oldNights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+      const newNights = enumerateStayDates(reservation.arrival_date, newDeparture);
+
+      if (reservation.room_id) {
+        try {
+          this.assertRoomAssignableSync(reservation.room_id, {
+            reservationId: reservation.reservation_id,
+            allocatedRoomTypeId: allocatedId,
+            arrivalDate: reservation.arrival_date,
+            departureDate: newDeparture,
+          });
+        } catch {
+          skippedCount++;
+          continue;
+        }
+      }
+
+      try {
+        this.rateDayAmountSync(reservation.room_type_id, reservation.rate_plan_id, addedNight);
+      } catch (e) {
+        if (e instanceof RateMissingError) {
+          skippedCount++;
+          continue;
+        }
+        throw e;
+      }
+
+      try {
+        this.commitSoldNightsSync(allocatedId, reservation.arrival_date, newDeparture, [addedNight]);
+      } catch (e) {
+        if (
+          e instanceof NoAvailabilityError ||
+          e instanceof UnbookableError ||
+          e instanceof RestrictionViolatedError
+        ) {
+          skippedCount++;
+          continue;
+        }
+        throw e;
+      }
+
+      const now = Date.now();
+      this.ctx.storage.sql.exec(
+        `UPDATE reservation SET departure_date = ?, updated_at = ? WHERE reservation_id = ?`,
+        newDeparture,
+        now,
+        reservation.reservation_id,
+      );
+
+      this.syncReservationRateNightsOnModifySync(
+        reservation.reservation_id,
+        reservation.room_type_id,
+        reservation.rate_plan_id,
+        oldNights,
+        newNights,
+      );
+
+      const ariVersion = this.bumpAriVersionSync();
+      const unionFrom = oldNights[0]! < newNights[0]! ? oldNights[0]! : newNights[0]!;
+      const unionTo =
+        oldNights[oldNights.length - 1]! > newNights[newNights.length - 1]!
+          ? oldNights[oldNights.length - 1]!
+          : newNights[newNights.length - 1]!;
+
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'reservation.modified',
+        payload: {
+          propertyId,
+          reservationId: reservation.reservation_id,
+          guestRef: reservation.guest_ref,
+          piiKeyId: reservation.pii_key_id,
+          from: {
+            roomTypeId: reservation.room_type_id,
+            arrivalDate: reservation.arrival_date,
+            departureDate: reservation.departure_date,
+          },
+          to: {
+            roomTypeId: reservation.room_type_id,
+            arrivalDate: reservation.arrival_date,
+            departureDate: newDeparture,
+          },
+        },
+      });
+
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'availability.changed',
+        payload: {
+          propertyId,
+          roomTypeId: allocatedId,
+          fromDate: unionFrom,
+          toDate: unionTo,
+          version: ariVersion,
+        },
+      });
+
+      this.appendAuditLogSync({
+        actor: this.auditActorSync({ kind: 'system', reason: 'night_audit' }),
+        commandId: 'reservations.modify',
+        entityType: 'reservation',
+        entityId: reservation.reservation_id,
+        beforeJson: {
+          roomTypeId: reservation.room_type_id,
+          arrivalDate: reservation.arrival_date,
+          departureDate: reservation.departure_date,
+        },
+        afterJson: {
+          roomTypeId: reservation.room_type_id,
+          arrivalDate: reservation.arrival_date,
+          departureDate: newDeparture,
+          automated: true,
+        },
+        reservationId: reservation.reservation_id,
+      });
+
+      extendedCount++;
+    }
+
+    return { extendedCount, skippedCount };
   }
 
   private runAutoTransferSync(businessDate: string): { transferredCount: number; skippedCount: number } {

@@ -18,6 +18,7 @@ const splitFolioLineV2 = vi.fn();
 const closeFolioWindow = vi.fn();
 const transferFolioLine = vi.fn();
 const voidPayment = vi.fn();
+const reconcilePayment = vi.fn();
 const refundPayment = vi.fn();
 const postDiscount = vi.fn();
 const postStayDiscount = vi.fn();
@@ -77,6 +78,7 @@ vi.mock('../client.js', () => ({
     openFolioWindow: (...args: unknown[]) => openFolioWindowMock(...args),
     transferFolioLine: (...args: unknown[]) => transferFolioLine(...args),
     voidPayment: (...args: unknown[]) => voidPayment(...args),
+    reconcilePayment: (...args: unknown[]) => reconcilePayment(...args),
     refundPayment: (...args: unknown[]) => refundPayment(...args),
     postDiscount: (...args: unknown[]) => postDiscount(...args),
     postStayDiscount: (...args: unknown[]) => postStayDiscount(...args),
@@ -212,6 +214,7 @@ describe('FolioScreen wiring', () => {
     });
     listFxRates.mockResolvedValue({ ledgerCurrency: 'USD', rates: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    reconcilePayment.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
 
   afterEach(() => {
@@ -1381,6 +1384,52 @@ describe('FolioScreen wiring', () => {
     expect(firstPaintHeadings).not.toContain('Holds');
     expect(firstPaintHeadings).not.toContain('Captured');
     expect(firstPaintHeadings.some((t) => /Tenders|Payments/.test(t))).toBe(true);
+  });
+
+  it('case 7: unknown payment row visible with Mark authorized and Mark declined buttons', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      balanceAtRisk: true,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_unknown',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'unknown',
+          purpose: 'STAY',
+          tenderType: 'CARD',
+          gatewayReference: null,
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    renderFolio();
+    const markAuthorized = await screen.findByRole('button', { name: 'Mark authorized' });
+    const unknownLi = markAuthorized.closest('li')!;
+    expect(unknownLi.textContent).toMatch(/Card/);
+    expect(unknownLi.textContent).toMatch(/50\.00/);
+    expect(screen.getByRole('button', { name: 'Mark declined' })).toBeTruthy();
+    fireEvent.click(markAuthorized);
+    await waitFor(() =>
+      expect(reconcilePayment).toHaveBeenCalledWith(
+        'prop_demo',
+        'pay_unknown',
+        { outcome: 'authorized' },
+        expect.stringMatching(/^reconcile:pay_unknown:/),
+      ),
+    );
   });
 
   it('happy path copy has no unattributed sentence or simulate', async () => {

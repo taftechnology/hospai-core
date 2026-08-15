@@ -658,6 +658,29 @@ export function FolioScreen() {
     },
   });
 
+  const reconcilePay = useFolioActionMutation({
+    fallback: 'Reconcile failed',
+    setMessage,
+    mutationFn: (input: { paymentId: string; outcome: 'authorized' | 'declined' }) => {
+      if (!policy.canPay) throw new Error('policy_blocked_pay');
+      return api.reconcilePayment(
+        propertyId,
+        input.paymentId,
+        { outcome: input.outcome },
+        `reconcile:${input.paymentId}:${crypto.randomUUID()}`,
+      );
+    },
+    onSuccess: (_data, input) => {
+      setMessage(
+        input.outcome === 'authorized' ? 'Payment marked authorized.' : 'Payment marked declined.',
+      );
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['folio-payments', propertyId, reservationId],
+      });
+    },
+  });
+
   const refundPay = useFolioActionMutation({
     fallback: 'Refund failed',
     setMessage,
@@ -785,7 +808,7 @@ export function FolioScreen() {
   })();
   const chargeCodes = (chargeCodesQ.data?.codes ?? []) as Array<{ code: string; name: string }>;
   const tenderPayments = payments.filter(
-    (p) => p.status === 'authorized' || p.status === 'captured',
+    (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
   );
 
   return (
@@ -851,6 +874,28 @@ export function FolioScreen() {
               return (
                 <li key={p.paymentId}>
                   {tenderLabel(p)} · {formatMinor(p.amountMinor)}
+                  {p.status === 'unknown' ? (
+                    <>
+                      <Button
+                        type="button"
+                        disabled={!policy.canPay || reconcilePay.isPending}
+                        onClick={() =>
+                          reconcilePay.mutate({ paymentId: p.paymentId, outcome: 'authorized' })
+                        }
+                      >
+                        Mark authorized
+                      </Button>
+                      <Button
+                        type="button"
+                        disabled={!policy.canPay || reconcilePay.isPending}
+                        onClick={() =>
+                          reconcilePay.mutate({ paymentId: p.paymentId, outcome: 'declined' })
+                        }
+                      >
+                        Mark declined
+                      </Button>
+                    </>
+                  ) : null}
                   {p.status === 'authorized' ? (
                     <>
                       <Input

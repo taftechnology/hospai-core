@@ -12,6 +12,7 @@ describe('module UI nav merge', () => {
       'housekeeping',
       'guests',
       'rates',
+      'city-ledger',
       'night-audit',
       'settings',
       'inventory',

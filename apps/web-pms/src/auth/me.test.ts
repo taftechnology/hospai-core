@@ -15,7 +15,7 @@ const baseMe: PropertyMe = {
   propertyId: 'prop_x',
   userId: 'user_x',
   role: 'staff',
-  permissions: ['folio:read'],
+  permissions: [],
   orgPermissions: ['org:read'],
 };
 

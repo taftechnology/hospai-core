@@ -427,7 +427,7 @@ Closes “no admin UI for night audit” (§8 rule 3: *HALTED is a real state wi
 | Path | `/night-audit` |
 | Nav | `{ id: 'night-audit', label: 'Night audit', path: '/night-audit', order: 60, permission: 'night_audit:run' }` — after roster (55). Hidden when `/me` lacks the permission (staff). |
 | Status | Current business date; halted banner; pending-open count; closing-date **open** exception count (link to exceptions panel). |
-| Timeline | Seven steps in `NIGHT_AUDIT_STEPS` order for `timelineDate`; status per step; error text on FAILED. |
+| Timeline | **Eight** steps in `NIGHT_AUDIT_STEPS` order for `timelineDate`; status per step; error text on FAILED. |
 | Actions | **Run** (disabled when halted, when any step is stale `RUNNING`, or when `businessDate >= propertyLocalToday`); **Retry failed step** (FAILED only); **Resume** (resolve-halt — halted **or** stale `RUNNING`). Exception **Resolve** lives on `ExceptionsPanel`, gated `night_audit:run`. |
 | Reports | List from status payload; open a report view that GETs the JSON and renders occupancy / revenue / cashier as tables (major units via existing `apps/web-pms/src/money.ts`). |
 | Severity | Reuse `status-class.ts`. Halted → `exception`. FAILED step → `exception`. Pending open > 0 → `attention`. Idle current date → `neutral`. No ad-hoc colours. |

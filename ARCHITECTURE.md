@@ -1550,7 +1550,7 @@ double-posted room charges, which is a refund, an apology, and in a fiscalized m
 correction filing.
 
 ```
-IDLE ──▶ PRE_CHECK ──▶ POST_ROOM_CHARGES ──▶ PROCESS_NO_SHOWS ──▶ CLOSE_CASHIER_SHIFTS
+IDLE ──▶ PRE_CHECK ──▶ POST_ROOM_CHARGES ──▶ PROCESS_NO_SHOWS ──▶ AUTO_TRANSFER ──▶ CLOSE_CASHIER_SHIFTS
                                                                         │
        ┌────────────────────────────────────────────────────────────────┘
        ▼

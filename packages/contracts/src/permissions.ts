@@ -9,7 +9,13 @@ export type UserActor = {
 
 export type SystemActor = {
   kind: 'system';
-  reason: 'night_audit' | 'migration_sweep' | 'queue_replay' | 'provision' | 'purge';
+  reason:
+    | 'night_audit'
+    | 'night_audit.auto_transfer'
+    | 'migration_sweep'
+    | 'queue_replay'
+    | 'provision'
+    | 'purge';
 };
 
 export type ActorContext = UserActor | SystemActor;

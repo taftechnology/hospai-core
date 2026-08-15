@@ -7426,7 +7426,6 @@ export const V1_ROUTES: V1RouteDef[] = [
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules$/,
     permission: 'folio:read',
     entitlement: 'pms.core',
-    degradedRead: 'FAIL_CLOSED',
     handler: handleGetFolioRoutingRules,
   },
   {

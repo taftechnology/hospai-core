@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12  
 **Status:** Draft v2 — implementation-ready (reviewer locks: inline auto-capture await + `autoCapture` outcome; consumed-snapshot retention on modify)  
-**Sources:** ARCHITECTURE.md §4.2 (lanes), §4.6 (degraded classes; payments FAIL_CLOSED), §7.3 (append-only ledger, windows, transfer-as-postings, split = reversal + N, closed window rejects, auto-transfer constraint, payments↔folio events, auto-capture at check-out), §8 (pinned 7-step machine; do not grow `NIGHT_AUDIT_STEPS`), §16.1 / §16.5 (folio extras named, undesigned; `folio.transfer_charge` / `folio.split_charge_v2` are build debt); [night-audit E2E](./2026-08-12-night-audit-e2e-design.md) (style template; 7-step pin); [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md) (balance gate, `folio.balance_due`, leftovers 2 / 4 / 5); [folio charges](./2026-08-05-folio-charges-vertical-design.md); [payments ledger simulate](./2026-08-06-payments-ledger-simulate-design.md); [cashiering](./2026-08-07-cashiering-design.md) (`folio:post` = bring money in, `folio:adjust` = modify posted); [folio front-desk](./2026-08-08-folio-front-desk-design.md); [charge-code registry](./2026-08-07-charge-code-registry-design.md) (routing-rules leftover); command catalog `folio.*`; `PropertyDO` `tryAuthorizePayment` / `tryCapturePayment` / `tryRecordCashPayment` / `trySplitChargePayment` / `splitFolioLineSync` / `insertFolioLineSync` / `tryCheckOut` / `postRoomChargesSync` / `penaltyMinor`
+**Sources:** ARCHITECTURE.md §4.2 (lanes), §4.6 (degraded classes; payments FAIL_CLOSED), §7.3 (append-only ledger, windows, transfer-as-postings, split = reversal + N, closed window rejects, auto-transfer constraint, payments↔folio events, auto-capture at check-out), §8 (pinned 8-step machine with `AUTO_TRANSFER`; do not fold auto-transfer into POST/ARCHIVE), §16.1 / §16.5 (folio extras named, undesigned; `folio.transfer_charge` / `folio.split_charge_v2` are build debt); [night-audit E2E](./2026-08-12-night-audit-e2e-design.md) (style template; 8-step pin); [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md) (balance gate, `folio.balance_due`, leftovers 2 / 4 / 5); [folio charges](./2026-08-05-folio-charges-vertical-design.md); [payments ledger simulate](./2026-08-06-payments-ledger-simulate-design.md); [cashiering](./2026-08-07-cashiering-design.md) (`folio:post` = bring money in, `folio:adjust` = modify posted); [folio front-desk](./2026-08-08-folio-front-desk-design.md); [charge-code registry](./2026-08-07-charge-code-registry-design.md) (routing-rules leftover); command catalog `folio.*`; `PropertyDO` `tryAuthorizePayment` / `tryCapturePayment` / `tryRecordCashPayment` / `trySplitChargePayment` / `splitFolioLineSync` / `insertFolioLineSync` / `tryCheckOut` / `postRoomChargesSync` / `penaltyMinor`
 
 **Closes follow-ons in:** lifecycle leftovers **4** (folio window close on check-out) and **5** (deposits / capture on `folio.balance_due`); lifecycle leftover **2** (quote snapshot — folded in); payments leftovers (window `closed_at` inert, closed-window reject, voids/refunds); `PLATFORM_GAPS` `folio.transfer_charge` and `folio.split_charge_v2`; §16.1 folio extras (no-post, damage deposits, manual discounts — promo deferred with reasons).
 
@@ -54,8 +54,8 @@ The desk can post, authorize, capture, cash, split same-window, and check out be
 - Multi-currency conversion (already shipped; identity-rate lifted for payments and optional add_item — see [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 - Promo codes (§7.4 — deferred with reasons).
 - Group/master **billing engine** (cutoff, wash, pickup). `MASTER` windows may exist as transfer targets; no group aggregate.
-- Night-audit **auto-transfer** (§13 — deferred; do not grow `NIGHT_AUDIT_STEPS`).
-- Routing-rules table (charge-code leftover; auto-transfer’s input).
+- ~~Night-audit **auto-transfer** (§13 — deferred; do not grow `NIGHT_AUDIT_STEPS`).~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
+- ~~Routing-rules table (charge-code leftover; auto-transfer’s input).~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
 - Partial refunds, authorization expiry, `unknown` reconciliation exit.
 - Recurring incidentals / breakfast_rule engine (night-audit leftover).
 
@@ -72,7 +72,7 @@ Implementation that violates these is out of spec.
 5. **Payments stay `FAIL_CLOSED`.** Void, refund, capture-due, authorize, capture, cash — never queued. Nothing auto-resolves into money on provisional replay (§4.6 rule 5).
 6. **Auth is not money.** Void of `authorized` writes no folio line. Refund of `captured` posts a reversing line and does not mutate the capture line. Refund line **must not** set `payment_id` (`folio_line_payment_uidx` allows one non-null `payment_id`).
 7. **Check-out stays `QUEUE_PROVISIONAL` and entitlement-ungated.** Auto-capture is a **separate** `FAIL_CLOSED` command. Live check-out **awaits** it inline after the status txn commits (no fire-and-forget); a same-key live replay **must not re-await** the helper (it recomputes `autoCapture` from payment/config state). Capture failure does not fail check-out. The RPC/HTTP success body always carries `autoCapture`.
-8. **`NIGHT_AUDIT_STEPS` stays seven.** Auto-transfer does not fold into an existing step this chunk (§13).
+8. **`NIGHT_AUDIT_STEPS` is eight steps; `AUTO_TRANSFER` sits after `PROCESS_NO_SHOWS`.** Auto-transfer does not fold into `POST_ROOM_CHARGES` or `ARCHIVE` (closed in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md)).
 9. **Quote snapshot is the price source** for `penaltyMinor` and `postRoomChargesSync` when a night row exists. Missing snapshot on a pre-v21 row falls back to `rate_day` and lazily backfills. Missing `rate_day` with no snapshot → `RATE_MISSING` (unchanged fail-closed). Modify must **not** delete a snapshot night that already has a ROOM or NO_SHOW posting (consumed nights stay frozen).
 10. **New catalog commands** carry lane + degraded + idempotent + events + permission, and `entitlement: 'pms.core'` when `FAIL_CLOSED` with events. New events appear in `event-consumer.ts`. New entitled writers go in `AUDIT_WRITER_COMMAND_IDS`.
 11. **Route audit append-only.** New routes start at index **95**. Do not insert before `[94] = post_reservation_front_office`.
@@ -192,11 +192,9 @@ Input: `{ sourceFolioLineId, destinationFolioWindowId, idempotencyKey }`. Destin
 
 `folio.charge_transferred` payload: `{ propertyId, reservationId, sourceFolioLineId, sourceWindowId, destWindowId, destFolioLineId, amountMinor }`.
 
-### 4.3 Night-audit auto-transfer — **defer**
+### 4.3 Night-audit auto-transfer
 
-§7.3 constraint 1: auto-transfer is a night-audit step, idempotent, keyed by `(reservation_id, business_date, rule_id)`. The 7-step machine is pinned. Folding into `POST_ROOM_CHARGES` would post then immediately reverse+repost under the double-post index. Folding into `ARCHIVE` is after the roll. A new step is forbidden this week.
-
-**Defer** until a routing-rules table exists (charge-code leftover) **and** a later chunk is allowed to extend `NIGHT_AUDIT_STEPS` (or the architecture is amended to name which existing step owns it). This chunk ships the **primitive** the step will call. Named leftover 1.
+**Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md): `AUTO_TRANSFER` step after `PROCESS_NO_SHOWS`; exact-code `folio_routing_rule` table; reuses `transferFolioLineSync`.
 
 ---
 
@@ -672,7 +670,7 @@ Never print a folio in `DEGRADED` (existing §4.6 UI rule).
 2. **Close with open balance / override. Resolved: reject `WINDOW_BALANCE_DUE`.** A closed window that still owes is city ledger. No `overrideClose`.
 3. **Reopen. Resolved: explicit `folio.reopen_window`.** Silent reopen is forbidden; the exception path is a human command plus `provisional_exception` on queued posts, not a missing button.
 4. **`cancel_check_in` vs close. Resolved: GUEST cannot close while `checked_in`, so the collision does not exist.**
-5. **Night-audit auto-transfer. Resolved: defer.** Primitive ships; step does not. Do not grow `NIGHT_AUDIT_STEPS`. Do not fold into POST/ARCHIVE.
+5. **Night-audit auto-transfer. Resolved: closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md); 8-step machine; do not fold into POST/ARCHIVE.
 6. **Existing split commands. Resolved: keep as same-window shims; v2 is cross-window capable.** Not deprecated this chunk.
 7. **Void/refund money. Resolved: void = status only; refund = reversing `PAYMENT_REFUND` line, `payment_id` NULL, original capture untouched.** Full refund only.
 8. **Auto-capture topology. Resolved: `folio.capture_due` FAIL_CLOSED; live check-out awaits the helper inline after commit (no `waitUntil`); capture failure does not fail check-out; success body carries `autoCapture`; same-key live replay does not re-await — it recomputes `autoCapture` from payment/config state (see §6.4); event-consumer does not call the DO.** Config default false. First call reports the actual helper outcome; replay recomputes. One benign divergence: a hold already captured before check-out is first-call `'skipped'` and replay `'captured'` — both non-error, same SPA reaction.
@@ -793,7 +791,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 
 ## 19. Leftovers (named, not silent)
 
-1. **Night-audit auto-transfer** — needs routing-rules table + an allowed change to `NIGHT_AUDIT_STEPS` (or an architecture amendment naming the owning step). Key remains `(reservation_id, business_date, rule_id)`.
+1. ~~**Night-audit auto-transfer** — needs routing-rules table…~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
 2. **Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.
 3. **`unknown` reconciliation exit** (payments leftover, unchanged).
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).

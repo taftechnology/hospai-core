@@ -411,18 +411,18 @@ File-filter vitest only (`pnpm --filter @hospai/pms-core exec vitest run …`) �
 
 ## 11. Implementation checklist
 
-- [ ] v28 `folio_routing_rule` + `generate:ddl` + `migrate.test.ts` pin **28**; purge inventory registration.
-- [ ] Catalog +2 (`folio.upsert_routing_rule`, `folio.archive_routing_rule`); writers **54**; event allowlist.
-- [ ] **Append** `[129] get_folio_routing_rules` (`folio:read`, `degradedRead: FAIL_CLOSED`), `[130] put_folio_routing_rule`, `[131] post_folio_routing_rule_archive`; `[128]`/`[127]`/`[102]` unmoved.
-- [ ] DO: `listFolioRoutingRules`, `tryUpsertRoutingRule`, `tryArchiveRoutingRule`.
-- [ ] Extract `transferFolioLineSync`; refactor `tryTransferCharge` to wrap it (desk path unchanged).
-- [ ] Lock 4 COMPANY dest: query OPEN COMPANY windows (0 or 2+ → skip; exactly 1 → transfer); MASTER via `` `:MASTER` `` id.
-- [ ] `NIGHT_AUDIT_STEPS` length **8** with `AUTO_TRANSFER` at index 3; `runAuditStep` branch; `runAutoTransferSync` (no `night_audit.auto_transfer` audit command; per-line `folio.transfer_charge` only).
-- [ ] ARCHITECTURE.md §8 diagram + 8-step prose amended.
-- [ ] `client-core` + Settings SPA routing rules UI + RTL.
-- [ ] Tests §9 (incl. slugged COMPANY dest, no COMPANY window, two OPEN COMPANY windows); `night-audit-room-charges.spec.ts` pin **8**; case **28** green.
-- [ ] `register.test.ts`: catalog **79**, writers **54**, route `[129]–[131]`.
-- [ ] Bidirectional pointers: folio-money §4.3 + §19 leftover **1**; charge-code §6 routing row; night-audit-e2e ~430 “Seven steps” → eight (final implementation task).
+- [x] v28 `folio_routing_rule` + `generate:ddl` + `migrate.test.ts` pin **28**; purge inventory registration.
+- [x] Catalog +2 (`folio.upsert_routing_rule`, `folio.archive_routing_rule`); writers **54**; event allowlist.
+- [x] **Append** `[129] get_folio_routing_rules` (`folio:read`, `degradedRead: FAIL_CLOSED`), `[130] put_folio_routing_rule`, `[131] post_folio_routing_rule_archive`; `[128]`/`[127]`/`[102]` unmoved.
+- [x] DO: `listFolioRoutingRules`, `tryUpsertRoutingRule`, `tryArchiveRoutingRule`.
+- [x] Extract `transferFolioLineSync`; refactor `tryTransferCharge` to wrap it (desk path unchanged).
+- [x] Lock 4 COMPANY dest: query OPEN COMPANY windows (0 or 2+ → skip; exactly 1 → transfer); MASTER via `` `:MASTER` `` id.
+- [x] `NIGHT_AUDIT_STEPS` length **8** with `AUTO_TRANSFER` at index 3; `runAuditStep` branch; `runAutoTransferSync` (no `night_audit.auto_transfer` audit command; per-line `folio.transfer_charge` only).
+- [x] ARCHITECTURE.md §8 diagram + 8-step prose amended.
+- [x] `client-core` + Settings SPA routing rules UI + RTL.
+- [x] Tests §9 (incl. slugged COMPANY dest, no COMPANY window, two OPEN COMPANY windows); `night-audit-room-charges.spec.ts` pin **8**; case **28** green.
+- [x] `register.test.ts`: catalog **79**, writers **54**, route `[129]–[131]`.
+- [x] Bidirectional pointers: folio-money §4.3 + §19 leftover **1**; charge-code §6 routing row; night-audit-e2e ~430 “Seven steps” → eight (final implementation task).
 
 ---
 

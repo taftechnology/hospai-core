@@ -12695,7 +12695,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async tryPostDiscount(
     actor: ActorContext,
     input: {
-      sourceFolioLineId: string;
+      sourceFolioLineId?: string;
+      reservationId?: string;
       kind: 'percent' | 'fixed';
       bps?: number;
       amountMinor?: number;
@@ -12734,6 +12735,90 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
+          if (!input.sourceFolioLineId) {
+            if (!input.reservationId) throw new Error('invalid_body');
+
+            const resRows = this.ctx.storage.sql
+              .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, input.reservationId)
+              .toArray() as Array<{ reservation_id: string }>;
+            if (!resRows[0]) throw new FolioWindowError(NOT_FOUND);
+
+            const guestWindowId = this.guestFolioWindowId(input.reservationId);
+            const windowRow = this.readFolioWindowRowSync(guestWindowId);
+            if (!windowRow) throw new FolioWindowError(NOT_FOUND);
+            this.assertFolioWindowOpenSync(guestWindowId);
+
+            const BASE_EXCLUDE =
+              'TAX,PAYMENT,PAYMENT_REFUND,SPLIT_REVERSAL,TRANSFER_REVERSAL,CHARGEBACK,FX_GAIN,FX_LOSS,CHARGEBACK_FEE';
+            const baseRows = this.ctx.storage.sql
+              .exec(
+                `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS base
+                 FROM folio_line
+                 WHERE folio_window_id = ?
+                   AND NOT (
+                     COALESCE(source, '') IN (${BASE_EXCLUDE.split(',').map(() => '?').join(',')})
+                     OR charge_code IN (${BASE_EXCLUDE.split(',').map(() => '?').join(',')})
+                   )`,
+                guestWindowId,
+                ...BASE_EXCLUDE.split(','),
+                ...BASE_EXCLUDE.split(','),
+              )
+              .toArray() as Array<{ base: number }>;
+            const baseLedger = Number(baseRows[0]?.base ?? 0);
+
+            let discountMinor: number;
+            if (input.kind === 'percent') {
+              const bps = input.bps;
+              if (!Number.isInteger(bps) || bps === undefined || bps < 1 || bps > 10000) {
+                throw new Error(MONEY_INVALID);
+              }
+              discountMinor = Number(roundHalfAwayFromZero(BigInt(baseLedger) * BigInt(bps), 10000n));
+            } else {
+              const amountMinor = input.amountMinor;
+              if (
+                !Number.isInteger(amountMinor) ||
+                amountMinor === undefined ||
+                amountMinor <= 0 ||
+                amountMinor > baseLedger
+              ) {
+                throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+              }
+              discountMinor = amountMinor;
+            }
+            if (baseLedger <= 0 || discountMinor <= 0) throw new FolioWindowError(LINE_NOT_DISCOUNTABLE);
+
+            this.assertChargeCodeSync('DISCOUNT', { requireActive: true });
+            const ledger = this.readStoredLedgerCurrencySync();
+            if (!ledger) throw new Error(CURRENCY_UNSET);
+            const fxRateAt = Date.now();
+            const posted = postToLedger(money(-discountMinor, ledger), ledger, '1', fxRateAt);
+
+            this.insertFolioLineSync({
+              folioLineId: input.folioLineId,
+              folioWindowId: guestWindowId,
+              reservationId: input.reservationId,
+              chargeCode: 'DISCOUNT',
+              posted,
+              source: 'DESK',
+            });
+
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'folio.post_discount',
+              entityType: 'folio_line',
+              entityId: input.folioLineId,
+              beforeJson: null,
+              afterJson: {
+                folioLineId: input.folioLineId,
+                reservationId: input.reservationId,
+                amountMinor: -discountMinor,
+                reason,
+              },
+              reservationId: input.reservationId,
+            });
+            return { ok: true as const, folioLineId: input.folioLineId };
+          }
+
           const sourceRows = this.ctx.storage.sql
             .exec(
               `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,

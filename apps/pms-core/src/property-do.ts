@@ -2888,17 +2888,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           reason: 'expired',
         },
       });
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'availability.changed',
-        payload: {
-          propertyId,
-          roomTypeId: row.room_type_id,
-          fromDate: nights[0]!,
-          toDate: nights[nights.length - 1]!,
-          version: ariVersion,
-        },
-      });
+      if (ledgerId) {
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'availability.changed',
+          payload: {
+            propertyId,
+            roomTypeId: ledgerId,
+            fromDate: nights[0]!,
+            toDate: nights[nights.length - 1]!,
+            version: ariVersion,
+          },
+        });
+      }
       this.appendAuditLogSync({
         actor: 'system:night_audit',
         commandId: 'night_audit.run',
@@ -3022,17 +3024,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           toStatus: 'no_show',
         },
       });
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'availability.changed',
-        payload: {
-          propertyId,
-          roomTypeId: reservation.room_type_id,
-          fromDate: nights[0]!,
-          toDate: nights[nights.length - 1]!,
-          version: ariVersion,
-        },
-      });
+      if (ledgerId) {
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'availability.changed',
+          payload: {
+            propertyId,
+            roomTypeId: ledgerId,
+            fromDate: nights[0]!,
+            toDate: nights[nights.length - 1]!,
+            version: ariVersion,
+          },
+        });
+      }
       this.appendAuditLogSync({
         actor: 'system:night_audit',
         commandId: 'night_audit.run',
@@ -6880,11 +6884,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       },
     });
     if (pendingDue) {
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'availability.changed',
-        payload: { propertyId, roomTypeId: row.room_type_id, fromDate, toDate, version: ariVersion },
-      });
+      const ledgerId = row.allocated_room_type_id || row.room_type_id;
+      if (ledgerId) {
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'availability.changed',
+          payload: { propertyId, roomTypeId: ledgerId, fromDate, toDate, version: ariVersion },
+        });
+      }
     }
     return { kind: pendingDue ? 'pending' : 'inquiry', ariVersion, fromDate, toDate };
   }

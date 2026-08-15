@@ -430,6 +430,46 @@ describe('promo codes on reservations', () => {
     expect(await res.json()).toMatchObject({ ok: false, error: PROMO_NOT_APPLICABLE });
   });
 
+  it('charset-invalid promo fingerprints idempotency; replay different code → idempotency_key_reused', async () => {
+    const actor = `user_promo_res_charset_${crypto.randomUUID()}`;
+    const { propertyId, guestRef, arrival } = await provisionHotel(actor);
+    const departure = addCalendarDays(arrival, 1);
+    expect((await putRateDay(propertyId, actor, arrival)).status).toBe(200);
+    expect(
+      (await postPromo(propertyId, actor, {
+        promoId: `promo_${crypto.randomUUID()}`,
+        code: 'SUMMER15',
+        name: '15% off',
+        kind: 'percent',
+        bps: 1500,
+      })).status,
+    ).toBe(201);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const idempotencyKey = `idem-res-charset-${crypto.randomUUID()}`;
+    const first = await postReservation(propertyId, actor, {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      promoCode: 'BAD CODE!',
+      idempotencyKey,
+    });
+    expect(first.status).toBe(404);
+    expect(await first.json()).toMatchObject({ ok: false, error: PROMO_NOT_FOUND });
+    const replay = await postReservation(propertyId, actor, {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      promoCode: 'SUMMER15',
+      idempotencyKey,
+    });
+    expect(replay.status).toBe(409);
+    expect(await replay.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
+  });
+
   it('case 8: unknown promo → 404 promo_not_found', async () => {
     const actor = `user_promo_res_8_${crypto.randomUUID()}`;
     const { propertyId, guestRef, arrival } = await provisionHotel(actor);

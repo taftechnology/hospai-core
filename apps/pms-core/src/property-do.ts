@@ -7507,11 +7507,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           this.assertOccupancySync(input.roomTypeId, adults, children);
           this.assertActiveRatePlanSync(ratePlanId);
-          const { promoId, row: promoRow } = this.resolvePromoForBookSync(
-            input.promoCode,
-            ratePlanId,
-            nights,
-          );
+          let promoId: string | null;
+          let promoRow: NonNullable<ReturnType<PropertyDO['loadPromoByIdSync']>> | null;
+          try {
+            ({ promoId, row: promoRow } = this.resolvePromoForBookSync(
+              input.promoCode,
+              ratePlanId,
+              nights,
+            ));
+          } catch (e) {
+            if (e instanceof PromoNotFoundError) {
+              return { ok: false as const, error: PROMO_NOT_FOUND };
+            }
+            if (e instanceof PromoNotApplicableError) {
+              return { ok: false as const, error: PROMO_NOT_APPLICABLE };
+            }
+            throw e;
+          }
 
           const commitsInventory = status === 'pending' || status === 'confirmed';
           let allocatedRoomTypeId = '';

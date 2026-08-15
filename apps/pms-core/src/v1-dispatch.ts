@@ -1769,9 +1769,6 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     body.promoCode != null && body.promoCode.trim() !== ''
       ? normalizePromoCode(body.promoCode)
       : null;
-  if (normalizedPromoCode != null && !promoCodeCharsetOk(normalizedPromoCode)) {
-    return json({ ok: false, error: PROMO_NOT_FOUND }, 404);
-  }
 
   const fingerprint = await fingerprintPayload({
     reservationId: body.reservationId,

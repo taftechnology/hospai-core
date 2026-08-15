@@ -1818,6 +1818,41 @@ export function createClient(opts: {
         body: JSON.stringify({ status, idempotencyKey }),
       });
     },
+    async listFolioRoutingRules(propertyId: string, query?: { status?: 'active' | 'archived' | 'all' }) {
+      const qs = new URLSearchParams();
+      if (query?.status) qs.set('status', query.status);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/folio/routing-rules${q ? `?${q}` : ''}`,
+      );
+      return body as {
+        ok: true;
+        rules: Array<{ ruleId: string; chargeCode: string; destWindowKind: string; status: string }>;
+      };
+    },
+    async putFolioRoutingRule(
+      propertyId: string,
+      ruleId: string,
+      input: { chargeCode: string; destWindowKind: 'COMPANY' | 'MASTER' },
+    ) {
+      const idempotencyKey = stableKeyForOperation(`routing-rule:upsert:${ruleId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/folio/routing-rules/${enc(ruleId)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async archiveFolioRoutingRule(propertyId: string, ruleId: string) {
+      const idempotencyKey = stableKeyForOperation(`routing-rule:archive:${ruleId}`, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/folio/routing-rules/${enc(ruleId)}/archive`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
     async listTaxRules(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/tax-rules`);
       return body as { ok: true; rules: unknown[] };

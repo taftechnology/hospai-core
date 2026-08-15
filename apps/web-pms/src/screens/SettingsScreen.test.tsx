@@ -12,6 +12,9 @@ const listChargeCodes = vi.fn();
 const createChargeCode = vi.fn();
 const updateChargeCode = vi.fn();
 const setChargeCodeStatus = vi.fn();
+const listFolioRoutingRules = vi.fn();
+const putFolioRoutingRule = vi.fn();
+const archiveFolioRoutingRule = vi.fn();
 const listTaxRules = vi.fn();
 const createTaxRule = vi.fn();
 const supersedeTaxRule = vi.fn();
@@ -27,6 +30,9 @@ vi.mock('../client.js', () => ({
     createChargeCode: (...a: unknown[]) => createChargeCode(...a),
     updateChargeCode: (...a: unknown[]) => updateChargeCode(...a),
     setChargeCodeStatus: (...a: unknown[]) => setChargeCodeStatus(...a),
+    listFolioRoutingRules: (...a: unknown[]) => listFolioRoutingRules(...a),
+    putFolioRoutingRule: (...a: unknown[]) => putFolioRoutingRule(...a),
+    archiveFolioRoutingRule: (...a: unknown[]) => archiveFolioRoutingRule(...a),
     listTaxRules: (...a: unknown[]) => listTaxRules(...a),
     createTaxRule: (...a: unknown[]) => createTaxRule(...a),
     supersedeTaxRule: (...a: unknown[]) => supersedeTaxRule(...a),
@@ -110,6 +116,7 @@ describe('SettingsScreen', () => {
     });
     createChargeCode.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     setChargeCodeStatus.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listFolioRoutingRules.mockResolvedValue({ ok: true, rules: [] });
     createTaxRule.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     supersedeTaxRule.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
@@ -208,6 +215,30 @@ describe('SettingsScreen', () => {
     const body = (createTaxRule.mock.calls[0] as [string, Record<string, unknown>])[1];
     expect(typeof body.rate).toBe('string');
     expect(body.rate).toBe('0.0500');
+  });
+
+  it('13: routing rules add and archive mutate list', async () => {
+    listFolioRoutingRules.mockResolvedValue({
+      ok: true,
+      rules: [{ ruleId: 'rr_1', chargeCode: 'ROOM', destWindowKind: 'COMPANY', status: 'active' }],
+    });
+    putFolioRoutingRule.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, ruleId: 'rr_2' },
+    });
+    archiveFolioRoutingRule.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, ruleId: 'rr_1' },
+    });
+    renderSettings('/settings/charges');
+    expect(await screen.findByText('Routing rules')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /archive rr_1/i })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: /add routing rule/i }));
+    await waitFor(() => expect(putFolioRoutingRule).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /archive rr_1/i }));
+    await waitFor(() =>
+      expect(archiveFolioRoutingRule).toHaveBeenCalledWith('prop_demo', 'rr_1'),
+    );
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

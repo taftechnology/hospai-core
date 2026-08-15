@@ -14,6 +14,7 @@ vi.mock('../client.js', () => ({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
     }),
     listChargeCodes: async () => ({ ok: true, codes: [] }),
+    listFolioRoutingRules: async () => ({ ok: true, rules: [] }),
     listTaxRules: async () => ({ ok: true, rules: [] }),
   },
   asClassified: () => ({

@@ -36,6 +36,12 @@ const SYSTEM_CHARGE_CODES = new Set([
 type DomainKey = { key: string; value: unknown };
 
 type ChargeRow = { code: string; name: string; status: string; taxGroup: string | null };
+type RoutingRuleRow = {
+  ruleId: string;
+  chargeCode: string;
+  destWindowKind: string;
+  status: string;
+};
 type TaxRow = {
   taxRuleId: string;
   ruleKey: string;
@@ -242,6 +248,8 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
   const [taxFrom, setTaxFrom] = useState('');
   const [superRate, setSuperRate] = useState('');
   const [superFrom, setSuperFrom] = useState('');
+  const [routingChargeCode, setRoutingChargeCode] = useState('');
+  const [routingDestKind, setRoutingDestKind] = useState<'COMPANY' | 'MASTER'>('COMPANY');
 
   const dirty = Boolean(reason || propName || chargeCode || taxName);
   const unsavedGuard = useUnsavedChanges(dirty);
@@ -267,6 +275,12 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
     enabled: activeTab === 'charges',
     retry: false,
   });
+  const routingRulesQ = useQuery({
+    queryKey: ['folio-routing-rules', propertyId],
+    queryFn: () => api.listFolioRoutingRules(propertyId, { status: 'active' }),
+    enabled: activeTab === 'charges',
+    retry: false,
+  });
   const taxQ = useQuery({
     queryKey: ['tax-rules', propertyId],
     queryFn: () => api.listTaxRules(propertyId),
@@ -276,12 +290,24 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
 
   const keys = (configQ.data?.keys ?? []) as DomainKey[];
   const charges = (chargesQ.data?.codes ?? []) as ChargeRow[];
+  const activeChargeCodes = useMemo(
+    () => charges.filter((c) => c.status === 'active'),
+    [charges],
+  );
+  const routingRules = (routingRulesQ.data?.rules ?? []) as RoutingRuleRow[];
   const rules = (taxQ.data?.rules ?? []) as TaxRow[];
 
   useEffect(() => {
     const n = propertyQ.data?.property?.name;
     if (typeof n === 'string') setPropName(n);
   }, [propertyQ.data]);
+
+  useEffect(() => {
+    if (activeChargeCodes.length === 0) return;
+    setRoutingChargeCode((prev) =>
+      prev && activeChargeCodes.some((c) => c.code === prev) ? prev : activeChargeCodes[0]!.code,
+    );
+  }, [activeChargeCodes]);
 
   const failClosed = configQ.isError && asClassified(configQ.error).class === 'fail_closed';
 
@@ -301,6 +327,28 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
       setArchiveCode(null);
       setMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['charge-codes', propertyId] });
+    },
+  });
+
+  const addRoutingRule = useMutation({
+    mutationFn: () => {
+      const ruleId = `rr_${crypto.randomUUID()}`;
+      return api.putFolioRoutingRule(propertyId, ruleId, {
+        chargeCode: routingChargeCode,
+        destWindowKind: routingDestKind,
+      });
+    },
+    onSuccess: async () => {
+      setMessage('Saved.');
+      await queryClient.invalidateQueries({ queryKey: ['folio-routing-rules', propertyId] });
+    },
+  });
+
+  const archiveRoutingRule = useMutation({
+    mutationFn: (ruleId: string) => api.archiveFolioRoutingRule(propertyId, ruleId),
+    onSuccess: async () => {
+      setMessage('Saved.');
+      await queryClient.invalidateQueries({ queryKey: ['folio-routing-rules', propertyId] });
     },
   });
 
@@ -648,6 +696,92 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
               {createCharge.isPending ? 'Saving…' : 'Create Charge Code'}
             </Button>
           </form>
+          <section className="stack">
+            <h2>Routing rules</h2>
+            <p className="muted">
+              Auto-transfer runs at night audit. Destination window must already be open on the stay.
+            </p>
+            {routingRules.length === 0 && routingRulesQ.isSuccess ? (
+              <p className="muted">No routing rules.</p>
+            ) : (
+              <DataTable>
+                <DataTableHead>
+                  <DataTableRow>
+                    <DataTableHeaderCell>Charge code</DataTableHeaderCell>
+                    <DataTableHeaderCell>Destination</DataTableHeaderCell>
+                    <DataTableHeaderCell />
+                  </DataTableRow>
+                </DataTableHead>
+                <DataTableBody>
+                  {routingRules.map((r) => (
+                    <DataTableRow key={r.ruleId}>
+                      <DataTableCell>
+                        <span translate="no">{r.chargeCode}</span>
+                      </DataTableCell>
+                      <DataTableCell>{r.destWindowKind}</DataTableCell>
+                      <DataTableCell>
+                        <Button
+                          type="button"
+                          intent="destructive"
+                          disabled={archiveRoutingRule.isPending}
+                          onClick={() => archiveRoutingRule.mutate(r.ruleId)}
+                        >
+                          Archive {r.ruleId}
+                        </Button>
+                      </DataTableCell>
+                    </DataTableRow>
+                  ))}
+                </DataTableBody>
+              </DataTable>
+            )}
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addRoutingRule.mutate();
+              }}
+            >
+              <Field
+                label="Charge code"
+                control={
+                  <NativeSelect
+                    aria-label="Routing rule charge code"
+                    value={routingChargeCode}
+                    onChange={(e) => setRoutingChargeCode(e.target.value)}
+                    disabled={activeChargeCodes.length === 0}
+                  >
+                    {activeChargeCodes.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Field
+                label="Destination"
+                control={
+                  <NativeSelect
+                    aria-label="Routing rule destination"
+                    value={routingDestKind}
+                    onChange={(e) =>
+                      setRoutingDestKind(e.target.value as 'COMPANY' | 'MASTER')
+                    }
+                  >
+                    <option value="COMPANY">COMPANY</option>
+                    <option value="MASTER">MASTER</option>
+                  </NativeSelect>
+                }
+              />
+              <Button
+                type="submit"
+                intent="primary"
+                disabled={addRoutingRule.isPending || activeChargeCodes.length === 0}
+              >
+                {addRoutingRule.isPending ? 'Saving…' : 'Add routing rule'}
+              </Button>
+            </form>
+          </section>
         </>
       ) : null}
 

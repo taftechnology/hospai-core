@@ -75,6 +75,7 @@ if (process.argv.includes('--self-test')) {
   let VIRTUAL_ROOM_TYPES_V27_SQL;
   let FOLIO_ROUTING_RULE_V28_SQL;
   let ROOM_ARCHIVE_V29_SQL;
+  let DERIVED_RATE_PLANS_V30_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -118,6 +119,7 @@ if (process.argv.includes('--self-test')) {
       VIRTUAL_ROOM_TYPES_V27_SQL,
       FOLIO_ROUTING_RULE_V28_SQL,
       ROOM_ARCHIVE_V29_SQL,
+      DERIVED_RATE_PLANS_V30_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -421,6 +423,16 @@ const doPropertyTargets = [
 
 `,
     sql: ROOM_ARCHIVE_V29_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0030_derived_rate_plans.sql'),
+    header: `-- PropertyDO derived rate plans — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: ADD parent_rate_plan_id → ADD derive_bps CHECK → partial index on active parent.
+
+`,
+    sql: DERIVED_RATE_PLANS_V30_SQL,
   },
 ];
 

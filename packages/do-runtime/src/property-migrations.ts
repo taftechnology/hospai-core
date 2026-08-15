@@ -1026,6 +1026,16 @@ export const ROOM_ARCHIVE_V29_STATEMENTS = [
 export const ROOM_ARCHIVE_V29_SQL =
   ROOM_ARCHIVE_V29_STATEMENTS.join(';\n\n') + ';\n';
 
+export const DERIVED_RATE_PLANS_V30_STATEMENTS = [
+  `ALTER TABLE rate_plan ADD COLUMN parent_rate_plan_id TEXT`,
+  `ALTER TABLE rate_plan ADD COLUMN derive_bps INTEGER
+  CHECK (derive_bps IS NULL OR (derive_bps >= -9900 AND derive_bps <= 10000))`,
+  `CREATE INDEX rate_plan_parent_active ON rate_plan(parent_rate_plan_id) WHERE status = 'active'`,
+] as const;
+
+export const DERIVED_RATE_PLANS_V30_SQL =
+  DERIVED_RATE_PLANS_V30_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1171,5 +1181,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 29,
     name: 'room_archive',
     statements: ROOM_ARCHIVE_V29_STATEMENTS,
+  },
+  {
+    version: 30,
+    name: 'derived_rate_plans',
+    statements: DERIVED_RATE_PLANS_V30_STATEMENTS,
   },
 ] as const;

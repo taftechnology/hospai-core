@@ -88,6 +88,10 @@ describe('computeTax', () => {
   it('rejects non-integer base', () => {
     expect(() => computeTax(1.5, '0.1')).toThrow(InvalidMoneyError);
   });
+
+  it('computes tax on negative base (discount path)', () => {
+    expect(computeTax(-1000, '0.10')).toBe(-100);
+  });
 });
 
 describe('postToLedger', () => {

@@ -658,6 +658,33 @@ describe('FolioScreen wiring', () => {
     expect(screen.queryByTestId('refund-payment-pay_cap')).toBeNull();
   });
 
+  it('refund amount input defaults to remaining on captured payment', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_cap',
+          reservationId: 'res_1',
+          amountMinor: 10_000,
+          currency: 'USD',
+          status: 'captured',
+          capturedAmountMinor: 10_000,
+          refundedAmountMinor: 4000,
+          gatewayReference: 'gw',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    renderFolio();
+    await waitFor(() => expect(screen.getByLabelText('refund-amount-pay_cap')).toBeTruthy());
+    expect((screen.getByLabelText('refund-amount-pay_cap') as HTMLInputElement).value).toBe('60.00');
+    expect(screen.getByTestId('refund-payment-pay_cap')).toBeTruthy();
+  });
+
   it('55: discount requires reason before submit', async () => {
     getMe.mockResolvedValue(ownerMe);
     getFolio.mockResolvedValue({

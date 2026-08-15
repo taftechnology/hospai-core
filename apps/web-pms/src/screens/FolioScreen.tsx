@@ -109,6 +109,7 @@ export function FolioScreen() {
   const [transferDest, setTransferDest] = useState<Record<string, string>>({});
   const [captureDueRetry, setCaptureDueRetry] = useState(false);
   const [captureAmounts, setCaptureAmounts] = useState<Record<string, string>>({});
+  const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
   const [chargeOpId] = useState(() => `charge:${reservationId}:${crypto.randomUUID()}`);
   const [cashOpId] = useState(() => `cash:${reservationId}:${crypto.randomUUID()}`);
   const [authOpId] = useState(() => `auth:${reservationId}:${crypto.randomUUID()}`);
@@ -660,11 +661,12 @@ export function FolioScreen() {
   const refundPay = useFolioActionMutation({
     fallback: 'Refund failed',
     setMessage,
-    mutationFn: (paymentId: string) => {
+    mutationFn: ({ paymentId, amountMinor }: { paymentId: string; amountMinor: number }) => {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
       return api.refundPayment(
         propertyId,
         paymentId,
+        amountMinor,
         `refund:${paymentId}:${crypto.randomUUID()}`,
       );
     },
@@ -827,6 +829,11 @@ export function FolioScreen() {
               const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
               const defaultAmt = formatMinor(remaining);
               const value = captureAmounts[p.paymentId] ?? defaultAmt;
+              const capturedBase = p.capturedAmountMinor ?? p.amountMinor;
+              const refundedBase = p.refundedAmountMinor ?? 0;
+              const remainingMinor = capturedBase - refundedBase;
+              const defaultRefund = formatMinor(remainingMinor);
+              const refundValue = refundAmounts[p.paymentId] ?? defaultRefund;
               return (
                 <li key={p.paymentId}>
                   {tenderLabel(p)} · {formatMinor(p.amountMinor)}
@@ -866,14 +873,28 @@ export function FolioScreen() {
                     </>
                   ) : null}
                   {p.status === 'captured' && canAdjust ? (
-                    <Button
-                      type="button"
-                      data-testid={`refund-payment-${p.paymentId}`}
-                      disabled={refundPay.isPending}
-                      onClick={() => refundPay.mutate(p.paymentId)}
-                    >
-                      Refund
-                    </Button>
+                    <>
+                      <Input
+                        aria-label={`refund-amount-${p.paymentId}`}
+                        value={refundValue}
+                        onChange={(e) =>
+                          setRefundAmounts((prev) => ({ ...prev, [p.paymentId]: e.target.value }))
+                        }
+                      />
+                      <Button
+                        type="button"
+                        data-testid={`refund-payment-${p.paymentId}`}
+                        disabled={refundPay.isPending}
+                        onClick={() =>
+                          refundPay.mutate({
+                            paymentId: p.paymentId,
+                            amountMinor: Math.round(Number(refundValue) * 100),
+                          })
+                        }
+                      >
+                        Refund
+                      </Button>
+                    </>
                   ) : null}
                 </li>
               );

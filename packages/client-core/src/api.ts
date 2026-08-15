@@ -111,6 +111,7 @@ export type FolioPaymentRow = {
   purpose?: 'STAY' | 'DAMAGE';
   gatewayReference: string | null;
   capturedAmountMinor: number | null;
+  refundedAmountMinor?: number;
   createdAt: number;
   updatedAt: number;
   tenderType?: 'CARD' | 'CASH';
@@ -905,14 +906,19 @@ export function createClient(opts: {
         },
       );
     },
-    async refundPayment(propertyId: string, paymentId: string, opId: string) {
+    async refundPayment(
+      propertyId: string,
+      paymentId: string,
+      amountMinor: number,
+      opId: string,
+    ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
         `/v1/properties/${enc(propertyId)}/folio/payments/${enc(paymentId)}/refund`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ idempotencyKey }),
+          body: JSON.stringify({ amountMinor, idempotencyKey }),
         },
       );
     },

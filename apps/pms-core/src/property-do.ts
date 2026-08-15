@@ -2547,7 +2547,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    *
    * Folio money-ops audit writers (methods land in later tasks):
    * 'folio.open_window' 'folio.close_window' 'folio.reopen_window'
-   * 'folio.transfer_charge' 'folio.split_charge_v2' 'folio.void'
+   * 'folio.transfer_charge' 'folio.split_charge' 'folio.void'
    * 'folio.refund' 'folio.post_discount' 'folio.capture_due'
    *
    * Multi-currency folio audit writers (methods land in later tasks):
@@ -14991,7 +14991,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     input: {
       sourceFolioLineId: string;
-      splits: Array<{ folioLineId: string; amountMinor: number }>;
+      splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -14999,6 +14999,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
     | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -15039,7 +15041,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const source = sourceRows[0];
           if (!source) return { ok: false as const, error: NOT_FOUND };
           if (
-            source.source === 'PAYMENT' ||
             source.source === 'SPLIT_REVERSAL' ||
             source.source === 'TAX' ||
             source.source === 'CHARGEBACK' ||
@@ -15055,7 +15056,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: SPLIT_AMOUNT_MISMATCH };
           }
 
-          const folioLineIds = this.splitFolioLineSync(source, input.splits);
+          const folioLineIds = this.splitFolioLineSync(source, input.splits, {
+            reverseId: `${source.folio_line_id}:split-rev`,
+          });
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'folio.split_charge',
@@ -15323,89 +15326,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             deskActor: actor,
           });
           return { ok: true as const, reverseFolioLineId, destFolioLineId };
-        }),
-      );
-    } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
-      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
-  async trySplitChargeV2(
-    actor: ActorContext,
-    input: {
-      sourceFolioLineId: string;
-      splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
-    },
-    idem: IdempotencyKey,
-  ): Promise<
-    | { ok: true; folioLineIds: string[] }
-    | { ok: false; error: typeof NOT_FOUND }
-    | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
-    | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
-    | { ok: false; error: typeof WINDOW_CLOSED }
-    | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
-  > {
-    this.assertRpcAvailable();
-    this.lanes.touchInteractive();
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
-    const denied = await this.gateCoreEntitlement(orgId);
-    if (denied) return denied;
-    const permDenied = await this.gatePermission(actor, 'folio:adjust');
-    if (permDenied) return permDenied;
-
-    try {
-      return this.ctx.storage.transactionSync(() =>
-        runIdempotent(this.ctx.storage.sql, idem, () => {
-          const sourceRows = this.ctx.storage.sql
-            .exec(
-              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
-                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
-               FROM folio_line WHERE folio_line_id = ?`,
-              input.sourceFolioLineId,
-            )
-            .toArray() as Array<{
-            folio_line_id: string;
-            folio_window_id: string;
-            reservation_id: string;
-            charge_code: string;
-            amount_minor: number;
-            txn_currency: string;
-            ledger_amount_minor: number;
-            fx_rate: string;
-            fx_rate_at: number;
-            source: string | null;
-          }>;
-          const source = sourceRows[0];
-          if (!source) throw new FolioWindowError(NOT_FOUND);
-          if (source.source === 'SPLIT_REVERSAL' || source.source === 'TAX') {
-            throw new FolioWindowError(LINE_NOT_SPLITTABLE);
-          }
-          const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
-          if (splitTotal !== source.amount_minor) {
-            throw new FolioWindowError(SPLIT_AMOUNT_MISMATCH);
-          }
-
-          const folioLineIds = this.splitFolioLineSync(source, input.splits, {
-            reverseId: `${source.folio_line_id}:v2-rev`,
-          });
-          this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
-            commandId: 'folio.split_charge_v2',
-            entityType: 'folio_line',
-            entityId: input.sourceFolioLineId,
-            beforeJson: { amountMinor: source.amount_minor },
-            afterJson: { sourceFolioLineId: input.sourceFolioLineId, folioLineIds },
-            reservationId: source.reservation_id,
-          });
-          return { ok: true as const, folioLineIds };
         }),
       );
     } catch (e) {
@@ -18034,85 +17954,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         dispute: this.readPaymentDisputeSync(row.payment_id),
       })),
     };
-  }
-
-  async trySplitChargePayment(
-    actor: ActorContext,
-    input: {
-      sourceFolioLineId: string;
-      splits: Array<{ folioLineId: string; amountMinor: number }>;
-    },
-    idem: IdempotencyKey,
-  ): Promise<
-    | { ok: true; folioLineIds: string[] }
-    | { ok: false; error: typeof NOT_FOUND }
-    | { ok: false; error: typeof SPLIT_AMOUNT_MISMATCH }
-    | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
-  > {
-    this.assertRpcAvailable();
-    this.lanes.touchInteractive();
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
-    const denied = await this.gateCoreEntitlement(orgId);
-    if (denied) return denied;
-
-    const permDenied = await this.gatePermission(actor, 'folio:adjust');
-    if (permDenied) return permDenied;
-
-    try {
-      return this.ctx.storage.transactionSync(() =>
-        runIdempotent(this.ctx.storage.sql, idem, () => {
-          const sourceRows = this.ctx.storage.sql
-            .exec(
-              `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
-                      txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
-               FROM folio_line WHERE folio_line_id = ?`,
-              input.sourceFolioLineId,
-            )
-            .toArray() as Array<{
-            folio_line_id: string;
-            folio_window_id: string;
-            reservation_id: string;
-            charge_code: string;
-            amount_minor: number;
-            txn_currency: string;
-            ledger_amount_minor: number;
-            fx_rate: string;
-            fx_rate_at: number;
-            source: string | null;
-          }>;
-          const source = sourceRows[0];
-          if (!source) return { ok: false as const, error: NOT_FOUND };
-          if (source.source !== 'PAYMENT') {
-            return { ok: false as const, error: LINE_NOT_SPLITTABLE };
-          }
-
-          const splitTotal = input.splits.reduce((sum, split) => sum + split.amountMinor, 0);
-          if (splitTotal !== source.amount_minor) {
-            return { ok: false as const, error: SPLIT_AMOUNT_MISMATCH };
-          }
-
-          const folioLineIds = this.splitFolioLineSync(source, input.splits);
-          this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
-            commandId: 'folio.split_charge_payment',
-            entityType: 'folio_line',
-            entityId: input.sourceFolioLineId,
-            beforeJson: { amountMinor: source.amount_minor },
-            afterJson: { sourceFolioLineId: input.sourceFolioLineId, folioLineIds },
-            reservationId: source.reservation_id,
-          });
-          return { ok: true as const, folioLineIds };
-        }),
-      );
-    } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
   }
 
   /** Test-only: insert a second folio line with the same payment_id (unique index probe). */

@@ -975,6 +975,7 @@ describe('PropertyDO front-desk status machine', () => {
     await bookConfirmed(stub, guestRef, 'res_co', 'rt_king', added.fromDate, departure);
     await assignCleanRoom(stub, 'res_co', 'rm_co', '203');
     await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('ci-co', { reservationId: 'res_co' }));
+    await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
 
     const result = await stub.tryCheckOut(TEST_OWNER_ACTOR, { reservationId: 'res_co' }, await idemFor('co', { reservationId: 'res_co' }));
     expect(result).toMatchObject({ ok: true, reservationId: 'res_co' });

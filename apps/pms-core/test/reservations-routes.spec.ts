@@ -401,6 +401,7 @@ describe('reservations vertical HTTP routes', () => {
     expect(dupCheckIn.status).toBe(422);
     expect((await dupCheckIn.json()) as { error: string }).toEqual({ ok: false, error: INVALID_STATUS_TRANSITION });
 
+    await resolved!.stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
     const checkOutRes = await worker.fetch(
       new Request(
         `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/check-out`,
@@ -911,6 +912,8 @@ describe('reservations vertical HTTP routes', () => {
         )
       ).status,
     ).toBe(200);
+    const foResolved = await resolvePropertyFromRegistry(env, propertyId);
+    await foResolved!.stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
     expect(
       (
         await worker.fetch(

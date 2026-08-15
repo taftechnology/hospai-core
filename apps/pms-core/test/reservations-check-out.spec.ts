@@ -60,6 +60,7 @@ async function stayCheckedIn(
       await idemFor(`ci-${reservationId}`, { reservationId, roomId }),
     ),
   ).toMatchObject({ ok: true });
+  await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
   await stub.flushOutbox();
 }
 
@@ -202,6 +203,7 @@ describe('reservation check-out', () => {
       departureDate: addCalendarDays(added.fromDate, 1),
       status: 'checked_in',
     });
+    await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
     const result = await stub.tryCheckOut(
       TEST_OWNER_ACTOR,
       { reservationId: 'res_38' },

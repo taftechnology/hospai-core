@@ -77,6 +77,7 @@ async function stayCheckedIn(
       await idemFor(`ci-${reservationId}`, { reservationId, roomId }),
     ),
   ).toMatchObject({ ok: true });
+  await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
   await stub.flushOutbox();
 }
 

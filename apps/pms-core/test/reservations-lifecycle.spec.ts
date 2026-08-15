@@ -776,6 +776,7 @@ describe('prototype holes front-office DND', () => {
       await idemFor(`ci-${reservationId}`, { reservationId, roomId }),
     );
     expect(ci).toMatchObject({ ok: true });
+    await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
     return { stub, reservationId };
   }
 

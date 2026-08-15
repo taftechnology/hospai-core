@@ -638,6 +638,7 @@ describe('rooms.set_ooo_range', () => {
       ),
     ).toMatchObject({ ok: true });
     await stub.flushOutbox();
+    await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
     expect(
       await stub.tryCheckOut(
         TEST_OWNER_ACTOR,

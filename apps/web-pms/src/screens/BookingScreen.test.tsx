@@ -11,6 +11,7 @@ const postGuestsBatch = vi.fn();
 const listRoomTypes = vi.fn();
 const searchGuests = vi.fn();
 const listRateDays = vi.fn();
+const listRatePlans = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -31,6 +32,7 @@ vi.mock('../client.js', () => ({
     listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
     searchGuests: (...a: unknown[]) => searchGuests(...a),
     listRateDays: (...a: unknown[]) => listRateDays(...a),
+    listRatePlans: (...a: unknown[]) => listRatePlans(...a),
   },
 }));
 
@@ -122,6 +124,49 @@ function availOk(
   };
 }
 
+const barPlan = {
+  ratePlanId: 'BAR',
+  code: 'BAR',
+  name: 'Best Available',
+  status: 'active',
+  cancelPenaltyType: 'none',
+  cancelGraceHours: 0,
+  cancelPenaltyNights: null,
+  cancelPenaltyBps: null,
+  cancelPolicyText: null,
+  parentRatePlanId: null,
+  deriveBps: null,
+};
+
+const corpPlan = {
+  ratePlanId: 'CORP',
+  code: 'CORP',
+  name: 'Corporate',
+  status: 'active',
+  cancelPenaltyType: 'none',
+  cancelGraceHours: 0,
+  cancelPenaltyNights: null,
+  cancelPenaltyBps: null,
+  cancelPolicyText: null,
+  parentRatePlanId: 'BAR',
+  deriveBps: -1500,
+};
+
+function rateDaysOk(arrival: string, departure: string, amountMinor = 15000) {
+  const days: Array<{ stayDate: string; amountMinor: number }> = [];
+  const end = new Date(`${departure}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() - 1);
+  const lastNight = end.toISOString().slice(0, 10);
+  let cur = arrival;
+  while (cur <= lastNight) {
+    days.push({ stayDate: cur, amountMinor });
+    const d = new Date(`${cur}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    cur = d.toISOString().slice(0, 10);
+  }
+  return { ok: true, days };
+}
+
 function inputValue(testId: string): string {
   return (screen.getByTestId(testId) as HTMLInputElement).value;
 }
@@ -155,7 +200,8 @@ describe('BookingScreen', () => {
       classified: { class: 'live' },
       body: { items: [], nextCursor: null },
     });
-    listRateDays.mockResolvedValue({ ok: true, days: [] });
+    listRatePlans.mockResolvedValue({ ok: true, plans: [barPlan, corpPlan] });
+    listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
   });
 
   afterEach(() => {
@@ -246,6 +292,7 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createGuest).toHaveBeenCalled());
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
@@ -289,6 +336,7 @@ describe('BookingScreen', () => {
     await waitFor(() =>
       expect(screen.getByTestId('context-guest').textContent).toMatch(/Ada Lovelace/),
     );
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
     expect(createGuest).not.toHaveBeenCalled();
@@ -302,6 +350,7 @@ describe('BookingScreen', () => {
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     expect(screen.getByTestId('guest-find')).toBeTruthy();
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createGuest).toHaveBeenCalled());
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
@@ -321,6 +370,7 @@ describe('BookingScreen', () => {
     expect(screen.getByTestId('context-guest').textContent).not.toMatch(/g_ctx/);
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
     expect(createGuest).not.toHaveBeenCalled();
@@ -358,10 +408,12 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(screen.getByTestId('book-message').textContent).toMatch(/2026-08-11/));
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(opIds.length).toBe(2));
     expect(opIds[0]).toBe(opIds[1]);
@@ -417,10 +469,12 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /Type A/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /Type A/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(screen.getByTestId('book-message')).toBeTruthy());
     await waitFor(() => expect(screen.getByRole('radio', { name: /Type B/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /Type B/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(opIds.length).toBe(2));
     expect(opIds[0]).not.toBe(opIds[1]);
@@ -440,6 +494,7 @@ describe('BookingScreen', () => {
         retryAfterMs: null,
       }),
     );
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(
@@ -469,11 +524,13 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createGuest).toHaveBeenCalledTimes(1));
     const firstGuestId = (createGuest.mock.calls[0]![1] as { guestId: string }).guestId;
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalledTimes(2));
     expect(createGuest).toHaveBeenCalledTimes(1);
@@ -506,6 +563,7 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(
@@ -549,6 +607,7 @@ describe('BookingScreen', () => {
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     const callsBefore = getAvailability.mock.calls.length;
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => {
       const msg = screen.getByTestId('book-message').textContent ?? '';
@@ -575,6 +634,7 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(/Unbookable on 2026-08-11/),
@@ -598,6 +658,7 @@ describe('BookingScreen', () => {
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     const callsBefore = getAvailability.mock.calls.length;
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() =>
       expect(screen.getByTestId('book-message').textContent).toMatch(/Room type unavailable/i),
@@ -675,6 +736,7 @@ describe('BookingScreen', () => {
       await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
       fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
       fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+      await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
       fireEvent.click(screen.getByTestId(testId));
     }
 
@@ -702,13 +764,14 @@ describe('BookingScreen', () => {
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
     fireEvent.change(screen.getByTestId('adults'), { target: { value: '2' } });
     fireEvent.change(screen.getByTestId('children'), { target: { value: '1' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
     const resArg = createReservation.mock.calls[0]![1] as { adults: number; children: number };
     expect(resArg.adults).toBe(2);
     expect(resArg.children).toBe(1);
     const opId = createReservation.mock.calls[0]![2] as string;
-    expect(opId).toMatch(/:2:1$/);
+    expect(opId).toMatch(/:2:1:BAR$/);
 
     cleanup();
     vi.clearAllMocks();
@@ -716,6 +779,8 @@ describe('BookingScreen', () => {
       async (_p: string, range: { fromDate: string; toDate: string }) =>
         availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_king', free: 1 }]),
     );
+    listRatePlans.mockResolvedValue({ ok: true, plans: [barPlan, corpPlan] });
+    listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
     createReservation.mockRejectedValue(
       new ClassifiedError({
         class: 'client_error',
@@ -728,6 +793,7 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     fireEvent.click(screen.getByTestId('confirm-book'));
     await waitFor(() => {
       expect(screen.getByTestId('book-message').textContent).toBe(
@@ -777,6 +843,111 @@ describe('BookingScreen', () => {
     expect(await screen.findByText('Room type unavailable')).toBeTruthy();
     fireEvent.click(screen.getByRole('radio', { name: /Room type unavailable/i }));
     fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
     expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Lock 9.1: picker lists BAR + CORP with name (code) labels', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('rate-plan')).toBeTruthy());
+    expect(screen.getByRole('option', { name: 'Best Available (BAR)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Corporate (CORP)' })).toBeTruthy();
+  });
+
+  it('Lock 9.2: selecting CORP refetches listRateDays with ratePlanId CORP', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('rate-plan')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('rate-plan'), { target: { value: 'CORP' } });
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() =>
+      expect(listRateDays).toHaveBeenCalledWith(
+        'prop_demo',
+        expect.objectContaining({ ratePlanId: 'CORP' }),
+      ),
+    );
+  });
+
+  it('Lock 9.3: createReservation body includes selected ratePlanId', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('rate-plan')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('rate-plan'), { target: { value: 'CORP' } });
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    const body = createReservation.mock.calls[0]![1] as { ratePlanId: string };
+    expect(body.ratePlanId).toBe('CORP');
+  });
+
+  it('Lock 9.4: Confirm disabled when quote incomplete on selected plan', async () => {
+    listRateDays.mockResolvedValue({ ok: true, days: [] });
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('rate-plan')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText('No published rate for every night of this stay on this plan.'),
+      ).toBeTruthy(),
+    );
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('hold-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Lock 9.5: empty plans list disables all three buttons', async () => {
+    listRatePlans.mockResolvedValue({ ok: true, plans: [] });
+    renderBook();
+    await waitFor(() => expect(screen.getByText('No active rate plans.')).toBeTruthy());
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('hold-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Lock 9.6: rate_missing with date shows locked copy', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'rate_missing', date: '2026-08-11' },
+        retryAfterMs: null,
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('book-message').textContent).toBe(
+        'No rate on 2026-08-11 for this plan — pick another plan or set rates.',
+      ),
+    );
+  });
+
+  it('Lock 9.7: rate_plan_not_found shows locked copy', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    createReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 404,
+        body: { ok: false, error: 'rate_plan_not_found' },
+        retryAfterMs: null,
+      }),
+    );
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('book-message').textContent).toBe(
+        'Rate plan unavailable — pick another plan.',
+      ),
+    );
   });
 });

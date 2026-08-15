@@ -10,7 +10,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Button, Field, Input } from '@hospai/ui-kit';
+import { Alert, Button, Field, Input, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor } from '../money.js';
@@ -73,6 +73,7 @@ export function BookingScreen() {
   const [phone, setPhone] = useState('');
   const [adults, setAdults] = useState(1);
   const [children, setChildren] = useState(0);
+  const [ratePlanId, setRatePlanId] = useState('');
   const [guestCreated, setGuestCreated] = useState(false);
   const [contextGuestRef, setContextGuestRef] = useState<string | null>(urlGuestRef);
   const [contextDisplayName, setContextDisplayName] = useState<string | null>(null);
@@ -123,15 +124,16 @@ export function BookingScreen() {
   const lastNight =
     arrivalDate && departureDate ? addCalendarDays(departureDate, -1) : null;
   const ratesQ = useQuery({
-    queryKey: ['rate-days', propertyId, arrivalDate, lastNight, roomTypeId],
+    queryKey: ['rate-days', propertyId, arrivalDate, lastNight, roomTypeId, ratePlanId],
     queryFn: () =>
       api.listRateDays(propertyId, {
         fromDate: arrivalDate,
         toDate: lastNight!,
         roomTypeId: roomTypeId!,
-        ratePlanId: 'BAR',
+        ratePlanId,
       }),
-    enabled: Boolean(roomTypeId && arrivalDate && lastNight && lastNight >= arrivalDate),
+    enabled:
+      Boolean(roomTypeId && arrivalDate && lastNight && lastNight >= arrivalDate && ratePlanId),
     retry: false,
   });
   const stayQuoteMinor = useMemo(() => {
@@ -158,6 +160,22 @@ export function BookingScreen() {
     queryFn: () => api.listRoomTypes(propertyId, { status: 'active' }),
     retry: false,
   });
+
+  const plansQ = useQuery({
+    queryKey: ['rate-plans', propertyId],
+    queryFn: () => api.listRatePlans(propertyId),
+    retry: false,
+  });
+
+  type PlanRow = { ratePlanId: string; code: string; name: string };
+  const plans = (plansQ.data?.plans ?? []) as PlanRow[];
+  const plansEmpty = plansQ.isSuccess && plans.length === 0;
+
+  useEffect(() => {
+    if (!plansQ.isSuccess || ratePlanId) return;
+    const bar = plans.find((p) => p.ratePlanId === 'BAR');
+    setRatePlanId(bar?.ratePlanId ?? plans[0]?.ratePlanId ?? '');
+  }, [plansQ.isSuccess, plansQ.data, ratePlanId, plans]);
 
   const typeDir = useMemo(() => {
     const m = new Map<string, { code: string; name: string; kind?: 'physical' | 'virtual' }>();
@@ -218,13 +236,17 @@ export function BookingScreen() {
     : displayName.trim().length > 0;
 
   const partyOk = adults >= 1 && children >= 0;
+  const quoteComplete = stayQuoteMinor != null;
   const confirmEnabled =
+    !plansEmpty &&
+    quoteComplete &&
     quoteAriVersion != null &&
     roomTypeId != null &&
     guestResolved &&
     !dateCapBlocked &&
     partyOk;
-  const quoteEnabled = roomTypeId != null && guestResolved && !dateCapBlocked && partyOk;
+  const quoteEnabled =
+    !plansEmpty && quoteComplete && roomTypeId != null && guestResolved && !dateCapBlocked && partyOk;
 
   const availErrorClassified = availQ.isError ? asClassified(availQ.error) : null;
   const availDateRangeExceeded =
@@ -261,6 +283,7 @@ export function BookingScreen() {
         status,
         adults,
         children,
+        ratePlanId,
       });
       return api.createReservation(
         propertyId,
@@ -273,6 +296,7 @@ export function BookingScreen() {
           quoteAriVersion: quoteAriVersion ?? 0,
           adults,
           children,
+          ratePlanId,
           ...(status === 'confirmed' ? {} : { status }),
         },
         opId,
@@ -326,6 +350,19 @@ export function BookingScreen() {
           date
             ? `Unbookable on ${date} — adjust dates (missing inventory horizon).`
             : 'Unbookable — adjust dates.',
+        );
+        return;
+      }
+      if (code === 'rate_plan_not_found') {
+        setMessage('Rate plan unavailable — pick another plan.');
+        return;
+      }
+      if (code === 'rate_missing') {
+        const date = bodyField(body, 'date');
+        setMessage(
+          date
+            ? `No rate on ${date} for this plan — pick another plan or set rates.`
+            : 'No rate on this stay for this plan — pick another plan or set rates.',
         );
         return;
       }
@@ -405,6 +442,34 @@ export function BookingScreen() {
       </section>
 
       <section className="stack">
+        <h2>Rate plan</h2>
+        {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
+        {plansEmpty ? (
+          <p className="muted" role="status">
+            No active rate plans.
+          </p>
+        ) : null}
+        {plansQ.isSuccess && plans.length > 0 ? (
+          <Field
+            label="Rate plan"
+            control={
+              <NativeSelect
+                data-testid="rate-plan"
+                value={ratePlanId}
+                onChange={(e) => setRatePlanId(e.target.value)}
+              >
+                {plans.map((p) => (
+                  <option key={p.ratePlanId} value={p.ratePlanId}>
+                    {p.name} ({p.code})
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+        ) : null}
+      </section>
+
+      <section className="stack">
         <h2>Room type</h2>
         {availErrorClassified ? (
           <Alert>
@@ -446,6 +511,17 @@ export function BookingScreen() {
         {quoteAriVersion != null ? (
           <p className="visually-hidden" data-testid="quote-version">
             {quoteAriVersion}
+          </p>
+        ) : null}
+        {roomTypeId != null &&
+        ratePlanId &&
+        !ratesQ.isLoading &&
+        stayQuoteMinor == null &&
+        arrivalDate &&
+        lastNight &&
+        lastNight >= arrivalDate ? (
+          <p className="muted" role="status">
+            No published rate for every night of this stay on this plan.
           </p>
         ) : null}
         {stayQuoteMinor != null ? (

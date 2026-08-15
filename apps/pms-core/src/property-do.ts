@@ -2850,7 +2850,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const pending = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
+        `SELECT reservation_id, room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
          FROM reservation
          WHERE status = 'pending' AND (confirm_by <= ? OR arrival_date <= ?)`,
         nowMs,
@@ -2859,6 +2859,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{
       reservation_id: string;
       room_type_id: string;
+      allocated_room_type_id: string;
       guest_ref: string;
       pii_key_id: string;
       arrival_date: string;
@@ -2866,7 +2867,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>;
     for (const row of pending) {
       const nights = enumerateStayDates(row.arrival_date, row.departure_date);
-      this.releaseSoldNightsSync(row.room_type_id, nights);
+      const ledgerId = row.allocated_room_type_id || row.room_type_id;
+      if (ledgerId) this.releaseSoldNightsSync(ledgerId, nights);
       this.ctx.storage.sql.exec(
         `UPDATE reservation SET status = 'cancelled', updated_at = ? WHERE reservation_id = ?`,
         nowMs,
@@ -2974,7 +2976,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
+        `SELECT reservation_id, room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
                 status, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
                 cancel_penalty_nights, cancel_penalty_bps
          FROM reservation
@@ -2984,6 +2986,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{
       reservation_id: string;
       room_type_id: string;
+      allocated_room_type_id: string;
       guest_ref: string;
       pii_key_id: string;
       arrival_date: string;
@@ -2998,7 +3001,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     for (const reservation of rows) {
       const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
-      this.releaseSoldNightsSync(reservation.room_type_id, nights);
+      const ledgerId = reservation.allocated_room_type_id || reservation.room_type_id;
+      if (ledgerId) this.releaseSoldNightsSync(ledgerId, nights);
       this.ctx.storage.sql.exec(
         `UPDATE reservation SET status = 'no_show', updated_at = ? WHERE reservation_id = ?`,
         now,
@@ -6822,7 +6826,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): { kind: 'pending' | 'inquiry'; ariVersion: number; fromDate: string; toDate: string } | null {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT status, confirm_by, expires_at, room_type_id, arrival_date, departure_date, guest_ref, pii_key_id
+        `SELECT status, confirm_by, expires_at, room_type_id, allocated_room_type_id, arrival_date, departure_date, guest_ref, pii_key_id
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
@@ -6831,6 +6835,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       confirm_by: number | null;
       expires_at: number | null;
       room_type_id: string;
+      allocated_room_type_id: string;
       arrival_date: string;
       departure_date: string;
       guest_ref: string;
@@ -6850,7 +6855,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
 
     if (pendingDue) {
-      this.releaseSoldNightsSync(row.room_type_id, nights);
+      const ledgerId = row.allocated_room_type_id || row.room_type_id;
+      if (ledgerId) this.releaseSoldNightsSync(ledgerId, nights);
     }
 
     this.ctx.storage.sql.exec(
@@ -7432,13 +7438,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
+              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
                       rate_plan_id, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            allocated_room_type_id: string;
             guest_ref: string;
             pii_key_id: string;
             arrival_date: string;
@@ -7477,8 +7484,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
           const commitsInventory = reservation.status === 'confirmed' || reservation.status === 'pending';
-          if (commitsInventory) {
-            this.releaseSoldNightsSync(reservation.room_type_id, nights);
+          const ledgerId = reservation.allocated_room_type_id || reservation.room_type_id;
+          if (commitsInventory && ledgerId) {
+            this.releaseSoldNightsSync(ledgerId, nights);
           }
 
           const now = Date.now();
@@ -7510,7 +7518,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               eventType: 'availability.changed',
               payload: {
                 propertyId,
-                roomTypeId: reservation.room_type_id,
+                roomTypeId: ledgerId,
                 fromDate,
                 toDate,
                 version: ariVersion,
@@ -7734,95 +7742,137 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const oldNights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
           const oldRoomTypeId = reservation.room_type_id;
           const oldNightSet = new Set(oldNights);
-          const sameRoomType = oldRoomTypeId === input.roomTypeId;
           const commitsInventory = reservation.status !== 'inquiry';
+          const allocatedId = reservation.allocated_room_type_id || reservation.room_type_id;
+          const soldSkuChanged = reservation.room_type_id !== input.roomTypeId;
+          let nextAllocatedRoomTypeId = allocatedId;
+          let newLedgerRoomTypeId = allocatedId;
+          let oldLedgerRoomTypeId = allocatedId;
 
           if (commitsInventory) {
-            for (const stayDate of oldNights) {
-              const rows = this.ctx.storage.sql
-                .exec(
-                  `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-                  oldRoomTypeId,
-                  stayDate,
-                )
-                .toArray() as Array<{ sold: number }>;
-              if (rows.length === 0 || rows[0]!.sold < 1) {
-                throw new LedgerInconsistentError(stayDate);
+            if (!soldSkuChanged && reservation.room_type_id === input.roomTypeId) {
+              for (const stayDate of oldNights) {
+                const rows = this.ctx.storage.sql
+                  .exec(
+                    `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                    allocatedId,
+                    stayDate,
+                  )
+                  .toArray() as Array<{ sold: number }>;
+                if (rows.length === 0 || rows[0]!.sold < 1) {
+                  throw new LedgerInconsistentError(stayDate);
+                }
               }
-            }
 
-            const rowsByDate = new Map<string, AvailabilitySnapshot>();
-            for (const stayDate of newNights) {
-              const rows = this.ctx.storage.sql
-                .exec(
-                  `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-                  input.roomTypeId,
+              const rowsByDate = new Map<string, AvailabilitySnapshot>();
+              for (const stayDate of newNights) {
+                const rows = this.ctx.storage.sql
+                  .exec(
+                    `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+                    allocatedId,
+                    stayDate,
+                  )
+                  .toArray() as Array<{
+                  physical: number;
+                  blocked: number;
+                  held: number;
+                  sold: number;
+                  oversell: number;
+                }>;
+                if (rows.length === 0) {
+                  throw new UnbookableError(stayDate);
+                }
+                const row = rows[0]!;
+                const releasedSold = oldNightSet.has(stayDate) ? row.sold - 1 : row.sold;
+                rowsByDate.set(stayDate, {
                   stayDate,
-                )
-                .toArray() as Array<{
-                physical: number;
-                blocked: number;
-                held: number;
-                sold: number;
-                oversell: number;
-              }>;
-              if (rows.length === 0) {
-                throw new UnbookableError(stayDate);
+                  physical: row.physical,
+                  blocked: row.blocked,
+                  held: row.held,
+                  sold: releasedSold,
+                  oversell: row.oversell,
+                });
               }
-              const row = rows[0]!;
-              const releasedSold = sameRoomType && oldNightSet.has(stayDate) ? row.sold - 1 : row.sold;
-              rowsByDate.set(stayDate, {
-                stayDate,
-                physical: row.physical,
-                blocked: row.blocked,
-                held: row.held,
-                sold: releasedSold,
-                oversell: row.oversell,
-              });
-            }
 
-            const unavailable = firstUnavailableNight(newNights, rowsByDate);
-            if (unavailable) {
-              throw new NoAvailabilityError(unavailable);
-            }
+              const unavailable = firstUnavailableNight(newNights, rowsByDate);
+              if (unavailable) {
+                throw new NoAvailabilityError(unavailable);
+              }
 
-            this.restrictionFailureSync(
-              input.roomTypeId,
-              input.arrivalDate,
-              input.departureDate,
-              newNights,
-            );
-
-            for (const stayDate of oldNights) {
-              this.ctx.storage.sql.exec(
-                `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-                oldRoomTypeId,
-                stayDate,
-              );
-            }
-
-            for (const stayDate of newNights) {
-              this.ctx.storage.sql.exec(
-                `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+              this.restrictionFailureSync(
                 input.roomTypeId,
-                stayDate,
+                input.arrivalDate,
+                input.departureDate,
+                newNights,
+              );
+
+              for (const stayDate of oldNights) {
+                this.ctx.storage.sql.exec(
+                  `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+                  allocatedId,
+                  stayDate,
+                );
+              }
+
+              for (const stayDate of newNights) {
+                this.ctx.storage.sql.exec(
+                  `UPDATE availability_day SET sold = sold + 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
+                  allocatedId,
+                  stayDate,
+                );
+              }
+            } else {
+              oldLedgerRoomTypeId = allocatedId;
+              if (oldLedgerRoomTypeId) {
+                this.releaseSoldNightsSync(oldLedgerRoomTypeId, oldNights);
+              }
+
+              const commit = this.resolveInventoryCommitSync({
+                soldRoomTypeId: input.roomTypeId,
+                arrivalDate: input.arrivalDate,
+                departureDate: input.departureDate,
+                nights: newNights,
+              });
+              nextAllocatedRoomTypeId = commit.allocatedRoomTypeId;
+              newLedgerRoomTypeId = commit.ledgerRoomTypeId;
+              this.commitSoldNightsSync(
+                newLedgerRoomTypeId,
+                input.arrivalDate,
+                input.departureDate,
+                newNights,
               );
             }
           }
 
           const now = Date.now();
-          this.ctx.storage.sql.exec(
-            `UPDATE reservation SET room_type_id = ?, arrival_date = ?, departure_date = ?,
-             adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
-             WHERE reservation_id = ?`,
-            input.roomTypeId,
-            input.arrivalDate,
-            input.departureDate,
-            input.adults ?? null,
-            input.children ?? null,
-            now,
-            input.reservationId,
-          );
+          if (soldSkuChanged) {
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET room_type_id = ?, allocated_room_type_id = ?, arrival_date = ?, departure_date = ?,
+               adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
+               WHERE reservation_id = ?`,
+              input.roomTypeId,
+              nextAllocatedRoomTypeId,
+              input.arrivalDate,
+              input.departureDate,
+              input.adults ?? null,
+              input.children ?? null,
+              now,
+              input.reservationId,
+            );
+          } else {
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET room_type_id = ?, arrival_date = ?, departure_date = ?,
+               adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
+               WHERE reservation_id = ?`,
+              input.roomTypeId,
+              input.arrivalDate,
+              input.departureDate,
+              input.adults ?? null,
+              input.children ?? null,
+              now,
+              input.reservationId,
+            );
+          }
           this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
 
           if (commitsInventory) {
@@ -7865,36 +7915,38 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           if (commitsInventory) {
-            if (oldRoomTypeId === input.roomTypeId) {
+            if (!soldSkuChanged) {
               this.appendPropertyOutbox({
                 eventId: crypto.randomUUID(),
                 eventType: 'availability.changed',
                 payload: {
                   propertyId,
-                  roomTypeId: input.roomTypeId,
+                  roomTypeId: newLedgerRoomTypeId,
                   fromDate: unionFrom,
                   toDate: unionTo,
                   version: ariVersion,
                 },
               });
             } else {
+              if (oldLedgerRoomTypeId) {
+                this.appendPropertyOutbox({
+                  eventId: crypto.randomUUID(),
+                  eventType: 'availability.changed',
+                  payload: {
+                    propertyId,
+                    roomTypeId: oldLedgerRoomTypeId,
+                    fromDate: oldNights[0]!,
+                    toDate: oldNights[oldNights.length - 1]!,
+                    version: ariVersion,
+                  },
+                });
+              }
               this.appendPropertyOutbox({
                 eventId: crypto.randomUUID(),
                 eventType: 'availability.changed',
                 payload: {
                   propertyId,
-                  roomTypeId: oldRoomTypeId,
-                  fromDate: oldNights[0]!,
-                  toDate: oldNights[oldNights.length - 1]!,
-                  version: ariVersion,
-                },
-              });
-              this.appendPropertyOutbox({
-                eventId: crypto.randomUUID(),
-                eventType: 'availability.changed',
-                payload: {
-                  propertyId,
-                  roomTypeId: input.roomTypeId,
+                  roomTypeId: newLedgerRoomTypeId,
                   fromDate: newNights[0]!,
                   toDate: newNights[newNights.length - 1]!,
                   version: ariVersion,
@@ -8468,13 +8520,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredNsErr) return expiredNsErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
+              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status,
                       rate_plan_id, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            allocated_room_type_id: string;
             guest_ref: string;
             pii_key_id: string;
             arrival_date: string;
@@ -8507,26 +8560,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
-          for (const stayDate of nights) {
-            const rows = this.ctx.storage.sql
-              .exec(
-                `SELECT sold FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
-                reservation.room_type_id,
-                stayDate,
-              )
-              .toArray() as Array<{ sold: number }>;
-            if (rows.length === 0 || rows[0]!.sold < 1) {
-              throw new LedgerInconsistentError(stayDate);
-            }
-          }
-
-          for (const stayDate of nights) {
-            this.ctx.storage.sql.exec(
-              `UPDATE availability_day SET sold = sold - 1, version = version + 1 WHERE room_type_id = ? AND stay_date = ?`,
-              reservation.room_type_id,
-              stayDate,
-            );
-          }
+          const ledgerId = reservation.allocated_room_type_id || reservation.room_type_id;
+          if (ledgerId) this.releaseSoldNightsSync(ledgerId, nights);
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
@@ -8556,7 +8591,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             eventType: 'availability.changed',
             payload: {
               propertyId,
-              roomTypeId: reservation.room_type_id,
+              roomTypeId: ledgerId,
               fromDate,
               toDate,
               version: ariVersion,

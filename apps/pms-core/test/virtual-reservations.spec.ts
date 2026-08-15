@@ -268,4 +268,76 @@ describe('PropertyDO virtual reservation inventory commit', () => {
     expect((await stub.readAvailabilityDay(other, arrival))?.sold).toBe(0);
     expect(await stub.countAvailabilityDays('rt_roh')).toBe(0);
   });
+
+  it('7. date-only modify keeps King allocation when Queen free but King full', async () => {
+    const name = `vrt-res-modify-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedWithGuest(name);
+    const { arrival } = await seedKingQueenRoh(stub);
+    const newArrival = addDays(arrival, 1);
+    const newDeparture = addDays(arrival, 2);
+
+    expect(await bookOneNight(stub, guestRef, 'res_roh_modify', 'rt_roh', arrival)).toMatchObject({ ok: true });
+    expect(await bookOneNight(stub, guestRef, 'res_king_block', 'rt_king', newArrival)).toMatchObject({ ok: true });
+
+    const readBefore = await stub.readReservation('res_roh_modify');
+    expect(readBefore).toMatchObject({
+      ok: true,
+      reservation: { allocatedRoomTypeId: 'rt_king' },
+    });
+
+    const modify = {
+      reservationId: 'res_roh_modify',
+      roomTypeId: 'rt_roh',
+      arrivalDate: newArrival,
+      departureDate: newDeparture,
+    };
+    expect(await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('mod-roh-dates', modify))).toMatchObject({
+      ok: false,
+      error: NO_AVAILABILITY,
+      date: newArrival,
+      ariVersion: expect.any(Number),
+    });
+
+    const readAfter = await stub.readReservation('res_roh_modify');
+    expect(readAfter).toMatchObject({
+      ok: true,
+      reservation: {
+        roomTypeId: 'rt_roh',
+        allocatedRoomTypeId: 'rt_king',
+        arrivalDate: arrival,
+        departureDate: addDays(arrival, 1),
+      },
+    });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect((await stub.readAvailabilityDay('rt_king', newArrival))?.sold).toBe(1);
+    expect((await stub.readAvailabilityDay('rt_queen', newArrival))?.sold).toBe(0);
+  });
+
+  it('8. cancel virtual reservation releases King sold only', async () => {
+    const name = `vrt-res-cancel-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedWithGuest(name);
+    const { arrival } = await seedKingQueenRoh(stub);
+
+    expect(await bookOneNight(stub, guestRef, 'res_roh_cancel', 'rt_roh', arrival)).toMatchObject({ ok: true });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(1);
+    expect(await stub.countAvailabilityDays('rt_roh')).toBe(0);
+
+    const cancel = { reservationId: 'res_roh_cancel' };
+    expect(await stub.tryCancelReservation(TEST_OWNER_ACTOR, cancel, await idemFor('cancel-roh', cancel))).toMatchObject({
+      ok: true,
+    });
+
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect(await stub.countAvailabilityDays('rt_roh')).toBe(0);
+
+    const read = await stub.readReservation('res_roh_cancel');
+    expect(read).toMatchObject({
+      ok: true,
+      reservation: {
+        status: 'cancelled',
+        roomTypeId: 'rt_roh',
+        allocatedRoomTypeId: 'rt_king',
+      },
+    });
+  });
 });

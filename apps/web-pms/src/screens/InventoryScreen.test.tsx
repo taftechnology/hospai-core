@@ -1,5 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,6 +48,32 @@ const king = {
   updatedAt: 1,
 };
 
+const queen = {
+  roomTypeId: 'rt_queen',
+  code: 'QEN',
+  name: 'Queen',
+  roomCount: 8,
+  maxOccupancy: 2,
+  maxAdults: 2,
+  status: 'active' as const,
+  createdAt: 1,
+  updatedAt: 1,
+};
+
+const rohVirtual = {
+  roomTypeId: 'rt_roh',
+  code: 'ROH',
+  name: 'Run of House',
+  kind: 'virtual' as const,
+  roomCount: 0,
+  maxOccupancy: 2,
+  maxAdults: 2,
+  status: 'active' as const,
+  constituentRoomTypeIds: ['rt_king', 'rt_queen'],
+  createdAt: 1,
+  updatedAt: 1,
+};
+
 function renderInventory(tab: 'types' | 'rooms' = 'types') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -85,6 +111,54 @@ describe('InventoryScreen', () => {
     expect(
       await screen.findByText('No room types yet — create one to start selling.'),
     ).toBeTruthy();
+  });
+
+  it('creates virtual type with two constituents and shows Virtual badge', async () => {
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [king, queen] });
+    renderInventory('types');
+    expect(await screen.findByText('KNG')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'virtual' } });
+    expect(screen.queryByLabelText('Room Count')).toBeNull();
+
+    const constituents = screen.getByTestId('virtual-constituents');
+    fireEvent.click(constituents.querySelector('input[value="rt_king"]')!);
+    fireEvent.click(constituents.querySelector('input[value="rt_queen"]')!);
+
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'ROH' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Run of House' } });
+    fireEvent.change(screen.getByLabelText('Max Occupancy'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Max Adults'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Room Type' }));
+
+    await waitFor(() => expect(createRoomType).toHaveBeenCalled());
+    const args = createRoomType.mock.calls[0] as [string, Record<string, unknown>];
+    expect(args[1]).toMatchObject({
+      code: 'ROH',
+      name: 'Run of House',
+      kind: 'virtual',
+      roomCount: 0,
+      constituentRoomTypeIds: ['rt_king', 'rt_queen'],
+      maxOccupancy: 2,
+      maxAdults: 2,
+    });
+
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [king, queen, rohVirtual] });
+    cleanup();
+    renderInventory('types');
+    expect(await screen.findByText('Virtual')).toBeTruthy();
+    expect(screen.getByText('KNG, QEN')).toBeTruthy();
+  });
+
+  it('rooms tab disables create for virtual type', async () => {
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [king, rohVirtual] });
+    listRooms.mockResolvedValue({ ok: true, rooms: [] });
+    renderInventory('rooms');
+    expect(await screen.findByText('ROH')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Room type'), { target: { value: 'rt_roh' } });
+    const createForm = screen.getByRole('heading', { name: 'Create Room' }).closest('form')!;
+    expect(within(createForm).getByText('Virtual types do not have room units.')).toBeTruthy();
+    expect(within(createForm).getByRole('button', { name: 'Create Room' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('create type submits occupancy integers and mints roomTypeId', async () => {
@@ -274,6 +348,5 @@ describe('InventoryScreen', () => {
     await screen.findByText('KNG');
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
     expect(screen.queryByText(/photo/i)).toBeNull();
-    expect(screen.queryByText(/virtual/i)).toBeNull();
   });
 });

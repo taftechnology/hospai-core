@@ -1509,9 +1509,11 @@ export function createClient(opts: {
         roomTypeId: string;
         code: string;
         name: string;
-        roomCount: number;
+        kind?: 'physical' | 'virtual';
+        roomCount?: number;
         maxOccupancy: number;
         maxAdults: number;
+        constituentRoomTypeIds?: string[];
       },
     ) {
       const idempotencyKey = stableKeyForOperation(
@@ -1533,6 +1535,7 @@ export function createClient(opts: {
         roomCount?: number;
         maxOccupancy?: number;
         maxAdults?: number;
+        constituentRoomTypeIds?: string[];
       },
     ) {
       const idempotencyKey = stableKeyForOperation(

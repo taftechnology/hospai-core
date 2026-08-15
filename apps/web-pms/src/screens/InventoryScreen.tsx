@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Alert,
+  Badge,
   Button,
+  Checkbox,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -22,10 +24,12 @@ type RoomTypeRow = {
   roomTypeId: string;
   code: string;
   name: string;
+  kind?: 'physical' | 'virtual';
   roomCount: number;
   maxOccupancy: number;
   maxAdults: number;
   status: 'active' | 'archived';
+  constituentRoomTypeIds?: string[];
 };
 
 type RoomRow = {
@@ -55,6 +59,39 @@ function inventoryErrorCopy(err: unknown): string {
   if (code === 'archive_blocked') {
     return 'This type still has future sold or blocked inventory — it cannot be archived.';
   }
+  if (code === 'constituent_in_use') {
+    return 'This type is a constituent of an active virtual type — archive the virtual type first.';
+  }
+  if (code === 'virtual_constituents_required') {
+    return 'Virtual types need at least two physical constituents.';
+  }
+  if (code === 'virtual_constituents_min_two') {
+    return 'Virtual types need at least two distinct physical constituents.';
+  }
+  if (code === 'virtual_constituents_duplicate') {
+    return 'Constituent room types must be distinct.';
+  }
+  if (code === 'virtual_constituent_not_physical') {
+    return 'Constituents must be active physical room types.';
+  }
+  if (code === 'virtual_room_count_must_be_zero') {
+    return 'Virtual types cannot have a room count.';
+  }
+  if (code === 'virtual_nested_forbidden') {
+    return 'Virtual types cannot include another virtual type as a constituent.';
+  }
+  if (code === 'virtual_occupancy_exceeds_constituents') {
+    return 'Occupancy cannot exceed the minimum across selected constituents.';
+  }
+  if (code === 'virtual_constituents_on_physical') {
+    return 'Physical room types cannot have constituents.';
+  }
+  if (code === 'virtual_type_no_rooms') {
+    return 'Virtual types do not have room units.';
+  }
+  if (code?.startsWith('virtual_')) {
+    return 'Virtual room type validation failed.';
+  }
   if (code === 'room_count_exceeded') {
     return 'This type’s room count is full. Raise the type’s room count first.';
   }
@@ -74,6 +111,8 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [kind, setKind] = useState<'physical' | 'virtual'>('physical');
+  const [constituentIds, setConstituentIds] = useState<string[]>([]);
   const [roomCount, setRoomCount] = useState('1');
   const [maxOccupancy, setMaxOccupancy] = useState('2');
   const [maxAdults, setMaxAdults] = useState('2');
@@ -101,6 +140,16 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
 
   const types = (typesQ.data?.roomTypes ?? []) as RoomTypeRow[];
   const rooms = (roomsQ.data?.rooms ?? []) as RoomRow[];
+  const physicalTypes = useMemo(
+    () => types.filter((t) => t.kind !== 'virtual'),
+    [types],
+  );
+  const typeCodeById = useMemo(
+    () => new Map(types.map((t) => [t.roomTypeId, t.code])),
+    [types],
+  );
+  const selectedRoomType = types.find((t) => t.roomTypeId === roomTypeId);
+  const virtualRoomTypeSelected = selectedRoomType?.kind === 'virtual';
   const roomsByType = useMemo(() => {
     const map = new Map<string, RoomRow[]>();
     for (const room of rooms) {
@@ -117,13 +166,17 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         roomTypeId: crypto.randomUUID(),
         code,
         name,
-        roomCount: Number(roomCount),
         maxOccupancy: Number(maxOccupancy),
         maxAdults: Number(maxAdults),
+        ...(kind === 'virtual'
+          ? { kind: 'virtual' as const, roomCount: 0, constituentRoomTypeIds: constituentIds }
+          : { roomCount: Number(roomCount) }),
       }),
     onSuccess: async () => {
       setCode('');
       setName('');
+      setKind('physical');
+      setConstituentIds([]);
       setMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['room-types', propertyId] });
     },
@@ -205,53 +258,71 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
               <DataTableHead>
                 <DataTableRow>
                   <DataTableHeaderCell>Code</DataTableHeaderCell>
+                  <DataTableHeaderCell>Kind</DataTableHeaderCell>
                   <DataTableHeaderCell>Name</DataTableHeaderCell>
                   <DataTableHeaderCell>Room Count</DataTableHeaderCell>
                   <DataTableHeaderCell>Occupancy</DataTableHeaderCell>
+                  <DataTableHeaderCell>Constituents</DataTableHeaderCell>
                   <DataTableHeaderCell>Physical rooms</DataTableHeaderCell>
                   <DataTableHeaderCell />
                 </DataTableRow>
               </DataTableHead>
               <DataTableBody>
-                {types.map((t) => (
+                {types.map((t) => {
+                  const isVirtual = t.kind === 'virtual';
+                  const constituentCodes = (t.constituentRoomTypeIds ?? [])
+                    .map((id) => typeCodeById.get(id) ?? id)
+                    .join(', ');
+                  return (
                   <DataTableRow key={t.roomTypeId}>
                     <DataTableCell>
                       <span translate="no">{t.code}</span>
                     </DataTableCell>
+                    <DataTableCell>
+                      <Badge rung="informational">{isVirtual ? 'Virtual' : 'Physical'}</Badge>
+                    </DataTableCell>
                     <DataTableCell>{t.name}</DataTableCell>
                     <DataTableCell>
-                      <Field
-                        label={`Room Count for ${t.code}`}
-                        control={
-                          <Input
-                            type="number"
-                            min={1}
-                            autoComplete="off"
-                            value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
-                            onChange={(e) =>
-                              setTypeEdits((prev) => ({
-                                ...prev,
-                                [t.roomTypeId]: { roomCount: e.target.value },
-                              }))
-                            }
-                          />
-                        }
-                      />
+                      {isVirtual ? (
+                        '—'
+                      ) : (
+                        <Field
+                          label={`Room Count for ${t.code}`}
+                          control={
+                            <Input
+                              type="number"
+                              min={1}
+                              autoComplete="off"
+                              value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
+                              onChange={(e) =>
+                                setTypeEdits((prev) => ({
+                                  ...prev,
+                                  [t.roomTypeId]: { roomCount: e.target.value },
+                                }))
+                              }
+                            />
+                          }
+                        />
+                      )}
                     </DataTableCell>
                     <DataTableCell>
                       {t.maxAdults} / {t.maxOccupancy}
                     </DataTableCell>
+                    <DataTableCell>{isVirtual ? constituentCodes || '—' : '—'}</DataTableCell>
                     <DataTableCell>{roomsByType.get(t.roomTypeId)?.length ?? 0}</DataTableCell>
                     <DataTableCell>
-                      <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
-                        Save Room Type
-                      </Button>
+                      {!isVirtual ? (
+                        <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
+                          Save Room Type
+                        </Button>
+                      ) : null}
                       <Button type="button" intent="destructive" onClick={() => setArchiveTarget(t)}>
                         Archive Room Type
                       </Button>
                     </DataTableCell>
                   </DataTableRow>
-                ))}
+                  );
+                })}
               </DataTableBody>
             </DataTable>
           )}
@@ -266,6 +337,22 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           >
             <h2>Create Room Type</h2>
             <Field
+              label="Kind"
+              control={
+                <NativeSelect
+                  value={kind}
+                  onChange={(e) => {
+                    const next = e.target.value as 'physical' | 'virtual';
+                    setKind(next);
+                    if (next === 'physical') setConstituentIds([]);
+                  }}
+                >
+                  <option value="physical">Physical</option>
+                  <option value="virtual">Virtual (run-of-house)</option>
+                </NativeSelect>
+              }
+            />
+            <Field
               label="Code"
               control={
                 <Input
@@ -279,18 +366,45 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
               label="Name"
               control={<Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />}
             />
-            <Field
-              label="Room Count"
-              control={
-                <Input
-                  type="number"
-                  min={1}
-                  value={roomCount}
-                  onChange={(e) => setRoomCount(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
+            {kind === 'physical' ? (
+              <Field
+                label="Room Count"
+                control={
+                  <Input
+                    type="number"
+                    min={1}
+                    value={roomCount}
+                    onChange={(e) => setRoomCount(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+            ) : (
+              <Field
+                label="Constituents"
+                control={
+                  <div data-testid="virtual-constituents" className="stack">
+                    {physicalTypes.map((t) => (
+                      <label key={t.roomTypeId} className="stack-row">
+                        <Checkbox
+                          value={t.roomTypeId}
+                          checked={constituentIds.includes(t.roomTypeId)}
+                          onChange={(e) => {
+                            const id = t.roomTypeId;
+                            setConstituentIds((prev) =>
+                              e.target.checked ? [...prev, id] : prev.filter((x) => x !== id),
+                            );
+                          }}
+                        />
+                        <span translate="no">
+                          {t.code} {t.name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                }
+              />
+            )}
             <Field
               label="Max Occupancy"
               control={
@@ -324,12 +438,21 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         <>
           {types.map((t) => {
             const inType = roomsByType.get(t.roomTypeId) ?? [];
+            const isVirtual = t.kind === 'virtual';
             return (
               <section key={t.roomTypeId}>
                 <h2>
                   <span translate="no">{t.code}</span> {t.name}
+                  {isVirtual ? (
+                    <>
+                      {' '}
+                      <Badge rung="informational">Virtual</Badge>
+                    </>
+                  ) : null}
                 </h2>
-                {inType.length === 0 ? (
+                {isVirtual ? (
+                  <p className="muted">Virtual types do not have room units.</p>
+                ) : inType.length === 0 ? (
                   <p className="muted">
                     No rooms in this type — create one. Sellable count is still {t.roomCount}.
                   </p>
@@ -442,11 +565,15 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                   {types.map((t) => (
                     <option key={t.roomTypeId} value={t.roomTypeId}>
                       {t.code} {t.name}
+                      {t.kind === 'virtual' ? ' (virtual)' : ''}
                     </option>
                   ))}
                 </NativeSelect>
               }
             />
+            {virtualRoomTypeSelected ? (
+              <p className="muted">Virtual types do not have room units.</p>
+            ) : null}
             <Field
               label="Room code"
               control={
@@ -454,16 +581,22 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                   value={roomCode}
                   onChange={(e) => setRoomCode(e.target.value)}
                   autoComplete="off"
+                  disabled={virtualRoomTypeSelected}
                 />
               }
             />
             <Field
               label="Floor"
               control={
-                <Input value={roomFloor} onChange={(e) => setRoomFloor(e.target.value)} autoComplete="off" />
+                <Input
+                  value={roomFloor}
+                  onChange={(e) => setRoomFloor(e.target.value)}
+                  autoComplete="off"
+                  disabled={virtualRoomTypeSelected}
+                />
               }
             />
-            <Button type="submit" intent="primary" disabled={saving}>
+            <Button type="submit" intent="primary" disabled={saving || virtualRoomTypeSelected}>
               {saving ? 'Saving…' : 'Create Room'}
             </Button>
           </form>

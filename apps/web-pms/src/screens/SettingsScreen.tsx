@@ -571,6 +571,14 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             {...common}
           />
           <DomainText
+            label="Auth hold hours"
+            configKey="pms.payments.auth_hold_hours"
+            initial={lookup(keys, 'pms.payments.auth_hold_hours')}
+            inputType="number"
+            hint="Authorized card holds older than this many hours are voided automatically."
+            {...common}
+          />
+          <DomainText
             label="Inquiry TTL days"
             configKey="pms.reservations.inquiry_ttl_days"
             initial={lookup(keys, 'pms.reservations.inquiry_ttl_days')}

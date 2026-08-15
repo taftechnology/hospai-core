@@ -87,6 +87,7 @@ describe('SettingsScreen', () => {
         domain('pms.money.currencies_list', []),
         domain('pms.folio.breakfast_rule', 'EXCLUDED FROM ROOM/BED PRICE'),
         domain('pms.time.time_zone', 'UTC'),
+        domain('pms.payments.auth_hold_hours', 72),
       ],
     });
     putDomainConfig.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
@@ -146,6 +147,16 @@ describe('SettingsScreen', () => {
     expect(
       screen.getByText(
         'When on, night audit extends in-house stays that are due out tomorrow by one night if the extra night is available.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('auth_hold_hours: domain list includes key and exact consumer hint', async () => {
+    renderSettings('/settings/property');
+    expect(await screen.findByLabelText('Auth hold hours')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Authorized card holds older than this many hours are voided automatically.',
       ),
     ).toBeTruthy();
   });

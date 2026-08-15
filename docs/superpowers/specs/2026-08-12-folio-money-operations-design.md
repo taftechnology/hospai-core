@@ -384,7 +384,7 @@ Input: `{ sourceFolioLineId, kind: 'percent' | 'fixed', bps?, amountMinor?, reas
 - `fixed`: `amountMinor > 0` and `amountMinor <= source.amount_minor` → post `-amountMinor`.
 - Reject source `SPLIT_REVERSAL` / `TAX` / `PAYMENT` / `PAYMENT_REFUND` / `TRANSFER_REVERSAL` / `DISCOUNT`.
 - Source window `OPEN`.
-- Charge code `DISCOUNT`, `tax_group` NULL (exempt this chunk — leftover 5, taxable discounts). `source = 'DESK'`, `split_of = sourceFolioLineId`.
+- Charge code `DISCOUNT`, `tax_group` NULL. Manual discounts restamp tax on the new DISCOUNT parent using the source product charge code (not `DISCOUNT`); closed in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md). `source = 'DESK'`, `split_of = sourceFolioLineId`.
 - Seed `('DISCOUNT', 'Discount')`. Add to `SYSTEM_CHARGE_CODES`.
 
 Stay-level (no source line) is leftover 6. Line-level is auditable and foots.
@@ -797,7 +797,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 2. **Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.
 3. **`unknown` reconciliation exit** (payments leftover, unchanged).
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
-5. **Taxable discounts** / tax restamp on discount.
+5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
 6. **Stay-level discount** (no source line).
 7. **Promo codes** — §7.4.
 8. **Authorization expiry** / hold-lapse (payments leftover).

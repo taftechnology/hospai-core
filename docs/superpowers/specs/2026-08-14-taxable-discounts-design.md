@@ -258,17 +258,17 @@ Fixture discipline: `crypto.randomUUID()` keys; `check:pms-core-test-dates`.
 
 ## 10. Implementation checklist
 
-- [ ] `tryPostDiscount`: after DISCOUNT insert, call `stampTaxForChargeSync` with lock-2 params (`chargeCode: source.charge_code`, `parentSource: 'DESK'`, `postingDate: resolvePostingBusinessDateSync()`, discount `posted`).
-- [ ] Original source + source TAX rows never mutated; no new charge codes.
-- [ ] Exempt source → DISCOUNT only; no new error code.
-- [ ] Idempotent replay returns same `folioLineId`; no duplicate tax (`runIdempotent` + `folio_line_tax_uniq`).
-- [ ] DO tests §7 (cases 1–7) green.
-- [ ] HTTP test: POST discount + GET folio shows tax child.
-- [ ] `computeTax` negative-base unit test.
-- [ ] Case **29** updated: **add** `seedRoomTax`; discount tax found by `taxOf === discountFolioLineId` (ROOM TAX positive, unchanged); DISCOUNT FX assertions preserved.
-- [ ] `[102]` / catalog **77** / writers **52** / route **[127]** / schema **27** / `NIGHT_AUDIT_STEPS` **7** / `PLATFORM_GAPS` `[]` unchanged.
-- [ ] Demo seed untouched; SPA zero product change preferred.
-- [ ] Bidirectional pointer sentences in folio-money-ops §7.3 + §19 and tax-posting §2.5 when landed (final implementation task).
+- [x] `tryPostDiscount`: after DISCOUNT insert, call `stampTaxForChargeSync` with lock-2 params (`chargeCode: source.charge_code`, `parentSource: 'DESK'`, `postingDate: resolvePostingBusinessDateSync()`, discount `posted`).
+- [x] Original source + source TAX rows never mutated; no new charge codes.
+- [x] Exempt source → DISCOUNT only; no new error code.
+- [x] Idempotent replay returns same `folioLineId`; no duplicate tax (`runIdempotent` + `folio_line_tax_uniq`).
+- [x] DO tests §7 (cases 1–7) green.
+- [x] HTTP test: POST discount + GET folio shows tax child.
+- [x] `computeTax` negative-base unit test.
+- [x] Case **29** updated: **add** `seedRoomTax`; discount tax found by `taxOf === discountFolioLineId` (ROOM TAX positive, unchanged); DISCOUNT FX assertions preserved.
+- [x] `[102]` / catalog **77** / writers **52** / route **[127]** / schema **27** / `NIGHT_AUDIT_STEPS` **7** / `PLATFORM_GAPS` `[]` unchanged.
+- [x] Demo seed untouched; SPA zero product change preferred.
+- [x] Bidirectional pointer sentences in folio-money-ops §7.3 + §19 and tax-posting §2.5 when landed (final implementation task).
 
 ---
 

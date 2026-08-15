@@ -731,7 +731,7 @@ Tax-posting §2.5 engine skips list (~159, after item 3 or as new bullet):
 
 > Discount parents (`source = 'DESK'`) are **not** skipped; restamp uses the **source product `chargeCode`**, not `DISCOUNT` — see [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
 
-- [ ] **Step 1: Pin frozen heads (no schema bump)**
+- [x] **Step 1: Pin frozen heads (no schema bump)**
 
 ```bash
 pnpm generate:ddl
@@ -743,7 +743,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 Expect: catalog **77**; route **[127] = post_demo_seed**; `[102] = post_folio_discount`; `[101] = post_folio_refund`; `PROPERTY_SCHEMA_HEAD === 27`; `ORG_SCHEMA_HEAD === 7`; `AUDIT_WRITER_COMMAND_IDS.size === 52`; `PLATFORM_GAPS === []`; `NIGHT_AUDIT_STEPS.length === 7`; `generate:ddl` no-op.
 
-- [ ] **Step 2: Run targeted taxable-discount test superset**
+- [x] **Step 2: Run targeted taxable-discount test superset**
 
 ```bash
 pnpm --filter @hospai/money exec vitest run src/index.test.ts -t "negative base"
@@ -755,7 +755,7 @@ pnpm check:pms-core-test-dates
 
 Expected: PASS.
 
-- [ ] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -796,13 +796,13 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true` failures. Do **not** run unsharded `pnpm --filter @hospai/pms-core test` (may segfault).
 
-- [ ] **Step 4: Add spec pointers + tick spec §10 checklist**
+- [x] **Step 4: Add spec pointers + tick spec §10 checklist**
 
 Tick every item in spec §10 Implementation checklist in `docs/superpowers/specs/2026-08-14-taxable-discounts-design.md`.
 
-- [ ] **Step 5: Tick Task 4 checkboxes in this plan**
+- [x] **Step 5: Tick Task 4 checkboxes in this plan**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-folio-money-operations-design.md \

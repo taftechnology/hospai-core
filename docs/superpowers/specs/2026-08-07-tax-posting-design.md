@@ -161,8 +161,9 @@ Ad-hoc `folio.add_item` lines have no `business_date` column requirement (CHECK 
 1. Parent `source = 'PAYMENT'`
 2. Parent `source = 'SPLIT_REVERSAL'`
 3. Parent `source = 'TAX'` (no tax on tax)
-4. Parent charge code's `tax_group IS NULL`
-5. No `tax_rule` rows matching `(tax_group, postingBusinessDate ∈ [valid_from, valid_to))`
+4. Discount parents (`source = 'DESK'`) are **not** skipped; restamp uses the **source product `chargeCode`**, not `DISCOUNT` — see [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
+5. Parent charge code's `tax_group IS NULL`
+6. No `tax_rule` rows matching `(tax_group, postingBusinessDate ∈ [valid_from, valid_to))`
 
 None of these (nor provisional replay under a superseded rate) are caught by a foots-correctly balance test — each needs an explicit case.
 

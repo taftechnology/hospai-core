@@ -67,6 +67,20 @@ export type FxRateRow = {
   createdBy: string | null;
 };
 
+export type RoomTypeRead = {
+  roomTypeId: string;
+  code: string;
+  name: string;
+  kind?: 'physical' | 'virtual';
+  roomCount: number;
+  maxOccupancy: number;
+  maxAdults: number;
+  status: 'active' | 'archived';
+  constituentRoomTypeIds?: string[];
+  createdAt?: number;
+  updatedAt?: number;
+};
+
 export type ReservationRead = {
   reservationId: string;
   roomTypeId: string;
@@ -83,6 +97,7 @@ export type ReservationRead = {
   dndFlag?: boolean;
   ratePlanId?: string;
   confirmBy?: number | null;
+  allocatedRoomTypeId?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -1486,7 +1501,7 @@ export function createClient(opts: {
       const { body } = await getJson(
         `/v1/properties/${enc(propertyId)}/room-types${q ? `?${q}` : ''}`,
       );
-      return body as { ok: true; roomTypes: unknown[] };
+      return body as { ok: true; roomTypes: RoomTypeRead[] };
     },
     async createRoomType(
       propertyId: string,

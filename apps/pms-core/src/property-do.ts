@@ -8441,6 +8441,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           cancelPenaltyType: string;
           confirmBy: number | null;
           expiresAt: number | null;
+          allocatedRoomTypeId: string;
           createdAt: number;
           updatedAt: number;
         };
@@ -8451,7 +8452,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
                 adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, cancel_penalty_type,
-                confirm_by, expires_at, created_at, updated_at
+                confirm_by, expires_at, allocated_room_type_id, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
@@ -8473,6 +8474,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancel_penalty_type: string;
       confirm_by: number | null;
       expires_at: number | null;
+      allocated_room_type_id: string;
       created_at: number;
       updated_at: number;
     }>;
@@ -8498,6 +8500,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         cancelPenaltyType: row.cancel_penalty_type,
         confirmBy: row.confirm_by,
         expiresAt: row.expires_at,
+        allocatedRoomTypeId: row.allocated_room_type_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
@@ -10083,10 +10086,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       roomTypeId: string;
       code: string;
       name: string;
+      kind: 'physical' | 'virtual';
       roomCount: number;
       maxOccupancy: number;
       maxAdults: number;
       status: 'active' | 'archived';
+      constituentRoomTypeIds: string[];
       createdAt: number;
       updatedAt: number;
     }>
@@ -10095,7 +10100,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT room_type_id, code, name, room_count, max_occupancy, max_adults,
-                status, created_at, updated_at
+                status, kind, created_at, updated_at
          FROM room_type
          WHERE (? = 'all' OR status = ?)
          ORDER BY code`,
@@ -10110,20 +10115,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       max_occupancy: number;
       max_adults: number;
       status: 'active' | 'archived';
+      kind: 'physical' | 'virtual';
       created_at: number;
       updated_at: number;
     }>;
-    return rows.map((r) => ({
-      roomTypeId: r.room_type_id,
-      code: r.code,
-      name: r.name,
-      roomCount: r.room_count,
-      maxOccupancy: r.max_occupancy,
-      maxAdults: r.max_adults,
-      status: r.status,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    }));
+    return rows.map((r) => {
+      const kind = r.kind ?? 'physical';
+      const constituentRoomTypeIds =
+        kind === 'virtual'
+          ? this.readVirtualConstituentIdsSync(r.room_type_id).sort((a, b) => a.localeCompare(b))
+          : [];
+      return {
+        roomTypeId: r.room_type_id,
+        code: r.code,
+        name: r.name,
+        kind,
+        roomCount: r.room_count,
+        maxOccupancy: r.max_occupancy,
+        maxAdults: r.max_adults,
+        status: r.status,
+        constituentRoomTypeIds,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    });
   }
 
   async listRateDays(q: {

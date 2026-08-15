@@ -479,6 +479,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             label="Auto extend"
             configKey="pms.night_audit.auto_extend"
             initial={lookup(keys, 'pms.night_audit.auto_extend')}
+            hint="When on, night audit extends in-house stays that are due out tomorrow by one night if the extra night is available."
             {...common}
           />
 

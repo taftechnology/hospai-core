@@ -140,6 +140,16 @@ describe('SettingsScreen', () => {
     });
   });
 
+  it('8: shows auto_extend consumer hint', async () => {
+    renderSettings('/settings/property');
+    expect(await screen.findByLabelText('Auto extend')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'When on, night audit extends in-house stays that are due out tomorrow by one night if the extra night is available.',
+      ),
+    ).toBeTruthy();
+  });
+
   it('shows auto_assign_rooms consumer copy', async () => {
     renderSettings('/settings/property');
     expect(await screen.findByLabelText('Auto assign rooms')).toBeTruthy();

@@ -63,6 +63,7 @@ async function bookConfirmed(
 }
 
 describe('reservation check-in triangle', () => {
+  // Default auto_assign_rooms=true but zero room rows → zero pick candidates → ROOM_REQUIRED.
   it('23. check-in confirmed, no room_id, no payload → ROOM_REQUIRED', async () => {
     const name = `ci-23-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name);

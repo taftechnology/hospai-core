@@ -8091,6 +8091,61 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private pickAutoAssignRoomSync(
+    reservation: {
+      reservation_id: string;
+      room_type_id: string;
+      allocated_room_type_id: string;
+      arrival_date: string;
+      departure_date: string;
+    },
+    input: { overrideCleanliness?: boolean },
+  ): string | null {
+    const allocatedRoomTypeId = reservation.allocated_room_type_id || reservation.room_type_id;
+    const candidates = this.ctx.storage.sql
+      .exec(
+        `SELECT room_id, status FROM room WHERE room_type_id = ? ORDER BY code ASC`,
+        allocatedRoomTypeId,
+      )
+      .toArray() as Array<{ room_id: string; status: string }>;
+
+    const cleanliness = this.readConfigValueSync('pms.reservations.check_in_cleanliness') ?? 'strict';
+    const allowDirtyOverride =
+      this.readConfigValueSync('pms.reservations.allow_dirty_check_in_override') !== false;
+    const requireInspection =
+      this.readConfigValueSync('pms.housekeeping.require_inspection') === true;
+
+    for (const candidate of candidates) {
+      try {
+        this.assertRoomAssignableSync(candidate.room_id, {
+          reservationId: reservation.reservation_id,
+          allocatedRoomTypeId,
+          arrivalDate: reservation.arrival_date,
+          departureDate: reservation.departure_date,
+        });
+      } catch {
+        continue;
+      }
+      if (
+        candidate.status === 'dirty' &&
+        cleanliness === 'strict' &&
+        !(input.overrideCleanliness === true && allowDirtyOverride)
+      ) {
+        continue;
+      }
+      if (
+        requireInspection &&
+        cleanliness === 'strict' &&
+        candidate.status === 'clean' &&
+        !(input.overrideCleanliness === true && allowDirtyOverride)
+      ) {
+        continue;
+      }
+      return candidate.room_id;
+    }
+    return null;
+  }
+
   /**
    * Check in a confirmed reservation. Implements catalog `reservations.check_in`.
    * Fingerprint: `{ reservationId, roomId?, overrideCleanliness? }`.
@@ -8155,7 +8210,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
           }
 
-          const resolvedRoomId = input.roomId ?? reservation.room_id;
+          let resolvedRoomId = input.roomId ?? reservation.room_id ?? null;
+          let autoAssigned = false;
+
+          if (!resolvedRoomId) {
+            if (this.readConfigValueSync('pms.ops.auto_assign_rooms') === true) {
+              const picked = this.pickAutoAssignRoomSync(
+                { ...reservation, reservation_id: input.reservationId },
+                input,
+              );
+              if (picked) {
+                resolvedRoomId = picked;
+                autoAssigned = true;
+              }
+            }
+          }
+
           if (!resolvedRoomId) throw new RoomRequiredError();
 
           if (resolvedRoomId !== reservation.room_id) {
@@ -8260,6 +8330,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               status: 'checked_in',
               roomId: resolvedRoomId,
               ...(input.overrideCleanliness ? { overrideCleanliness: true } : {}),
+              ...(autoAssigned ? { autoAssigned: true } : {}),
             },
             reservationId: input.reservationId,
           });

@@ -983,6 +983,24 @@ export const CARD_DISPLAY_TOKEN_V26_STATEMENTS = [
 export const CARD_DISPLAY_TOKEN_V26_SQL =
   CARD_DISPLAY_TOKEN_V26_STATEMENTS.join(';\n\n') + ';\n';
 
+export const VIRTUAL_ROOM_TYPES_V27_STATEMENTS = [
+  `ALTER TABLE room_type ADD COLUMN kind TEXT NOT NULL DEFAULT 'physical' CHECK (kind IN ('physical', 'virtual'))`,
+  `CREATE TABLE room_type_constituent (
+  virtual_room_type_id   TEXT NOT NULL,
+  physical_room_type_id  TEXT NOT NULL,
+  created_at             INTEGER NOT NULL,
+  PRIMARY KEY (virtual_room_type_id, physical_room_type_id),
+  FOREIGN KEY (virtual_room_type_id) REFERENCES room_type(room_type_id),
+  FOREIGN KEY (physical_room_type_id) REFERENCES room_type(room_type_id)
+)`,
+  `CREATE INDEX room_type_constituent_physical_idx ON room_type_constituent (physical_room_type_id)`,
+  `ALTER TABLE reservation ADD COLUMN allocated_room_type_id TEXT NOT NULL DEFAULT ''`,
+  `UPDATE reservation SET allocated_room_type_id = room_type_id WHERE allocated_room_type_id = ''`,
+] as const;
+
+export const VIRTUAL_ROOM_TYPES_V27_SQL =
+  VIRTUAL_ROOM_TYPES_V27_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1113,5 +1131,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 26,
     name: 'card_display_token',
     statements: CARD_DISPLAY_TOKEN_V26_STATEMENTS,
+  },
+  {
+    version: 27,
+    name: 'virtual_room_types',
+    statements: VIRTUAL_ROOM_TYPES_V27_STATEMENTS,
   },
 ] as const;

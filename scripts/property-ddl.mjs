@@ -72,6 +72,7 @@ if (process.argv.includes('--self-test')) {
   let MULTI_CURRENCY_FOLIO_V24_SQL;
   let EXCEPTION_QUEUE_WORKBENCH_V25_SQL;
   let CARD_DISPLAY_TOKEN_V26_SQL;
+  let VIRTUAL_ROOM_TYPES_V27_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -112,6 +113,7 @@ if (process.argv.includes('--self-test')) {
       MULTI_CURRENCY_FOLIO_V24_SQL,
       EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
       CARD_DISPLAY_TOKEN_V26_SQL,
+      VIRTUAL_ROOM_TYPES_V27_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -385,6 +387,16 @@ const doPropertyTargets = [
 
 `,
     sql: CARD_DISPLAY_TOKEN_V26_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0027_virtual_room_types.sql'),
+    header: `-- PropertyDO virtual room types — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: room_type.kind, room_type_constituent, reservation.allocated_room_type_id backfill.
+
+`,
+    sql: VIRTUAL_ROOM_TYPES_V27_SQL,
   },
 ];
 

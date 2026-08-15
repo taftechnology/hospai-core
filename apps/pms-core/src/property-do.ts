@@ -1195,6 +1195,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'restriction_day',
       'room',
   'room_ooo',
+  'room_type_constituent',
   'room_type',
   'shift',
   'tax_rule',
@@ -1230,6 +1231,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM restriction_day) +
       (SELECT COUNT(*) FROM room) +
       (SELECT COUNT(*) FROM room_ooo) +
+      (SELECT COUNT(*) FROM room_type_constituent) +
       (SELECT COUNT(*) FROM room_type) +
       (SELECT COUNT(*) FROM shift) +
       (SELECT COUNT(*) FROM tax_rule) AS n`,

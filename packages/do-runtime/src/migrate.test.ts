@@ -41,6 +41,7 @@ import {
   MULTI_CURRENCY_FOLIO_V24_SQL,
   EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
   CARD_DISPLAY_TOKEN_V26_SQL,
+  VIRTUAL_ROOM_TYPES_V27_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -165,6 +166,15 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE payment ADD COLUMN card_brand')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith(`ALTER TABLE room_type ADD COLUMN kind TEXT NOT NULL DEFAULT 'physical'`)) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN allocated_room_type_id')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('UPDATE reservation SET allocated_room_type_id')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('INSERT INTO reservation_v20')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation_v20 RENAME TO reservation')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE rate_plan ADD COLUMN')) return { toArray: () => [] };
@@ -204,16 +214,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 26', () => {
+  it('applies property migrations through version 27', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(26);
+    expect(v1).toBe(27);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(26);
-    expect(sql.schemaVersion).toHaveLength(26);
+    expect(v2).toBe(27);
+    expect(sql.schemaVersion).toHaveLength(27);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26,
+      26, 27,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -605,7 +615,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(26);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(27);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -742,7 +752,9 @@ describe('schema head constants', () => {
   });
 
   it('property schema head is 26 after card_display_token', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(26);
+    expect(Math.max(...PROPERTY_MIGRATIONS.filter((m) => m.version <= 26).map((m) => m.version))).toBe(
+      26,
+    );
     const v26 = PROPERTY_MIGRATIONS.find((m) => m.version === 26);
     expect(v26?.name).toBe('card_display_token');
     expect(v26?.statements).toEqual([
@@ -761,5 +773,29 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(CARD_DISPLAY_TOKEN_V26_SQL.trim());
+  });
+
+  it('property schema head is 27 after virtual_room_types', () => {
+    const v27 = PROPERTY_MIGRATIONS.find((m) => m.version === 27);
+    expect(v27?.name).toBe('virtual_room_types');
+    expect(v27?.statements.some((s) => s.includes(`kind TEXT NOT NULL DEFAULT 'physical'`))).toBe(
+      true,
+    );
+    expect(v27?.statements.some((s) => s.includes('CREATE TABLE room_type_constituent'))).toBe(
+      true,
+    );
+    expect(v27?.statements.some((s) => s.includes('allocated_room_type_id'))).toBe(true);
+  });
+
+  it('migrations/do-property/0027_virtual_room_types.sql matches VIRTUAL_ROOM_TYPES_V27_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0027_virtual_room_types.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(VIRTUAL_ROOM_TYPES_V27_SQL.trim());
   });
 });

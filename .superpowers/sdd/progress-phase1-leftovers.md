@@ -46,8 +46,6 @@ Out of this campaign:
 
 Sellable = a desk can take/price a stay, house it, settle money, roll the date. ARCHITECTURE §14 / §16.1.
 
-Still owed:
-
-Stale leftover text (already shipped): folio-money §19 item **4** still says partial refunds open; `refunded_amount_minor` is written.
+Still owed: _(nothing — queue cleared 2026-08-15)_
 
 Not Phase 1: recurring/`breakfast_rule`; OrgDO chain-wide plans; MASTER allotments; plan-scoped restrictions (type-wide stays); inclusions/photos; real PSP; `rematerializesRates` consumer; `folio.add_item` class (locked `QUEUE_PROVISIONAL`).

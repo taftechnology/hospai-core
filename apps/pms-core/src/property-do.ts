@@ -57,6 +57,11 @@ import {
   ROOM_REQUIRED,
   ROOM_NOT_READY,
   BALANCE_DUE,
+  FOLIO_BALANCE_DUE,
+  INVOICE_ALREADY_EXISTS,
+  INVOICE_NOT_FOUND,
+  INVOICE_R2_UNBOUND,
+  INVOICE_VOIDED,
   WINDOW_CLOSED,
   WINDOW_NOT_CLOSABLE,
   WINDOW_BALANCE_DUE,
@@ -221,7 +226,7 @@ import {
 } from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
-import { hasEventLogR2, reportObjectKey } from './event-log.js';
+import { hasEventLogR2, invoiceObjectKey, reportObjectKey } from './event-log.js';
 
 type PaymentStatus =
   | 'pending'
@@ -762,6 +767,37 @@ class BalanceDueError extends Error {
   }
 }
 
+class InvoiceAlreadyExistsError extends Error {
+  constructor() {
+    super(INVOICE_ALREADY_EXISTS);
+    this.name = 'InvoiceAlreadyExistsError';
+  }
+}
+class InvoiceR2UnboundError extends Error {
+  constructor() {
+    super(INVOICE_R2_UNBOUND);
+    this.name = 'InvoiceR2UnboundError';
+  }
+}
+class FolioBalanceDueError extends Error {
+  constructor(public balanceMinor: number) {
+    super(FOLIO_BALANCE_DUE);
+    this.name = 'FolioBalanceDueError';
+  }
+}
+class InvoiceNotFoundError extends Error {
+  constructor() {
+    super(INVOICE_NOT_FOUND);
+    this.name = 'InvoiceNotFoundError';
+  }
+}
+class InvoiceVoidedError extends Error {
+  constructor() {
+    super(INVOICE_VOIDED);
+    this.name = 'InvoiceVoidedError';
+  }
+}
+
 class WindowClosedError extends Error {
   constructor() {
     super(WINDOW_CLOSED);
@@ -917,6 +953,11 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
   | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
   | { ok: false; error: typeof BALANCE_DUE }
+  | { ok: false; error: typeof FOLIO_BALANCE_DUE }
+  | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+  | { ok: false; error: typeof INVOICE_R2_UNBOUND }
+  | { ok: false; error: typeof INVOICE_NOT_FOUND }
+  | { ok: false; error: typeof INVOICE_VOIDED }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -956,6 +997,11 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
   if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
   if (e instanceof BalanceDueError) return { ok: false, error: BALANCE_DUE };
+  if (e instanceof FolioBalanceDueError) return { ok: false, error: FOLIO_BALANCE_DUE };
+  if (e instanceof InvoiceAlreadyExistsError) return { ok: false, error: INVOICE_ALREADY_EXISTS };
+  if (e instanceof InvoiceR2UnboundError) return { ok: false, error: INVOICE_R2_UNBOUND };
+  if (e instanceof InvoiceNotFoundError) return { ok: false, error: INVOICE_NOT_FOUND };
+  if (e instanceof InvoiceVoidedError) return { ok: false, error: INVOICE_VOIDED };
   return null;
 }
 
@@ -3672,6 +3718,229 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async setReportsR2UnboundForTest(unbound: boolean): Promise<void> {
     this.assertUnsafeLocal('setReportsR2UnboundForTest');
     this.reportsR2UnboundForTest = unbound;
+  }
+
+  private readInvoiceCounterSync(): number {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.invoice_counter')
+      .toArray() as Array<{ value_json: string }>;
+    if (!rows[0]) {
+      const start = Number(this.readConfigValueSync('pms.invoice.starting_idx') ?? 1);
+      return start - 1;
+    }
+    return JSON.parse(rows[0].value_json) as number;
+  }
+
+  private bumpInvoiceCounterSync(expectedNext: number): void {
+    const current = this.readInvoiceCounterSync();
+    if (current + 1 !== expectedNext) throw new Error('invoice_counter_race');
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES ('__meta.invoice_counter', ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      JSON.stringify(expectedNext),
+      Date.now(),
+    );
+  }
+
+  private formatInvoiceNumberSync(counter: number): string {
+    const prefix = String(this.readConfigValueSync('pms.invoice.prefix') ?? 'INV-');
+    const suffix = String(this.readConfigValueSync('pms.invoice.suffix') ?? '');
+    return `${prefix}${String(counter).padStart(6, '0')}${suffix}`;
+  }
+
+  private async putInvoiceObject(
+    propertyId: string,
+    invoiceNumber: string,
+    body: unknown,
+  ): Promise<{ r2Key: string; sha256: string }> {
+    let bucket: R2Bucket;
+    try {
+      bucket = this.assertReportsR2Bound();
+    } catch (e) {
+      if (e instanceof Error && e.message === 'reports_r2_unbound') {
+        throw new InvoiceR2UnboundError();
+      }
+      throw e;
+    }
+    const encoded = new TextEncoder().encode(JSON.stringify(body));
+    const sha256 = await this.sha256Hex(encoded);
+    const r2Key = invoiceObjectKey(propertyId, invoiceNumber);
+    await bucket.put(r2Key, encoded);
+    return { r2Key, sha256 };
+  }
+
+  private hasActiveInvoiceForWindowSync(reservationId: string, folioWindowId: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 FROM invoice WHERE reservation_id = ? AND folio_window_id = ? AND voided_at IS NULL LIMIT 1`,
+        reservationId,
+        folioWindowId,
+      )
+      .toArray();
+    return rows.length > 0;
+  }
+
+  private buildInvoiceSnapshotSync(input: {
+    invoiceId: string;
+    invoiceNumber: string;
+    propertyId: string;
+    reservationId: string;
+    folioWindowId: string;
+    generatedAt: number;
+    autoGenerated: boolean;
+  }): Record<string, unknown> {
+    const reservationRows = this.ctx.storage.sql
+      .exec(
+        `SELECT guest_ref, pii_key_id, arrival_date, departure_date, room_id, rate_plan_id, status, promo_id
+         FROM reservation WHERE reservation_id = ?`,
+        input.reservationId,
+      )
+      .toArray() as Array<{
+      guest_ref: string;
+      pii_key_id: string;
+      arrival_date: string;
+      departure_date: string;
+      room_id: string | null;
+      rate_plan_id: string | null;
+      status: string;
+      promo_id: string | null;
+    }>;
+    const reservation = reservationRows[0]!;
+
+    const lineRows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, txn_currency, fx_rate,
+                business_date, source, tax_of, tax_rule_id, payment_id, created_at
+         FROM folio_line
+         WHERE reservation_id = ? AND folio_window_id = ?
+         ORDER BY created_at ASC`,
+        input.reservationId,
+        input.folioWindowId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      charge_code: string;
+      amount_minor: number;
+      ledger_amount_minor: number;
+      txn_currency: string;
+      fx_rate: string;
+      business_date: string | null;
+      source: string | null;
+      tax_of: string | null;
+      tax_rule_id: string | null;
+      payment_id: string | null;
+      created_at: number;
+    }>;
+
+    const chargeCodes = new Map<string, string>();
+    for (const code of [...new Set(lineRows.map((row) => row.charge_code))]) {
+      const ccRows = this.ctx.storage.sql
+        .exec(`SELECT name FROM charge_code WHERE code = ?`, code)
+        .toArray() as Array<{ name: string }>;
+      chargeCodes.set(code, ccRows[0]?.name ?? code);
+    }
+
+    const lines = lineRows.map((row) => ({
+      folioLineId: row.folio_line_id,
+      chargeCode: row.charge_code,
+      chargeName: chargeCodes.get(row.charge_code) ?? row.charge_code,
+      amountMinor: row.amount_minor,
+      ledgerAmountMinor: row.ledger_amount_minor,
+      txnCurrency: row.txn_currency,
+      fxRate: row.fx_rate,
+      businessDate: row.business_date,
+      source: row.source,
+      taxOf: row.tax_of,
+      taxRuleId: row.tax_rule_id,
+      paymentId: row.payment_id,
+    }));
+
+    const taxSummaryMap = new Map<string, { taxRuleId: string; label: string; amountMinor: number }>();
+    for (const row of lineRows) {
+      if (row.source !== 'TAX' && !row.tax_of) continue;
+      const taxRuleId = row.tax_rule_id ?? row.charge_code;
+      const bucket = taxSummaryMap.get(taxRuleId) ?? {
+        taxRuleId,
+        label: chargeCodes.get(row.charge_code) ?? row.charge_code,
+        amountMinor: 0,
+      };
+      bucket.amountMinor += row.ledger_amount_minor;
+      taxSummaryMap.set(taxRuleId, bucket);
+    }
+
+    let chargesMinor = 0;
+    let taxMinor = 0;
+    let paymentsMinor = 0;
+    for (const row of lineRows) {
+      if (row.source === 'TAX' || row.tax_of) {
+        taxMinor += row.ledger_amount_minor;
+      } else if (row.charge_code === 'PAYMENT') {
+        paymentsMinor += row.ledger_amount_minor;
+      } else {
+        chargesMinor += row.ledger_amount_minor;
+      }
+    }
+    const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
+
+    const dateRule = String(this.readConfigValueSync('pms.invoice.date_rule') ?? 'CHECKOUT');
+    const invoiceDate =
+      dateRule === 'CHECKOUT'
+        ? reservation.departure_date
+        : (this.readBusinessDateSync() ?? reservation.departure_date);
+
+    const presentation = {
+      title: this.readConfigValueSync('pms.invoice.title'),
+      footer: this.readConfigValueSync('pms.invoice.footer'),
+      showCompany: this.readConfigValueSync('pms.invoice.show_company'),
+      showRoom: this.readConfigValueSync('pms.invoice.show_room'),
+      showTaxfee: this.readConfigValueSync('pms.invoice.show_taxfee'),
+      showDuedate: this.readConfigValueSync('pms.invoice.show_duedate'),
+      showPackage: this.readConfigValueSync('pms.invoice.show_package'),
+      compact: this.readConfigValueSync('pms.invoice.compact'),
+      language: this.readConfigValueSync('pms.invoice.language'),
+      guestLang: this.readConfigValueSync('pms.invoice.guest_lang'),
+      titleLang: this.readConfigValueSync('pms.invoice.title_lang'),
+    };
+
+    return {
+      schemaVersion: 1,
+      invoiceId: input.invoiceId,
+      invoiceNumber: input.invoiceNumber,
+      propertyId: input.propertyId,
+      reservationId: input.reservationId,
+      folioWindowId: input.folioWindowId,
+      generatedAt: input.generatedAt,
+      invoiceDate,
+      guestRef: reservation.guest_ref,
+      piiKeyId: reservation.pii_key_id,
+      reservation: {
+        arrivalDate: reservation.arrival_date,
+        departureDate: reservation.departure_date,
+        roomId: reservation.room_id,
+        ratePlanId: reservation.rate_plan_id,
+        status: reservation.status,
+        ...(reservation.promo_id ? { promoId: reservation.promo_id } : {}),
+      },
+      presentation,
+      ledgerCurrency: this.readStoredLedgerCurrencySync(),
+      lines,
+      taxSummary: [...taxSummaryMap.values()],
+      totals: { chargesMinor, taxMinor, paymentsMinor, balanceMinor },
+      autoGenerated: input.autoGenerated,
+    };
+  }
+
+  async writeConfigValueForTest(key: string, value: unknown): Promise<void> {
+    this.assertUnsafeLocal('writeConfigValueForTest');
+    this.ctx.storage.sql.exec(
+      `INSERT INTO property_config (key, value_json, version, updated_at)
+       VALUES (?, ?, 1, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      key,
+      JSON.stringify(value),
+      Date.now(),
+    );
   }
 
   async setSnapshotFailureAfterPutForTest(message: string | null): Promise<void> {
@@ -17825,6 +18094,348 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       })),
       noPost: reservationRows[0].no_post === 1,
     };
+  }
+
+  async tryGenerateInvoice(
+    actor: ActorContext,
+    input: {
+      reservationId: string;
+      folioWindowId?: string;
+      generatedBy?: 'checkout' | 'desk';
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | {
+        ok: true;
+        invoiceId: string;
+        invoiceNumber: string;
+        reservationId: string;
+        folioWindowId: string;
+        r2Key: string;
+        sha256: string;
+        generatedAt: number;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+    | { ok: false; error: typeof FOLIO_BALANCE_DUE }
+    | { ok: false; error: typeof INVOICE_R2_UNBOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const resolvedWindow = input.folioWindowId ?? this.guestFolioWindowId(input.reservationId);
+
+    type GenerateOk = {
+      ok: true;
+      invoiceId: string;
+      invoiceNumber: string;
+      reservationId: string;
+      folioWindowId: string;
+      r2Key: string;
+      sha256: string;
+      generatedAt: number;
+    };
+
+    const prior = this.lookupIdempotentResponse<GenerateOk>(idem);
+    if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
+    if (prior) return prior;
+
+    type PrepareOk = {
+      ok: true;
+      invoiceId: string;
+      invoiceNumber: string;
+      nextCounter: number;
+      snapshot: Record<string, unknown>;
+    };
+    type PrepareErr = { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS_TRANSITION };
+
+    let prepared: PrepareOk | PrepareErr;
+    try {
+      prepared = this.ctx.storage.transactionSync(() => {
+        const resRows = this.ctx.storage.sql
+          .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+          .toArray() as Array<{ status: string }>;
+        if (!resRows[0]) return { ok: false as const, error: NOT_FOUND };
+
+        const status = resRows[0].status;
+        if (input.generatedBy === 'checkout') {
+          if (status !== 'checked_in') return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+        } else if (status !== 'checked_in' && status !== 'checked_out') {
+          return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+        }
+
+        const window = this.readFolioWindowRowSync(resolvedWindow);
+        if (!window || window.reservationId !== input.reservationId) {
+          return { ok: false as const, error: NOT_FOUND };
+        }
+
+        if (this.hasActiveInvoiceForWindowSync(input.reservationId, resolvedWindow)) {
+          throw new InvoiceAlreadyExistsError();
+        }
+
+        const balanceMinor = this.windowBalanceMinorSync(resolvedWindow);
+        const allowPending = this.readConfigValueSync('pms.invoice.allow_pending') === true;
+        if (balanceMinor > 0 && !allowPending) {
+          throw new FolioBalanceDueError(balanceMinor);
+        }
+
+        const nextCounter = this.readInvoiceCounterSync() + 1;
+        const invoiceNumber = this.formatInvoiceNumberSync(nextCounter);
+        const invoiceId = crypto.randomUUID();
+        const generatedAt = Date.now();
+        const snapshot = this.buildInvoiceSnapshotSync({
+          invoiceId,
+          invoiceNumber,
+          propertyId,
+          reservationId: input.reservationId,
+          folioWindowId: resolvedWindow,
+          generatedAt,
+          autoGenerated: input.generatedBy === 'checkout',
+        });
+
+        return {
+          ok: true as const,
+          invoiceId,
+          invoiceNumber,
+          nextCounter,
+          snapshot,
+        };
+      });
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+
+    if (!prepared.ok) return prepared;
+
+    let put: { r2Key: string; sha256: string };
+    try {
+      put = await this.putInvoiceObject(propertyId, prepared.invoiceNumber, prepared.snapshot);
+    } catch (e) {
+      if (e instanceof InvoiceR2UnboundError) return { ok: false, error: INVOICE_R2_UNBOUND };
+      if (e instanceof Error && e.message === 'reports_r2_unbound') {
+        return { ok: false, error: INVOICE_R2_UNBOUND };
+      }
+      throw e;
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          if (this.hasActiveInvoiceForWindowSync(input.reservationId, resolvedWindow)) {
+            throw new InvoiceAlreadyExistsError();
+          }
+          this.bumpInvoiceCounterSync(prepared.nextCounter);
+          const generatedAt = Date.now();
+          const generatedBy =
+            input.generatedBy === 'checkout' ? 'system:checkout' : this.auditActorSync(actor);
+          this.ctx.storage.sql.exec(
+            `INSERT INTO invoice (invoice_id, invoice_number, reservation_id, folio_window_id, r2_key, sha256, generated_at, generated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            prepared.invoiceId,
+            prepared.invoiceNumber,
+            input.reservationId,
+            resolvedWindow,
+            put.r2Key,
+            put.sha256,
+            generatedAt,
+            generatedBy,
+          );
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'invoice.generated',
+            payload: {
+              propertyId,
+              invoiceId: prepared.invoiceId,
+              invoiceNumber: prepared.invoiceNumber,
+              reservationId: input.reservationId,
+              folioWindowId: resolvedWindow,
+              r2Key: put.r2Key,
+              sha256: put.sha256,
+              generatedAt,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: generatedBy,
+            commandId: 'invoice.generate',
+            entityType: 'invoice',
+            entityId: prepared.invoiceId,
+            beforeJson: null,
+            afterJson: {
+              invoiceId: prepared.invoiceId,
+              invoiceNumber: prepared.invoiceNumber,
+              reservationId: input.reservationId,
+              folioWindowId: resolvedWindow,
+            },
+            reservationId: input.reservationId,
+          });
+          return {
+            ok: true as const,
+            invoiceId: prepared.invoiceId,
+            invoiceNumber: prepared.invoiceNumber,
+            reservationId: input.reservationId,
+            folioWindowId: resolvedWindow,
+            r2Key: put.r2Key,
+            sha256: put.sha256,
+            generatedAt,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryVoidInvoice(
+    actor: ActorContext,
+    input: { invoiceId: string; reason?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; invoiceId: string; voidedAt: number }
+    | { ok: false; error: typeof INVOICE_NOT_FOUND }
+    | { ok: false; error: typeof INVOICE_VOIDED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.reason !== undefined) {
+      const trimmed = input.reason.trim();
+      if (trimmed.length < 1 || trimmed.length > 500) {
+        return { ok: false, error: 'invalid_void_reason' };
+      }
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT invoice_id, invoice_number, reservation_id, folio_window_id, voided_at
+               FROM invoice WHERE invoice_id = ?`,
+              input.invoiceId,
+            )
+            .toArray() as Array<{
+            invoice_id: string;
+            invoice_number: string;
+            reservation_id: string;
+            folio_window_id: string;
+            voided_at: number | null;
+          }>;
+          const row = rows[0];
+          if (!row) throw new InvoiceNotFoundError();
+          if (row.voided_at != null) throw new InvoiceVoidedError();
+
+          const voidedAt = Date.now();
+          const voidedBy = this.auditActorSync(actor);
+          this.ctx.storage.sql.exec(
+            `UPDATE invoice SET voided_at = ?, voided_by = ? WHERE invoice_id = ? AND voided_at IS NULL`,
+            voidedAt,
+            voidedBy,
+            input.invoiceId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'invoice.voided',
+            payload: {
+              propertyId,
+              invoiceId: row.invoice_id,
+              invoiceNumber: row.invoice_number,
+              reservationId: row.reservation_id,
+              folioWindowId: row.folio_window_id,
+              voidedAt,
+              ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+            },
+          });
+          this.appendAuditLogSync({
+            actor: voidedBy,
+            commandId: 'invoice.void',
+            entityType: 'invoice',
+            entityId: row.invoice_id,
+            beforeJson: { voidedAt: null },
+            afterJson: {
+              voidedAt,
+              ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+            },
+            reservationId: row.reservation_id,
+          });
+
+          return { ok: true as const, invoiceId: row.invoice_id, voidedAt };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async readInvoicesForReservation(reservationId: string): Promise<
+    Array<{
+      invoiceId: string;
+      invoiceNumber: string;
+      folioWindowId: string;
+      generatedAt: number;
+      voidedAt: number | null;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT invoice_id, invoice_number, folio_window_id, generated_at, voided_at
+         FROM invoice WHERE reservation_id = ?
+         ORDER BY generated_at ASC`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      invoice_id: string;
+      invoice_number: string;
+      folio_window_id: string;
+      generated_at: number;
+      voided_at: number | null;
+    }>;
+    return rows.map((row) => ({
+      invoiceId: row.invoice_id,
+      invoiceNumber: row.invoice_number,
+      folioWindowId: row.folio_window_id,
+      generatedAt: row.generated_at,
+      voidedAt: row.voided_at,
+    }));
   }
 
   async insertReservationForTest(input: {

@@ -138,6 +138,8 @@ export async function handleDomainEvent(
     case 'rate.changed':
     case 'rate_plan.changed':
     case 'rate_promo.changed':
+    case 'invoice.generated':
+    case 'invoice.voided':
     case 'charge_code.changed':
     case 'folio.routing_rule_changed':
     case 'tax_rule.changed':

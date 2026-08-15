@@ -19,6 +19,14 @@ export function reportObjectKey(propertyId: string, businessDate: string, report
   return `reports/property/${propertyId}/${businessDate}/${reportId}.json`;
 }
 
+export function invoiceObjectKey(propertyId: string, invoiceNumber: string): string {
+  return `invoices/${propertyId}/${invoiceNumber}.json`;
+}
+
+export function invoicesPrefixForProperty(propertyId: string): string {
+  return `invoices/${propertyId}/`;
+}
+
 export function eventLogPrefixesForOrg(orgId: string, propertyIds: string[]): string[] {
   return [
     eventLogPrefix({ do: 'org', id: orgId }),

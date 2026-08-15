@@ -20,6 +20,7 @@ const transferFolioLine = vi.fn();
 const voidPayment = vi.fn();
 const refundPayment = vi.fn();
 const postDiscount = vi.fn();
+const postStayDiscount = vi.fn();
 const captureDue = vi.fn();
 const updateFrontOffice = vi.fn();
 const getProperty = vi.fn();
@@ -78,6 +79,7 @@ vi.mock('../client.js', () => ({
     voidPayment: (...args: unknown[]) => voidPayment(...args),
     refundPayment: (...args: unknown[]) => refundPayment(...args),
     postDiscount: (...args: unknown[]) => postDiscount(...args),
+    postStayDiscount: (...args: unknown[]) => postStayDiscount(...args),
     captureDue: (...args: unknown[]) => captureDue(...args),
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
     listFxRates: (...args: unknown[]) => listFxRates(...args),
@@ -706,6 +708,64 @@ describe('FolioScreen wiring', () => {
       await Promise.resolve();
     });
     expect(postDiscount).not.toHaveBeenCalled();
+  });
+
+  it('56: empty discount line id + reason → postStayDiscount; not postDiscount', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    postStayDiscount.mockResolvedValue({ ok: true, folioLineId: 'stay_disc_1' });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('post-discount')).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText('discount-reason'), { target: { value: 'manager comp' } });
+    const btn = screen.getByTestId('post-discount') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+
+    expect(postStayDiscount).toHaveBeenCalledTimes(1);
+    expect(postStayDiscount.mock.calls[0]?.[0]).toBe('prop_demo');
+    expect(postStayDiscount.mock.calls[0]?.[1]).toBe('res_1');
+    expect(postDiscount).not.toHaveBeenCalled();
+  });
+
+  it('57: filled discount line id → postDiscount; not postStayDiscount', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    postDiscount.mockResolvedValue({ ok: true, folioLineId: 'line_disc_1' });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('post-discount')).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText('discount-line-id'), { target: { value: 'line_room' } });
+    fireEvent.change(screen.getByLabelText('discount-reason'), { target: { value: 'line comp' } });
+    const btn = screen.getByTestId('post-discount') as HTMLButtonElement;
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+
+    expect(postDiscount).toHaveBeenCalledTimes(1);
+    expect(postStayDiscount).not.toHaveBeenCalled();
   });
 
   it('split dest picker lists OPEN windows and submits split v2', async () => {

@@ -695,16 +695,30 @@ export function FolioScreen() {
       if (!reason) throw new Error('discount_reason_required');
       const sourceId = discountLineId || splitLineId;
       const parsed = Number(discountValue);
+      const payload = {
+        kind: discountKind,
+        reason,
+        ...(discountKind === 'percent'
+          ? { bps: Math.round(parsed * 100) }
+          : { amountMinor: Math.round(parsed * 100) }),
+      };
+      if (!sourceId) {
+        return api.postStayDiscount(
+          propertyId,
+          reservationId,
+          {
+            ...payload,
+            folioLineId: `${reservationId}:stay-disc:${crypto.randomUUID()}`,
+          },
+          `stay-disc:${reservationId}:${crypto.randomUUID()}`,
+        );
+      }
       return api.postDiscount(
         propertyId,
         sourceId,
         {
-          kind: discountKind,
-          reason,
+          ...payload,
           folioLineId: `${sourceId}:disc:${crypto.randomUUID()}`,
-          ...(discountKind === 'percent'
-            ? { bps: Math.round(parsed * 100) }
-            : { amountMinor: Math.round(parsed * 100) }),
         },
         `disc:${sourceId}:${crypto.randomUUID()}`,
       );

@@ -944,6 +944,28 @@ export function createClient(opts: {
         },
       );
     },
+    async postStayDiscount(
+      propertyId: string,
+      reservationId: string,
+      input: {
+        kind: 'percent' | 'fixed';
+        bps?: number;
+        amountMinor?: number;
+        reason: string;
+        folioLineId: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/discount`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
     async captureDue(propertyId: string, reservationId: string, opId: string) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(

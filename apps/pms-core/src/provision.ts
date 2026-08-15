@@ -129,6 +129,7 @@ async function syncOrgAndPropertyDo(
   await prop.ensureBusinessDateIfAbsent(property.timeZone, instant);
   await prop.ensureNightAuditSchedule(property.timeZone, instant);
   await prop.ensureOutboxScheduleIfAbsent();
+  await prop.ensureAuthHoldLapseScheduleIfAbsent();
 }
 
 /** Resolve a PropertyDO stub using only the D1 registry (callers never pass jurisdiction). */

@@ -227,6 +227,8 @@ type PaymentStatus =
   | 'chargeback';
 type CheckOutAutoCapture = 'captured' | 'failed' | 'skipped' | 'disabled';
 
+const AUTH_HOLD_LAPSE_SWEEP_INTERVAL_MS = 3_600_000;
+
 const FRONT_OFFICE_ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const FRONT_OFFICE_OUTBOX_TYPES = new Set([
   'reservation.created',
@@ -1805,6 +1807,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     await this.scheduler.armFromTable();
   }
 
+  /** First-write auth-hold-lapse sweep schedule — idempotent, mirrors outbox provisioning. */
+  async ensureAuthHoldLapseScheduleIfAbsent(): Promise<void> {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM alarm_schedule WHERE name = 'auth-hold-lapse' LIMIT 1`)
+      .toArray() as Array<{ one: number }>;
+    if (rows.length > 0) return;
+    this.scheduler.upsertSchedule('auth-hold-lapse', Date.now() + AUTH_HOLD_LAPSE_SWEEP_INTERVAL_MS);
+    await this.scheduler.armFromTable();
+  }
+
   private rescheduleOutboxAfterFlush(flushed: number, backlog: boolean): void {
     const delay =
       flushed === 0 ? OUTBOX_SWEEP_INTERVAL_MS : backlog ? OUTBOX_BACKLOG_DELAY_MS : OUTBOX_SWEEP_INTERVAL_MS;
@@ -1986,6 +1998,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * `NightAuditWorkflow` instance resolved from `__meta.property_id`, never a raw DO id.
    */
   async alarm(): Promise<void> {
+    await this.ensureAuthHoldLapseScheduleIfAbsent();
     await this.scheduler.run({
       outbox: async () => {
         await runOutboxAlarmStep(
@@ -2018,6 +2031,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           id: `na-${propertyId}-${Date.now()}`,
           params: { propertyId },
         });
+      },
+      'auth-hold-lapse': async () => {
+        await this.runAuthHoldLapseSync();
+        this.scheduler.upsertSchedule('auth-hold-lapse', Date.now() + AUTH_HOLD_LAPSE_SWEEP_INTERVAL_MS);
       },
     });
   }
@@ -2178,6 +2195,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       `UPDATE folio_window SET status = 'CLOSED', closed_at = ? WHERE folio_window_id = ?`,
       Date.now(),
       folioWindowId,
+    );
+  }
+
+  async setPaymentCreatedAtForTest(paymentId: string, createdAtMs: number): Promise<void> {
+    this.assertUnsafeLocal('setPaymentCreatedAtForTest');
+    this.ctx.storage.sql.exec(
+      `UPDATE payment SET created_at = ? WHERE payment_id = ?`,
+      createdAtMs,
+      paymentId,
     );
   }
 
@@ -15431,6 +15457,114 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private async voidAuthorizedCardHoldSync(
+    actor: ActorContext,
+    input: { paymentId: string; voidFingerprint: string },
+    opts?: { automated?: boolean },
+  ): Promise<
+    | { ok: true; paymentId: string; status: 'voided' }
+    | { ok: false; error: typeof NOT_FOUND | typeof PAYMENT_NOT_VOIDABLE | typeof PSP_UNAVAILABLE | string }
+  > {
+    if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const payment = this.readPaymentRowSync(input.paymentId);
+    if (!payment) return { ok: false, error: NOT_FOUND };
+    if (payment.status === 'voided' && payment.void_fingerprint === input.voidFingerprint) {
+      return { ok: true, paymentId: payment.payment_id, status: 'voided' };
+    }
+    if (payment.tender_type === 'CASH' || payment.status !== 'authorized') {
+      return { ok: false, error: PAYMENT_NOT_VOIDABLE };
+    }
+
+    const adapterResult = await simulateVoid(
+      {
+        paymentId: input.paymentId,
+        gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
+      },
+      this.pspSimulateOutcomeForTest,
+    );
+    if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
+      return { ok: false, error: 'psp_adapter_failed' };
+    }
+    if (adapterResult.outcome !== 'approved') {
+      return { ok: false, error: PAYMENT_NOT_VOIDABLE };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const updated = this.ctx.storage.sql.exec(
+          `UPDATE payment
+           SET status = 'voided', void_fingerprint = ?, updated_at = ?
+           WHERE payment_id = ? AND status = 'authorized'`,
+          input.voidFingerprint,
+          Date.now(),
+          input.paymentId,
+        );
+        if (updated.rowsWritten === 0) {
+          const current = this.readPaymentRowSync(input.paymentId);
+          if (!current) return { ok: false as const, error: NOT_FOUND };
+          if (current.status === 'voided' && current.void_fingerprint === input.voidFingerprint) {
+            return { ok: true as const, paymentId: current.payment_id, status: 'voided' as const };
+          }
+          return { ok: false as const, error: PAYMENT_NOT_VOIDABLE };
+        }
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'folio.payment_voided',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: payment.reservation_id,
+            gatewayReference: adapterResult.gatewayReference,
+          },
+        });
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.void',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: { status: 'authorized' },
+          afterJson: {
+            status: 'voided',
+            ...(opts?.automated ? { automated: true } : {}),
+          },
+          reservationId: payment.reservation_id,
+        });
+        return { ok: true as const, paymentId: input.paymentId, status: 'voided' as const };
+      });
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private async runAuthHoldLapseSync(): Promise<void> {
+    const hours = Number(this.readConfigValueSync('pms.payments.auth_hold_hours') ?? 72);
+    const cutoff = Date.now() - hours * 3_600_000;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT payment_id FROM payment
+         WHERE status = 'authorized' AND tender_type = 'CARD' AND created_at <= ?`,
+        cutoff,
+      )
+      .toArray() as Array<{ payment_id: string }>;
+
+    const actor: ActorContext = { kind: 'system', reason: 'auth_hold_lapse' };
+    for (const row of rows) {
+      const paymentId = row.payment_id;
+      const voidFingerprint = `auth_hold_lapse:${paymentId}`;
+      const result = await this.voidAuthorizedCardHoldSync(
+        actor,
+        { paymentId, voidFingerprint },
+        { automated: true },
+      );
+      if (!result.ok) {
+        console.warn('[auth-hold-lapse] skip', paymentId, result.error);
+      }
+    }
+  }
+
   async tryVoidPayment(
     actor: ActorContext,
     input: { paymentId: string },
@@ -15469,62 +15603,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: PAYMENT_NOT_VOIDABLE };
     }
 
-    const adapterResult = await simulateVoid(
-      {
-        paymentId: input.paymentId,
-        gatewayReference: payment.gateway_reference ?? `sim_${input.paymentId}`,
-      },
-      this.pspSimulateOutcomeForTest,
+    const core = await this.voidAuthorizedCardHoldSync(
+      actor,
+      { paymentId: input.paymentId, voidFingerprint: idem.fingerprint },
     );
-    if (this.pspSimulateOutcomeForTest?.failAfterAdapter) {
-      return { ok: false, error: 'psp_adapter_failed' };
+    if (!core.ok) {
+      if (core.error === IDEM_KEY_REUSED) return { ok: false, error: IDEM_KEY_REUSED };
+      return core as {
+        ok: false;
+        error: typeof NOT_FOUND | typeof PAYMENT_NOT_VOIDABLE | typeof PSP_UNAVAILABLE | string;
+      };
     }
-    if (adapterResult.outcome !== 'approved') {
-      return { ok: false, error: PAYMENT_NOT_VOIDABLE };
-    }
-
-    try {
-      return this.ctx.storage.transactionSync(() => {
-        const updated = this.ctx.storage.sql.exec(
-          `UPDATE payment
-           SET status = 'voided', void_fingerprint = ?, updated_at = ?
-           WHERE payment_id = ? AND status = 'authorized'`,
-          idem.fingerprint,
-          Date.now(),
-          input.paymentId,
-        );
-        if (updated.rowsWritten === 0) {
-          const current = this.readPaymentRowSync(input.paymentId);
-          if (!current) return { ok: false as const, error: NOT_FOUND };
-          if (current.status === 'voided' && current.void_fingerprint === idem.fingerprint) {
-            return { ok: true as const, paymentId: current.payment_id, status: 'voided' as const };
-          }
-          return { ok: false as const, error: PAYMENT_NOT_VOIDABLE };
-        }
-        this.appendPropertyOutbox({
-          eventId: crypto.randomUUID(),
-          eventType: 'folio.payment_voided',
-          payload: {
-            propertyId,
-            paymentId: input.paymentId,
-            reservationId: payment.reservation_id,
-            gatewayReference: adapterResult.gatewayReference,
-          },
-        });
-        this.appendAuditLogSync({
-          actor: this.auditActorSync(actor),
-          commandId: 'folio.void',
-          entityType: 'payment',
-          entityId: input.paymentId,
-          beforeJson: { status: 'authorized' },
-          afterJson: { status: 'voided' },
-          reservationId: payment.reservation_id,
-        });
-        return { ok: true as const, paymentId: input.paymentId, status: 'voided' as const };
-      });
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
+    return core;
   }
 
   async tryRefundPayment(

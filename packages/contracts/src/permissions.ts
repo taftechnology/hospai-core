@@ -15,7 +15,8 @@ export type SystemActor = {
     | 'migration_sweep'
     | 'queue_replay'
     | 'provision'
-    | 'purge';
+    | 'purge'
+    | 'auth_hold_lapse';
 };
 
 export type ActorContext = UserActor | SystemActor;

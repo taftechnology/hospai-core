@@ -219,6 +219,14 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     consumersExempt: true,
   }),
   entry({
+    key: 'pms.payments.auth_hold_hours',
+    prototypeKey: 'pms_payments_auth_hold_hours',
+    class: 'DOMAIN',
+    schema: z.number().int().min(1).max(720),
+    default: 72,
+    consumersExempt: true,
+  }),
+  entry({
     key: 'pms.reservations.inquiry_ttl_days',
     prototypeKey: 'pms_res_inquiry_ttl_days',
     class: 'DOMAIN',

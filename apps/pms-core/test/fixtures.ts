@@ -67,6 +67,7 @@ export async function provisionedPropertyStub(
   await stub.ensureBusinessDateIfAbsent(timeZone, instant);
   await stub.ensureNightAuditSchedule(timeZone, instant);
   await stub.ensureOutboxScheduleIfAbsent();
+  await stub.ensureAuthHoldLapseScheduleIfAbsent();
   if (opts?.flushOutbox !== false) {
     await stub.flushOutbox();
   }

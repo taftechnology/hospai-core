@@ -22,7 +22,7 @@ import {
   requiredPermissionForKey,
 } from './index.js';
 
-/** Expected prototype config keys (96) — must match register.prototypeKey set. */
+/** Expected prototype config keys (97) — must match register.prototypeKey set. */
 const EXPECTED_PROTOTYPE_KEYS = [
   'pms_amenities_checklist',
   'pms_booking_engine_settings',
@@ -81,6 +81,7 @@ const EXPECTED_PROTOTYPE_KEYS = [
   'pms_optin_double',
   'pms_optin_headline',
   'pms_optin_thankyou',
+  'pms_payments_auth_hold_hours',
   'pms_property_market_segments',
   'pms_property_policies',
   'pms_property_sources',
@@ -141,8 +142,8 @@ describe('config register', () => {
     expect(getConfigEntry('pms.ops.auto_assign_rooming')?.class).toBe('OPERATIONAL');
   });
 
-  it('classifies all 96 prototype config keys', () => {
-    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(96);
+  it('classifies all 97 prototype config keys', () => {
+    expect(EXPECTED_PROTOTYPE_KEYS).toHaveLength(97);
     expect(PROTOTYPE_CONFIG_KEYS).toEqual([...EXPECTED_PROTOTYPE_KEYS].sort());
     for (const k of EXPECTED_PROTOTYPE_KEYS) {
       expect(PROTOTYPE_CONFIG_KEYS).toContain(k);

@@ -14727,6 +14727,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const payment = this.readPaymentRowSync(input.paymentId);
     if (!payment) return { ok: false, error: NOT_FOUND };
+    if ((payment.refunded_amount_minor ?? 0) > 0) {
+      return { ok: false, error: PAYMENT_NOT_CHARGEBACKABLE };
+    }
     if (payment.status !== 'captured' && payment.status !== 'chargeback') {
       return { ok: false, error: PAYMENT_NOT_CHARGEBACKABLE };
     }

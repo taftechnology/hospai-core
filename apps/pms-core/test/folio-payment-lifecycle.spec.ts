@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PAYMENT_NOT_CAPTURABLE,
+  PAYMENT_NOT_CHARGEBACKABLE,
   PAYMENT_NOT_REFUNDABLE,
   PAYMENT_NOT_VOIDABLE,
   PSP_UNAVAILABLE,
@@ -343,6 +344,29 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     expect(refunds.map((l) => l.folioLineId).sort()).toEqual(
       [`${paymentId}:refund:1`, `${paymentId}:refund:2`].sort(),
     );
+  });
+
+  it('36: chargeback after partial refund → PAYMENT_NOT_CHARGEBACKABLE', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 8000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 8000)).toMatchObject({ ok: true });
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: 2000 },
+        await idemFor(`ref-partial-${paymentId}`, { paymentId, amountMinor: 2000 }),
+      ),
+    ).toMatchObject({ ok: true, status: 'captured' });
+    expect(
+      await stub.tryRecordChargeback(
+        TEST_OWNER_ACTOR,
+        { paymentId, feeLedgerMinor: 0, reason: 'test' },
+        await idemFor(`cb-${paymentId}`, { paymentId, feeLedgerMinor: 0, reason: 'test' }),
+      ),
+    ).toMatchObject({ ok: false, error: PAYMENT_NOT_CHARGEBACKABLE });
   });
 
   it('37: card partial refund posts PAYMENT_REFUND line for requested amount', async () => {

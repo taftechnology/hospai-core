@@ -586,17 +586,17 @@ Rebuild `@hospai/contracts` before pms-core if dispatch imports change.
 
 ## 7. Implementation checklist
 
-- [ ] v32 migration + `PROPERTY_SCHEMA_HEAD` **32** + purge `invoice` table + R2 prefix
-- [ ] Wire codes + HTTP status map (`INVOICE_*`, `FOLIO_BALANCE_DUE`)
-- [ ] Catalog **86** + audit writers **61** + three HTTP routes **[138]–[140]**
-- [ ] DO counter + snapshot builder + R2 put + generate/void RPCs
-- [ ] Checkout invoice precondition gate when `gen_mode === 'Automatically'`
-- [ ] HTTP handlers + client API
-- [ ] SPA Folio generate + view (+ void for adjust holders)
-- [ ] Tests Lock 12 (TDD order); `pnpm generate:ddl`
-- [ ] Register pins: catalog **86**, writers **61**, `[137]` unchanged, `[138]–[140]`, schema **32**, steps **8**
+- [x] v32 migration + `PROPERTY_SCHEMA_HEAD` **32** + purge `invoice` table + R2 prefix
+- [x] Wire codes + HTTP status map (`INVOICE_*`, `FOLIO_BALANCE_DUE`)
+- [x] Catalog **86** + audit writers **61** + three HTTP routes **[138]–[140]**
+- [x] DO counter + snapshot builder + R2 put + generate/void RPCs
+- [x] Checkout invoice precondition gate when `gen_mode === 'Automatically'`
+- [x] HTTP handlers + client API
+- [x] SPA Folio generate + view (+ void for adjust holders)
+- [x] Tests Lock 12 (TDD order); `pnpm generate:ddl`
+- [x] Register pins: catalog **86**, writers **61**, `[137]` unchanged, `[138]–[140]`, schema **32**, steps **8**
 - [ ] Task 4 stretch: event consumer on `checked_out`
-- [ ] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
+- [x] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
 
 ---
 

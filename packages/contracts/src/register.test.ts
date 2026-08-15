@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(59);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(61);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {

@@ -107,7 +107,7 @@ async function writeConfigValueForTest(
   await stub.writeConfigValueForTest(key, value);
 }
 
-const HTTP_ACTOR = TEST_OWNER_ACTOR.userId;
+const HTTP_ACTOR = 'user_owner';
 
 async function postInvoice(propertyId: string, actor: string, body: Record<string, unknown>) {
   return worker.fetch(

@@ -15,6 +15,7 @@ import {
   deleteEventLogPrefix,
   eventLogPrefixesForOrg,
   hasEventLogR2,
+  invoicesPrefixForProperty,
   reportsPrefixForProperty,
 } from './event-log.js';
 import type { OrgDO } from './org-do.js';
@@ -179,6 +180,10 @@ async function runOrgPlan(
         env.EVENT_LOG_R2,
         reportsPrefixForProperty(propertyId),
       );
+      deleted += await deleteEventLogPrefix(
+        env.EVENT_LOG_R2,
+        invoicesPrefixForProperty(propertyId),
+      );
     }
     replaceStore(stores, { store: 'r2', status: 'reached', deleted });
   });
@@ -264,6 +269,10 @@ async function runOrgPlan(
           await assertEventLogPrefixEmpty(
             env.EVENT_LOG_R2,
             reportsPrefixForProperty(propertyId),
+          );
+          await assertEventLogPrefixEmpty(
+            env.EVENT_LOG_R2,
+            invoicesPrefixForProperty(propertyId),
           );
         } catch {
           throw new HaltError('verify_r2_residue');

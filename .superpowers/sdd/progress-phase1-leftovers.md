@@ -39,7 +39,7 @@ Out of this campaign:
 9. Promo codes (on derivation graph) — DONE `92bf6ba` (spec `6ba7332`, plan `a4434f2`; schema `d1c9bdc`, CRUD `539a9e6`, snapshot `1c9bab8`+`6e1228d`, Rates `05d787d`, Booking `46a17e3`, leftovers `d94b34f`)
 10. Invoice generation engine (R2 + existing numbering config) — DONE `811b2dd` (spec `8d767c4`, plan `b61747e`; v32 `invoice` table, R2 snapshots, Folio generate/view; schema `2a4b693`, DO `b347859`, HTTP `67766b9`, checkout `0647ef3`, SPA `811b2dd`, leftovers `7a165d7`)
 11. City ledger / AR (not MASTER groups) — DONE `0282a5a` (spec `5a86dc8`, plan `317cda8`; v33 `city_ledger_*` tables, R2 statements, City Ledger SPA; schema `1904bf9`, DO `e809038`+`112d703`+`977a69e`, SPA `0282a5a`)
-12. Collapse split commands (SPA still calls v2 **and** `splitFolioPayment`)
+12. Collapse split commands — DONE `1aa4b75` (spec `182c8c1`, plan `c15f0bd`; catalog 90, writers 63, routes 144, SPA → `splitFolioLine`; tests `b50f7b9`+`44e4f9e`, contracts `83fa0f3`, DO `5d48954`, HTTP `3bdaa30`, client/SPA `1aa4b75`, fixes `372fa54`)
 13. Retire `reservations.update_extras`
 
 ## Remaining Phase 1 sellable (re-audited 2026-08-15)
@@ -49,8 +49,7 @@ Sellable = a desk can take/price a stay, house it, settle money, roll the date. 
 Still owed:
 
 Hygiene (not sellable; catalog debt):
-5. Collapse `folio.split_charge` / `split_charge_payment` / `split_charge_v2` — SPA still calls v2 **and** `splitFolioPayment`.
-6. Retire `reservations.update_extras` — catalog-only, no DO method, not in `REPLAY_DISPATCH`.
+5. Retire `reservations.update_extras` — catalog-only, no DO method, not in `REPLAY_DISPATCH`.
 
 Stale leftover text (already shipped): folio-money §19 item **4** still says partial refunds open; `refunded_amount_minor` is written.
 

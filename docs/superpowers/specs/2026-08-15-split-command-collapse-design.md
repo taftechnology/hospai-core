@@ -406,14 +406,14 @@ Degraded transport: **503** `FAIL_CLOSED` with `commandId: 'folio.split_charge'`
 
 ## 8. Implementation checklist
 
-- [ ] Delete `folio.split_charge_payment` + `folio.split_charge_v2` from catalog; update survivor notes
-- [ ] `AUDIT_WRITER_COMMAND_IDS` **63**; remove 2 ids
-- [ ] Merge `trySplitFolioLine`; delete `trySplitChargeV2` + `trySplitChargePayment`; reverse id `:split-rev`
-- [ ] Extend `handlePostFolioSplit`; delete payment/v2 handlers; sync `V1_ROUTES` + audit (**144** rows)
-- [ ] Re-pin all shifted `register.test.ts` route indexes; catalog **90**; writers **63**; `[143] get_city_ledger_statement`
-- [ ] Client: one `splitFolioLine`; SPA both mutations; test updates (Lock 10)
-- [ ] `check:permissions` + `check:degraded` route count **144**
-- [ ] CI: file-filter vitest; no `vi.spyOn` into DO isolate
+- [x] Delete `folio.split_charge_payment` + `folio.split_charge_v2` from catalog; update survivor notes
+- [x] `AUDIT_WRITER_COMMAND_IDS` **63**; remove 2 ids
+- [x] Merge `trySplitFolioLine`; delete `trySplitChargeV2` + `trySplitChargePayment`; reverse id `:split-rev`
+- [x] Extend `handlePostFolioSplit`; delete payment/v2 handlers; sync `V1_ROUTES` + audit (**144** rows)
+- [x] Re-pin all shifted `register.test.ts` route indexes; catalog **90**; writers **63**; `[143] get_city_ledger_statement`
+- [x] Client: one `splitFolioLine`; SPA both mutations; test updates (Lock 10)
+- [x] `check:permissions` + `check:degraded` route count **144**
+- [x] CI: file-filter vitest; no `vi.spyOn` into DO isolate
 
 ---
 

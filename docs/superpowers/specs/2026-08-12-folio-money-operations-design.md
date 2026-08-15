@@ -783,7 +783,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 ## 19. Leftovers (named, not silent)
 
 1. ~~**Night-audit auto-transfer** — needs routing-rules table…~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
-2. **Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.
+2. ~~**Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.~~ **Closed** in [2026-08-15 split command collapse](./2026-08-15-split-command-collapse-design.md): survivor `folio.split_charge` + `post_folio_split` + `splitFolioLine`; retired payment/v2 commands and HTTP paths.
 3. ~~**`unknown` reconciliation exit** (payments leftover, unchanged).~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md).
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).

@@ -821,7 +821,7 @@ EOF
 
 > **12. Collapse split commands** — DONE `…` (spec `…`, plan `…`; catalog 90, routes 144, SPA → `splitFolioLine`).
 
-- [ ] **Step 1: Pin frozen heads**
+- [x] **Step 1: Pin frozen heads**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|payment commands|folio money-ops|PLATFORM_GAPS"
@@ -830,7 +830,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **90**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 33`; `PLATFORM_GAPS === []`.
 
-- [ ] **Step 2: Targeted test superset (Lock 10 full slice)**
+- [x] **Step 2: Targeted test superset (Lock 10 full slice)**
 
 ```bash
 pnpm build
@@ -847,7 +847,7 @@ pnpm check:entitlements
 
 Expected: **PASS**; route count **144**.
 
-- [ ] **Step 3: Full CI sequence**
+- [x] **Step 3: Full CI sequence**
 
 ```bash
 pnpm build
@@ -878,15 +878,15 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true`.
 
-- [ ] **Step 4: Apply doc pointers + tick split spec §8 checklist**
+- [x] **Step 4: Apply doc pointers + tick split spec §8 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-split-command-collapse-design.md` §8.
 
-- [ ] **Step 5: Tick Task 6 checkboxes in this plan only**
+- [x] **Step 5: Tick Task 6 checkboxes in this plan only**
 
 Do **not** tick Tasks 1–5 checkboxes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-folio-money-operations-design.md \

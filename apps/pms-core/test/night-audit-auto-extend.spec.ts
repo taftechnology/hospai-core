@@ -98,7 +98,8 @@ describe('night audit — auto-extend', () => {
 
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
     expect(audit.ok).toBe(true);
-    const rows = (audit as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> }).rows;
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> })
+      .rows;
     const mod = rows.find((r) => r.commandId === 'reservations.modify');
     expect(mod?.afterJson).toMatchObject({ automated: true, departureDate: extended });
     expect(await stub.listOutboxEventTypes()).toEqual(

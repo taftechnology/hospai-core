@@ -851,7 +851,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 3. ~~**`pms.ops.auto_assign_rooms`** — reclassified DOMAIN + `consumersExempt`… check-in stays explicit — no consumer.~~ **Closed** in [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md): `tryCheckIn` consults `pms.ops.auto_assign_rooms` and picks lowest eligible `room.code`.
 4. **Folio window close on check-out** — money-ops; window stays `OPEN` by default. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §4 (explicit close; optional auto-close config).
 5. **Deposits / capture on `folio.balance_due`** — payments worker. Capture seam specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6.4 (`folio.capture_due` + live check-out `autoCapture`).
-6. **Priced wizard / plan picker** — schema is ready; UI is not this chunk’s job beyond Hold/Quote.
+6. ~~**Priced wizard / plan picker** — schema is ready; UI is not this chunk’s job beyond Hold/Quote.~~ **Closed** in [2026-08-15 booking plan picker](./2026-08-15-booking-plan-picker-design.md).
 7. **`reservations.update_extras`** — still a retirement candidate (booking-wizard leftover 7).
 8. **Quotes inbox** — inquiry is not on arrivals; a dedicated list is unbuilt.
 9. **Implicit confirm-and-check-in** — deliberately two commands.

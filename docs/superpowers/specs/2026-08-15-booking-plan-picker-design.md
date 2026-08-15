@@ -276,16 +276,16 @@ Optional: update stale JSDoc on `tryCreateReservation` fingerprint (~7377) — n
 
 ## 6. Implementation checklist
 
-- [ ] SPA: `listRatePlans` + `data-testid="rate-plan"` select; default BAR; empty-list copy; date/plan change rules (Lock 2)
-- [ ] SPA: quote from selected plan; incomplete copy; `stay-quote` gate (Lock 3–4)
-- [ ] SPA: create passes `ratePlanId`; error copy for `rate_plan_not_found` / `rate_missing` (Lock 5, Lock 7)
-- [ ] Client: `createReservation` JSON + `bookingReservationOpId` segment (Lock 5–6)
-- [ ] Dispatch: fingerprint `ratePlanId: body.ratePlanId ?? 'BAR'`; `RATE_MISSING` 422 + `date`; map list entry (Lock 6–7)
-- [ ] Tests Lock 9 (web-pms, client-core, `reservations-routes.spec.ts`)
-- [ ] CI: file-filter vitest; `--shard=N/8` with **no** `--` before `--shard`; Workerd 503 → retry that shard once; never `|| true`; never unsharded `pnpm --filter @hospai/pms-core test`
-- [ ] Living plan checkboxes: tick `- [x]` on **last task only**
-- [ ] Register pin: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"` — expect no changes
-- [ ] Bidirectional closes pointers in booking-wizard + lifecycle + property-setup specs (final implementation task)
+- [x] SPA: `listRatePlans` + `data-testid="rate-plan"` select; default BAR; empty-list copy; date/plan change rules (Lock 2)
+- [x] SPA: quote from selected plan; incomplete copy; `stay-quote` gate (Lock 3–4)
+- [x] SPA: create passes `ratePlanId`; error copy for `rate_plan_not_found` / `rate_missing` (Lock 5, Lock 7)
+- [x] Client: `createReservation` JSON + `bookingReservationOpId` segment (Lock 5–6)
+- [x] Dispatch: fingerprint `ratePlanId: body.ratePlanId ?? 'BAR'`; `RATE_MISSING` 422 + `date`; map list entry (Lock 6–7)
+- [x] Tests Lock 9 (web-pms, client-core, `reservations-routes.spec.ts`)
+- [x] CI: file-filter vitest; `--shard=N/8` with **no** `--` before `--shard`; Workerd 503 → retry that shard once; never `|| true`; never unsharded `pnpm --filter @hospai/pms-core test`
+- [x] Living plan checkboxes: tick `- [x]` on **last task only**
+- [x] Register pin: `pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"` — expect no changes
+- [x] Bidirectional closes pointers in booking-wizard + lifecycle + property-setup specs (final implementation task)
 
 ---
 

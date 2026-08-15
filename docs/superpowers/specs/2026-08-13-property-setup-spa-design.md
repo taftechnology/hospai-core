@@ -558,7 +558,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 21 | Bulk restriction command | Cell PUTs only |
 | 22 | DO lock forbidding ledger-currency change | SPA read-only; PUT path unchanged |
 | 23 | Changing `GET /rooms` to `inventory:read` | Reuse HK permission |
-| 24 | Booking leftover 1 (plan picker in wizard) | Quantity-only stays |
+| ~~**24** \| Booking leftover 1 (plan picker in wizard) \| Quantity-only stays~~ **Closed** in [2026-08-15 booking plan picker](./2026-08-15-booking-plan-picker-design.md). |
 | 25 | Proactive entitlement chrome | `/me` leftover |
 
 ---

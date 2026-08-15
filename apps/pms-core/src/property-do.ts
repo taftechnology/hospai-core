@@ -18405,6 +18405,54 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async readInvoiceIndex(invoiceId: string): Promise<{
+    invoiceId: string;
+    invoiceNumber: string;
+    reservationId: string;
+    folioWindowId: string;
+    r2Key: string;
+    sha256: string;
+    generatedAt: number;
+    generatedBy: string;
+    voidedAt: number | null;
+    voidedBy: string | null;
+  } | null> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT invoice_id, invoice_number, reservation_id, folio_window_id, r2_key, sha256,
+                generated_at, generated_by, voided_at, voided_by
+         FROM invoice WHERE invoice_id = ?`,
+        invoiceId,
+      )
+      .toArray() as Array<{
+      invoice_id: string;
+      invoice_number: string;
+      reservation_id: string;
+      folio_window_id: string;
+      r2_key: string;
+      sha256: string;
+      generated_at: number;
+      generated_by: string;
+      voided_at: number | null;
+      voided_by: string | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      invoiceId: row.invoice_id,
+      invoiceNumber: row.invoice_number,
+      reservationId: row.reservation_id,
+      folioWindowId: row.folio_window_id,
+      r2Key: row.r2_key,
+      sha256: row.sha256,
+      generatedAt: row.generated_at,
+      generatedBy: row.generated_by,
+      voidedAt: row.voided_at,
+      voidedBy: row.voided_by,
+    };
+  }
+
   async readInvoicesForReservation(reservationId: string): Promise<
     Array<{
       invoiceId: string;

@@ -1686,6 +1686,39 @@ export function createClient(opts: {
         headers: { 'x-idempotency-key': idempotencyKey },
       });
     },
+    async generateInvoice(
+      propertyId: string,
+      input: { reservationId: string; folioWindowId?: string; idempotencyKey?: string },
+    ) {
+      const idempotencyKey =
+        input.idempotencyKey ??
+        stableKeyForOperation(`invoice:generate:${input.reservationId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/invoices`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          reservationId: input.reservationId,
+          ...(input.folioWindowId ? { folioWindowId: input.folioWindowId } : {}),
+          idempotencyKey,
+        }),
+      });
+    },
+    async getInvoice(propertyId: string, invoiceId: string) {
+      return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}`);
+    },
+    async voidInvoice(
+      propertyId: string,
+      invoiceId: string,
+      input?: { reason?: string; idempotencyKey?: string },
+    ) {
+      const idempotencyKey =
+        input?.idempotencyKey ?? stableKeyForOperation(`invoice:void:${invoiceId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}/void`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey, ...(input?.reason ? { reason: input.reason } : {}) }),
+      });
+    },
     async listRatePromos(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-promos`);
       return body as {

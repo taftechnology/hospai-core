@@ -95,6 +95,12 @@ import {
   PROMO_NOT_FOUND,
   PROMO_NOT_APPLICABLE,
   PROMO_CODE_EXISTS,
+  INVOICE_ALREADY_EXISTS,
+  INVOICE_NOT_FOUND,
+  INVOICE_VOIDED,
+  INVOICE_R2_UNBOUND,
+  INVOICE_REQUIRED,
+  FOLIO_BALANCE_DUE,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -285,7 +291,9 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === IDEM_KEY_REUSED ||
     error === ALREADY_CANCELLED ||
     error === LEDGER_INCONSISTENT ||
-    error === PROMO_CODE_EXISTS
+    error === PROMO_CODE_EXISTS ||
+    error === INVOICE_ALREADY_EXISTS ||
+    error === INVOICE_VOIDED
   ) {
     return 409;
   }
@@ -315,6 +323,8 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === ROOM_ALREADY_ASSIGNED ||
     error === ROOM_NOT_ASSIGNABLE ||
     error === BALANCE_DUE ||
+    error === INVOICE_REQUIRED ||
+    error === FOLIO_BALANCE_DUE ||
     error === HOLD_EXPIRED ||
     error === INQUIRY_EXPIRED ||
     error === ROOM_REQUIRED ||
@@ -361,6 +371,7 @@ function mapReservationCommandErrorStatus(error: string): number {
   if (
     error === RATE_PLAN_NOT_FOUND ||
     error === PROMO_NOT_FOUND ||
+    error === INVOICE_NOT_FOUND ||
     error === CHARGE_CODE_NOT_FOUND ||
     error === TAX_RULE_NOT_FOUND ||
     error === SHIFT_NOT_FOUND
@@ -368,6 +379,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     return 404;
   }
   if (error === BUSINESS_DATE_UNSET) return 500;
+  if (error === INVOICE_R2_UNBOUND) return 503;
   if (error === 'org_id_unset') return 500;
   return mapAddRoomTypeErrorStatus(error);
 }
@@ -4745,6 +4757,114 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
   return json(result, 200);
 }
 
+async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    reservationId: string;
+    folioWindowId?: string;
+  };
+  if (!body?.idempotencyKey || !body.reservationId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const resolvedWindow = body.folioWindowId ?? `${body.reservationId}:GUEST`;
+  const commandPayload = {
+    reservationId: body.reservationId,
+    ...(body.folioWindowId ? { folioWindowId: body.folioWindowId } : {}),
+  };
+  const fingerprint = await fingerprintPayload({
+    reservationId: body.reservationId,
+    folioWindowId: resolvedWindow,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryGenerateInvoice']>>>({
+    env: ctx.env,
+    commandId: 'invoice.generate',
+    routeId: 'post_invoices',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryGenerateInvoice(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
+    if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const invoiceId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const index = await resolvedCtx.resolved.stub.readInvoiceIndex(invoiceId);
+    if (!index) return json({ error: 'not_found' }, 404);
+    const obj = await ctx.env.EVENT_LOG_R2?.get(index.r2Key);
+    if (!obj) return json({ error: 'not_found' }, 404);
+    const snapshot = JSON.parse(await obj.text()) as Record<string, unknown>;
+    return json({ ...index, snapshot }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const invoiceId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as { idempotencyKey: string; reason?: string };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    invoiceId,
+    ...(body.reason ? { reason: body.reason } : {}),
+  };
+  const fingerprint = await fingerprintPayload({ invoiceId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidInvoice']>>>({
+    env: ctx.env,
+    commandId: 'invoice.void',
+    routeId: 'post_invoice_void',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryVoidInvoice(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    if (err === 'not_member' || err === INVOICE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 function inclusiveDateRangeError(fromDate: string | null, toDate: string | null): Response | null {
   if (!fromDate || !toDate || !ISO_DATE_RE.test(fromDate) || !ISO_DATE_RE.test(toDate)) {
     return json({ error: 'invalid_date' }, 400);
@@ -7862,6 +7982,32 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'rates.archive_promo',
     entitlement: 'pms.core',
     handler: handleDeleteRatePromo,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/invoices$/,
+    permission: 'folio:post',
+    commandId: 'invoice.generate',
+    entitlement: 'pms.core',
+    handler: handlePostInvoices,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetInvoice,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)\/void$/,
+    permission: 'folio:adjust',
+    commandId: 'invoice.void',
+    entitlement: 'pms.core',
+    handler: handlePostInvoiceVoid,
   },
 ];
 

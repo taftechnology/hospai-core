@@ -6,7 +6,9 @@ import {
   INVOICE_R2_UNBOUND,
   INVOICE_VOIDED,
 } from '@hospai/contracts';
+import worker from '../src/index.js';
 import type { PropertyDO } from '../src/property-do';
+import { insertProperty } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers';
 import {
   createGuest,
@@ -24,12 +26,27 @@ async function sha256HexFromBody(body: Uint8Array): Promise<string> {
 
 async function provisionedPropertyWithGuest(
   name: string,
-): Promise<{ stub: DurableObjectStub<PropertyDO>; guestRef: string; propertyId: string }> {
+): Promise<{
+  stub: DurableObjectStub<PropertyDO>;
+  guestRef: string;
+  propertyId: string;
+  orgId: string;
+}> {
   const { stub, orgId } = await provisionedPropertyStub(name, 'UTC', 'USD');
   const org = orgStub(orgId);
   await org.ensureMetaOrgId(orgId);
   const guest = await createGuest(org, name, `guest_${name}`, 'Test Guest');
-  return { stub, guestRef: guest.guestRef, propertyId: name };
+  return { stub, guestRef: guest.guestRef, propertyId: name, orgId };
+}
+
+async function registerPropertyForHttp(propertyId: string, orgId: string): Promise<void> {
+  await insertProperty(env, {
+    propertyId,
+    orgId,
+    name: 'Invoice Test Hotel',
+    jurisdiction: null,
+    timeZone: 'UTC',
+  });
 }
 
 async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: string, roomCount: number) {
@@ -89,17 +106,46 @@ async function writeConfigValueForTest(
   await stub.writeConfigValueForTest(key, value);
 }
 
-// HTTP helper stubs for Task 3
-async function postInvoice(_propertyId: string, _actor: string, _body: Record<string, unknown>) {
-  throw new Error('postInvoice stub — Task 3');
+const HTTP_ACTOR = TEST_OWNER_ACTOR.userId;
+
+async function postInvoice(propertyId: string, actor: string, body: Record<string, unknown>) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/invoices`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ idempotencyKey: `idem-inv-${crypto.randomUUID()}`, ...body }),
+    }),
+    env,
+  );
 }
 
-async function getInvoiceHttp(_propertyId: string, _actor: string, _invoiceId: string) {
-  throw new Error('getInvoiceHttp stub — Task 3');
+async function getInvoiceHttp(propertyId: string, actor: string, invoiceId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/invoices/${encodeURIComponent(invoiceId)}`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
 }
 
-async function postInvoiceVoid(_propertyId: string, _actor: string, _invoiceId: string, _body?: Record<string, unknown>) {
-  throw new Error('postInvoiceVoid stub — Task 3');
+async function postInvoiceVoid(
+  propertyId: string,
+  actor: string,
+  invoiceId: string,
+  body?: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/invoices/${encodeURIComponent(invoiceId)}/void`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-void-${crypto.randomUUID()}`, ...body }),
+      },
+    ),
+    env,
+  );
 }
 
 describe('invoice generation DO engine', () => {
@@ -284,6 +330,35 @@ describe('invoice generation DO engine', () => {
     expect(result).toMatchObject({ ok: false, error: INVOICE_R2_UNBOUND });
   });
 
+  it('case 7: GET returns snapshot from R2; unknown id → 404', async () => {
+    const name = `inv-7-${crypto.randomUUID()}`;
+    const { stub, guestRef, propertyId, orgId } = await provisionedPropertyWithGuest(name);
+    await registerPropertyForHttp(propertyId, orgId);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    await stayCheckedIn(stub, guestRef, 'res_inv7', 'rm_inv7', added.fromDate, addCalendarDays(added.fromDate, 1));
+    const reservationId = 'res_inv7';
+    const genRes = await postInvoice(propertyId, HTTP_ACTOR, { reservationId });
+    expect(genRes.status).toBe(201);
+    const genBody = (await genRes.json()) as { ok: true; invoiceId: string; r2Key: string; sha256: string };
+    expect(genBody.ok).toBe(true);
+
+    const getRes = await getInvoiceHttp(propertyId, HTTP_ACTOR, genBody.invoiceId);
+    expect(getRes.status).toBe(200);
+    const got = (await getRes.json()) as {
+      invoiceId: string;
+      snapshot: { lines: unknown[]; totals: Record<string, unknown> };
+      sha256: string;
+    };
+    expect(got.invoiceId).toBe(genBody.invoiceId);
+    expect(Array.isArray(got.snapshot.lines)).toBe(true);
+    expect(got.snapshot.totals).toBeTruthy();
+    expect(got.sha256).toBe(genBody.sha256);
+
+    const missing = await getInvoiceHttp(propertyId, HTTP_ACTOR, crypto.randomUUID());
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ error: 'not_found' });
+  });
+
   it('case 11: first invoice honours starting_idx (42 → INV-000042)', async () => {
     const name = `inv-11-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name);
@@ -298,5 +373,52 @@ describe('invoice generation DO engine', () => {
       await idemFor('gen11', { reservationId, folioWindowId: guestWindowId }),
     );
     expect(gen).toMatchObject({ ok: true, invoiceNumber: 'INV-000042' });
+  });
+});
+
+describe('invoice generation HTTP wire', () => {
+  it('HTTP generate mirrors case 1: index row + R2 object; sha256 matches body', async () => {
+    const name = `inv-http-1-${crypto.randomUUID()}`;
+    const { stub, guestRef, propertyId, orgId } = await provisionedPropertyWithGuest(name);
+    await registerPropertyForHttp(propertyId, orgId);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    await stayCheckedIn(stub, guestRef, 'res_http1', 'rm_http1', added.fromDate, addCalendarDays(added.fromDate, 1));
+    const reservationId = 'res_http1';
+    const genRes = await postInvoice(propertyId, HTTP_ACTOR, { reservationId });
+    expect(genRes.status).toBe(201);
+    const gen = (await genRes.json()) as {
+      ok: true;
+      invoiceId: string;
+      r2Key: string;
+      sha256: string;
+    };
+    expect(gen.ok).toBe(true);
+    const obj = await env.EVENT_LOG_R2!.get(gen.r2Key);
+    expect(obj).toBeTruthy();
+    const body = new Uint8Array(await obj!.arrayBuffer());
+    const digest = await sha256HexFromBody(body);
+    expect(gen.sha256).toBe(digest);
+    const rows = await stub.readInvoicesForReservation(reservationId);
+    expect(rows.some((r) => r.invoiceId === gen.invoiceId && r.voidedAt == null)).toBe(true);
+  });
+
+  it('HTTP void mirrors case 5: void sets voided_at; second void → INVOICE_VOIDED', async () => {
+    const name = `inv-http-5-${crypto.randomUUID()}`;
+    const { stub, guestRef, propertyId, orgId } = await provisionedPropertyWithGuest(name);
+    await registerPropertyForHttp(propertyId, orgId);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    await stayCheckedIn(stub, guestRef, 'res_http5', 'rm_http5', added.fromDate, addCalendarDays(added.fromDate, 1));
+    const reservationId = 'res_http5';
+    const genRes = await postInvoice(propertyId, HTTP_ACTOR, { reservationId });
+    expect(genRes.status).toBe(201);
+    const gen = (await genRes.json()) as { ok: true; invoiceId: string };
+    const voidRes = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId);
+    expect(voidRes.status).toBe(200);
+    expect(await voidRes.json()).toMatchObject({ ok: true, invoiceId: gen.invoiceId });
+    const rows = await stub.readInvoicesForReservation(reservationId);
+    expect(rows.find((r) => r.invoiceId === gen.invoiceId)?.voidedAt).not.toBeNull();
+    const again = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId);
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ ok: false, error: INVOICE_VOIDED });
   });
 });

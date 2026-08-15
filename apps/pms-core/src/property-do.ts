@@ -7299,8 +7299,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const ratePlanId = input.ratePlanId ?? reservation.rate_plan_id;
           const nights = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
           this.assertOccupancySync(reservation.room_type_id, reservation.adults, reservation.children);
+          const commit = this.resolveInventoryCommitSync({
+            soldRoomTypeId: reservation.room_type_id,
+            arrivalDate: reservation.arrival_date,
+            departureDate: reservation.departure_date,
+            nights,
+          });
+          const ledgerRoomTypeId = commit.ledgerRoomTypeId;
           this.commitSoldNightsSync(
-            reservation.room_type_id,
+            ledgerRoomTypeId,
             reservation.arrival_date,
             reservation.departure_date,
             nights,
@@ -7318,13 +7325,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.ctx.storage.sql.exec(
             `UPDATE reservation SET status = 'pending', rate_plan_id = ?, cancel_penalty_type = ?,
              cancel_grace_hours = ?, cancel_penalty_nights = ?, cancel_penalty_bps = ?,
-             confirm_by = ?, expires_at = NULL, updated_at = ? WHERE reservation_id = ?`,
+             confirm_by = ?, expires_at = NULL, allocated_room_type_id = ?, updated_at = ? WHERE reservation_id = ?`,
             ratePlanId,
             snapshot.cancelPenaltyType,
             snapshot.cancelGraceHours,
             snapshot.cancelPenaltyNights,
             snapshot.cancelPenaltyBps,
             confirmBy,
+            commit.allocatedRoomTypeId,
             now,
             input.reservationId,
           );
@@ -7347,7 +7355,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
             eventType: 'availability.changed',
-            payload: { propertyId, roomTypeId: reservation.room_type_id, fromDate, toDate, version: ariVersion },
+            payload: { propertyId, roomTypeId: ledgerRoomTypeId, fromDate, toDate, version: ariVersion },
           });
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),

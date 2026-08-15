@@ -217,4 +217,55 @@ describe('PropertyDO virtual reservation inventory commit', () => {
       },
     });
   });
+
+  it('6. ROH inquiry hold allocates physical, sold on constituent only', async () => {
+    const name = `vrt-res-hold-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedWithGuest(name);
+    const { arrival } = await seedKingQueenRoh(stub);
+    const departure = addDays(arrival, 1);
+
+    expect(await stub.countAvailabilityDays('rt_roh')).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_queen', arrival))?.sold).toBe(0);
+
+    const inquiry = {
+      reservationId: 'res_roh_inquiry',
+      roomTypeId: 'rt_roh',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'inquiry' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, inquiry, await idemFor('inquiry-roh', inquiry)),
+    ).toMatchObject({ ok: true });
+
+    const readBefore = await stub.readReservation('res_roh_inquiry');
+    expect(readBefore).toMatchObject({
+      ok: true,
+      reservation: { status: 'inquiry', allocatedRoomTypeId: '' },
+    });
+    expect((await stub.readAvailabilityDay('rt_king', arrival))?.sold).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_queen', arrival))?.sold).toBe(0);
+
+    const hold = { reservationId: 'res_roh_inquiry' };
+    expect(await stub.tryHold(TEST_OWNER_ACTOR, hold, await idemFor('hold-roh', hold))).toMatchObject({ ok: true });
+
+    const read = await stub.readReservation('res_roh_inquiry');
+    expect(read).toMatchObject({
+      ok: true,
+      reservation: {
+        status: 'pending',
+        roomTypeId: 'rt_roh',
+        allocatedRoomTypeId: expect.stringMatching(/^rt_(king|queen)$/),
+      },
+    });
+
+    const allocated = read.ok ? read.reservation.allocatedRoomTypeId : '';
+    expect(['rt_king', 'rt_queen']).toContain(allocated);
+    expect((await stub.readAvailabilityDay(allocated, arrival))?.sold).toBe(1);
+    const other = allocated === 'rt_king' ? 'rt_queen' : 'rt_king';
+    expect((await stub.readAvailabilityDay(other, arrival))?.sold).toBe(0);
+    expect(await stub.countAvailabilityDays('rt_roh')).toBe(0);
+  });
 });

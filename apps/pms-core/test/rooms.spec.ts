@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARCHIVE_BLOCKED,
   ROOM_ALREADY_ASSIGNED,
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
@@ -54,6 +55,14 @@ async function createRoom(
 ) {
   const input = { roomId, roomTypeId, code, ...(floor !== undefined ? { floor } : {}) };
   return stub.tryCreateRoom(TEST_OWNER_ACTOR, input, await idemFor(`create-${roomId}`, input));
+}
+
+async function deleteRoom(
+  stub: DurableObjectStub<PropertyDO>,
+  roomId: string,
+) {
+  const input = { roomId };
+  return stub.tryDeleteRoom(TEST_OWNER_ACTOR, input, await idemFor(`del-${roomId}`, input));
 }
 
 describe('PropertyDO rooms + housekeeping', () => {
@@ -407,5 +416,143 @@ describe('PropertyDO rooms + housekeeping', () => {
     ]);
     const empty = await stub.readHousekeepingAssignments('2026-09-02');
     expect(empty.ok && empty.assignments).toEqual([]);
+  });
+});
+
+describe('PropertyDO rooms.delete (archive unit)', () => {
+  it('1: archive live room — omitted from listRooms; room.archived; no availability.changed; audit rooms.delete', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-1-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_typo', 'rt_king', '10I')).toMatchObject({ ok: true });
+    const ariBefore = await stub.readAriVersion();
+    const physBefore = (await stub.readAvailabilityDay('rt_king', (await stub.readBusinessDate())!))?.physical;
+
+    expect(await deleteRoom(stub, 'room_typo')).toEqual({ ok: true, roomId: 'room_typo' });
+    expect((await stub.listRooms()).rooms).toHaveLength(0);
+    expect(await stub.listOutboxEventTypes()).toContain('room.archived');
+    expect(await stub.listOutboxEventTypes()).not.toContain('availability.changed');
+    expect(await stub.readAriVersion()).toBe(ariBefore);
+    expect((await stub.readAvailabilityDay('rt_king', (await stub.readBusinessDate())!))?.physical).toBe(
+      physBefore,
+    );
+
+    const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 50 });
+    expect(audit.ok).toBe(true);
+    const row = (audit as { ok: true; rows: Array<{ commandId: string; entityType: string }> }).rows.find(
+      (r) => r.commandId === 'rooms.delete',
+    );
+    expect(row?.entityType).toBe('room');
+  });
+
+  it('2: after archive, rooms.create replacement succeeds including reusing archived code', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-2-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 2);
+    expect(await createRoom(stub, 'room_typo', 'rt_king', '10I')).toMatchObject({ ok: true });
+    expect(await deleteRoom(stub, 'room_typo')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_101', 'rt_king', '10I')).toMatchObject({ ok: true, roomId: 'room_101' });
+    const listed = await stub.listRooms();
+    expect(listed.rooms).toHaveLength(1);
+    expect(listed.rooms[0]?.code).toBe('10I');
+  });
+
+  it('3: typo story — full type then archive frees slot without raising room_count', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-3-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 1);
+    expect(await createRoom(stub, 'room_typo', 'rt_king', '10I')).toMatchObject({ ok: true });
+    expect(await deleteRoom(stub, 'room_typo')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true, roomId: 'room_101' });
+  });
+
+  it('4: live checked_in reservation → archive_blocked; room still listed', async () => {
+    const { stub, orgId } = await provisionedPropertyWithGuest(`rm-arch-4-${crypto.randomUUID()}`);
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    const arrival = daysFromPropertyToday(0, FIXTURE_TZ);
+    const departure = addCalendarDays(arrival, 2);
+    await stub.insertReservationForTest({
+      reservationId: `res_${crypto.randomUUID()}`,
+      roomTypeId: 'rt_king',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'checked_in',
+      roomId: 'room_101',
+    });
+    expect(await deleteRoom(stub, 'room_101')).toEqual({ ok: false, error: ARCHIVE_BLOCKED });
+    expect((await stub.listRooms()).rooms.some((r) => r.roomId === 'room_101')).toBe(true);
+    void orgId;
+  });
+
+  it('5: future-overlapping room_ooo → archive_blocked', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-5-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    const today = (await stub.readBusinessDate())!;
+    const end = addCalendarDays(today, 5);
+    expect(
+      await stub.trySetOooRange(
+        TEST_OWNER_ACTOR,
+        { roomId: 'room_101', startDate: today, endDate: end },
+        await idemFor('ooo-arch5', { roomId: 'room_101', startDate: today }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(await deleteRoom(stub, 'room_101')).toEqual({ ok: false, error: ARCHIVE_BLOCKED });
+  });
+
+  it('6: already archived or unknown id → not_found', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-6-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 5);
+    expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await deleteRoom(stub, 'room_101')).toMatchObject({ ok: true });
+    expect(
+      await stub.tryDeleteRoom(
+        TEST_OWNER_ACTOR,
+        { roomId: 'room_101' },
+        await idemFor('del-again', { roomId: 'room_101' }),
+      ),
+    ).toMatchObject({ ok: false, error: 'not_found' });
+    expect(await deleteRoom(stub, 'missing')).toMatchObject({ ok: false, error: 'not_found' });
+  });
+
+  it('7: lower room_count below live count → room_units_exceed_count; after archive succeeds', async () => {
+    const { stub } = await provisionedPropertyStub(`rm-arch-7-${crypto.randomUUID()}`, 'UTC', 'USD');
+    await addRoomType(stub, 'rt_king', 2);
+    expect(await createRoom(stub, 'room_a', 'rt_king', '101')).toMatchObject({ ok: true });
+    expect(await createRoom(stub, 'room_b', 'rt_king', '102')).toMatchObject({ ok: true });
+    const lower = { roomTypeId: 'rt_king', roomCount: 1 };
+    expect(await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, lower, await idemFor('lower-7', lower))).toEqual({
+      ok: false,
+      error: ROOM_UNITS_EXCEED_COUNT,
+    });
+    expect(await deleteRoom(stub, 'room_b')).toMatchObject({ ok: true });
+    expect(await stub.tryUpdateRoomType(TEST_OWNER_ACTOR, lower, await idemFor('lower-7b', lower))).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it('8: archived room not picked by auto-assign at check-in', async () => {
+    const { stub, guestRef } = await provisionedPropertyWithGuest(`rm-arch-8-${crypto.randomUUID()}`);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    await createRoom(stub, 'room_low', 'rt_king', '101');
+    await createRoom(stub, 'room_high', 'rt_king', '201');
+    expect(await deleteRoom(stub, 'room_low')).toMatchObject({ ok: true });
+    const arrival = added.fromDate ?? daysFromPropertyToday(1, FIXTURE_TZ);
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await stub.tryCreateReservation(
+      TEST_OWNER_ACTOR,
+      { reservationId, roomTypeId: 'rt_king', guestRef, arrivalDate: arrival, departureDate: departure },
+      await idemFor(`c-${reservationId}`, { reservationId }),
+    );
+    expect(
+      await stub.tryCheckIn(
+        TEST_OWNER_ACTOR,
+        { reservationId },
+        await idemFor('ci-arch8', { reservationId }),
+      ),
+    ).toMatchObject({ ok: true });
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.roomId).toBe('room_high');
   });
 });

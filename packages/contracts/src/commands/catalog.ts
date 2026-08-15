@@ -881,6 +881,19 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['reservation.modified'],
     permission: 'reservations:write',
   },
+  {
+    id: 'rooms.delete',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['room.archived'],
+    entitlement: 'pms.core',
+    permission: 'inventory:write',
+    notes:
+      'prototypeAction null: net-new surface (no prototype DELETE_ROOM). ' +
+      'Soft archive via archived_at — frees room_count slot without ARI change.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

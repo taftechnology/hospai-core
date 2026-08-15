@@ -5227,7 +5227,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             const unitCount = Number(
               (
                 this.ctx.storage.sql
-                  .exec(`SELECT COUNT(*) AS c FROM room WHERE room_type_id = ?`, input.roomTypeId)
+                  .exec(
+                    `SELECT COUNT(*) AS c FROM room WHERE room_type_id = ? AND archived_at IS NULL`,
+                    input.roomTypeId,
+                  )
                   .toArray() as Array<{ c: number }>
               )[0]?.c ?? 0,
             );
@@ -5541,6 +5544,137 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
+   * Archive a physical room unit. Implements catalog `rooms.delete`.
+   * Fingerprint allowlist: `{ roomId }`.
+   * Never touches availability_day / ARI.
+   */
+  async tryDeleteRoom(
+    actor: ActorContext,
+    input: { roomId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; roomId: string }
+    | { ok: false; error: typeof ARCHIVE_BLOCKED }
+    | { ok: false; error: string }
+  > {
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'inventory:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_id, room_type_id, code, status, floor, archived_at
+               FROM room WHERE room_id = ?`,
+              input.roomId,
+            )
+            .toArray() as Array<{
+            room_id: string;
+            room_type_id: string;
+            code: string;
+            status: string;
+            floor: string | null;
+            archived_at: number | null;
+          }>;
+          const existing = rows[0];
+          if (!existing || existing.archived_at != null) {
+            throw new RoomNotFoundError();
+          }
+
+          const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+
+          const liveRes = this.ctx.storage.sql
+            .exec(
+              `SELECT 1 FROM reservation
+               WHERE room_id = ? AND status IN ('inquiry','pending','confirmed','checked_in')
+               LIMIT 1`,
+              input.roomId,
+            )
+            .toArray();
+          if (liveRes.length > 0) throw new ArchiveBlockedError();
+
+          const futureOoo = this.ctx.storage.sql
+            .exec(
+              `SELECT 1 FROM room_ooo WHERE room_id = ? AND end_date > ? LIMIT 1`,
+              input.roomId,
+              today,
+            )
+            .toArray();
+          if (futureOoo.length > 0) throw new ArchiveBlockedError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE room SET archived_at = ?, updated_at = ? WHERE room_id = ?`,
+            now,
+            now,
+            input.roomId,
+          );
+
+          this.ctx.storage.sql.exec(
+            `DELETE FROM housekeeping_assignment WHERE room_id = ? AND business_date >= ?`,
+            input.roomId,
+            today,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'room.archived',
+            payload: {
+              propertyId,
+              roomId: input.roomId,
+              roomTypeId: existing.room_type_id,
+              code: existing.code,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rooms.delete',
+            entityType: 'room',
+            entityId: input.roomId,
+            beforeJson: {
+              roomId: input.roomId,
+              roomTypeId: existing.room_type_id,
+              code: existing.code,
+              floor: existing.floor,
+              status: existing.status,
+              archivedAt: null,
+            },
+            afterJson: {
+              roomId: input.roomId,
+              roomTypeId: existing.room_type_id,
+              code: existing.code,
+              floor: existing.floor,
+              status: existing.status,
+              archivedAt: now,
+            },
+          });
+
+          return { ok: true as const, roomId: input.roomId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ArchiveBlockedError) return { ok: false, error: ARCHIVE_BLOCKED };
+      if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
    * Create a physical room unit. Implements catalog `rooms.create`.
    * Fingerprint allowlist: `{ roomId, roomTypeId, code, floor? }`.
    * Never touches availability_day / ARI.
@@ -5592,14 +5726,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (roomType.kind === 'virtual') throw new Error(VIRTUAL_TYPE_NO_ROOMS);
 
           const codeTaken = this.ctx.storage.sql
-            .exec(`SELECT room_id FROM room WHERE code = ?`, input.code)
+            .exec(`SELECT room_id FROM room WHERE code = ? AND archived_at IS NULL`, input.code)
             .toArray();
           if (codeTaken.length > 0) throw new RoomCodeExistsError();
 
           const unitCount = Number(
             (
               this.ctx.storage.sql
-                .exec(`SELECT COUNT(*) AS c FROM room WHERE room_type_id = ?`, input.roomTypeId)
+                .exec(
+                  `SELECT COUNT(*) AS c FROM room WHERE room_type_id = ? AND archived_at IS NULL`,
+                  input.roomTypeId,
+                )
                 .toArray() as Array<{ c: number }>
             )[0]?.c ?? 0,
           );
@@ -5696,17 +5833,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const rows = this.ctx.storage.sql
-            .exec(`SELECT code, floor FROM room WHERE room_id = ?`, input.roomId)
-            .toArray() as Array<{ code: string; floor: string | null }>;
+            .exec(`SELECT code, floor, archived_at FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ code: string; floor: string | null; archived_at: number | null }>;
           const existing = rows[0];
-          if (!existing) throw new RoomNotFoundError();
+          if (!existing || existing.archived_at != null) throw new RoomNotFoundError();
 
           const nextCode = input.code ?? existing.code;
           const nextFloor = input.floor !== undefined ? input.floor : existing.floor;
 
           if (input.code !== undefined && input.code !== existing.code) {
             const codeTaken = this.ctx.storage.sql
-              .exec(`SELECT room_id FROM room WHERE code = ? AND room_id != ?`, input.code, input.roomId)
+              .exec(
+                `SELECT room_id FROM room WHERE code = ? AND archived_at IS NULL AND room_id != ?`,
+                input.code,
+                input.roomId,
+              )
               .toArray();
             if (codeTaken.length > 0) throw new RoomCodeExistsError();
           }
@@ -5976,7 +6117,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const roomRows = this.ctx.storage.sql
             .exec(
-              `SELECT r.room_id, r.room_type_id, r.status, t.status AS type_status
+              `SELECT r.room_id, r.room_type_id, r.status, r.archived_at, t.status AS type_status
                FROM room r JOIN room_type t ON t.room_type_id = r.room_type_id
                WHERE r.room_id = ?`,
               input.roomId,
@@ -5985,10 +6126,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             room_id: string;
             room_type_id: string;
             status: string;
+            archived_at: number | null;
             type_status: string;
           }>;
           const room = roomRows[0];
-          if (!room || room.type_status !== 'active') throw new RoomNotFoundError();
+          if (!room || room.type_status !== 'active' || room.archived_at != null) {
+            throw new RoomNotFoundError();
+          }
 
           let reason: string | null = null;
           if (input.reason !== undefined) {
@@ -6215,9 +6359,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
           const fromRows = this.ctx.storage.sql
-            .exec(`SELECT status FROM room WHERE room_id = ?`, input.roomId)
-            .toArray() as Array<{ status: string }>;
-          const fromStatus = fromRows[0]?.status;
+            .exec(`SELECT status, archived_at FROM room WHERE room_id = ?`, input.roomId)
+            .toArray() as Array<{ status: string; archived_at: number | null }>;
+          if (!fromRows[0] || fromRows[0].archived_at != null) throw new RoomNotFoundError();
+          const fromStatus = fromRows[0].status;
           const result = updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
@@ -6292,9 +6437,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const fromByRoom = new Map<string, string>();
           for (const u of input.updates) {
             const rows = this.ctx.storage.sql
-              .exec(`SELECT status FROM room WHERE room_id = ?`, u.roomId)
-              .toArray() as Array<{ status: string }>;
-            if (rows[0]) fromByRoom.set(u.roomId, rows[0].status);
+              .exec(`SELECT status, archived_at FROM room WHERE room_id = ?`, u.roomId)
+              .toArray() as Array<{ status: string; archived_at: number | null }>;
+            if (!rows[0] || rows[0].archived_at != null) throw new RoomNotFoundError();
+            fromByRoom.set(u.roomId, rows[0].status);
           }
           const result = bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
           for (const u of input.updates) {
@@ -6338,10 +6484,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
   ): { room_type_id: string; status: string } {
     const roomRows = this.ctx.storage.sql
-      .exec(`SELECT room_type_id, status FROM room WHERE room_id = ?`, roomId)
-      .toArray() as Array<{ room_type_id: string; status: string }>;
+      .exec(`SELECT room_type_id, status, archived_at FROM room WHERE room_id = ?`, roomId)
+      .toArray() as Array<{ room_type_id: string; status: string; archived_at: number | null }>;
     const room = roomRows[0];
-    if (!room) throw new RoomNotFoundError();
+    if (!room || room.archived_at != null) throw new RoomNotFoundError();
     if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
     if (room.room_type_id !== reservation.allocatedRoomTypeId) throw new RoomTypeMismatchError();
     const conflict = this.ctx.storage.sql
@@ -6599,6 +6745,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
          FROM room
          WHERE (? IS NULL OR room_type_id = ?)
            AND (? IS NULL OR status = ?)
+           AND archived_at IS NULL
          ORDER BY code`,
         roomTypeId,
         roomTypeId,
@@ -8262,7 +8409,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const allocatedRoomTypeId = reservation.allocated_room_type_id || reservation.room_type_id;
     const candidates = this.ctx.storage.sql
       .exec(
-        `SELECT room_id, status FROM room WHERE room_type_id = ? ORDER BY code ASC`,
+        `SELECT room_id, status FROM room WHERE room_type_id = ? AND archived_at IS NULL ORDER BY code ASC`,
         allocatedRoomTypeId,
       )
       .toArray() as Array<{ room_id: string; status: string }>;
@@ -9564,6 +9711,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT room_id, room_type_id, code, status, floor
          FROM room
          WHERE (? IS NULL OR room_type_id = ?)
+           AND archived_at IS NULL
          ORDER BY code`,
         typeId,
         typeId,
@@ -9715,6 +9863,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT room_id, room_type_id, code, status, floor
          FROM room
          WHERE (? IS NULL OR room_type_id = ?)
+           AND archived_at IS NULL
            AND status != 'out_of_order'
            AND room_id NOT IN (
              SELECT room_id FROM reservation
@@ -9802,7 +9951,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
     const sellableRooms = count(
       `SELECT COUNT(*) AS n FROM room
-       WHERE room_id NOT IN (
+       WHERE archived_at IS NULL
+         AND room_id NOT IN (
          SELECT room_id FROM room_ooo WHERE start_date <= ? AND end_date > ?
        )`,
       date,

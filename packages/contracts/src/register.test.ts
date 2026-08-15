@@ -417,7 +417,7 @@ describe('command catalog', () => {
       'delete_property_member',
     ] as const;
     for (let i = 0; i < membershipIds.length; i++) {
-      const row = V1_HTTP_ROUTE_AUDIT[70 + i];
+      const row = V1_HTTP_ROUTE_AUDIT[69 + i];
       expect(row?.id).toBe(membershipIds[i]);
       expect(row).not.toHaveProperty('entitlement');
       expect(row).not.toHaveProperty('commandId');

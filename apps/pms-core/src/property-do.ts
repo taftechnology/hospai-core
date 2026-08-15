@@ -2482,11 +2482,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
-  async stampFolioWindowClosedForTest(folioWindowId: string): Promise<void> {
+  async stampFolioWindowClosedForTest(folioWindowId: string, closedAtMs?: number): Promise<void> {
     this.assertUnsafeLocal('stampFolioWindowClosedForTest');
     this.ctx.storage.sql.exec(
       `UPDATE folio_window SET status = 'CLOSED', closed_at = ? WHERE folio_window_id = ?`,
-      Date.now(),
+      closedAtMs ?? Date.now(),
       folioWindowId,
     );
   }
@@ -3000,6 +3000,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.runAutoTransferSync(businessDate);
         } else if (step === 'SNAPSHOT_REPORTS') {
           this.indexReportPutsSync(businessDate);
+          this.postPendingCityLedgerChargesForBusinessDateSync(businessDate);
         } else if (step === 'ARCHIVE') {
           this.indexManifestSync(businessDate);
         }
@@ -14188,6 +14189,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           if (balance !== 0) throw new FolioWindowError(WINDOW_BALANCE_DUE);
 
+          if (window.kind === 'COMPANY') {
+            const postResult = this.postCityLedgerChargeSync({
+              folioWindowId: input.folioWindowId,
+              source: 'window_close',
+              actor,
+            });
+            if (!postResult.ok) throw new CityLedgerError(postResult.error);
+          }
+
           const now = Date.now();
           this.closeFolioWindowSync(input.folioWindowId, now, propertyId, window.reservationId);
           this.appendAuditLogSync({
@@ -14205,6 +14215,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -19129,6 +19141,123 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return Number(rows[0]?.total ?? 0);
   }
 
+  private closedAtBusinessDateSync(closedAtMs: number): string {
+    const timeZone = this.readStoredTimeZoneSync() ?? 'UTC';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(closedAtMs));
+  }
+
+  private postedReceivableMinorSync(folioWindowId: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS total
+         FROM folio_line
+         WHERE folio_window_id = ? AND charge_code != 'PAYMENT'`,
+        folioWindowId,
+      )
+      .toArray() as Array<{ total: number }>;
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  private postCityLedgerChargeSync(input: {
+    folioWindowId: string;
+    source: 'window_close' | 'night_audit';
+    actor: ActorContext;
+  }):
+    | { ok: true; entryId: string; alreadyPosted?: true }
+    | { ok: false; error: string } {
+    const window = this.readFolioWindowRowSync(input.folioWindowId);
+    if (!window || window.kind !== 'COMPANY') return { ok: false, error: NOT_FOUND };
+
+    const existing = this.ctx.storage.sql
+      .exec(
+        `SELECT entry_id FROM city_ledger_entry
+         WHERE folio_window_id = ? AND kind = 'charge'
+         LIMIT 1`,
+        input.folioWindowId,
+      )
+      .toArray() as Array<{ entry_id: string }>;
+    if (existing[0]) {
+      return { ok: true, entryId: existing[0].entry_id, alreadyPosted: true };
+    }
+
+    const billedParty = window.billedParty?.trim() ?? '';
+    const account = this.resolveCityLedgerAccountSync(billedParty);
+    if (!account) return { ok: false, error: CITY_LEDGER_ACCOUNT_NOT_FOUND };
+    if (account.status === 'archived') return { ok: false, error: CITY_LEDGER_ACCOUNT_ARCHIVED };
+
+    const amount = this.postedReceivableMinorSync(input.folioWindowId);
+    if (amount <= 0) return { ok: true, entryId: '' };
+
+    const accountRow = this.readCityLedgerAccountRowSync(account.accountId);
+    if (!accountRow) return { ok: false, error: CITY_LEDGER_ACCOUNT_NOT_FOUND };
+
+    const open = this.openBalanceMinorSync(account.accountId);
+    if (accountRow.creditLimitMinor > 0 && open + amount > accountRow.creditLimitMinor) {
+      throw new CityLedgerCreditLimitExceededError();
+    }
+
+    const entryId = crypto.randomUUID();
+    const businessDate = this.readBusinessDateSync() ?? new Date().toISOString().slice(0, 10);
+    const currency = this.readStoredLedgerCurrencySync() ?? 'USD';
+    const propertyId = this.getPropertyIdSync();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO city_ledger_entry
+       (entry_id, account_id, reservation_id, folio_window_id, kind, amount_minor, currency,
+        business_date, source, reference, created_at)
+       VALUES (?, ?, ?, ?, 'charge', ?, ?, ?, ?, NULL, ?)`,
+      entryId,
+      account.accountId,
+      window.reservationId,
+      input.folioWindowId,
+      amount,
+      currency,
+      businessDate,
+      input.source,
+      Date.now(),
+    );
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'city_ledger.charge_posted',
+      payload: {
+        propertyId,
+        entryId,
+        folioWindowId: input.folioWindowId,
+        accountId: account.accountId,
+        amountMinor: amount,
+        source: input.source,
+        reservationId: window.reservationId,
+      },
+    });
+    return { ok: true, entryId };
+  }
+
+  private postPendingCityLedgerChargesForBusinessDateSync(businessDate: string): void {
+    const windows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_window_id, closed_at FROM folio_window fw
+         WHERE fw.kind = 'COMPANY' AND fw.status = 'CLOSED' AND fw.closed_at IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM city_ledger_entry e
+             WHERE e.folio_window_id = fw.folio_window_id AND e.kind = 'charge'
+           )`,
+      )
+      .toArray() as Array<{ folio_window_id: string; closed_at: number }>;
+    for (const w of windows) {
+      if (this.closedAtBusinessDateSync(w.closed_at) !== businessDate) continue;
+      const result = this.postCityLedgerChargeSync({
+        folioWindowId: w.folio_window_id,
+        source: 'night_audit',
+        actor: { kind: 'system', reason: 'night_audit' },
+      });
+      if (!result.ok) throw new CityLedgerError(result.error);
+    }
+  }
+
   private resolveCityLedgerAccountSync(
     raw: string,
   ): { accountId: string; name: string; status: 'active' | 'archived' } | null {
@@ -20019,6 +20148,55 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  async readCityLedgerChargeForWindowForTest(folioWindowId: string): Promise<{
+    entryId: string;
+    accountId: string;
+    reservationId: string | null;
+    folioWindowId: string | null;
+    kind: string;
+    source: string;
+    amountMinor: number;
+  } | null> {
+    this.assertUnsafeLocal('readCityLedgerChargeForWindowForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT entry_id, account_id, reservation_id, folio_window_id, kind, source, amount_minor
+         FROM city_ledger_entry
+         WHERE folio_window_id = ? AND kind = 'charge'
+         LIMIT 1`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      entry_id: string;
+      account_id: string;
+      reservation_id: string | null;
+      folio_window_id: string | null;
+      kind: string;
+      source: string;
+      amount_minor: number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      entryId: row.entry_id,
+      accountId: row.account_id,
+      reservationId: row.reservation_id,
+      folioWindowId: row.folio_window_id,
+      kind: row.kind,
+      source: row.source,
+      amountMinor: row.amount_minor,
+    };
+  }
+
+  async setCityLedgerAccountArchivedForTest(accountId: string): Promise<void> {
+    this.assertUnsafeLocal('setCityLedgerAccountArchivedForTest');
+    this.ctx.storage.sql.exec(
+      `UPDATE city_ledger_account SET status = 'archived', updated_at = ? WHERE account_id = ?`,
+      Date.now(),
+      accountId,
+    );
+  }
+
   async seedLegacyCompanyWindowForTest(reservationId: string, billedParty: string): Promise<void> {
     this.assertUnsafeLocal('seedLegacyCompanyWindowForTest');
     const slug = billedPartySlug(billedParty);
@@ -20051,7 +20229,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         END`);
     }
   }
-
 
   async ackOutboxThrough(seq: number): Promise<void> {
     ackOutboxThroughSql(this.ctx.storage.sql, seq);

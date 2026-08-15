@@ -5,6 +5,7 @@ import {
   CITY_LEDGER_ACCOUNT_EXISTS,
   CITY_LEDGER_ACCOUNT_NOT_FOUND,
   CITY_LEDGER_BILLED_PARTY_INVALID,
+  CITY_LEDGER_CREDIT_LIMIT_EXCEEDED,
   CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE,
   CITY_LEDGER_R2_UNBOUND,
   CITY_LEDGER_STATEMENT_NOT_FOUND,
@@ -28,6 +29,73 @@ async function createCityLedgerAccount(
 async function sha256HexFromBody(body: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', body);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function setupCompanyWindowAtZeroBalance(
+  stub: DurableObjectStub<PropertyDO>,
+  opts: {
+    reservationId: string;
+    accountName: string;
+    receivableMinor: number;
+    creditLimitMinor?: number;
+  },
+) {
+  const account = await createCityLedgerAccount(stub, {
+    name: opts.accountName,
+    creditLimitMinor: opts.creditLimitMinor ?? 1_000_000,
+  });
+  if (!account.ok) throw new Error(`create account failed: ${account.error}`);
+
+  const openFp = {
+    reservationId: opts.reservationId,
+    kind: 'COMPANY' as const,
+    billedParty: opts.accountName,
+  };
+  const open = await stub.tryOpenFolioWindow(
+    TEST_OWNER_ACTOR,
+    openFp,
+    await idemFor(`open-co-${opts.reservationId}`, openFp),
+  );
+  if (!open.ok) throw new Error(`open company window failed: ${open.error}`);
+
+  const businessDate = (await stub.readBusinessDate())!;
+  if (opts.receivableMinor > 0) {
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId: open.folioWindowId,
+      reservationId: opts.reservationId,
+      chargeCode: 'ROOM',
+      amountMinor: opts.receivableMinor,
+      source: 'desk',
+      businessDate,
+    });
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId: open.folioWindowId,
+      reservationId: opts.reservationId,
+      chargeCode: 'PAYMENT',
+      amountMinor: -opts.receivableMinor,
+      source: 'desk',
+      businessDate,
+    });
+  }
+
+  return { account, folioWindowId: open.folioWindowId, businessDate };
+}
+
+async function seedReservation(
+  stub: DurableObjectStub<PropertyDO>,
+  reservationId: string,
+  businessDate: string,
+) {
+  await stub.insertReservationForTest({
+    reservationId,
+    roomTypeId: 'rt_king',
+    guestRef: 'guest',
+    piiKeyId: 'pii',
+    arrivalDate: businessDate,
+    departureDate: addCalendarDays(businessDate, 1),
+  });
 }
 
 describe('city ledger account CRUD', () => {
@@ -410,5 +478,292 @@ describe('city ledger account not found', () => {
     const { stub } = await provisionedPropertyStub(`cl-missing-${crypto.randomUUID()}`, 'UTC', 'USD');
     const detail = await stub.readCityLedgerAccount(crypto.randomUUID());
     expect(detail).toMatchObject({ ok: false, error: CITY_LEDGER_ACCOUNT_NOT_FOUND });
+  });
+});
+
+describe('city ledger charge posting', () => {
+  it('postCityLedgerChargeSync inserts one charge row with source window_close on close', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-charge-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Charge Co',
+      receivableMinor: 12_000,
+    });
+
+    const closeFp = { folioWindowId };
+    const closed = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      closeFp,
+      await idemFor('close-co-charge', closeFp),
+    );
+    expect(closed).toMatchObject({ ok: true });
+
+    const charge = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(charge).toMatchObject({
+      accountId: account.accountId,
+      kind: 'charge',
+      source: 'window_close',
+      amountMinor: 12_000,
+      reservationId,
+      folioWindowId,
+    });
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBe(12_000);
+    expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
+  });
+
+  it('replay same folioWindowId is idempotent — single charge row', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-charge-idem-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Idem Co',
+      receivableMinor: 5_000,
+    });
+
+    const closeFp = { folioWindowId };
+    const idem = await idemFor('close-co-idem', closeFp);
+    expect(await stub.tryCloseFolioWindow(TEST_OWNER_ACTOR, closeFp, idem)).toMatchObject({ ok: true });
+    const first = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(first?.entryId).toBeTruthy();
+
+    expect(
+      await stub.tryCloseFolioWindow(
+        TEST_OWNER_ACTOR,
+        closeFp,
+        await idemFor('close-co-idem-replay', closeFp),
+      ),
+    ).toMatchObject({
+      ok: true,
+      alreadyClosed: true,
+    });
+    const second = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(second?.entryId).toBe(first?.entryId);
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
+  });
+
+  it('rejects when credit limit exceeded with city_ledger_credit_limit_exceeded', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-charge-limit-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Limit Co',
+      receivableMinor: 3_000,
+      creditLimitMinor: 5_000,
+    });
+    await stub.seedCityLedgerEntryForTest({
+      accountId: account.accountId,
+      kind: 'charge',
+      amountMinor: 3_000,
+      businessDate,
+    });
+
+    const closeFp = { folioWindowId };
+    const closed = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      closeFp,
+      await idemFor('close-co-limit', closeFp),
+    );
+    expect(closed).toMatchObject({ ok: false, error: CITY_LEDGER_CREDIT_LIMIT_EXCEEDED });
+
+    const win = await stub.readFolioWindowForTest(folioWindowId);
+    expect(win?.status).toBe('OPEN');
+    expect(await stub.readCityLedgerChargeForWindowForTest(folioWindowId)).toBeNull();
+  });
+
+  it('rejects archived account with city_ledger_account_archived', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-charge-arch-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Arch Post Co',
+      receivableMinor: 2_000,
+    });
+    await stub.setCityLedgerAccountArchivedForTest(account.accountId);
+
+    const closeFp = { folioWindowId };
+    const closed = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      closeFp,
+      await idemFor('close-co-arch', closeFp),
+    );
+    expect(closed).toMatchObject({ ok: false, error: CITY_LEDGER_ACCOUNT_ARCHIVED });
+
+    const win = await stub.readFolioWindowForTest(folioWindowId);
+    expect(win?.status).toBe('OPEN');
+    expect(await stub.readCityLedgerChargeForWindowForTest(folioWindowId)).toBeNull();
+  });
+});
+
+describe('city ledger close hook', () => {
+  it('posts charge only for COMPANY windows at zero balance, not GUEST or MASTER', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-hook-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId: companyWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Hook Co',
+      receivableMinor: 4_000,
+    });
+
+    const masterOpenFp = { reservationId, kind: 'MASTER' as const };
+    const masterOpen = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      masterOpenFp,
+      await idemFor('open-master', masterOpenFp),
+    );
+    expect(masterOpen).toMatchObject({ ok: true });
+    if (!masterOpen.ok) return;
+
+    const closeCompany = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      { folioWindowId: companyWindowId },
+      await idemFor('close-co-hook', { folioWindowId: companyWindowId }),
+    );
+    expect(closeCompany).toMatchObject({ ok: true });
+    expect(await stub.readCityLedgerChargeForWindowForTest(companyWindowId)).toMatchObject({
+      source: 'window_close',
+      amountMinor: 4_000,
+    });
+
+    const closeMaster = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      { folioWindowId: masterOpen.folioWindowId },
+      await idemFor('close-master', { folioWindowId: masterOpen.folioWindowId }),
+    );
+    expect(closeMaster).toMatchObject({ ok: true });
+    expect(await stub.readCityLedgerChargeForWindowForTest(masterOpen.folioWindowId)).toBeNull();
+
+    const guestResId = `res_guest_${crypto.randomUUID()}`;
+    await stub.insertReservationForTest({
+      reservationId: guestResId,
+      roomTypeId: 'rt_king',
+      guestRef: 'guest',
+      piiKeyId: 'pii',
+      arrivalDate: businessDate,
+      departureDate: addCalendarDays(businessDate, 1),
+      status: 'checked_out',
+    });
+    const guestLineId = crypto.randomUUID();
+    expect(
+      await stub.tryAddFolioLine(
+        TEST_OWNER_ACTOR,
+        {
+          folioLineId: guestLineId,
+          reservationId: guestResId,
+          chargeCode: 'MISC',
+          amountMinor: 100,
+          businessDate,
+        },
+        await idemFor('guest-misc-hook', { folioLineId: guestLineId }),
+      ),
+    ).toMatchObject({ ok: true });
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId: `${guestResId}:GUEST`,
+      reservationId: guestResId,
+      chargeCode: 'PAYMENT',
+      amountMinor: -100,
+      source: 'desk',
+      businessDate,
+    });
+    const closeGuest = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      { folioWindowId: `${guestResId}:GUEST` },
+      await idemFor('close-guest', { folioWindowId: `${guestResId}:GUEST` }),
+    );
+    expect(closeGuest).toMatchObject({ ok: true });
+    expect(await stub.readCityLedgerChargeForWindowForTest(`${guestResId}:GUEST`)).toBeNull();
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
+  });
+});
+
+describe('city ledger night-audit catch-up', () => {
+  it('postPendingCityLedgerChargesForBusinessDateSync posts missed charges with source night_audit', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-catchup-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Catchup Co',
+      receivableMinor: 7_500,
+    });
+
+    const closedAtMs = Date.parse(`${businessDate}T12:00:00.000Z`);
+    await stub.stampFolioWindowClosedForTest(folioWindowId, closedAtMs);
+    expect(await stub.readCityLedgerChargeForWindowForTest(folioWindowId)).toBeNull();
+
+    expect((await stub.runAuditStep(businessDate, 'SNAPSHOT_REPORTS')).status).toBe('COMPLETED');
+
+    const charge = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(charge).toMatchObject({
+      accountId: account.accountId,
+      kind: 'charge',
+      source: 'night_audit',
+      amountMinor: 7_500,
+      folioWindowId,
+    });
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBe(7_500);
+  });
+
+  it('night-audit catch-up re-run for same business date is idempotent', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-catchup-idem-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Catchup Idem Co',
+      receivableMinor: 1_500,
+    });
+
+    const closedAtMs = Date.parse(`${businessDate}T12:00:00.000Z`);
+    await stub.stampFolioWindowClosedForTest(folioWindowId, closedAtMs);
+
+    expect((await stub.runAuditStep(businessDate, 'SNAPSHOT_REPORTS')).status).toBe('COMPLETED');
+    const first = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(first?.entryId).toBeTruthy();
+
+    expect((await stub.runAuditStep(businessDate, 'SNAPSHOT_REPORTS')).status).toBe('COMPLETED');
+    const second = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+    expect(second?.entryId).toBe(first?.entryId);
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
   });
 });

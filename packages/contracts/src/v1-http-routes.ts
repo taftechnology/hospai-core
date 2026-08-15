@@ -138,6 +138,7 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     scope: 'property',
     permission: 'folio:adjust',
     commandId: 'folio.split_charge',
+    entitlement: 'pms.core',
   },
   {
     id: 'post_rooms',
@@ -259,12 +260,6 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     scope: 'property',
     permission: 'folio:post',
     commandId: 'folio.capture',
-  },
-  {
-    id: 'post_folio_split_payment',
-    scope: 'property',
-    permission: 'folio:adjust',
-    commandId: 'folio.split_charge_payment',
   },
   {
     id: 'get_folio_payment',
@@ -545,13 +540,6 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     scope: 'property',
     permission: 'folio:adjust',
     commandId: 'folio.transfer_charge',
-    entitlement: 'pms.core',
-  },
-  {
-    id: 'post_folio_split_v2',
-    scope: 'property',
-    permission: 'folio:adjust',
-    commandId: 'folio.split_charge_v2',
     entitlement: 'pms.core',
   },
   {

@@ -2150,14 +2150,14 @@ and must not be redesigned from the prototype.
 | Surface | Where | Note |
 |---|---|---|
 | Inquiry / pending / confirmed lifecycle | §7.4 | Architecture is *stricter* than the prototype (adds `PENDING`). |
-| Damage deposits, promo codes, manual discounts with reason, no-post | §16.1 folio | Promo also sits on the §7.2 derivation graph. |
+| Damage deposits, promo codes, manual discounts with reason, no-post | §16.1 folio | Promo also sits on the §7.2 derivation graph. **Shipped:** money-ops extras in [folio money operations](docs/superpowers/specs/2026-08-12-folio-money-operations-design.md); promo codes 2026-08-15 ([promo codes](docs/superpowers/specs/2026-08-15-promo-codes-design.md)). |
 | OOO with date ranges | §7.1 | Per-room range → `blocked` ledger delta; fail-closed if assigned; opens a `maintenance` work order. |
 | Virtual room types | §7.1 | No independent `physical` count; sale decrements constituents. |
 | Folio windows, routing, split, night-audit auto-transfer | §7.3 | Prototype mutates in place; platform is reverse + two postings. |
 | Group blocks and allotments | §7.4, Phase 2 | Own aggregate, not a reservation flag. |
-| City ledger / direct bill | §7.3 | Distinct from guest folios. |
+| City ledger / direct bill | §7.3 | Distinct from guest folios. **Shipped 2026-08-15** ([city ledger / AR](docs/superpowers/specs/2026-08-15-city-ledger-ar-design.md)): own aggregate, append-only entry ledger, derived aging, R2 statements. |
 | Products, maintenance, reporting, guests CRM (tags, VIP, LTV) | §11, §16.1 | LTV trends are warehouse (§7.8). |
-| Invoice numbering and templates | §16.1 finance | Invoices live in R2 (§4.7); the generation engine is still owed. |
+| Invoice numbering and templates | §16.1 finance | Invoices live in R2 (§4.7). **Generation engine shipped 2026-08-15** ([invoice generation](docs/superpowers/specs/2026-08-15-invoice-generation-engine-design.md)), with the checkout precondition gate. |
 | Tape chart / front-desk board | §7.7 | Operational reads over hibernating WebSockets, not a short-TTL projection. |
 | 89 configuration settings | §5.1 | Classified register; secrets never in config. |
 | Whistle (inbox, automations, contacts, tasks, upsell, analytics) | §11 guest-engagement, Phase 3 | A module *group*, not a single add-on. |
@@ -2175,8 +2175,10 @@ The shipped reservation status machine matches that diagram (`inquiry | pending 
 cancelled | checked_in | checked_out | no_show`). The 2026-08-12 reservation-lifecycle chunk
 restored `INQUIRY` and `PENDING`; this paragraph is no longer a disagreement.
 
-`rooms.set_ooo_range` (§7.1), `folio.transfer_charge` and `folio.split_charge_v2` (§7.3)
-shipped; `PLATFORM_GAPS` is empty. They are not build debt.
+`rooms.set_ooo_range` (§7.1), `folio.transfer_charge` and `folio.split_charge` (§7.3)
+shipped; `PLATFORM_GAPS` is empty. They are not build debt. (The split commands were collapsed
+to a single `folio.split_charge` on 2026-08-15 — `split_charge_v2` and `split_charge_payment`
+are retired; see [split command collapse](docs/superpowers/specs/2026-08-15-split-command-collapse-design.md).)
 
 #### Still unnamed — product must decide keep, defer, or drop
 
@@ -2196,6 +2198,7 @@ text is listed so these are not over-counted. Decisions below are closed by
 | **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | **KEEP** (2026-08-12). SPA editor remainder closed in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §6. |
 | **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | **Occupancy split: done. Photos: DEFER. Keyless: DROP.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
 | **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Penalty snapshot: done. Inclusions: DEFER.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
+| **Plan-scoped restrictions** (min/max stay, CTA/CTD per rate plan) | §7.2 allows plan-specific rows ("the tightest constraint wins"); Phase 1 writes omit `ratePlanId` (type-wide `'*'`). | **Type-wide stays — not Phase 1** (2026-08-15). Scoped out of the rate-plans, property-setup SPA, derived-plans, booking plan-picker, and promo specs; revisit with the channel-manager phase. |
 
 #### Deliberate differences (not gaps)
 
@@ -2222,6 +2225,7 @@ resolved room is rejected unless `pms.ops.auto_assign_rooms` is on, in which cas
   wizard, front-desk board, tape chart, available-rooms, inventory, rates matrix, folio,
   housekeeping core, guests, night audit, settings) **plus** a recorded decision on every row
   in "Still unnamed" above — keep, defer, or drop — before that vertical ships.
-- **§16.1 folio extras** (no-post, damage deposits, promo, manual discounts) are named and
-  undesigned as domain rules. They need a vertical spec, not another inventory row.
+- **§16.1 folio extras** (no-post, damage deposits, promo, manual discounts) were designed in
+  [folio money operations](docs/superpowers/specs/2026-08-12-folio-money-operations-design.md)
+  and shipped, promo codes last on 2026-08-15. This bullet is closed.
 - **`INQUIRY` / `PENDING` restored 2026-08-12.** The shipped machine matches §7.4.

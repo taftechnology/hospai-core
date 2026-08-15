@@ -52,7 +52,7 @@ The desk can post, authorize, capture, cash, split same-window, and check out be
 - City ledger / AR (§7.3: structurally distinct). `billed_party` is a label, not an AR account.
 - Real PSP / PCI Worker. Simulate adapter stays; gains void + refund methods.
 - Multi-currency conversion (already shipped; identity-rate lifted for payments and optional add_item — see [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
-- Promo codes (§7.4 — deferred with reasons).
+- ~~Promo codes (§7.4 — deferred with reasons).~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md).
 - Group/master **billing engine** (cutoff, wash, pickup). `MASTER` windows may exist as transfer targets; no group aggregate.
 - ~~Night-audit **auto-transfer** (§13 — deferred; do not grow `NIGHT_AUDIT_STEPS`).~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
 - ~~Routing-rules table (charge-code leftover; auto-transfer’s input).~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
@@ -668,7 +668,7 @@ Never print a folio in `DEGRADED` (existing §4.6 UI rule).
 9. **Damage deposit. Resolved: authorize `purpose=DAMAGE` hold; not auto-captured; desk voids or captures + posts `DAMAGE`.**
 10. **No-post grain. Resolved: per reservation, skips night-audit ROOM only.**
 11. **Discount approval. Resolved: `folio:adjust` is the gate** (staff lack it). Reason required. Line-level. Tax-exempt this chunk.
-12. **Promo. Resolved: defer** with reasons in §7.4.
+12. ~~**Promo. Resolved: defer** with reasons in §7.4.~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md).
 13. **Quote snapshot fallback. Resolved: lazy backfill from `rate_day`; no mass rewrite of existing stays. Modify retains snapshot nights consumed by a ROOM or NO_SHOW posting; deletes only unconsumed rows.**
 14. **`folio.add_item` class. Resolved: stay `QUEUE_PROVISIONAL`;** close is enforced on replay. Promoting would disable late charges during outage.
 15. **MASTER windows. Resolved: one per reservation as a transfer target; no group engine.**

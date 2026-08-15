@@ -341,6 +341,21 @@ type ShiftRow = {
   updated_at: number;
 };
 
+type PromoRow = {
+  promo_id: string;
+  code: string;
+  name: string;
+  status: string;
+  kind: 'percent' | 'fixed_per_night';
+  bps: number | null;
+  amount_minor: number | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  rate_plan_id: string | null;
+};
+
+type PromoSnapshotRow = Pick<PromoRow, 'kind' | 'bps' | 'amount_minor'>;
+
 /**
  * Intra-isolate control flow only, same pattern as `IdempotencyKeyReused`:
  * thrown *inside* a `runIdempotent` execute callback so the precondition
@@ -6997,11 +7012,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     roomTypeId: string,
     ratePlanId: string,
     nights: string[],
-    promo: {
-      kind: 'percent' | 'fixed_per_night';
-      bps: number | null;
-      amount_minor: number | null;
-    } | null = null,
+    promo: PromoSnapshotRow | null = null,
   ): void {
     const currency = this.readStoredLedgerCurrencySync();
     if (!currency) throw new Error(CURRENCY_UNSET);
@@ -10819,18 +10830,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
-  private resolvePromoByCodeSync(code: string): {
-    promo_id: string;
-    code: string;
-    name: string;
-    status: string;
-    kind: 'percent' | 'fixed_per_night';
-    bps: number | null;
-    amount_minor: number | null;
-    valid_from: string | null;
-    valid_to: string | null;
-    rate_plan_id: string | null;
-  } | null {
+  private resolvePromoByCodeSync(code: string): PromoRow | null {
     const normalized = this.normalizePromoCodeSync(code);
     const rows = this.ctx.storage.sql
       .exec(
@@ -10839,10 +10839,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         normalized,
       )
       .toArray();
-    return (rows[0] as typeof rows[0] | undefined) ?? null;
+    return (rows[0] as PromoRow | undefined) ?? null;
   }
 
-  private loadPromoByIdSync(promoId: string) {
+  private loadPromoByIdSync(promoId: string): PromoRow | null {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT promo_id, code, name, status, kind, bps, amount_minor, valid_from, valid_to, rate_plan_id
@@ -10850,14 +10850,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         promoId,
       )
       .toArray();
-    return (rows[0] as typeof rows[0] | undefined) ?? null;
+    return (rows[0] as PromoRow | undefined) ?? null;
   }
 
-  private promoApplyInputFromRowSync(row: {
-    kind: 'percent' | 'fixed_per_night';
-    bps: number | null;
-    amount_minor: number | null;
-  }): PromoApplyInput {
+  private promoApplyInputFromRowSync(row: PromoSnapshotRow): PromoApplyInput {
     if (row.kind === 'percent') {
       return { kind: 'percent', bps: row.bps! };
     }
@@ -10865,7 +10861,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private assertPromoApplicableSync(
-    promo: NonNullable<ReturnType<PropertyDO['loadPromoByIdSync']>>,
+    promo: PromoRow,
     ratePlanId: string,
     nights: string[],
   ): void {
@@ -10886,7 +10882,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     nights: string[],
   ): {
     promoId: string | null;
-    row: NonNullable<ReturnType<PropertyDO['loadPromoByIdSync']>> | null;
+    row: PromoRow | null;
   } {
     if (promoCode == null || promoCode.trim() === '') {
       return { promoId: null, row: null };
@@ -10903,16 +10899,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     promoId: string | null,
     ratePlanId: string,
     nights: string[],
-  ): {
-    kind: 'percent' | 'fixed_per_night';
-    bps: number | null;
-    amount_minor: number | null;
-  } | null {
+  ): PromoSnapshotRow | null {
     if (!promoId) return null;
     const row = this.loadPromoByIdSync(promoId);
     if (!row) throw new PromoNotApplicableError();
     this.assertPromoApplicableSync(row, ratePlanId, nights);
-    return row;
+    return { kind: row.kind, bps: row.bps, amount_minor: row.amount_minor };
   }
 
   /**

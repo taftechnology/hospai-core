@@ -199,7 +199,7 @@ describe('folio transfer + split v2', () => {
     expect(lines.filter((l) => l.source === 'TRANSFER')).toHaveLength(1);
   });
 
-  it('20: split_charge v1 still same-window reverse+children; balanceMinor unchanged', async () => {
+  it('20: split_charge same-window reverse+children; balanceMinor unchanged; reverse id :split-rev', async () => {
     const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
     const reservationId = `res_${crypto.randomUUID()}`;
     await seedReservation(stub, reservationId);
@@ -218,7 +218,7 @@ describe('folio transfer + split v2', () => {
       await stub.trySplitFolioLine(TEST_OWNER_ACTOR, split, await idemFor('v1-20', split)),
     ).toMatchObject({ ok: true });
     const lines = await stub.listFolioLinesForReservation(reservationId);
-    expect(lines.filter((l) => l.source === 'SPLIT_REVERSAL')).toHaveLength(1);
+    expect(lines.find((l) => l.folioLineId === `${sourceId}:split-rev`)?.source).toBe('SPLIT_REVERSAL');
     expect(lines.filter((l) => l.splitOf === sourceId && l.source !== 'SPLIT_REVERSAL')).toHaveLength(2);
     const after = await stub.readFolio(reservationId);
     expect(after.ok && after.balanceMinor).toBe(before.ok ? before.balanceMinor : 0);
@@ -239,10 +239,10 @@ describe('folio transfer + split v2', () => {
       ],
     };
     expect(
-      await stub.trySplitChargeV2(TEST_OWNER_ACTOR, split, await idemFor('v2-21', split)),
+      await stub.trySplitFolioLine(TEST_OWNER_ACTOR, split, await idemFor('v2-21', split)),
     ).toMatchObject({ ok: true });
     const lines = await stub.listFolioLinesForReservation(reservationId);
-    expect(lines.find((l) => l.folioLineId === `${sourceId}:v2-rev`)?.source).toBe('SPLIT_REVERSAL');
+    expect(lines.find((l) => l.folioLineId === `${sourceId}:split-rev`)?.source).toBe('SPLIT_REVERSAL');
     expect(lines.find((l) => l.folioLineId === 'v2_a')?.amountMinor).toBe(6000);
     expect(lines.find((l) => l.folioLineId === 'v2_b')?.amountMinor).toBe(4000);
   });
@@ -270,10 +270,10 @@ describe('folio transfer + split v2', () => {
       ],
     };
     expect(
-      await stub.trySplitChargeV2(TEST_OWNER_ACTOR, split, await idemFor('v2-22', split)),
+      await stub.trySplitFolioLine(TEST_OWNER_ACTOR, split, await idemFor('v2-22', split)),
     ).toMatchObject({ ok: true });
     const lines = await stub.listFolioLinesForReservation(reservationId);
-    expect(lines.find((l) => l.folioLineId === `${sourceId}:v2-rev`)?.source).toBe('SPLIT_REVERSAL');
+    expect(lines.find((l) => l.folioLineId === `${sourceId}:split-rev`)?.source).toBe('SPLIT_REVERSAL');
     expect(lines.find((l) => l.folioLineId === 'stay_guest')?.source).not.toBe('TRANSFER');
     expect(lines.find((l) => l.folioLineId === 'stay_co')?.source).toBe('TRANSFER');
     const guestTax = lines.find((l) => l.source === 'TAX' && l.taxOf === 'stay_guest');
@@ -313,7 +313,7 @@ describe('folio transfer + split v2', () => {
       ],
     };
     expect(
-      await stub.trySplitChargeV2(TEST_OWNER_ACTOR, split, await idemFor('v2-23', split)),
+      await stub.trySplitFolioLine(TEST_OWNER_ACTOR, split, await idemFor('v2-23', split)),
     ).toMatchObject({ ok: false, error: WINDOW_CLOSED });
     expect((await stub.listFolioLinesForReservation(reservationId)).length).toBe(countBefore);
   });
@@ -333,14 +333,12 @@ describe('folio transfer + split v2', () => {
       ],
     };
     expect(
-      await stub.trySplitChargeV2(TEST_OWNER_ACTOR, split, await idemFor('v2-24', split)),
+      await stub.trySplitFolioLine(TEST_OWNER_ACTOR, split, await idemFor('v2-24', split)),
     ).toMatchObject({ ok: false, error: SPLIT_AMOUNT_MISMATCH });
   });
 
-  it('25: PLATFORM_GAPS no longer contains folio.transfer_charge or folio.split_charge_v2', () => {
+  it('25: PLATFORM_GAPS no longer contains folio.transfer_charge', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.transfer_charge');
-    expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.split_charge_v2');
     expect(COMMAND_CATALOG.some((c) => c.id === 'folio.transfer_charge')).toBe(true);
-    expect(COMMAND_CATALOG.some((c) => c.id === 'folio.split_charge_v2')).toBe(true);
   });
 });

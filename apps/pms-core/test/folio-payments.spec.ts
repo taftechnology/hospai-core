@@ -649,7 +649,7 @@ describe('folio payments DO', () => {
     expect(split).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
   });
 
-  it('Test 15: payment-split of charge line → line_not_splittable', async () => {
+  it('Test 15: charge line split via survivor succeeds (payment-only command retired)', async () => {
     const actor = 'user_pay_owner15';
     const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
     const departure = addDays(arrival, 2);
@@ -670,7 +670,7 @@ describe('folio payments DO', () => {
         { folioLineId: 'c15_b', amountMinor: 2000 },
       ],
     };
-    const split = await stub.trySplitChargePayment(
+    const split = await stub.trySplitFolioLine(
       { kind: 'user', userId: actor },
       splitInput,
       {
@@ -678,7 +678,45 @@ describe('folio payments DO', () => {
         fingerprint: await fingerprintPayload(splitInput),
       },
     );
-    expect(split).toEqual({ ok: false, error: LINE_NOT_SPLITTABLE });
+    expect(split).toMatchObject({ ok: true, folioLineIds: expect.any(Array) });
+  });
+
+  it('Test 15b: captured PAYMENT line splits via trySplitFolioLine', async () => {
+    const actor = 'user_pay_owner15b';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_split_15b';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-15b'),
+    ).toMatchObject({ ok: true });
+    expect(await capturePayment(stub, actor, paymentId, 5000, 'idem-cap-15b')).toMatchObject({ ok: true });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    const paymentLine = lines.find((l) => l.source === 'PAYMENT');
+    expect(paymentLine).toBeDefined();
+    const splitInput = {
+      sourceFolioLineId: paymentLine!.folioLineId,
+      splits: [
+        { folioLineId: 'pay_a', amountMinor: Math.round(paymentLine!.amountMinor / 2) },
+        { folioLineId: 'pay_b', amountMinor: paymentLine!.amountMinor - Math.round(paymentLine!.amountMinor / 2) },
+      ],
+    };
+    const split = await stub.trySplitFolioLine(
+      { kind: 'user', userId: actor },
+      splitInput,
+      { key: `idem-pay-split-${crypto.randomUUID()}`, fingerprint: await fingerprintPayload(splitInput) },
+    );
+    expect(split).toMatchObject({ ok: true });
+    expect(
+      (await stub.listFolioLinesForReservation(reservationId)).find(
+        (l) => l.folioLineId === `${paymentLine!.folioLineId}:split-rev`,
+      ),
+    ).toBeTruthy();
   });
 
   it('Test 16: charge-split of SPLIT_REVERSAL → line_not_splittable', async () => {
@@ -763,7 +801,7 @@ describe('folio payments DO', () => {
       ],
     };
     expect(
-      await stub.trySplitChargePayment(
+      await stub.trySplitFolioLine(
         { kind: 'user', userId: actor },
         firstSplitInput,
         {
@@ -785,7 +823,7 @@ describe('folio payments DO', () => {
       ],
     };
     expect(
-      await stub.trySplitChargePayment(
+      await stub.trySplitFolioLine(
         { kind: 'user', userId: actor },
         secondSplitInput,
         {

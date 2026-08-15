@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(65);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(63);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -339,13 +339,13 @@ describe('command catalog', () => {
   });
 
   it('get_audit_log is route audit 61', () => {
-    expect(V1_HTTP_ROUTE_AUDIT[61]?.id).toBe('get_audit_log');
-    expect(V1_HTTP_ROUTE_AUDIT[61]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[60]?.id).toBe('get_audit_log');
+    expect(V1_HTTP_ROUTE_AUDIT[60]).toMatchObject({
       permission: 'folio:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[61] ?? {})).toBe(false);
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[60] ?? {})).toBe(false);
   });
 
   it('front-desk read routes append at 62–67; exception count renamed at 19', () => {
@@ -360,51 +360,51 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[43]?.id).toBe('patch_property_details');
     expect(V1_HTTP_ROUTE_AUDIT[44]?.id).toBe('put_domain_config');
 
-    expect(V1_HTTP_ROUTE_AUDIT[62]?.id).toBe('get_front_desk_arrivals');
-    expect(V1_HTTP_ROUTE_AUDIT[62]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[61]?.id).toBe('get_front_desk_arrivals');
+    expect(V1_HTTP_ROUTE_AUDIT[61]).toMatchObject({
       scope: 'property',
       permission: 'reservations:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[62] ?? {})).toBe(false);
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[61] ?? {})).toBe(false);
 
-    expect(V1_HTTP_ROUTE_AUDIT[63]?.id).toBe('get_front_desk_departures');
-    expect(V1_HTTP_ROUTE_AUDIT[64]?.id).toBe('get_front_desk_in_house');
-    expect(V1_HTTP_ROUTE_AUDIT[65]?.id).toBe('post_guests_batch');
-    expect(V1_HTTP_ROUTE_AUDIT[65]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[62]?.id).toBe('get_front_desk_departures');
+    expect(V1_HTTP_ROUTE_AUDIT[63]?.id).toBe('get_front_desk_in_house');
+    expect(V1_HTTP_ROUTE_AUDIT[64]?.id).toBe('post_guests_batch');
+    expect(V1_HTTP_ROUTE_AUDIT[64]).toMatchObject({
       permission: 'guests:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[66]?.id).toBe('get_org_entitlements');
-    expect(V1_HTTP_ROUTE_AUDIT[66]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[65]?.id).toBe('get_org_entitlements');
+    expect(V1_HTTP_ROUTE_AUDIT[65]).toMatchObject({
       scope: 'org',
       permission: 'org:read',
     });
-    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[66] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[67]?.id).toBe('get_front_desk_shift');
-    expect(V1_HTTP_ROUTE_AUDIT[67]).toMatchObject({
+    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[65] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[66]?.id).toBe('get_front_desk_shift');
+    expect(V1_HTTP_ROUTE_AUDIT[66]).toMatchObject({
       permission: 'folio:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[68]?.id).toBe('get_front_desk_recent_shifts');
-    expect(V1_HTTP_ROUTE_AUDIT[68]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[67]?.id).toBe('get_front_desk_recent_shifts');
+    expect(V1_HTTP_ROUTE_AUDIT[67]).toMatchObject({
       scope: 'property',
       permission: 'folio:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[68] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[69]?.id).toBe('get_property_me');
-    expect(V1_HTTP_ROUTE_AUDIT[69]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[67] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[68]?.id).toBe('get_property_me');
+    expect(V1_HTTP_ROUTE_AUDIT[68]).toMatchObject({
       scope: 'property',
       permission: 'property:read',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('entitlement');
-    expect(V1_HTTP_ROUTE_AUDIT[69]).not.toHaveProperty('commandId');
+    expect(V1_HTTP_ROUTE_AUDIT[68]).not.toHaveProperty('entitlement');
+    expect(V1_HTTP_ROUTE_AUDIT[68]).not.toHaveProperty('commandId');
 
     const membershipIds = [
       'list_org_members',
@@ -423,31 +423,31 @@ describe('command catalog', () => {
       expect(row).not.toHaveProperty('commandId');
       expect(row).not.toHaveProperty('degradedRead');
     }
+    expect(V1_HTTP_ROUTE_AUDIT[69]).toMatchObject({ scope: 'org', permission: 'org:manage' });
     expect(V1_HTTP_ROUTE_AUDIT[70]).toMatchObject({ scope: 'org', permission: 'org:manage' });
     expect(V1_HTTP_ROUTE_AUDIT[71]).toMatchObject({ scope: 'org', permission: 'org:manage' });
     expect(V1_HTTP_ROUTE_AUDIT[72]).toMatchObject({ scope: 'org', permission: 'org:manage' });
-    expect(V1_HTTP_ROUTE_AUDIT[73]).toMatchObject({ scope: 'org', permission: 'org:manage' });
-    expect(V1_HTTP_ROUTE_AUDIT[74]).toMatchObject({ scope: 'property', permission: 'staff:read' });
+    expect(V1_HTTP_ROUTE_AUDIT[73]).toMatchObject({ scope: 'property', permission: 'staff:read' });
+    expect(V1_HTTP_ROUTE_AUDIT[74]).toMatchObject({ scope: 'property', permission: 'staff:write' });
     expect(V1_HTTP_ROUTE_AUDIT[75]).toMatchObject({ scope: 'property', permission: 'staff:write' });
     expect(V1_HTTP_ROUTE_AUDIT[76]).toMatchObject({ scope: 'property', permission: 'staff:write' });
-    expect(V1_HTTP_ROUTE_AUDIT[77]).toMatchObject({ scope: 'property', permission: 'staff:write' });
   });
 
   it('roster HTTP routes append at 80–85', () => {
-    expect(V1_HTTP_ROUTE_AUDIT[80]?.id).toBe('get_roster');
-    expect(V1_HTTP_ROUTE_AUDIT[81]?.id).toBe('get_roster_one');
-    expect(V1_HTTP_ROUTE_AUDIT[82]?.id).toBe('post_roster');
-    expect(V1_HTTP_ROUTE_AUDIT[83]?.id).toBe('patch_roster');
-    expect(V1_HTTP_ROUTE_AUDIT[84]?.id).toBe('post_roster_status');
-    expect(V1_HTTP_ROUTE_AUDIT[85]?.id).toBe('post_roster_exit');
-    expect(V1_HTTP_ROUTE_AUDIT[80]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[79]?.id).toBe('get_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[80]?.id).toBe('get_roster_one');
+    expect(V1_HTTP_ROUTE_AUDIT[81]?.id).toBe('post_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[82]?.id).toBe('patch_roster');
+    expect(V1_HTTP_ROUTE_AUDIT[83]?.id).toBe('post_roster_status');
+    expect(V1_HTTP_ROUTE_AUDIT[84]?.id).toBe('post_roster_exit');
+    expect(V1_HTTP_ROUTE_AUDIT[79]).toMatchObject({
       scope: 'property',
       permission: 'roster:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[80] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[82]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[79] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[81]).toMatchObject({
       scope: 'property',
       permission: 'roster:write',
       commandId: 'roster.add',
@@ -456,86 +456,111 @@ describe('command catalog', () => {
   });
 
   it('night-audit HTTP routes append at 86–91', () => {
-    expect(V1_HTTP_ROUTE_AUDIT[85]?.id).toBe('post_roster_exit');
-    expect(V1_HTTP_ROUTE_AUDIT[86]?.id).toBe('get_night_audit');
-    expect(V1_HTTP_ROUTE_AUDIT[87]?.id).toBe('get_night_audit_report');
-    expect(V1_HTTP_ROUTE_AUDIT[88]?.id).toBe('post_night_audit_run');
-    expect(V1_HTTP_ROUTE_AUDIT[89]?.id).toBe('post_night_audit_retry');
-    expect(V1_HTTP_ROUTE_AUDIT[90]?.id).toBe('post_night_audit_resolve_halt');
-    expect(V1_HTTP_ROUTE_AUDIT[91]?.id).toBe('post_provisional_exception_resolve');
-    expect(V1_HTTP_ROUTE_AUDIT[86]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[24]).toMatchObject({
+      id: 'post_folio_split',
+      scope: 'property',
+      permission: 'folio:adjust',
+      commandId: 'folio.split_charge',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[84]?.id).toBe('post_roster_exit');
+    expect(V1_HTTP_ROUTE_AUDIT[85]?.id).toBe('get_night_audit');
+    expect(V1_HTTP_ROUTE_AUDIT[86]?.id).toBe('get_night_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT[87]?.id).toBe('post_night_audit_run');
+    expect(V1_HTTP_ROUTE_AUDIT[88]?.id).toBe('post_night_audit_retry');
+    expect(V1_HTTP_ROUTE_AUDIT[89]?.id).toBe('post_night_audit_resolve_halt');
+    expect(V1_HTTP_ROUTE_AUDIT[90]?.id).toBe('post_provisional_exception_resolve');
+    expect(V1_HTTP_ROUTE_AUDIT[85]).toMatchObject({
       scope: 'property',
       permission: 'night_audit:run',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[86] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[88]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[85] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[87]).toMatchObject({
       commandId: 'night_audit.run',
       entitlement: 'pms.core',
       permission: 'night_audit:run',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[91]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[90]).toMatchObject({
       commandId: 'provisional.resolve_exception',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[92]?.id).toBe('post_reservation_confirm');
-    expect(V1_HTTP_ROUTE_AUDIT[93]?.id).toBe('post_reservation_hold');
-    expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_reservation_front_office');
-    expect(V1_HTTP_ROUTE_AUDIT[95]?.id).toBe('post_folio_window');
-    expect(V1_HTTP_ROUTE_AUDIT[103]?.id).toBe('post_folio_capture_due');
-    expect(V1_HTTP_ROUTE_AUDIT[104]?.id).toBe('post_room_ooo_range');
-    expect(V1_HTTP_ROUTE_AUDIT[104]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[91]?.id).toBe('post_reservation_confirm');
+    expect(V1_HTTP_ROUTE_AUDIT[92]?.id).toBe('post_reservation_hold');
+    expect(V1_HTTP_ROUTE_AUDIT[93]?.id).toBe('post_reservation_front_office');
+    expect(V1_HTTP_ROUTE_AUDIT[94]?.id).toBe('post_folio_window');
+    expect(V1_HTTP_ROUTE_AUDIT[97]?.id).toBe('post_folio_transfer');
+    expect(V1_HTTP_ROUTE_AUDIT[98]?.id).toBe('post_folio_void');
+    expect(V1_HTTP_ROUTE_AUDIT[101]?.id).toBe('post_folio_capture_due');
+    expect(V1_HTTP_ROUTE_AUDIT[102]?.id).toBe('post_room_ooo_range');
+    expect(V1_HTTP_ROUTE_AUDIT[102]).toMatchObject({
       permission: 'inventory:write',
       commandId: 'rooms.set_ooo_range',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[105]?.id).toBe('get_reservation_search');
-    expect(V1_HTTP_ROUTE_AUDIT[105]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[103]?.id).toBe('get_reservation_search');
+    expect(V1_HTTP_ROUTE_AUDIT[103]).toMatchObject({
       scope: 'property',
       permission: 'reservations:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[105] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[106]?.id).toBe('post_fx_rates');
-    expect(V1_HTTP_ROUTE_AUDIT[107]?.id).toBe('post_fx_rate_supersede');
-    expect(V1_HTTP_ROUTE_AUDIT[108]?.id).toBe('get_fx_rates');
-    expect(V1_HTTP_ROUTE_AUDIT[109]?.id).toBe('post_folio_chargeback');
-    expect(V1_HTTP_ROUTE_AUDIT[110]?.id).toBe('post_folio_fx_adjustment');
-    expect(V1_HTTP_ROUTE_AUDIT[111]?.id).toBe('get_room_types');
-    expect(V1_HTTP_ROUTE_AUDIT[111]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[103] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[104]?.id).toBe('post_fx_rates');
+    expect(V1_HTTP_ROUTE_AUDIT[105]?.id).toBe('post_fx_rate_supersede');
+    expect(V1_HTTP_ROUTE_AUDIT[106]?.id).toBe('get_fx_rates');
+    expect(V1_HTTP_ROUTE_AUDIT[107]?.id).toBe('post_folio_chargeback');
+    expect(V1_HTTP_ROUTE_AUDIT[108]?.id).toBe('post_folio_fx_adjustment');
+    expect(V1_HTTP_ROUTE_AUDIT[109]?.id).toBe('get_room_types');
+    expect(V1_HTTP_ROUTE_AUDIT[109]).toMatchObject({
       scope: 'property',
       permission: 'inventory:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[109] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[110]?.id).toBe('get_rate_days');
+    expect(V1_HTTP_ROUTE_AUDIT[110]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[110] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[111]?.id).toBe('get_restriction_days');
+    expect(V1_HTTP_ROUTE_AUDIT[111]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[111] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[112]?.id).toBe('get_rate_days');
+    expect(V1_HTTP_ROUTE_AUDIT[112]?.id).toBe('get_domain_config');
     expect(V1_HTTP_ROUTE_AUDIT[112]).toMatchObject({
-      scope: 'property',
-      permission: 'rates:read',
-      entitlement: 'pms.core',
-      degradedRead: 'FAIL_CLOSED',
-    });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[112] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[113]?.id).toBe('get_restriction_days');
-    expect(V1_HTTP_ROUTE_AUDIT[113]).toMatchObject({
-      scope: 'property',
-      permission: 'rates:read',
-      entitlement: 'pms.core',
-      degradedRead: 'FAIL_CLOSED',
-    });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[113] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[114]?.id).toBe('get_domain_config');
-    expect(V1_HTTP_ROUTE_AUDIT[114]).toMatchObject({
       scope: 'property',
       permission: 'settings:configure',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[112] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[113]?.id).toBe('get_front_desk_tape');
+    expect(V1_HTTP_ROUTE_AUDIT[113]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[113] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[114]?.id).toBe('get_front_desk_directory');
+    expect(V1_HTTP_ROUTE_AUDIT[114]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[114] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[115]?.id).toBe('get_front_desk_tape');
+    expect(V1_HTTP_ROUTE_AUDIT[115]?.id).toBe('get_front_desk_available_rooms');
     expect(V1_HTTP_ROUTE_AUDIT[115]).toMatchObject({
       scope: 'property',
       permission: 'reservations:read',
@@ -543,7 +568,7 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[115] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[116]?.id).toBe('get_front_desk_directory');
+    expect(V1_HTTP_ROUTE_AUDIT[116]?.id).toBe('get_front_desk_summary');
     expect(V1_HTTP_ROUTE_AUDIT[116]).toMatchObject({
       scope: 'property',
       permission: 'reservations:read',
@@ -551,7 +576,7 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[116] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[117]?.id).toBe('get_front_desk_available_rooms');
+    expect(V1_HTTP_ROUTE_AUDIT[117]?.id).toBe('get_front_desk_stream');
     expect(V1_HTTP_ROUTE_AUDIT[117]).toMatchObject({
       scope: 'property',
       permission: 'reservations:read',
@@ -559,55 +584,39 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[117] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[118]?.id).toBe('get_front_desk_summary');
+    expect(V1_HTTP_ROUTE_AUDIT[118]?.id).toBe('get_provisional_exception');
     expect(V1_HTTP_ROUTE_AUDIT[118]).toMatchObject({
-      scope: 'property',
-      permission: 'reservations:read',
-      entitlement: 'pms.core',
-      degradedRead: 'FAIL_CLOSED',
-    });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[118] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[119]?.id).toBe('get_front_desk_stream');
-    expect(V1_HTTP_ROUTE_AUDIT[119]).toMatchObject({
-      scope: 'property',
-      permission: 'reservations:read',
-      entitlement: 'pms.core',
-      degradedRead: 'FAIL_CLOSED',
-    });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[119] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[120]?.id).toBe('get_provisional_exception');
-    expect(V1_HTTP_ROUTE_AUDIT[120]).toMatchObject({
       scope: 'property',
       permission: 'property:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[120] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[121]?.id).toBe('post_provisional_exception_retry');
-    expect(V1_HTTP_ROUTE_AUDIT[121]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[118] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[119]?.id).toBe('post_provisional_exception_retry');
+    expect(V1_HTTP_ROUTE_AUDIT[119]).toMatchObject({
       scope: 'property',
       permission: 'night_audit:run',
       commandId: 'provisional.retry_exception',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[122]?.id).toBe('post_provisional_exception_assign');
-    expect(V1_HTTP_ROUTE_AUDIT[122]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[120]?.id).toBe('post_provisional_exception_assign');
+    expect(V1_HTTP_ROUTE_AUDIT[120]).toMatchObject({
       scope: 'property',
       permission: 'night_audit:run',
       commandId: 'provisional.assign_exception',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[123]?.id).toBe('post_provisional_exception_note');
-    expect(V1_HTTP_ROUTE_AUDIT[123]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[121]?.id).toBe('post_provisional_exception_note');
+    expect(V1_HTTP_ROUTE_AUDIT[121]).toMatchObject({
       scope: 'property',
       permission: 'night_audit:run',
       commandId: 'provisional.add_exception_note',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[124]?.id).toBe('get_guests');
-    expect(V1_HTTP_ROUTE_AUDIT[125]?.id).toBe('post_guests_search');
-    expect(V1_HTTP_ROUTE_AUDIT[126]?.id).toBe('get_guest_stays');
-    for (const i of [124, 125, 126] as const) {
+    expect(V1_HTTP_ROUTE_AUDIT[122]?.id).toBe('get_guests');
+    expect(V1_HTTP_ROUTE_AUDIT[123]?.id).toBe('post_guests_search');
+    expect(V1_HTTP_ROUTE_AUDIT[124]?.id).toBe('get_guest_stays');
+    for (const i of [122, 123, 124] as const) {
       expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
         scope: 'property',
         permission: 'guests:read',
@@ -616,130 +625,130 @@ describe('command catalog', () => {
       });
       expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
     }
-    expect(V1_HTTP_ROUTE_AUDIT[126]?.id).toBe('get_guest_stays');
-    expect(V1_HTTP_ROUTE_AUDIT[127]?.id).toBe('post_demo_seed');
-    expect(V1_HTTP_ROUTE_AUDIT[127]).toMatchObject({ scope: 'dev' });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
-    expect('permission' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
-    expect('entitlement' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
-    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[101]?.id).toBe('post_folio_refund');
-    expect(V1_HTTP_ROUTE_AUDIT[102]?.id).toBe('post_folio_discount');
-    expect(V1_HTTP_ROUTE_AUDIT[102]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[124]?.id).toBe('get_guest_stays');
+    expect(V1_HTTP_ROUTE_AUDIT[125]?.id).toBe('post_demo_seed');
+    expect(V1_HTTP_ROUTE_AUDIT[125]).toMatchObject({ scope: 'dev' });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[125] ?? {})).toBe(false);
+    expect('permission' in (V1_HTTP_ROUTE_AUDIT[125] ?? {})).toBe(false);
+    expect('entitlement' in (V1_HTTP_ROUTE_AUDIT[125] ?? {})).toBe(false);
+    expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[125] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[99]?.id).toBe('post_folio_refund');
+    expect(V1_HTTP_ROUTE_AUDIT[100]?.id).toBe('post_folio_discount');
+    expect(V1_HTTP_ROUTE_AUDIT[100]).toMatchObject({
       scope: 'property',
       permission: 'folio:adjust',
       commandId: 'folio.post_discount',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[128]?.id).toBe('post_folio_stay_discount');
-    expect(V1_HTTP_ROUTE_AUDIT[128]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[126]?.id).toBe('post_folio_stay_discount');
+    expect(V1_HTTP_ROUTE_AUDIT[126]).toMatchObject({
       scope: 'property',
       permission: 'folio:adjust',
       commandId: 'folio.post_discount',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[129]?.id).toBe('get_folio_routing_rules');
-    expect(V1_HTTP_ROUTE_AUDIT[129]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[127]?.id).toBe('get_folio_routing_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[127]).toMatchObject({
       scope: 'property',
       permission: 'folio:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[129] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT[130]?.id).toBe('put_folio_routing_rule');
-    expect(V1_HTTP_ROUTE_AUDIT[130]).toMatchObject({
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[128]?.id).toBe('put_folio_routing_rule');
+    expect(V1_HTTP_ROUTE_AUDIT[128]).toMatchObject({
       scope: 'property',
       permission: 'settings:configure',
       commandId: 'folio.upsert_routing_rule',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[131]?.id).toBe('post_folio_routing_rule_archive');
-    expect(V1_HTTP_ROUTE_AUDIT[131]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[129]?.id).toBe('post_folio_routing_rule_archive');
+    expect(V1_HTTP_ROUTE_AUDIT[129]).toMatchObject({
       scope: 'property',
       permission: 'settings:configure',
       commandId: 'folio.archive_routing_rule',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[132]?.id).toBe('delete_room');
-    expect(V1_HTTP_ROUTE_AUDIT[132]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[130]?.id).toBe('delete_room');
+    expect(V1_HTTP_ROUTE_AUDIT[130]).toMatchObject({
       scope: 'property',
       permission: 'inventory:write',
       commandId: 'rooms.delete',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[133]?.id).toBe('post_folio_reconcile_payment');
-    expect(V1_HTTP_ROUTE_AUDIT[133]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[131]?.id).toBe('post_folio_reconcile_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[131]).toMatchObject({
       scope: 'property',
       permission: 'folio:post',
       commandId: 'folio.reconcile_payment',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[134]?.id).toBe('get_rate_promos');
-    expect(V1_HTTP_ROUTE_AUDIT[134]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[132]?.id).toBe('get_rate_promos');
+    expect(V1_HTTP_ROUTE_AUDIT[132]).toMatchObject({
       scope: 'property',
       permission: 'rates:read',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[135]?.id).toBe('post_rate_promos');
-    expect(V1_HTTP_ROUTE_AUDIT[135]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[133]?.id).toBe('post_rate_promos');
+    expect(V1_HTTP_ROUTE_AUDIT[133]).toMatchObject({
       scope: 'property',
       permission: 'rates:write',
       commandId: 'rates.create_promo',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[136]?.id).toBe('patch_rate_promo');
-    expect(V1_HTTP_ROUTE_AUDIT[136]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[134]?.id).toBe('patch_rate_promo');
+    expect(V1_HTTP_ROUTE_AUDIT[134]).toMatchObject({
       scope: 'property',
       permission: 'rates:write',
       commandId: 'rates.update_promo',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[137]?.id).toBe('delete_rate_promo');
-    expect(V1_HTTP_ROUTE_AUDIT[137]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[135]?.id).toBe('delete_rate_promo');
+    expect(V1_HTTP_ROUTE_AUDIT[135]).toMatchObject({
       scope: 'property',
       permission: 'rates:write',
       commandId: 'rates.archive_promo',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[138]?.id).toBe('post_invoices');
-    expect(V1_HTTP_ROUTE_AUDIT[138]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[136]?.id).toBe('post_invoices');
+    expect(V1_HTTP_ROUTE_AUDIT[136]).toMatchObject({
       scope: 'property',
       permission: 'folio:post',
       commandId: 'invoice.generate',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[139]?.id).toBe('get_invoice');
-    expect(V1_HTTP_ROUTE_AUDIT[139]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[137]?.id).toBe('get_invoice');
+    expect(V1_HTTP_ROUTE_AUDIT[137]).toMatchObject({
       scope: 'property',
       permission: 'folio:read',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[140]?.id).toBe('post_invoice_void');
-    expect(V1_HTTP_ROUTE_AUDIT[140]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[138]?.id).toBe('post_invoice_void');
+    expect(V1_HTTP_ROUTE_AUDIT[138]).toMatchObject({
       scope: 'property',
       permission: 'folio:adjust',
       commandId: 'invoice.void',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[141]?.id).toBe('post_city_ledger_accounts');
-    expect(V1_HTTP_ROUTE_AUDIT[141]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[139]?.id).toBe('post_city_ledger_accounts');
+    expect(V1_HTTP_ROUTE_AUDIT[139]).toMatchObject({
       scope: 'property',
       permission: 'folio:adjust',
       commandId: 'city_ledger.create_account',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[142]?.id).toBe('get_city_ledger_accounts');
-    expect(V1_HTTP_ROUTE_AUDIT[142]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[140]?.id).toBe('get_city_ledger_accounts');
+    expect(V1_HTTP_ROUTE_AUDIT[140]).toMatchObject({
       scope: 'property',
       permission: 'folio:read',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT[143]?.id).toBe('patch_city_ledger_account');
-    expect(V1_HTTP_ROUTE_AUDIT[144]?.id).toBe('post_city_ledger_account_payment');
-    expect(V1_HTTP_ROUTE_AUDIT[145]?.id).toBe('get_city_ledger_statement');
+    expect(V1_HTTP_ROUTE_AUDIT[141]?.id).toBe('patch_city_ledger_account');
+    expect(V1_HTTP_ROUTE_AUDIT[142]?.id).toBe('post_city_ledger_account_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[143]?.id).toBe('get_city_ledger_statement');
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(65);
-    expect(COMMAND_CATALOG).toHaveLength(92);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(63);
+    expect(COMMAND_CATALOG).toHaveLength(90);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();
@@ -749,9 +758,7 @@ describe('command catalog', () => {
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');
-    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge_payment')?.degraded).toBe(
-      'FAIL_CLOSED',
-    );
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge')?.degraded).toBe('FAIL_CLOSED');
     // Check-in/out commute → QUEUE_PROVISIONAL per §4.6 table
     expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.check_in')?.degraded).toBe(
       'QUEUE_PROVISIONAL',
@@ -974,16 +981,13 @@ describe('command catalog', () => {
     });
   });
 
-  it('payment commands are entitled and route audit 45–49 are payment routes', () => {
-    for (const id of ['folio.authorize', 'folio.capture', 'folio.split_charge_payment'] as const) {
+  it('payment commands are entitled and route audit 45–48 are payment routes', () => {
+    for (const id of ['folio.authorize', 'folio.capture'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)?.entitlement).toBe('pms.core');
       expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === id)).toBeUndefined();
     }
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.permission).toBe('folio:post');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.permission).toBe('folio:post');
-    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.split_charge_payment')?.permission).toBe(
-      'folio:adjust',
-    );
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.events).toEqual([
       'folio.payment_captured',
       'folio.line_posted',
@@ -994,9 +998,8 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[45]).toMatchObject({ permission: 'folio:post' });
     expect(V1_HTTP_ROUTE_AUDIT[46]?.id).toBe('post_folio_capture');
     expect(V1_HTTP_ROUTE_AUDIT[46]).toMatchObject({ permission: 'folio:post' });
-    expect(V1_HTTP_ROUTE_AUDIT[47]?.id).toBe('post_folio_split_payment');
-    expect(V1_HTTP_ROUTE_AUDIT[48]?.id).toBe('get_folio_payment');
-    expect(V1_HTTP_ROUTE_AUDIT[49]?.id).toBe('get_folio_payments');
+    expect(V1_HTTP_ROUTE_AUDIT[47]?.id).toBe('get_folio_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[48]?.id).toBe('get_folio_payments');
   });
 
   it('folio money-ops commands are entitled FAIL_CLOSED INTERACTIVE', () => {
@@ -1013,7 +1016,7 @@ describe('command catalog', () => {
         permission: 'folio:adjust',
         events: ['folio.line_posted', 'folio.charge_transferred'],
       },
-      { id: 'folio.split_charge_v2', permission: 'folio:adjust', events: ['folio.line_posted'] },
+      { id: 'folio.split_charge', permission: 'folio:adjust', events: ['folio.line_posted'] },
       { id: 'folio.void', permission: 'folio:post', events: ['folio.payment_voided'] },
       {
         id: 'folio.refund',
@@ -1136,11 +1139,11 @@ describe('command catalog', () => {
     expect(cash?.permission).toBe('folio:post');
     expect(cash?.degraded).toBe('FAIL_CLOSED');
     expect(cash?.events).toEqual(['folio.payment_captured', 'folio.line_posted', 'payment.captured']);
-    expect(V1_HTTP_ROUTE_AUDIT[57]?.id).toBe('post_shifts');
-    expect(V1_HTTP_ROUTE_AUDIT[58]?.id).toBe('put_shift_close');
-    expect(V1_HTTP_ROUTE_AUDIT[59]?.id).toBe('post_cash_payment');
-    expect(V1_HTTP_ROUTE_AUDIT[60]?.id).toBe('get_shift');
-    expect(V1_HTTP_ROUTE_AUDIT[60]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[56]?.id).toBe('post_shifts');
+    expect(V1_HTTP_ROUTE_AUDIT[57]?.id).toBe('put_shift_close');
+    expect(V1_HTTP_ROUTE_AUDIT[58]?.id).toBe('post_cash_payment');
+    expect(V1_HTTP_ROUTE_AUDIT[59]?.id).toBe('get_shift');
+    expect(V1_HTTP_ROUTE_AUDIT[59]).toMatchObject({
       permission: 'folio:read',
       degradedRead: 'FAIL_CLOSED',
     });
@@ -1158,15 +1161,15 @@ describe('command catalog', () => {
       expect(c?.degraded).toBe('FAIL_CLOSED');
       expect(c?.events).toEqual(['charge_code.changed']);
     }
-    expect(V1_HTTP_ROUTE_AUDIT[50]?.id).toBe('post_charge_codes');
-    expect(V1_HTTP_ROUTE_AUDIT[51]?.id).toBe('patch_charge_code');
-    expect(V1_HTTP_ROUTE_AUDIT[52]?.id).toBe('put_charge_code_status');
-    expect(V1_HTTP_ROUTE_AUDIT[53]?.id).toBe('get_charge_codes');
-    expect(V1_HTTP_ROUTE_AUDIT[53]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[49]?.id).toBe('post_charge_codes');
+    expect(V1_HTTP_ROUTE_AUDIT[50]?.id).toBe('patch_charge_code');
+    expect(V1_HTTP_ROUTE_AUDIT[51]?.id).toBe('put_charge_code_status');
+    expect(V1_HTTP_ROUTE_AUDIT[52]?.id).toBe('get_charge_codes');
+    expect(V1_HTTP_ROUTE_AUDIT[52]).toMatchObject({
       permission: 'folio:read',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[53] ?? {})).toBe(false);
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[52] ?? {})).toBe(false);
   });
 
   it('tax rule commands are FAIL_CLOSED with settings:configure and tax_rule.changed', () => {
@@ -1177,14 +1180,14 @@ describe('command catalog', () => {
       expect(c?.degraded).toBe('FAIL_CLOSED');
       expect(c?.events).toEqual(['tax_rule.changed']);
     }
-    expect(V1_HTTP_ROUTE_AUDIT[54]?.id).toBe('post_tax_rules');
-    expect(V1_HTTP_ROUTE_AUDIT[55]?.id).toBe('put_tax_rule_supersede');
-    expect(V1_HTTP_ROUTE_AUDIT[56]?.id).toBe('get_tax_rules');
-    expect(V1_HTTP_ROUTE_AUDIT[56]).toMatchObject({
+    expect(V1_HTTP_ROUTE_AUDIT[53]?.id).toBe('post_tax_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[54]?.id).toBe('put_tax_rule_supersede');
+    expect(V1_HTTP_ROUTE_AUDIT[55]?.id).toBe('get_tax_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[55]).toMatchObject({
       permission: 'folio:read',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[56] ?? {})).toBe(false);
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[55] ?? {})).toBe(false);
   });
 });
 

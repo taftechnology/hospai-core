@@ -126,7 +126,10 @@ async function postFolioSplit(
   propertyId: string,
   actor: string,
   sourceFolioLineId: string,
-  body: { splits: Array<{ folioLineId: string; amountMinor: number }>; idempotencyKey: string },
+  body: {
+    splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
+    idempotencyKey: string;
+  },
 ) {
   return worker.fetch(
     new Request(
@@ -533,6 +536,46 @@ describe('folio vertical HTTP routes', () => {
     const { requireCatalogEntry } = await import('@hospai/contracts');
     expect(requireCatalogEntry('folio.split_charge').entitlement).toBe('pms.core');
     expect(requireCatalogEntry('folio.split_charge').degraded).toBe('FAIL_CLOSED');
+  });
+
+  it('retired POST .../split-payment returns 404', async () => {
+    const actor = 'user_folio_retired_pay';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/line_x/split-payment`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            splits: [{ folioLineId: 'a', amountMinor: 1 }],
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('retired POST .../split-v2 returns 404', async () => {
+    const actor = 'user_folio_retired_v2';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/line_x/split-v2`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            splits: [{ folioLineId: 'a', amountMinor: 1 }],
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(404);
   });
 
   it('stay POST /reservations/:rid/folio/discount → lump DISCOUNT; GET folio splitOf null; no tax on discount', async () => {

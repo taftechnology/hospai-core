@@ -5002,11 +5002,18 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
-  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const body = (await ctx.request.json()) as { amountMinor?: number; idempotencyKey?: string };
+  if (
+    !body?.idempotencyKey ||
+    typeof body.amountMinor !== 'number' ||
+    !Number.isInteger(body.amountMinor) ||
+    body.amountMinor <= 0
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
-  const commandPayload = { paymentId };
+  const commandPayload = { paymentId, amountMinor: body.amountMinor };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };

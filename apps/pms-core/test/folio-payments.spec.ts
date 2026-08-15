@@ -5,6 +5,7 @@ import {
   IDEM_KEY_REUSED,
   LINE_NOT_SPLITTABLE,
   PAYMENT_NOT_CAPTURABLE,
+  REFUND_EXCEEDS_REMAINING,
 } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
@@ -1169,5 +1170,69 @@ describe('folio payments DO', () => {
       expect(listed.payments[0]?.cardLast4 ?? null).toBeNull();
       expect(listed.payments[0]?.cardBrand ?? null).toBeNull();
     }
+  });
+
+  it('Test 23: POST refund missing amountMinor → 400 invalid_body', async () => {
+    const actor = 'user_pay_owner23';
+    const { arrival, guestRef, propertyId, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_refund_http_400';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-refund-400'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+    expect(await capturePayment(stub, actor, paymentId, 5000, 'idem-cap-refund-400')).toMatchObject({
+      ok: true,
+    });
+
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/payments/${encodeURIComponent(paymentId)}/refund`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ idempotencyKey: `ref-${paymentId}` }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'invalid_body' });
+  });
+
+  it('Test 24: POST refund over remaining → 422 refund_exceeds_remaining', async () => {
+    const actor = 'user_pay_owner24';
+    const { arrival, guestRef, propertyId, stub } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_pay_refund_http_422';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 5000, 'idem-auth-refund-422'),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+    expect(await capturePayment(stub, actor, paymentId, 5000, 'idem-cap-refund-422')).toMatchObject({
+      ok: true,
+    });
+
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/payments/${encodeURIComponent(paymentId)}/refund`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({ amountMinor: 5001, idempotencyKey: `ref-over-${paymentId}` }),
+        },
+      ),
+      env,
+    );
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ ok: false, error: REFUND_EXCEEDS_REMAINING });
   });
 });

@@ -267,7 +267,7 @@ Optional: update stale JSDoc on `tryCreateReservation` fingerprint (~7377) — n
 | 4 | **SPA date-helper gate counterpart** | [booking wizard](./2026-08-11-booking-wizard-design.md) leftover **5** (~291) |
 | 5 | **`reservations.update_extras` retirement** | booking-wizard leftover **7** / lifecycle leftover **7** |
 | 6 | **Quotes inbox** | lifecycle leftover **8** (~856) |
-| 7 | **Promo codes** | campaign scope-out |
+| ~~7~~ | ~~**Promo codes**~~ | ~~campaign scope-out~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md): Rates catalog + Booking wizard promo field with server re-validation. |
 | 8 | **Tax in wizard total** | Explicitly out — night audit posts tax |
 | 9 | **Plan-scoped restrictions** | Explicitly out |
 | 10 | **New `GET /quote` / HTTP `quoteStay`** | Explicitly out |

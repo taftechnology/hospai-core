@@ -488,18 +488,18 @@ Hook create (~7522), hold/confirm snapshot paths (~7663, ~7798), and modify adde
 
 ## 6. Implementation checklist
 
-- [ ] v31 migration + `PROPERTY_SCHEMA_HEAD` **31** + purge `promo` table
-- [ ] `@hospai/money` `applyPromoToAmountMinor` + unit tests
-- [ ] Wire codes + HTTP status map (`PROMO_*`)
-- [ ] Catalog **84** + audit writers **59** + four HTTP routes **[134]–[137]**
-- [ ] DO promo CRUD + `listRatePromos`; event allowlist + consumer noop
-- [ ] Create / hold / confirm / modify snapshot paths with promo
-- [ ] `POST /reservations` `promoCode` + fingerprint + client opId segment
-- [ ] SPA Rates promo catalog + SPA Booking promo field / quote / gates
-- [ ] Tests Lock 13; `pnpm generate:ddl`
-- [ ] Register pins: catalog **84**, writers **59**, `[133]` unchanged, `[134]–[137]`, schema **31**, steps **8**
-- [ ] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
-- [ ] Bidirectional closes pointers in folio-money-ops + stay-level-discounts + booking-plan-picker specs (final implementation task)
+- [x] v31 migration + `PROPERTY_SCHEMA_HEAD` **31** + purge `promo` table
+- [x] `@hospai/money` `applyPromoToAmountMinor` + unit tests
+- [x] Wire codes + HTTP status map (`PROMO_*`)
+- [x] Catalog **84** + audit writers **59** + four HTTP routes **[134]–[137]**
+- [x] DO promo CRUD + `listRatePromos`; event allowlist + consumer noop
+- [x] Create / hold / confirm / modify snapshot paths with promo
+- [x] `POST /reservations` `promoCode` + fingerprint + client opId segment
+- [x] SPA Rates promo catalog + SPA Booking promo field / quote / gates
+- [x] Tests Lock 13; `pnpm generate:ddl`
+- [x] Register pins: catalog **84**, writers **59**, `[133]` unchanged, `[134]–[137]`, schema **31**, steps **8**
+- [x] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
+- [x] Bidirectional closes pointers in folio-money-ops + stay-level-discounts + booking-plan-picker specs (final implementation task)
 
 ---
 

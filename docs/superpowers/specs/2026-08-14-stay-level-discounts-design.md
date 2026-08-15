@@ -61,7 +61,7 @@ This chunk extends the **existing** command `folio.post_discount` with a **secon
 
 ### 1.3 Scope out (normative — name them so a later pass does not “fix” them here)
 
-- Promo codes — folio-money leftover **7**
+~~- Promo codes — folio-money leftover **7**~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md).
 - Fan-out stay discount into per-line DISCOUNT + tax restamp
 - Stay-level tax allocation / true-up
 - Discount tax true-up to remaining (taxable-discounts leftover)
@@ -349,7 +349,7 @@ Copy `folio-routes.spec.ts` style: `provisionHotel` + `worker.fetch` + `x-dev-ac
 | 1 | **Stay-level tax allocation / true-up** | Lump DISCOUNT has no restamp; net tax may not reflect stay discount — do not fix here |
 | 2 | **Fan-out stay discount to per-line DISCOUNT + restamp** | Explicitly out of scope (§1.3) |
 | 3 | **Discount tax true-up to remaining** | Taxable-discounts leftover — line-level rounding only |
-| 4 | **Promo codes** | Folio-money leftover **7** |
+| ~~4~~ | ~~**Promo codes**~~ | ~~Folio-money leftover **7**~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md) (rate-graph layer, not folio DISCOUNT). |
 | 5 | **Reallocate discount/tax when splitting ROOM** | Unchanged |
 
 ---

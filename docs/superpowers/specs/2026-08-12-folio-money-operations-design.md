@@ -387,16 +387,7 @@ Input: `{ sourceFolioLineId, kind: 'percent' | 'fixed', bps?, amountMinor?, reas
 
 Stay-level lump DISCOUNT (no source line) on the GUEST window posts with `split_of` NULL and no tax restamp; closed in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md). Line-level is auditable and foots.
 
-### 7.4 Promo codes — **defer**
-
-Reasons (not silence):
-
-1. §7.2 puts promo on the **rate derivation graph** (plan modifiers, date, occupancy) — a posting-time discount is the wrong layer.
-2. Needs a code registry (validity, stacking, channel, one-use), which this chunk does not have.
-3. Quote snapshot (§8) is the related price freeze; promo would rewrite the snapshot.
-4. Scope already includes close, transfer, split v2, void/refund, capture seam, extras, snapshot.
-
-Named leftover 7. Do not seed a `PROMO` charge code that nothing honours.
+~~### 7.4 Promo codes — **defer**~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md): promo adjusts snapshotted nightly amounts at book via `applyPromoToAmountMinor`; folio stay DISCOUNT remains separate.
 
 ---
 
@@ -797,7 +788,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
 6. ~~**Stay-level discount** (no source line).~~ **Closed** in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md).
-7. **Promo codes** — §7.4.
+7. ~~**Promo codes** — §7.4.~~ **Closed** in [2026-08-15 promo codes](./2026-08-15-promo-codes-design.md): rate-graph snapshot modifier on `reservation_rate_night`, property-local `promo` registry, no folio `PROMO` charge code.
 8. ~~**Authorization expiry** / hold-lapse (payments leftover).~~ **Closed** in [2026-08-15 auth hold lapse](./2026-08-15-auth-hold-lapse-design.md).
 9. **City ledger / AR** and MASTER group billing engine.
 10. **`folio.add_item` catalog class review** (front-desk leftover 1) — still QUEUE_PROVISIONAL; close makes replay honest.

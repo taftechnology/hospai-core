@@ -72,6 +72,8 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  DERIVED_RATE_PLAN_INVALID,
+  DERIVED_RATE_PLAN_WRITE_FORBIDDEN,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -373,6 +375,20 @@ class ArchiveBlockedError extends Error {
   constructor() {
     super('Room type has committed future demand and cannot be archived');
     this.name = 'ArchiveBlockedError';
+  }
+}
+
+class DerivedRatePlanInvalidError extends Error {
+  constructor() {
+    super(DERIVED_RATE_PLAN_INVALID);
+    this.name = 'DerivedRatePlanInvalidError';
+  }
+}
+
+class DerivedRatePlanWriteForbiddenError extends Error {
+  constructor() {
+    super(DERIVED_RATE_PLAN_WRITE_FORBIDDEN);
+    this.name = 'DerivedRatePlanWriteForbiddenError';
   }
 }
 
@@ -2334,6 +2350,38 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       ratePlanId,
       stayDate,
     );
+  }
+
+  async listRateDaysForTest(input: {
+    roomTypeId: string;
+    ratePlanId: string;
+    fromDate: string;
+    toDate: string;
+  }): Promise<Array<{ stayDate: string; amountMinor: number; currency: string; ratePlanId: string }>> {
+    this.assertUnsafeLocal('listRateDaysForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT stay_date, amount_minor, currency, rate_plan_id
+         FROM rate_day
+         WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date >= ? AND stay_date <= ?
+         ORDER BY stay_date`,
+        input.roomTypeId,
+        input.ratePlanId,
+        input.fromDate,
+        input.toDate,
+      )
+      .toArray() as Array<{
+      stay_date: string;
+      amount_minor: number;
+      currency: string;
+      rate_plan_id: string;
+    }>;
+    return rows.map((r) => ({
+      stayDate: r.stay_date,
+      amountMinor: r.amount_minor,
+      currency: r.currency,
+      ratePlanId: r.rate_plan_id,
+    }));
   }
 
   async listReservationRateNightsForTest(reservationId: string): Promise<
@@ -10504,9 +10552,176 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (opts.requireActive && row.status !== 'active') throw new ChargeCodeNotFoundError();
   }
 
+  private normalizeDerivedPlanFields(input: {
+    parentRatePlanId?: string | null;
+    deriveBps?: number | null;
+  }): { parentRatePlanId: string | null; deriveBps: number | null } {
+    const parent = input.parentRatePlanId ?? null;
+    const bps = input.deriveBps ?? null;
+    const parentSet = parent != null && parent !== '';
+    const bpsSet = bps != null;
+    if (parentSet !== bpsSet) throw new DerivedRatePlanInvalidError();
+    if (!parentSet) return { parentRatePlanId: null, deriveBps: null };
+    if (bps! < -9900 || bps! > 10_000) throw new DerivedRatePlanInvalidError();
+    return { parentRatePlanId: parent, deriveBps: bps };
+  }
+
+  private assertDerivedParentEligibleSync(parentRatePlanId: string, childRatePlanId?: string): void {
+    if (childRatePlanId && parentRatePlanId === childRatePlanId) throw new DerivedRatePlanInvalidError();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT status, parent_rate_plan_id FROM rate_plan WHERE rate_plan_id = ?`,
+        parentRatePlanId,
+      )
+      .toArray() as Array<{ status: string; parent_rate_plan_id: string | null }>;
+    const parent = rows[0];
+    if (!parent || parent.status !== 'active' || parent.parent_rate_plan_id != null) {
+      throw new DerivedRatePlanInvalidError();
+    }
+  }
+
+  private isDerivedRatePlanSync(ratePlanId: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT parent_rate_plan_id FROM rate_plan WHERE rate_plan_id = ?`, ratePlanId)
+      .toArray() as Array<{ parent_rate_plan_id: string | null }>;
+    return rows[0]?.parent_rate_plan_id != null;
+  }
+
+  private computeDerivedAmountMinorSync(parentMinor: number, deriveBps: number): number {
+    const child = Number(
+      roundHalfAwayFromZero(BigInt(parentMinor) * BigInt(10_000 + deriveBps), 10_000n),
+    );
+    if (!Number.isSafeInteger(child)) throw new InvalidMoneyError('derived amount overflow');
+    return child;
+  }
+
+  private upsertDerivedChildRateDaySync(
+    actor: ActorContext,
+    propertyId: string,
+    roomTypeId: string,
+    childRatePlanId: string,
+    stayDate: string,
+    amountMinor: number,
+    currency: string,
+  ): void {
+    const beforeRows = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor, currency FROM rate_day
+         WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+        roomTypeId,
+        childRatePlanId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number; currency: string }>;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO rate_day (room_type_id, rate_plan_id, stay_date, amount_minor, currency, version)
+       VALUES (?, ?, ?, ?, ?, 1)
+       ON CONFLICT(room_type_id, rate_plan_id, stay_date) DO UPDATE SET
+         amount_minor = excluded.amount_minor,
+         currency = excluded.currency,
+         version = rate_day.version + 1`,
+      roomTypeId,
+      childRatePlanId,
+      stayDate,
+      amountMinor,
+      currency,
+    );
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'rate.changed',
+      payload: { propertyId, roomTypeId, ratePlanId: childRatePlanId, stayDate },
+    });
+    this.appendAuditLogSync({
+      actor: this.auditActorSync(actor),
+      commandId: 'rates.upsert_day',
+      entityType: 'rate_day',
+      entityId: `${roomTypeId}:${childRatePlanId}:${stayDate}`,
+      beforeJson: beforeRows[0]
+        ? { amountMinor: beforeRows[0].amount_minor, currency: beforeRows[0].currency }
+        : null,
+      afterJson: { roomTypeId, ratePlanId: childRatePlanId, stayDate, amountMinor, currency },
+    });
+  }
+
+  private rematerializeDerivedChildrenSync(
+    actor: ActorContext,
+    propertyId: string,
+    parentRatePlanId: string,
+    roomTypeId: string,
+    stayDate: string,
+  ): void {
+    const parentRows = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor, currency FROM rate_day
+         WHERE room_type_id = ? AND rate_plan_id = ? AND stay_date = ?`,
+        roomTypeId,
+        parentRatePlanId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number; currency: string }>;
+    const parentCell = parentRows[0];
+    if (!parentCell) return;
+    const children = this.ctx.storage.sql
+      .exec(
+        `SELECT rate_plan_id, derive_bps FROM rate_plan
+         WHERE status = 'active' AND parent_rate_plan_id = ?`,
+        parentRatePlanId,
+      )
+      .toArray() as Array<{ rate_plan_id: string; derive_bps: number }>;
+    for (const child of children) {
+      const amountMinor = this.computeDerivedAmountMinorSync(
+        parentCell.amount_minor,
+        child.derive_bps,
+      );
+      this.upsertDerivedChildRateDaySync(
+        actor,
+        propertyId,
+        roomTypeId,
+        child.rate_plan_id,
+        stayDate,
+        amountMinor,
+        parentCell.currency,
+      );
+    }
+  }
+
+  private backfillDerivedPlanSync(actor: ActorContext, propertyId: string, childRatePlanId: string): void {
+    const childRows = this.ctx.storage.sql
+      .exec(
+        `SELECT parent_rate_plan_id, derive_bps FROM rate_plan WHERE rate_plan_id = ?`,
+        childRatePlanId,
+      )
+      .toArray() as Array<{ parent_rate_plan_id: string | null; derive_bps: number | null }>;
+    const child = childRows[0];
+    if (!child?.parent_rate_plan_id || child.derive_bps == null) return;
+    const parentDays = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id, stay_date, amount_minor, currency FROM rate_day WHERE rate_plan_id = ?`,
+        child.parent_rate_plan_id,
+      )
+      .toArray() as Array<{
+      room_type_id: string;
+      stay_date: string;
+      amount_minor: number;
+      currency: string;
+    }>;
+    for (const day of parentDays) {
+      const amountMinor = this.computeDerivedAmountMinorSync(day.amount_minor, child.derive_bps);
+      this.upsertDerivedChildRateDaySync(
+        actor,
+        propertyId,
+        day.room_type_id,
+        childRatePlanId,
+        day.stay_date,
+        amountMinor,
+        day.currency,
+      );
+    }
+  }
+
   /**
    * Create a rate plan. Implements catalog `rates.create_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code, name, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText? }`.
+   * Fingerprint allowlist: `{ ratePlanId, code, name, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps? }`.
    */
   async tryCreateRatePlan(
     actor: ActorContext,
@@ -10519,12 +10734,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPenaltyNights?: number | null;
       cancelPenaltyBps?: number | null;
       cancelPolicyText?: string | null;
+      parentRatePlanId?: string | null;
+      deriveBps?: number | null;
     },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; ratePlanId: string }
     | { ok: false; error: typeof RATE_PLAN_ID_EXISTS }
     | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
+    | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
@@ -10563,13 +10781,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (codeTaken.length > 0) throw new RatePlanCodeExistsError();
 
           const policy = normalizeRatePlanPolicy(input);
+          const derived = this.normalizeDerivedPlanFields(input);
+          if (derived.parentRatePlanId) {
+            this.assertDerivedParentEligibleSync(derived.parentRatePlanId, input.ratePlanId);
+          }
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO rate_plan (
                rate_plan_id, code, name, status, created_at, updated_at,
-               cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text
+               cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text,
+               parent_rate_plan_id, derive_bps
              )
-             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.ratePlanId,
             input.code,
             input.name,
@@ -10580,6 +10803,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             policy.cancelPenaltyNights,
             policy.cancelPenaltyBps,
             policy.cancelPolicyText,
+            derived.parentRatePlanId,
+            derived.deriveBps,
           );
 
           this.appendPropertyOutbox({
@@ -10609,6 +10834,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          if (derived.parentRatePlanId) {
+            this.backfillDerivedPlanSync(actor, propertyId, input.ratePlanId);
+          }
+
           return { ok: true as const, ratePlanId: input.ratePlanId };
         }),
       );
@@ -10616,6 +10845,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RatePlanIdExistsError) return { ok: false, error: RATE_PLAN_ID_EXISTS };
       if (e instanceof RatePlanCodeExistsError) return { ok: false, error: RATE_PLAN_CODE_EXISTS };
+      if (e instanceof DerivedRatePlanInvalidError) {
+        return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
+      }
       if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -10623,7 +10855,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Update an active rate plan's code/name. Implements catalog `rates.update_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code?, name?, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText? }`.
+   * Fingerprint allowlist: `{ ratePlanId, code?, name?, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps? }`.
    */
   async tryUpdateRatePlan(
     actor: ActorContext,
@@ -10636,6 +10868,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPenaltyNights?: number | null;
       cancelPenaltyBps?: number | null;
       cancelPolicyText?: string | null;
+      parentRatePlanId?: string | null;
+      deriveBps?: number | null;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -10643,6 +10877,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
     | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
     | { ok: false; error: typeof DEFAULT_RATE_PLAN_PROTECTED }
+    | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
@@ -10669,7 +10904,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const rows = this.ctx.storage.sql
             .exec(
-              `SELECT code, name, status, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text
+              `SELECT code, name, status, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text,
+                      parent_rate_plan_id, derive_bps
                FROM rate_plan WHERE rate_plan_id = ?`,
               input.ratePlanId,
             )
@@ -10682,6 +10918,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             cancel_penalty_nights: number | null;
             cancel_penalty_bps: number | null;
             cancel_policy_text: string | null;
+            parent_rate_plan_id: string | null;
+            derive_bps: number | null;
           }>;
           const existing = rows[0];
           if (!existing || existing.status !== 'active') {
@@ -10718,11 +10956,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             if (codeTaken.length > 0) throw new RatePlanCodeExistsError();
           }
 
+          const derivedInput =
+            input.parentRatePlanId !== undefined || input.deriveBps !== undefined
+              ? {
+                  parentRatePlanId:
+                    input.parentRatePlanId !== undefined
+                      ? input.parentRatePlanId
+                      : existing.parent_rate_plan_id,
+                  deriveBps:
+                    input.deriveBps !== undefined ? input.deriveBps : existing.derive_bps,
+                }
+              : {
+                  parentRatePlanId: existing.parent_rate_plan_id,
+                  deriveBps: existing.derive_bps,
+                };
+          const derived = this.normalizeDerivedPlanFields(derivedInput);
+          if (derived.parentRatePlanId) {
+            this.assertDerivedParentEligibleSync(derived.parentRatePlanId, input.ratePlanId);
+          }
+          const derivedChanged =
+            derived.parentRatePlanId !== existing.parent_rate_plan_id ||
+            derived.deriveBps !== existing.derive_bps;
+
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `UPDATE rate_plan SET code = ?, name = ?, updated_at = ?,
                cancel_penalty_type = ?, cancel_grace_hours = ?, cancel_penalty_nights = ?,
-               cancel_penalty_bps = ?, cancel_policy_text = ?
+               cancel_penalty_bps = ?, cancel_policy_text = ?,
+               parent_rate_plan_id = ?, derive_bps = ?
              WHERE rate_plan_id = ?`,
             nextCode,
             nextName,
@@ -10732,6 +10993,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             policy.cancelPenaltyNights,
             policy.cancelPenaltyBps,
             policy.cancelPolicyText,
+            derived.parentRatePlanId,
+            derived.deriveBps,
             input.ratePlanId,
           );
 
@@ -10763,6 +11026,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
 
+          if (derivedChanged && derived.parentRatePlanId) {
+            this.backfillDerivedPlanSync(actor, propertyId, input.ratePlanId);
+          }
+
           return { ok: true as const, ratePlanId: input.ratePlanId };
         }),
       );
@@ -10772,6 +11039,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof RatePlanCodeExistsError) return { ok: false, error: RATE_PLAN_CODE_EXISTS };
       if (e instanceof DefaultRatePlanProtectedError) {
         return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
+      }
+      if (e instanceof DerivedRatePlanInvalidError) {
+        return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
       }
       if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -10790,6 +11060,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; ratePlanId: string }
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
     | { ok: false; error: typeof DEFAULT_RATE_PLAN_PROTECTED }
+    | { ok: false; error: typeof ARCHIVE_BLOCKED }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
@@ -10814,15 +11085,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          if (input.ratePlanId === DEFAULT_RATE_PLAN_ID) {
-            throw new DefaultRatePlanProtectedError();
-          }
-
           const rows = this.ctx.storage.sql
             .exec(`SELECT status FROM rate_plan WHERE rate_plan_id = ?`, input.ratePlanId)
             .toArray() as Array<{ status: string }>;
           if (!rows[0] || rows[0].status !== 'active') {
             throw new RatePlanNotFoundError();
+          }
+
+          const activeChildren = this.ctx.storage.sql
+            .exec(
+              `SELECT rate_plan_id FROM rate_plan
+               WHERE parent_rate_plan_id = ? AND status = 'active'`,
+              input.ratePlanId,
+            )
+            .toArray();
+          if (activeChildren.length > 0) throw new ArchiveBlockedError();
+
+          if (input.ratePlanId === DEFAULT_RATE_PLAN_ID) {
+            throw new DefaultRatePlanProtectedError();
           }
 
           const now = Date.now();
@@ -10861,6 +11141,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DefaultRatePlanProtectedError) {
         return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
       }
+      if (e instanceof ArchiveBlockedError) return { ok: false, error: ARCHIVE_BLOCKED };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -10877,6 +11158,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPenaltyNights: number | null;
       cancelPenaltyBps: number | null;
       cancelPolicyText: string | null;
+      parentRatePlanId: string | null;
+      deriveBps: number | null;
     }>
   > {
     this.assertRpcAvailable();
@@ -10884,7 +11167,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT rate_plan_id, code, name, status,
                 cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights,
-                cancel_penalty_bps, cancel_policy_text
+                cancel_penalty_bps, cancel_policy_text,
+                parent_rate_plan_id, derive_bps
          FROM rate_plan
          WHERE status = 'active' ORDER BY code`,
       )
@@ -10898,6 +11182,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancel_penalty_nights: number | null;
       cancel_penalty_bps: number | null;
       cancel_policy_text: string | null;
+      parent_rate_plan_id: string | null;
+      derive_bps: number | null;
     }>;
     return rows.map((r) => ({
       ratePlanId: r.rate_plan_id,
@@ -10909,6 +11195,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPenaltyNights: r.cancel_penalty_nights,
       cancelPenaltyBps: r.cancel_penalty_bps,
       cancelPolicyText: r.cancel_policy_text,
+      parentRatePlanId: r.parent_rate_plan_id,
+      deriveBps: r.derive_bps,
     }));
   }
 
@@ -12386,6 +12674,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true }
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof DERIVED_RATE_PLAN_WRITE_FORBIDDEN }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -12414,6 +12703,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertActiveRatePlanSync(ratePlanId);
+          if (this.isDerivedRatePlanSync(ratePlanId)) {
+            throw new DerivedRatePlanWriteForbiddenError();
+          }
           const beforeRows = this.ctx.storage.sql
             .exec(
               `SELECT amount_minor, currency FROM rate_day
@@ -12462,12 +12754,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               currency: input.currency,
             },
           });
+          this.rematerializeDerivedChildrenSync(
+            actor,
+            propertyId,
+            ratePlanId,
+            input.roomTypeId,
+            input.stayDate,
+          );
           return { ok: true as const };
         }),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+      if (e instanceof DerivedRatePlanWriteForbiddenError) {
+        return { ok: false, error: DERIVED_RATE_PLAN_WRITE_FORBIDDEN };
+      }
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -12492,6 +12794,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; count: number }
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof DERIVED_RATE_PLAN_WRITE_FORBIDDEN }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
@@ -12534,6 +12837,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           for (const cell of normalized) {
             this.assertActiveRatePlanSync(cell.ratePlanId);
+            if (this.isDerivedRatePlanSync(cell.ratePlanId)) {
+              throw new DerivedRatePlanWriteForbiddenError();
+            }
             const beforeRows = this.ctx.storage.sql
               .exec(
                 `SELECT amount_minor, currency FROM rate_day
@@ -12582,6 +12888,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 currency: cell.currency,
               },
             });
+            this.rematerializeDerivedChildrenSync(
+              actor,
+              propertyId,
+              cell.ratePlanId,
+              cell.roomTypeId,
+              cell.stayDate,
+            );
           }
 
           return { ok: true as const, count: normalized.length };
@@ -12590,6 +12903,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+      if (e instanceof DerivedRatePlanWriteForbiddenError) {
+        return { ok: false, error: DERIVED_RATE_PLAN_WRITE_FORBIDDEN };
+      }
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

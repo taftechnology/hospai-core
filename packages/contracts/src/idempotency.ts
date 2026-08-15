@@ -98,6 +98,8 @@ export const RATE_PLAN_NOT_FOUND = 'rate_plan_not_found' as const;
 export const RATE_PLAN_CODE_EXISTS = 'rate_plan_code_exists' as const;
 export const RATE_PLAN_ID_EXISTS = 'rate_plan_id_exists' as const;
 export const DEFAULT_RATE_PLAN_PROTECTED = 'default_rate_plan_protected' as const;
+export const DERIVED_RATE_PLAN_INVALID = 'derived_rate_plan_invalid' as const;
+export const DERIVED_RATE_PLAN_WRITE_FORBIDDEN = 'derived_rate_plan_write_forbidden' as const;
 
 export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;

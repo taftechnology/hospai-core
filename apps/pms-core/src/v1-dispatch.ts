@@ -30,6 +30,8 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  DERIVED_RATE_PLAN_INVALID,
+  DERIVED_RATE_PLAN_WRITE_FORBIDDEN,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   SYSTEM_CHARGE_CODE_PROTECTED,
@@ -319,6 +321,8 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||
+    error === DERIVED_RATE_PLAN_INVALID ||
+    error === DERIVED_RATE_PLAN_WRITE_FORBIDDEN ||
     error === CHARGE_CODE_EXISTS ||
     error === SYSTEM_CHARGE_CODE_PROTECTED ||
     error === TAX_RULE_KEY_EXISTS ||
@@ -3635,6 +3639,8 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     cancelPenaltyNights?: number | null;
     cancelPenaltyBps?: number | null;
     cancelPolicyText?: string | null;
+    parentRatePlanId?: string | null;
+    deriveBps?: number | null;
   };
   if (!body?.ratePlanId || !body.code || !body.name || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
@@ -3652,6 +3658,8 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     ...(body.cancelPenaltyNights !== undefined ? { cancelPenaltyNights: body.cancelPenaltyNights } : {}),
     ...(body.cancelPenaltyBps !== undefined ? { cancelPenaltyBps: body.cancelPenaltyBps } : {}),
     ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
+    ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
+    ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
   };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -3697,6 +3705,8 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     cancelPenaltyNights?: number | null;
     cancelPenaltyBps?: number | null;
     cancelPolicyText?: string | null;
+    parentRatePlanId?: string | null;
+    deriveBps?: number | null;
   };
   if (
     !body?.idempotencyKey ||
@@ -3706,7 +3716,9 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
       body.cancelGraceHours === undefined &&
       body.cancelPenaltyNights === undefined &&
       body.cancelPenaltyBps === undefined &&
-      body.cancelPolicyText === undefined)
+      body.cancelPolicyText === undefined &&
+      body.parentRatePlanId === undefined &&
+      body.deriveBps === undefined)
   ) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3723,6 +3735,8 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     ...(body.cancelPenaltyNights !== undefined ? { cancelPenaltyNights: body.cancelPenaltyNights } : {}),
     ...(body.cancelPenaltyBps !== undefined ? { cancelPenaltyBps: body.cancelPenaltyBps } : {}),
     ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
+    ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
+    ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
   };
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -3794,6 +3808,9 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (err === ARCHIVE_BLOCKED) {
+      return json({ ok: false, error: err }, 409);
+    }
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
   }
   return json(result, 200);

@@ -1647,6 +1647,8 @@ export function createClient(opts: {
         cancelPenaltyNights?: number | null;
         cancelPenaltyBps?: number | null;
         cancelPolicyText?: string | null;
+        parentRatePlanId?: string | null;
+        deriveBps?: number | null;
       },
     ) {
       const idempotencyKey = stableKeyForOperation(

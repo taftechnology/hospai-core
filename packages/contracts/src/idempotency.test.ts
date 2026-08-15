@@ -27,6 +27,8 @@ import {
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
+  DERIVED_RATE_PLAN_INVALID,
+  DERIVED_RATE_PLAN_WRITE_FORBIDDEN,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -139,6 +141,8 @@ describe('fingerprintPayload', () => {
     expect(RATE_PLAN_CODE_EXISTS).toBe('rate_plan_code_exists');
     expect(RATE_PLAN_ID_EXISTS).toBe('rate_plan_id_exists');
     expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
+    expect(DERIVED_RATE_PLAN_INVALID).toBe('derived_rate_plan_invalid');
+    expect(DERIVED_RATE_PLAN_WRITE_FORBIDDEN).toBe('derived_rate_plan_write_forbidden');
     expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
     expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
     expect(ROUTING_RULE_CONFLICT).toBe('routing_rule_conflict');

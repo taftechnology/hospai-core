@@ -334,7 +334,7 @@ The `{ ok: true }` shape becomes `{ ok: true; reservationId: string; autoCapture
 
 ### 6.6 `unknown` leftover
 
-Unchanged. No void/refund/capture from `unknown`. Do not collapse timeout into `declined`.
+~~Unchanged. No void/refund/capture from `unknown`.~~ **`unknown` exit:** operator-asserted reconcile — [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md). Still no void/refund/capture from `unknown` without reconcile. Do not collapse timeout into `declined`.
 
 ---
 
@@ -793,7 +793,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 
 1. ~~**Night-audit auto-transfer** — needs routing-rules table…~~ **Closed** in [2026-08-14 night-audit auto-transfer](./2026-08-14-night-audit-auto-transfer-design.md).
 2. **Collapse `split_charge` / `split_charge_payment` / `split_charge_v2`** into one command once SPA speaks v2 only.
-3. **`unknown` reconciliation exit** (payments leftover, unchanged).
+3. ~~**`unknown` reconciliation exit** (payments leftover, unchanged).~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md).
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
 6. ~~**Stay-level discount** (no source line).~~ **Closed** in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md).

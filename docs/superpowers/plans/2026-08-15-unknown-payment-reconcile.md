@@ -1105,7 +1105,7 @@ Folio-money §19 item **3** (~796):
 
 > ~~**`unknown` reconciliation exit** (payments leftover, unchanged).~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md).
 
-- [ ] **Step 1: Pin frozen heads (register + schema + night-audit step count)**
+- [x] **Step 1: Pin frozen heads (register + schema + night-audit step count)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"
@@ -1114,7 +1114,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **81**; writers **56**; `[133]=post_folio_reconcile_payment`; `[132]=delete_room`; `[131]=post_folio_routing_rule_archive`; `[128]=post_folio_stay_discount`; `[127]=post_demo_seed`; `PLATFORM_GAPS === []`; `PROPERTY_SCHEMA_HEAD === 29`.
 
-- [ ] **Step 2: Targeted test superset (spec Lock 6)**
+- [x] **Step 2: Targeted test superset (spec Lock 6)**
 
 ```bash
 pnpm build
@@ -1130,7 +1130,7 @@ pnpm check:pms-core-test-dates
 
 Expected: **PASS**.
 
-- [ ] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -1171,15 +1171,15 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true` failures. Do **not** run unsharded `pnpm --filter @hospai/pms-core test`.
 
-- [ ] **Step 4: Apply doc pointers + tick spec §8 checklist**
+- [x] **Step 4: Apply doc pointers + tick spec §8 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-unknown-payment-reconcile-design.md` §8.
 
-- [ ] **Step 5: Tick Task 4 checkboxes in this plan only**
+- [x] **Step 5: Tick Task 4 checkboxes in this plan only**
 
 Do **not** tick Tasks 1–3 checkboxes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-06-payments-ledger-simulate-design.md \

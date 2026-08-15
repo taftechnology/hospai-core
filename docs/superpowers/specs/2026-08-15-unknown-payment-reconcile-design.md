@@ -345,14 +345,14 @@ Cases enumerated in Lock 6. Register pin verification: catalog **81**, writers *
 
 ## 8. Implementation checklist
 
-- [ ] Wire `PAYMENT_NOT_RECONCILABLE` + HTTP 409 mapping
-- [ ] Catalog `folio.reconcile_payment` appended; audit writer; register pins **81** / **56** / `[133]`
-- [ ] HTTP `[133]` + dispatch handler + client `reconcilePayment`
-- [ ] `tryReconcilePayment` with conditional UPDATE, outbox, audit (Lock 1–4)
-- [ ] Folio SPA unknown row + **Mark authorized** / **Mark declined** + RTL
-- [ ] DO + HTTP tests (Lock 6); Test 5 / Test 10 unchanged
-- [ ] `pnpm check:permissions`, `check:entitlements`, `check:degraded`, `check:class-denylist`
-- [ ] Bidirectional pointers: payments-ledger §5 row + folio-money §19 item **3** (final implementation task)
+- [x] Wire `PAYMENT_NOT_RECONCILABLE` + HTTP 409 mapping
+- [x] Catalog `folio.reconcile_payment` appended; audit writer; register pins **81** / **56** / `[133]`
+- [x] HTTP `[133]` + dispatch handler + client `reconcilePayment`
+- [x] `tryReconcilePayment` with conditional UPDATE, outbox, audit (Lock 1–4)
+- [x] Folio SPA unknown row + **Mark authorized** / **Mark declined** + RTL
+- [x] DO + HTTP tests (Lock 6); Test 5 / Test 10 unchanged
+- [x] `pnpm check:permissions`, `check:entitlements`, `check:degraded`, `check:class-denylist`
+- [x] Bidirectional pointers: payments-ledger §5 row + folio-money §19 item **3** (final implementation task)
 
 ---
 

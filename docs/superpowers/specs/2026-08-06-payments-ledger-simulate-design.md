@@ -134,7 +134,7 @@ Payments cannot use the universal `runIdempotent` primitive across the seam. Wra
 1. **Request:** if `input.amountMinor > payment.amount_minor` → `PAYMENT_NOT_CAPTURABLE`, before the adapter.
 2. **Response:** if adapter returns `capturedAmountMinor > payment.amount_minor` → do not write the line; leave status `authorized` and return `PAYMENT_NOT_CAPTURABLE` (the `captureAmountMinor` lever can produce exactly this).
 
-**Named leftover:** `unknown` has no exit this slice. Reconciliation is scope-out; the lever makes the state reachable in tests.
+~~**Named leftover:** `unknown` has no exit this slice.~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md): operator-asserted `folio.reconcile_payment` (`authorized` | `declined`); never re-calls authorize.
 
 ### 2.6 Split rewrite — reverse + children (lands `split_charge_v2` write shape)
 
@@ -360,7 +360,7 @@ Env: `HOSPAI_PSP_MODE` on `PmsEnv`; `isPspSimulate`; `assertEnvSafeForRequest` b
 | Auth holds invisible on `readFolio` | **UI half retired** by [folio front-desk](./2026-08-08-folio-front-desk-design.md) (`get_folio_payments` beside balance). Remaining: `balanceMinor` still ignores `authorized` by design |
 | Departed-with-balance | Checkout ≠ settled; no operator view surfaces open balances after `checked_out` |
 | Auth expiry | `authorized` never ages out; no hold-lapse process |
-| `unknown` has no exit | Reachable via simulate timeout; no reconciliation transition this slice |
+| ~~`unknown` has no exit \| Reachable via simulate timeout; no reconciliation transition this slice~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md). |
 | `folio_window.closed_at` inert; `status` wire-constant `OPEN` | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `status` is a real discriminator and `closed_at` is written on close. |
 | Closed-window rejects postings | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `insertFolioLineSync` rejects `WINDOW_CLOSED`. |
 | Real PSP / PCI Worker / settlement / refunds / voids / cashier | Real PSP / PCI / settlement / cashier still deferred; simulate voids/refunds specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6. |

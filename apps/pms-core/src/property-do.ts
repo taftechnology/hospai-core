@@ -74,6 +74,7 @@ import {
   DEFAULT_RATE_PLAN_PROTECTED,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
+  ROUTING_RULE_CONFLICT,
   SYSTEM_CHARGE_CODE_PROTECTED,
   TAX_RULE_NOT_FOUND,
   TAX_RULE_KEY_EXISTS,
@@ -480,6 +481,13 @@ class ChargeCodeExistsError extends Error {
   constructor() {
     super(CHARGE_CODE_EXISTS);
     this.name = 'ChargeCodeExistsError';
+  }
+}
+
+class RoutingRuleConflictError extends Error {
+  constructor() {
+    super(ROUTING_RULE_CONFLICT);
+    this.name = 'RoutingRuleConflictError';
   }
 }
 
@@ -1056,6 +1064,7 @@ export const NIGHT_AUDIT_STEPS = [
   'PRE_CHECK',
   'POST_ROOM_CHARGES',
   'PROCESS_NO_SHOWS',
+  'AUTO_TRANSFER',
   'CLOSE_CASHIER_SHIFTS',
   'SNAPSHOT_REPORTS',
   'ROLL_BUSINESS_DATE',
@@ -2631,6 +2640,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.forceCloseCashierShiftsSync(businessDate);
         } else if (step === 'PROCESS_NO_SHOWS') {
           this.processNoShowsSync(businessDate);
+        } else if (step === 'AUTO_TRANSFER') {
+          this.runAutoTransferSync(businessDate);
         } else if (step === 'SNAPSHOT_REPORTS') {
           this.indexReportPutsSync(businessDate);
         } else if (step === 'ARCHIVE') {
@@ -3051,6 +3062,77 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId: reservation.reservation_id,
       });
     }
+  }
+
+  private runAutoTransferSync(businessDate: string): { transferredCount: number; skippedCount: number } {
+    const activeRules = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM folio_routing_rule WHERE status = 'active' LIMIT 1`)
+      .toArray();
+    if (activeRules.length === 0) return { transferredCount: 0, skippedCount: 0 };
+
+    const candidates = this.ctx.storage.sql
+      .exec(
+        `SELECT fl.folio_line_id, fl.reservation_id, rr.rule_id, rr.dest_window_kind
+         FROM folio_line fl
+         JOIN folio_window fw ON fl.folio_window_id = fw.folio_window_id
+         JOIN folio_routing_rule rr ON fl.charge_code = rr.charge_code AND rr.status = 'active'
+         WHERE fl.business_date = ?
+           AND fw.kind = 'GUEST'
+           AND fw.status = 'OPEN'
+           AND (fl.source IS NULL OR fl.source NOT IN ('TAX', 'SPLIT_REVERSAL', 'TRANSFER_REVERSAL', 'CHARGEBACK'))
+           AND fl.charge_code NOT IN ('FX_GAIN', 'FX_LOSS', 'CHARGEBACK_FEE')`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      reservation_id: string;
+      rule_id: string;
+      dest_window_kind: string;
+    }>;
+
+    let transferredCount = 0;
+    let skippedCount = 0;
+    for (const candidate of candidates) {
+      const destWindowId = this.resolveAutoTransferDestWindowSync(
+        candidate.reservation_id,
+        candidate.dest_window_kind,
+      );
+      if (!destWindowId) {
+        skippedCount++;
+        continue;
+      }
+      this.transferFolioLineSync({
+        sourceFolioLineId: candidate.folio_line_id,
+        destinationFolioWindowId: destWindowId,
+        auditContext: { automated: true, ruleId: candidate.rule_id, businessDate },
+      });
+      transferredCount++;
+    }
+    return { transferredCount, skippedCount };
+  }
+
+  private resolveAutoTransferDestWindowSync(
+    reservationId: string,
+    destWindowKind: string,
+  ): string | null {
+    if (destWindowKind === 'MASTER') {
+      const folioWindowId = `${reservationId}:MASTER`;
+      const window = this.readFolioWindowRowSync(folioWindowId);
+      if (!window || window.status !== 'OPEN') return null;
+      return folioWindowId;
+    }
+    if (destWindowKind === 'COMPANY') {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT folio_window_id FROM folio_window
+           WHERE reservation_id = ? AND kind = 'COMPANY' AND status = 'OPEN'`,
+          reservationId,
+        )
+        .toArray() as Array<{ folio_window_id: string }>;
+      if (rows.length !== 1) return null;
+      return rows[0]!.folio_window_id;
+    }
+    return null;
   }
 
   private assertReportsR2Bound(): R2Bucket {
@@ -10872,6 +10954,257 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }));
   }
 
+  async listFolioRoutingRules(
+    status: 'active' | 'archived' | 'all' = 'active',
+  ): Promise<
+    Array<{
+      ruleId: string;
+      chargeCode: string;
+      destWindowKind: string;
+      status: string;
+      createdAt: number;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows =
+      status === 'all'
+        ? (this.ctx.storage.sql
+            .exec(
+              `SELECT rule_id, charge_code, dest_window_kind, status, created_at
+               FROM folio_routing_rule ORDER BY charge_code, rule_id`,
+            )
+            .toArray() as Array<{
+            rule_id: string;
+            charge_code: string;
+            dest_window_kind: string;
+            status: string;
+            created_at: number;
+          }>)
+        : (this.ctx.storage.sql
+            .exec(
+              `SELECT rule_id, charge_code, dest_window_kind, status, created_at
+               FROM folio_routing_rule WHERE status = ? ORDER BY charge_code, rule_id`,
+              status,
+            )
+            .toArray() as Array<{
+            rule_id: string;
+            charge_code: string;
+            dest_window_kind: string;
+            status: string;
+            created_at: number;
+          }>);
+    return rows.map((r) => ({
+      ruleId: r.rule_id,
+      chargeCode: r.charge_code,
+      destWindowKind: r.dest_window_kind,
+      status: r.status,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /**
+   * Upsert a folio routing rule. Implements catalog `folio.upsert_routing_rule`.
+   * Fingerprint allowlist: `{ ruleId, chargeCode, destWindowKind }`.
+   */
+  async tryUpsertRoutingRule(
+    actor: ActorContext,
+    input: { ruleId: string; chargeCode: string; destWindowKind: 'COMPANY' | 'MASTER' },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; ruleId: string }
+    | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
+    | { ok: false; error: typeof ROUTING_RULE_CONFLICT }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertChargeCodeSync(input.chargeCode, { requireActive: true });
+
+          const conflict = this.ctx.storage.sql
+            .exec(
+              `SELECT rule_id FROM folio_routing_rule
+               WHERE charge_code = ? AND status = 'active' AND rule_id != ?`,
+              input.chargeCode,
+              input.ruleId,
+            )
+            .toArray();
+          if (conflict.length > 0) throw new RoutingRuleConflictError();
+
+          const now = Date.now();
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT rule_id FROM folio_routing_rule WHERE rule_id = ?`, input.ruleId)
+            .toArray();
+          const op = existing.length > 0 ? 'update' : 'create';
+          if (existing.length > 0) {
+            this.ctx.storage.sql.exec(
+              `UPDATE folio_routing_rule
+               SET charge_code = ?, dest_window_kind = ?, status = 'active'
+               WHERE rule_id = ?`,
+              input.chargeCode,
+              input.destWindowKind,
+              input.ruleId,
+            );
+          } else {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO folio_routing_rule (rule_id, charge_code, dest_window_kind, status, created_at)
+               VALUES (?, ?, ?, 'active', ?)`,
+              input.ruleId,
+              input.chargeCode,
+              input.destWindowKind,
+              now,
+            );
+          }
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.routing_rule_changed',
+            payload: {
+              propertyId,
+              ruleId: input.ruleId,
+              chargeCode: input.chargeCode,
+              destWindowKind: input.destWindowKind,
+              op,
+              at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.upsert_routing_rule',
+            entityType: 'folio_routing_rule',
+            entityId: input.ruleId,
+            beforeJson: null,
+            afterJson: {
+              ruleId: input.ruleId,
+              chargeCode: input.chargeCode,
+              destWindowKind: input.destWindowKind,
+              status: 'active',
+            },
+          });
+
+          return { ok: true as const, ruleId: input.ruleId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      if (e instanceof RoutingRuleConflictError) return { ok: false, error: ROUTING_RULE_CONFLICT };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Archive a folio routing rule. Implements catalog `folio.archive_routing_rule`.
+   * Fingerprint allowlist: `{ ruleId }`.
+   */
+  async tryArchiveRoutingRule(
+    actor: ActorContext,
+    input: { ruleId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; ruleId: string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const rows = this.ctx.storage.sql
+            .exec(
+              `SELECT rule_id, charge_code, dest_window_kind, status FROM folio_routing_rule WHERE rule_id = ?`,
+              input.ruleId,
+            )
+            .toArray() as Array<{
+            rule_id: string;
+            charge_code: string;
+            dest_window_kind: string;
+            status: string;
+          }>;
+          const existing = rows[0];
+          if (!existing) throw new FolioWindowError(NOT_FOUND);
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE folio_routing_rule SET status = 'archived' WHERE rule_id = ?`,
+            input.ruleId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'folio.routing_rule_changed',
+            payload: {
+              propertyId,
+              ruleId: input.ruleId,
+              chargeCode: existing.charge_code,
+              destWindowKind: existing.dest_window_kind,
+              op: 'archive',
+              at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.archive_routing_rule',
+            entityType: 'folio_routing_rule',
+            entityId: input.ruleId,
+            beforeJson: { status: existing.status },
+            afterJson: {
+              ruleId: input.ruleId,
+              chargeCode: existing.charge_code,
+              destWindowKind: existing.dest_window_kind,
+              status: 'archived',
+            },
+          });
+
+          return { ok: true as const, ruleId: input.ruleId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   async listAuditLog(
     actor: ActorContext,
     filters: {
@@ -13026,6 +13359,175 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private transferFolioLineSync(input: {
+    sourceFolioLineId: string;
+    destinationFolioWindowId: string;
+    auditContext?: { automated: true; ruleId: string; businessDate: string };
+    deskActor?: ActorContext;
+  }): { reverseFolioLineId: string; destFolioLineId: string } {
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
+
+    const sourceRows = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+         FROM folio_line WHERE folio_line_id = ?`,
+        input.sourceFolioLineId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      folio_window_id: string;
+      reservation_id: string;
+      charge_code: string;
+      amount_minor: number;
+      txn_currency: string;
+      ledger_amount_minor: number;
+      fx_rate: string;
+      fx_rate_at: number;
+      source: string | null;
+    }>;
+    const source = sourceRows[0];
+    if (!source) throw new FolioWindowError(NOT_FOUND);
+
+    const destFolioLineId = `${source.folio_line_id}:xfer:${input.destinationFolioWindowId}`;
+    const reverseFolioLineId = `${source.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`;
+    const existingDest = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, destFolioLineId)
+      .toArray();
+    if (existingDest.length > 0) {
+      return { reverseFolioLineId, destFolioLineId };
+    }
+
+    const txnCurrency = currencyCode(source.txn_currency);
+    this.insertFolioLineSync({
+      folioLineId: reverseFolioLineId,
+      folioWindowId: source.folio_window_id,
+      reservationId: source.reservation_id,
+      chargeCode: source.charge_code,
+      posted: {
+        amountMinor: -source.amount_minor,
+        txnCurrency,
+        ledgerAmountMinor: -source.ledger_amount_minor,
+        fxRate: source.fx_rate,
+        fxRateAt: source.fx_rate_at,
+      },
+      source: 'TRANSFER_REVERSAL',
+      splitOf: source.folio_line_id,
+      paymentId: null,
+    });
+
+    const taxLines = this.ctx.storage.sql
+      .exec(
+        `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor
+         FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
+        source.folio_line_id,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      amount_minor: number;
+      tax_rule_id: string;
+      charge_code: string;
+      ledger_amount_minor: number;
+    }>;
+    for (const tax of taxLines) {
+      this.insertFolioLineSync({
+        folioLineId: `${tax.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`,
+        folioWindowId: source.folio_window_id,
+        reservationId: source.reservation_id,
+        chargeCode: tax.charge_code,
+        posted: {
+          amountMinor: -tax.amount_minor,
+          txnCurrency,
+          ledgerAmountMinor: -tax.ledger_amount_minor,
+          fxRate: source.fx_rate,
+          fxRateAt: source.fx_rate_at,
+        },
+        source: 'TRANSFER_REVERSAL',
+        splitOf: tax.folio_line_id,
+        paymentId: null,
+      });
+    }
+
+    this.insertFolioLineSync({
+      folioLineId: destFolioLineId,
+      folioWindowId: input.destinationFolioWindowId,
+      reservationId: source.reservation_id,
+      chargeCode: source.charge_code,
+      posted: {
+        amountMinor: source.amount_minor,
+        txnCurrency,
+        ledgerAmountMinor: source.ledger_amount_minor,
+        fxRate: source.fx_rate,
+        fxRateAt: source.fx_rate_at,
+      },
+      source: 'TRANSFER',
+      splitOf: source.folio_line_id,
+      paymentId: null,
+    });
+
+    this.stampTaxForChargeSync({
+      parentLineId: destFolioLineId,
+      parentAmountMinor: source.amount_minor,
+      parentSource: 'TRANSFER',
+      chargeCode: source.charge_code,
+      reservationId: source.reservation_id,
+      folioWindowId: input.destinationFolioWindowId,
+      postingDate: this.resolvePostingBusinessDateSync(),
+      posted: {
+        amountMinor: source.amount_minor,
+        txnCurrency,
+        ledgerAmountMinor: source.ledger_amount_minor,
+        fxRate: source.fx_rate,
+        fxRateAt: source.fx_rate_at,
+      },
+    });
+
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'folio.charge_transferred',
+      payload: {
+        propertyId,
+        reservationId: source.reservation_id,
+        sourceFolioLineId: source.folio_line_id,
+        sourceWindowId: source.folio_window_id,
+        destWindowId: input.destinationFolioWindowId,
+        destFolioLineId,
+        amountMinor: source.amount_minor,
+      },
+    });
+
+    const auditActor = input.auditContext
+      ? this.auditActorSync({ kind: 'system', reason: 'night_audit.auto_transfer' })
+      : this.auditActorSync(input.deskActor!);
+    const afterJson = input.auditContext
+      ? {
+          destWindowId: input.destinationFolioWindowId,
+          destFolioLineId,
+          reverseFolioLineId,
+          automated: true as const,
+          ruleId: input.auditContext.ruleId,
+          businessDate: input.auditContext.businessDate,
+        }
+      : {
+          destWindowId: input.destinationFolioWindowId,
+          destFolioLineId,
+          reverseFolioLineId,
+        };
+
+    this.appendAuditLogSync({
+      actor: auditActor,
+      commandId: 'folio.transfer_charge',
+      entityType: 'folio_line',
+      entityId: source.folio_line_id,
+      beforeJson: { folioWindowId: source.folio_window_id },
+      afterJson,
+      reservationId: source.reservation_id,
+    });
+
+    return { reverseFolioLineId, destFolioLineId };
+  }
+
   async tryTransferCharge(
     actor: ActorContext,
     input: { sourceFolioLineId: string; destinationFolioWindowId: string },
@@ -13098,124 +13600,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             throw new FolioWindowError(TRANSFER_CROSS_RESERVATION);
           }
 
-          const destFolioLineId = `${source.folio_line_id}:xfer:${input.destinationFolioWindowId}`;
-          const reverseFolioLineId = `${source.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`;
-          const existingDest = this.ctx.storage.sql
-            .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, destFolioLineId)
-            .toArray();
-          if (existingDest.length > 0) {
-            return { ok: true as const, reverseFolioLineId, destFolioLineId };
-          }
-
-          const txnCurrency = currencyCode(source.txn_currency);
-          this.insertFolioLineSync({
-            folioLineId: reverseFolioLineId,
-            folioWindowId: source.folio_window_id,
-            reservationId: source.reservation_id,
-            chargeCode: source.charge_code,
-            posted: {
-              amountMinor: -source.amount_minor,
-              txnCurrency,
-              ledgerAmountMinor: -source.ledger_amount_minor,
-              fxRate: source.fx_rate,
-              fxRateAt: source.fx_rate_at,
-            },
-            source: 'TRANSFER_REVERSAL',
-            splitOf: source.folio_line_id,
-            paymentId: null,
-          });
-
-          const taxLines = this.ctx.storage.sql
-            .exec(
-              `SELECT folio_line_id, amount_minor, tax_rule_id, charge_code, ledger_amount_minor
-               FROM folio_line WHERE tax_of = ? AND source = 'TAX'`,
-              source.folio_line_id,
-            )
-            .toArray() as Array<{
-            folio_line_id: string;
-            amount_minor: number;
-            tax_rule_id: string;
-            charge_code: string;
-            ledger_amount_minor: number;
-          }>;
-          for (const tax of taxLines) {
-            this.insertFolioLineSync({
-              folioLineId: `${tax.folio_line_id}:xfer-rev:${input.destinationFolioWindowId}`,
-              folioWindowId: source.folio_window_id,
-              reservationId: source.reservation_id,
-              chargeCode: tax.charge_code,
-              posted: {
-                amountMinor: -tax.amount_minor,
-                txnCurrency,
-                ledgerAmountMinor: -tax.ledger_amount_minor,
-                fxRate: source.fx_rate,
-                fxRateAt: source.fx_rate_at,
-              },
-              source: 'TRANSFER_REVERSAL',
-              splitOf: tax.folio_line_id,
-              paymentId: null,
-            });
-          }
-
-          this.insertFolioLineSync({
-            folioLineId: destFolioLineId,
-            folioWindowId: input.destinationFolioWindowId,
-            reservationId: source.reservation_id,
-            chargeCode: source.charge_code,
-            posted: {
-              amountMinor: source.amount_minor,
-              txnCurrency,
-              ledgerAmountMinor: source.ledger_amount_minor,
-              fxRate: source.fx_rate,
-              fxRateAt: source.fx_rate_at,
-            },
-            source: 'TRANSFER',
-            splitOf: source.folio_line_id,
-            paymentId: null,
-          });
-
-          this.stampTaxForChargeSync({
-            parentLineId: destFolioLineId,
-            parentAmountMinor: source.amount_minor,
-            parentSource: 'TRANSFER',
-            chargeCode: source.charge_code,
-            reservationId: source.reservation_id,
-            folioWindowId: input.destinationFolioWindowId,
-            postingDate: this.resolvePostingBusinessDateSync(),
-            posted: {
-              amountMinor: source.amount_minor,
-              txnCurrency,
-              ledgerAmountMinor: source.ledger_amount_minor,
-              fxRate: source.fx_rate,
-              fxRateAt: source.fx_rate_at,
-            },
-          });
-
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'folio.charge_transferred',
-            payload: {
-              propertyId,
-              reservationId: source.reservation_id,
-              sourceFolioLineId: source.folio_line_id,
-              sourceWindowId: source.folio_window_id,
-              destWindowId: input.destinationFolioWindowId,
-              destFolioLineId,
-              amountMinor: source.amount_minor,
-            },
-          });
-          this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
-            commandId: 'folio.transfer_charge',
-            entityType: 'folio_line',
-            entityId: source.folio_line_id,
-            beforeJson: { folioWindowId: source.folio_window_id },
-            afterJson: {
-              destWindowId: input.destinationFolioWindowId,
-              destFolioLineId,
-              reverseFolioLineId,
-            },
-            reservationId: source.reservation_id,
+          const { reverseFolioLineId, destFolioLineId } = this.transferFolioLineSync({
+            sourceFolioLineId: input.sourceFolioLineId,
+            destinationFolioWindowId: input.destinationFolioWindowId,
+            deskActor: actor,
           });
           return { ok: true as const, reverseFolioLineId, destFolioLineId };
         }),

@@ -29,6 +29,7 @@ import {
   DEFAULT_RATE_PLAN_PROTECTED,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
+  ROUTING_RULE_CONFLICT,
   SYSTEM_CHARGE_CODE_PROTECTED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
@@ -140,6 +141,7 @@ describe('fingerprintPayload', () => {
     expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
     expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
     expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
+    expect(ROUTING_RULE_CONFLICT).toBe('routing_rule_conflict');
     expect(SYSTEM_CHARGE_CODE_PROTECTED).toBe('system_charge_code_protected');
   });
 

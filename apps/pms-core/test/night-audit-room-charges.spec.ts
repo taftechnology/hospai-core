@@ -305,8 +305,9 @@ describe('night audit POST_ROOM_CHARGES', () => {
     ).toHaveLength(1);
   });
 
-  it('31: POST_ROOM_CHARGES stays ledger identity; night-audit step count is 7', async () => {
-    expect(NIGHT_AUDIT_STEPS).toHaveLength(7);
+  it('31: POST_ROOM_CHARGES stays ledger identity; night-audit step count is 8', async () => {
+    expect(NIGHT_AUDIT_STEPS).toHaveLength(8);
+    expect(NIGHT_AUDIT_STEPS[3]).toBe('AUTO_TRANSFER');
     const { stub } = await provisionedPropertyStub(`na-fx-31-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');

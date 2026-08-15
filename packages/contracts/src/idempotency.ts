@@ -100,6 +100,7 @@ export const DEFAULT_RATE_PLAN_PROTECTED = 'default_rate_plan_protected' as cons
 
 export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
+export const ROUTING_RULE_CONFLICT = 'routing_rule_conflict' as const;
 export const SYSTEM_CHARGE_CODE_PROTECTED = 'system_charge_code_protected' as const;
 
 /** Tax rule wire codes */

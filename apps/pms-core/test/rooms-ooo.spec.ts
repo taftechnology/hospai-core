@@ -485,7 +485,7 @@ describe('rooms.set_ooo_range', () => {
     expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(1);
     expect((await stub.readAvailabilityDay('rt_king', horizonEnd))?.blocked).toBe(1);
     expect(await stub.readAvailabilityDay('rt_king', addCalendarDays(horizonEnd, 1))).toBeNull();
-    expect(NIGHT_AUDIT_STEPS).toHaveLength(7);
+    expect(NIGHT_AUDIT_STEPS).toHaveLength(8);
     expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toMatchObject({ ok: true });
     const born = await stub.readAvailabilityDay('rt_king', addCalendarDays(horizonEnd, 1));
     expect(born?.blocked).toBe(1);

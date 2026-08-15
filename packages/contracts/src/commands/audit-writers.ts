@@ -18,6 +18,8 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'folio.create_charge_code',
   'folio.update_charge_code',
   'folio.set_charge_code_status',
+  'folio.upsert_routing_rule',
+  'folio.archive_routing_rule',
   'folio.create_tax_rule',
   'folio.supersede_tax_rule',
   'folio.open_shift',

@@ -9,6 +9,20 @@ import { computeTax } from '@hospai/money';
 import { addCalendarDays } from './date-helpers';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
+async function seedCityLedgerAccount(
+  stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
+  name: string,
+  idemSuffix: string,
+) {
+  expect(
+    await stub.tryCreateCityLedgerAccount(
+      TEST_OWNER_ACTOR,
+      { name },
+      await idemFor(`cla-${idemSuffix}`, { name }),
+    ),
+  ).toMatchObject({ ok: true });
+}
+
 async function seedReservation(
   stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
   reservationId: string,
@@ -150,6 +164,7 @@ describe('folio FX split / transfer / discount', () => {
     });
     const before = await stub.readFolio(reservationId);
     const balanceBefore = before.ok ? before.balanceMinor : 0;
+    await seedCityLedgerAccount(stub, 'Acme', 'co28');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'Acme' },
@@ -286,6 +301,7 @@ describe('folio FX split / transfer / discount', () => {
     const taxId = folio.lines.find((l) => l.source === 'TAX')?.folioLineId;
     expect(taxId).toBeTruthy();
 
+    await seedCityLedgerAccount(stub, 'No', 'co30');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'No' },

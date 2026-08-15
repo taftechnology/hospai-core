@@ -26,6 +26,20 @@ async function seedReservation(
   return arrival;
 }
 
+async function seedCityLedgerAccount(
+  stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
+  name: string,
+  idemSuffix: string,
+) {
+  expect(
+    await stub.tryCreateCityLedgerAccount(
+      TEST_OWNER_ACTOR,
+      { name },
+      await idemFor(`cla-${idemSuffix}`, { name }),
+    ),
+  ).toMatchObject({ ok: true });
+}
+
 async function seedRoomTax(
   stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
   validFrom: string,
@@ -61,6 +75,7 @@ describe('folio transfer + split v2', () => {
     expect(before.ok).toBe(true);
     const balanceBefore = before.ok ? before.balanceMinor : 0;
 
+    await seedCityLedgerAccount(stub, 'Acme', 'co-15');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'Acme' },
@@ -103,6 +118,7 @@ describe('folio transfer + split v2', () => {
     expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('misc', line))).toMatchObject({
       ok: true,
     });
+    await seedCityLedgerAccount(stub, 'ClosedCo', 'closed-16');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'ClosedCo' },
@@ -134,6 +150,7 @@ describe('folio transfer + split v2', () => {
     const sourceId = `${resA}:misc`;
     const line = { folioLineId: sourceId, reservationId: resA, chargeCode: 'MISC', amountMinor: 400 };
     expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('a', line))).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'Other', 'other-17');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId: resB, kind: 'COMPANY', billedParty: 'Other' },
@@ -158,6 +175,7 @@ describe('folio transfer + split v2', () => {
     });
     const taxLine = (await stub.listFolioLinesForReservation(reservationId)).find((l) => l.source === 'TAX');
     expect(taxLine).toBeTruthy();
+    await seedCityLedgerAccount(stub, 'TaxCo', 'tax-18');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'TaxCo' },
@@ -180,6 +198,7 @@ describe('folio transfer + split v2', () => {
     const sourceId = `${reservationId}:misc`;
     const line = { folioLineId: sourceId, reservationId, chargeCode: 'MISC', amountMinor: 700 };
     expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('m19', line))).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'IdemCo', 'idem-19');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'IdemCo' },
@@ -255,6 +274,7 @@ describe('folio transfer + split v2', () => {
     const sourceId = `${reservationId}:room`;
     const room = { folioLineId: sourceId, reservationId, chargeCode: 'ROOM', amountMinor: 10000 };
     expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, room, await idemFor('r22', room))).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'SplitCo', 'split-22');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'SplitCo' },
@@ -290,6 +310,7 @@ describe('folio transfer + split v2', () => {
     const sourceId = `${reservationId}:src`;
     const line = { folioLineId: sourceId, reservationId, chargeCode: 'MISC', amountMinor: 1000 };
     expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('s23', line))).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'Shut', 'shut-23');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'Shut' },

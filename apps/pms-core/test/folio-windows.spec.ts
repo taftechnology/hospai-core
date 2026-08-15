@@ -17,6 +17,20 @@ import {
 } from './fixtures';
 import { provisionedPropertyWithGuest } from './guest-helpers';
 
+async function seedCityLedgerAccount(
+  stub: DurableObjectStub<PropertyDO>,
+  name: string,
+  idemSuffix: string,
+) {
+  expect(
+    await stub.tryCreateCityLedgerAccount(
+      TEST_OWNER_ACTOR,
+      { name },
+      await idemFor(`cla-${idemSuffix}`, { name }),
+    ),
+  ).toMatchObject({ ok: true });
+}
+
 async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: string, roomCount: number) {
   const input = {
     roomTypeId,
@@ -397,6 +411,7 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     await stayCheckedIn(stub, guestRef, 'res_fw11', 'rm_fw11', arrival, addCalendarDays(arrival, 1));
+    await seedCityLedgerAccount(stub, 'Acme Corp', 'fw11');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId: 'res_fw11', kind: 'COMPANY', billedParty: 'Acme Corp' },
@@ -490,6 +505,7 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     const added = await addRoomType(stub, 'rt_king', 5);
     const arrival = added.fromDate;
     await stayCheckedIn(stub, guestRef, 'res_fw_purge', 'rm_fw_purge', arrival, addCalendarDays(arrival, 1));
+    await seedCityLedgerAccount(stub, 'Acme Corp', 'fw-purge');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId: 'res_fw_purge', kind: 'COMPANY', billedParty: 'Acme Corp' },

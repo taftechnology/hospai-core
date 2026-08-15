@@ -3,6 +3,20 @@ import { NIGHT_AUDIT_STEPS } from '../src/property-do.js';
 import { addCalendarDays } from './date-helpers.js';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
 
+async function seedCityLedgerAccount(
+  stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
+  name: string,
+  idemSuffix: string,
+) {
+  expect(
+    await stub.tryCreateCityLedgerAccount(
+      TEST_OWNER_ACTOR,
+      { name },
+      await idemFor(`cla-${idemSuffix}`, { name }),
+    ),
+  ).toMatchObject({ ok: true });
+}
+
 async function seedRoomTax(
   stub: DurableObjectStub<import('../src/property-do').PropertyDO>,
   validFrom: string,
@@ -55,6 +69,7 @@ describe('night audit — auto-transfer', () => {
         await idemFor('rule-at2', { ruleId, chargeCode: 'ROOM', destWindowKind: 'COMPANY' }),
       ),
     ).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'Acme', 'at2');
     const open = await stub.tryOpenFolioWindow(
       TEST_OWNER_ACTOR,
       { reservationId, kind: 'COMPANY', billedParty: 'Acme' },
@@ -137,6 +152,7 @@ describe('night audit — auto-transfer', () => {
       ),
     ).toMatchObject({ ok: true });
     for (const party of ['Acme', 'Beta']) {
+      await seedCityLedgerAccount(stub, party, `at4-${party}`);
       expect(
         await stub.tryOpenFolioWindow(
           TEST_OWNER_ACTOR,
@@ -180,6 +196,7 @@ describe('night audit — auto-transfer', () => {
         await idemFor('rule-at5', { ruleId }),
       ),
     ).toMatchObject({ ok: true });
+    await seedCityLedgerAccount(stub, 'Acme', 'at5');
     expect(
       await stub.tryOpenFolioWindow(
         TEST_OWNER_ACTOR,

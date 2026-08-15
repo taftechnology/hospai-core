@@ -248,14 +248,14 @@ Hook (1) at end of `tryUpsertRateDay` txn body (~12426+) and equivalent bulk loo
 
 ## 4. Acceptance checklist
 
-- [ ] v30 migration + `PROPERTY_SCHEMA_HEAD` **30**
-- [ ] Derived create/update/archive validation + wire codes
-- [ ] Parent write rematerialize + derived create backfill + update rematerialize
-- [ ] Derived manual rate write rejected on all write paths
-- [ ] HTTP POST/PATCH + GET list + client-core extended; fingerprints updated
-- [ ] SPA derived form + read-only matrix
-- [ ] Tests Lock 6; register pins (**81** / **56** / `[133]` / steps **8**)
-- [ ] Bidirectional closes pointers in rate-plans + property-setup specs (final implementation task)
+- [x] v30 migration + `PROPERTY_SCHEMA_HEAD` **30**
+- [x] Derived create/update/archive validation + wire codes
+- [x] Parent write rematerialize + derived create backfill + update rematerialize
+- [x] Derived manual rate write rejected on all write paths
+- [x] HTTP POST/PATCH + GET list + client-core extended; fingerprints updated
+- [x] SPA derived form + read-only matrix
+- [x] Tests Lock 6; register pins (**81** / **56** / `[133]` / steps **8**)
+- [x] Bidirectional closes pointers in rate-plans + property-setup specs (final implementation task)
 
 ---
 

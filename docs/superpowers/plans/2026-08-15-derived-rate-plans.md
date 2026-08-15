@@ -1167,7 +1167,7 @@ Property-setup §19 leftover **2** (~539):
 
 > ~~**2** \| Derived / OrgDO rate plans \| §7.2; property-local plans stay~~ **Closed (property-local half)** in [2026-08-15 derived rate plans](./2026-08-15-derived-rate-plans-design.md); OrgDO-hosted chain-wide stays out.
 
-- [ ] **Step 1: Pin frozen heads (register + schema + night-audit step count)**
+- [x] **Step 1: Pin frozen heads (register + schema + night-audit step count)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"
@@ -1176,7 +1176,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **81**; writers **56**; `[133]=post_folio_reconcile_payment`; `[132]=delete_room`; `[131]=post_folio_routing_rule_archive`; `[127]=post_demo_seed`; `PLATFORM_GAPS === []`; `PROPERTY_SCHEMA_HEAD === 30`; `ORG_SCHEMA_HEAD === 7`; `NIGHT_AUDIT_STEPS.length === 8`.
 
-- [ ] **Step 2: Targeted test superset (spec Lock 6 + SPA)**
+- [x] **Step 2: Targeted test superset (spec Lock 6 + SPA)**
 
 ```bash
 pnpm build
@@ -1194,7 +1194,7 @@ pnpm check:pms-core-test-dates
 
 Expected: **PASS**.
 
-- [ ] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -1235,15 +1235,15 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true` failures. Do **not** run unsharded `pnpm --filter @hospai/pms-core test`.
 
-- [ ] **Step 4: Apply doc pointers + tick spec §4 checklist**
+- [x] **Step 4: Apply doc pointers + tick spec §4 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-derived-rate-plans-design.md` §4. **Do not** close property-setup leftover **14** (~551).
 
-- [ ] **Step 5: Tick Task 4 checkboxes in this plan only**
+- [x] **Step 5: Tick Task 4 checkboxes in this plan only**
 
 Do **not** tick Tasks 1–3 checkboxes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-05-rate-plans-vertical-design.md \

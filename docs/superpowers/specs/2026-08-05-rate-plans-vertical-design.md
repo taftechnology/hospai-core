@@ -32,7 +32,7 @@ There is no `rate_plan` table. `rate_day.rate_plan_id TEXT NOT NULL DEFAULT 'BAR
 
 **Scope out:**
 
-- Derived / linked plans ("BAR minus 10%"). ARCHITECTURE §7.2's derivation graph and OrgDO-hosted plan definitions stay deferred — Phase 1 plans are **property-local** entities (same plane as `room_type`), not chain-wide OrgDO records. Stated honesty, not an oversight of §7.2.
+- ~~Derived / linked plans ("BAR minus 10%"). ARCHITECTURE §7.2's derivation graph and OrgDO-hosted plan definitions stay deferred~~ **Closed (property-local half)** in [2026-08-15 derived rate plans](./2026-08-15-derived-rate-plans-design.md): one-level percent-of-parent on PropertyDO `rate_plan` with sync `rate_day` rematerialization; OrgDO chain-wide stays out.
 - Plan-scoped restrictions — `restriction_day` keeps `TYPE_WIDE_RATE_PLAN` (`'*'`); see §2.3.
 - Channel rate mapping, LOS pricing, tax-inclusive vs exclusive rate flags.
 - Hard FK from `rate_day` → `rate_plan` (§2.1 — orphans and deploy safety).
@@ -416,7 +416,7 @@ One degraded smoke (not a new protocol surface):
 | Item | Why deferred |
 |---|---|
 | OrgDO-hosted / chain-wide rate plans | ARCHITECTURE §7.2; Phase 1 is property-local like `room_type` |
-| Derived / linked plans ("BAR − 10%") | Needs derivation workflow + `rate_plan.changed` rematerialization |
+| ~~Derived / linked plans ("BAR − 10%") \| Needs derivation workflow + `rate_plan.changed` rematerialization~~ **Closed (property-local half)** in [2026-08-15 derived rate plans](./2026-08-15-derived-rate-plans-design.md). |
 | Plan-scoped restrictions | Type-wide `'*'` is correct for Phase 1 (§2.3) |
 | FK `rate_day` → `rate_plan` | Deploy-day orphan hazard (§2.1) |
 | Date-range fill / LOS pricing on bulk | Explicit cell list only (§2.6) |

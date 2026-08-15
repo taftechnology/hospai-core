@@ -33,6 +33,10 @@ const postFxAdjustment = vi.fn();
 const listRooms = vi.fn();
 const listChargeCodes = vi.fn();
 const openFolioWindowMock = vi.fn();
+const generateInvoice = vi.fn();
+const getInvoice = vi.fn();
+const voidInvoice = vi.fn();
+const listDomainConfig = vi.fn();
 
 const { queuedStore } = vi.hoisted(() => ({
   queuedStore: {
@@ -91,6 +95,10 @@ vi.mock('../client.js', () => ({
     postFxAdjustment: (...args: unknown[]) => postFxAdjustment(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
     listChargeCodes: (...args: unknown[]) => listChargeCodes(...args),
+    generateInvoice: (...args: unknown[]) => generateInvoice(...args),
+    getInvoice: (...args: unknown[]) => getInvoice(...args),
+    voidInvoice: (...args: unknown[]) => voidInvoice(...args),
+    listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
   },
 }));
 
@@ -215,6 +223,13 @@ describe('FolioScreen wiring', () => {
     listFxRates.mockResolvedValue({ ledgerCurrency: 'USD', rates: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     reconcilePayment.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Manually' },
+        { key: 'pms.invoice.allow_pending', value: false },
+      ],
+    });
   });
 
   afterEach(() => {
@@ -1430,6 +1445,84 @@ describe('FolioScreen wiring', () => {
         expect.stringMatching(/^reconcile:pay_unknown:/),
       ),
     );
+  });
+
+  it('Lock 12 SPA 1: generate button visible on checked-out folio', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    expect(await screen.findByTestId('invoice-generate')).toBeTruthy();
+  });
+
+  it('Lock 12 SPA 2: click generate opens invoice view with snapshot totals', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_1' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_1',
+        snapshot: {
+          totals: { chargesMinor: 10000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 10000 }],
+        },
+        presentation: { showTaxfee: true },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    await waitFor(() =>
+      expect(screen.getByTestId('invoice-view').textContent).toContain('10000'),
+    );
+  });
+
+  it('Lock 12 SPA 3: active invoice hides generate button', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: false, error: 'invoice_already_exists', invoiceId: 'inv_1' },
+      classified: { class: 'live', status: 409 },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_1',
+        snapshot: { totals: { balanceMinor: 0 }, lines: [] },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    await waitFor(() => expect(screen.queryByTestId('invoice-generate')).toBeNull());
   });
 
   it('happy path copy has no unattributed sentence or simulate', async () => {

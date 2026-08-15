@@ -2,6 +2,7 @@ import {
   foldFolioLines,
   folioActionPolicy,
   partitionQueuedByReservation,
+  ClassifiedError,
   type FolioLine,
   type FolioPaymentRow,
   type FolioReadState,
@@ -85,6 +86,54 @@ function tenderLabel(p: FolioPaymentRow): string {
     return `Card •••• ${p.cardLast4}`;
   }
   return 'Card';
+}
+
+function configBool(
+  keys: Array<{ key: string; value: unknown }> | undefined,
+  key: string,
+  fallback = false,
+): boolean {
+  const row = keys?.find((k) => k.key === key);
+  if (row?.value === true) return true;
+  if (row?.value === false) return false;
+  return fallback;
+}
+
+function configStr(
+  keys: Array<{ key: string; value: unknown }> | undefined,
+  key: string,
+  fallback: string,
+): string {
+  const row = keys?.find((k) => k.key === key);
+  return typeof row?.value === 'string' ? row.value : fallback;
+}
+
+type InvoiceSnapshotLine = {
+  chargeName?: string;
+  chargeCode?: string;
+  amountMinor?: number;
+  ledgerAmountMinor?: number;
+};
+
+type InvoiceSnapshot = {
+  lines?: InvoiceSnapshotLine[];
+  taxSummary?: Array<{ label?: string; amountMinor?: number; taxRuleId?: string }>;
+  totals?: {
+    chargesMinor?: number;
+    taxMinor?: number;
+    paymentsMinor?: number;
+    balanceMinor?: number;
+  };
+  presentation?: Record<string, unknown>;
+};
+
+function presentationFlag(presentation: Record<string, unknown> | undefined, key: string): boolean {
+  if (!presentation) return true;
+  const camel = presentation[key];
+  if (typeof camel === 'boolean') return camel;
+  const snake = presentation[key.replace(/([A-Z])/g, '_$1').toLowerCase()];
+  if (typeof snake === 'boolean') return snake;
+  return true;
 }
 
 export function FolioScreen() {
@@ -174,6 +223,32 @@ export function FolioScreen() {
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
     enabled: Boolean(propertyId),
   });
+  const domainConfigQ = useQuery({
+    queryKey: ['domain-config', propertyId],
+    queryFn: () => api.listDomainConfig(propertyId),
+    enabled: Boolean(propertyId),
+    retry: false,
+  });
+
+  const configKeys = domainConfigQ.data?.keys as Array<{ key: string; value: unknown }> | undefined;
+  const invoiceGenMode = configStr(configKeys, 'pms.invoice.gen_mode', 'Automatically');
+  const invoiceAllowPending = configBool(configKeys, 'pms.invoice.allow_pending', false);
+
+  const activeInvoiceKey = ['invoice-active', propertyId, reservationId] as const;
+  const activeInvoiceQ = useQuery<string | null>({
+    queryKey: activeInvoiceKey,
+    queryFn: () => null,
+    initialData: null,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  const activeInvoiceId = activeInvoiceQ.data ?? null;
+
+  const invoiceQ = useQuery({
+    queryKey: ['invoice', propertyId, activeInvoiceId],
+    queryFn: () => api.getInvoice(propertyId, activeInvoiceId!),
+    enabled: Boolean(activeInvoiceId),
+  });
 
   const policy = folioActionPolicy({
     folioReadClass: readState(folioQ),
@@ -241,6 +316,17 @@ export function FolioScreen() {
   const guestWindowId =
     windows.find((w) => w.kind === 'GUEST')?.folioWindowId ?? `${reservationId}:GUEST`;
   const reservationTerminal = TERMINAL_STATUSES.has(reservationQ.data?.status ?? '');
+  const reservationStatus = reservationQ.data?.status ?? null;
+  const invoiceReadsLive =
+    readState(folioQ) === 'live' && readState(reservationQ) === 'live';
+  const canGenerateInvoice =
+    canPost &&
+    invoiceReadsLive &&
+    folioQ.isSuccess &&
+    reservationQ.isSuccess &&
+    (reservationStatus === 'checked_in' || reservationStatus === 'checked_out') &&
+    !activeInvoiceId &&
+    ((balanceMinor ?? 0) === 0 || invoiceAllowPending);
   const noPost = Boolean(folioQ.data?.noPost);
   const stayAuthorized = payments.some(
     (p) => p.status === 'authorized' && (p.purpose ?? 'STAY') === 'STAY',
@@ -517,7 +603,7 @@ export function FolioScreen() {
       }
       return false;
     },
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
       const overrideBalance =
         typeof balanceMinor === 'number' && balanceMinor !== 0;
@@ -528,6 +614,11 @@ export function FolioScreen() {
         )
       ) {
         throw new Error('checkout_cancelled');
+      }
+      if (invoiceGenMode === 'Automatically') {
+        const gen = await generateInvoiceForFolio(`invoice:checkout:${reservationId}`);
+        const invoiceId = invoiceIdFromGenerateResult(gen);
+        if (invoiceId) setActiveInvoiceId(invoiceId);
       }
       return api.checkOut(
         propertyId,
@@ -752,6 +843,86 @@ export function FolioScreen() {
     },
   });
 
+  function setActiveInvoiceId(invoiceId: string | null) {
+    queryClient.setQueryData(activeInvoiceKey, invoiceId);
+  }
+
+  function invoiceIdFromGenerateResult(result: {
+    body: unknown;
+    classified: { class: string; status?: number; body?: unknown };
+  }): string | null {
+    const body = result.body;
+    if (body && typeof body === 'object' && 'invoiceId' in body) {
+      const id = (body as { invoiceId?: unknown }).invoiceId;
+      if (typeof id === 'string' && id.length > 0) return id;
+    }
+    return null;
+  }
+
+  async function generateInvoiceForFolio(idempotencyKey?: string) {
+    try {
+      return await api.generateInvoice(propertyId, {
+        reservationId,
+        idempotencyKey,
+      });
+    } catch (err) {
+      if (err instanceof ClassifiedError) {
+        const body = err.classified.body;
+        if (
+          err.classified.status === 409 &&
+          body &&
+          typeof body === 'object' &&
+          'error' in body &&
+          (body as { error?: string }).error === 'invoice_already_exists' &&
+          'invoiceId' in body &&
+          typeof (body as { invoiceId?: unknown }).invoiceId === 'string'
+        ) {
+          return { classified: err.classified, body };
+        }
+      }
+      throw err;
+    }
+  }
+
+  const generateInv = useFolioActionMutation({
+    fallback: 'Invoice generation failed',
+    setMessage,
+    mutationFn: () => generateInvoiceForFolio(`invoice:desk:${reservationId}:${crypto.randomUUID()}`),
+    onSuccess: (result) => {
+      const invoiceId = invoiceIdFromGenerateResult(result);
+      if (invoiceId) {
+        setActiveInvoiceId(invoiceId);
+        setMessage('Invoice opened.');
+      } else {
+        setMessage('Invoice generation failed.');
+      }
+    },
+  });
+
+  const voidInv = useFolioActionMutation({
+    fallback: 'Void invoice failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'void_cancelled') return true;
+      return false;
+    },
+    mutationFn: () => {
+      if (!activeInvoiceId) throw new Error('no_active_invoice');
+      if (!canAdjust) throw new Error('policy_blocked_adjust');
+      if (!window.confirm('Void this invoice? This cannot be undone.')) {
+        throw new Error('void_cancelled');
+      }
+      return api.voidInvoice(propertyId, activeInvoiceId, {
+        idempotencyKey: `void:${activeInvoiceId}:${crypto.randomUUID()}`,
+      });
+    },
+    onSuccess: () => {
+      setActiveInvoiceId(null);
+      void queryClient.removeQueries({ queryKey: ['invoice', propertyId, activeInvoiceId] });
+      setMessage('Invoice voided.');
+    },
+  });
+
   const captureDueHolds = useFolioActionMutation({
     fallback: 'Capture-due failed',
     setMessage,
@@ -810,6 +981,15 @@ export function FolioScreen() {
   const tenderPayments = payments.filter(
     (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
   );
+
+  const invoiceBody = invoiceQ.data?.body as
+    | { snapshot?: InvoiceSnapshot; presentation?: Record<string, unknown> }
+    | undefined;
+  const invoiceSnapshot = invoiceBody?.snapshot;
+  const invoicePresentation =
+    invoiceSnapshot?.presentation ?? invoiceBody?.presentation;
+  const showInvoiceTax = presentationFlag(invoicePresentation, 'showTaxfee');
+  const folioDegraded = readState(folioQ) === 'fail_closed' || readState(reservationQ) === 'fail_closed';
 
   return (
     <div className="panel">
@@ -1073,6 +1253,68 @@ export function FolioScreen() {
           </>
         ) : null}
       </section>
+
+      {canGenerateInvoice ? (
+        <section>
+          <Button
+            type="button"
+            data-testid="invoice-generate"
+            disabled={generateInv.isPending}
+            onClick={() => generateInv.mutate()}
+          >
+            Generate invoice
+          </Button>
+        </section>
+      ) : null}
+
+      {activeInvoiceId && invoiceQ.isSuccess ? (
+        <section data-testid="invoice-view">
+          <h2>Invoice</h2>
+          {invoiceSnapshot?.lines && invoiceSnapshot.lines.length > 0 ? (
+            <ul>
+              {invoiceSnapshot.lines.map((line, i) => (
+                <li key={`${line.chargeName ?? line.chargeCode ?? 'line'}-${i}`}>
+                  {line.chargeName ?? line.chargeCode ?? 'Line'}{' '}
+                  {typeof line.ledgerAmountMinor === 'number'
+                    ? line.ledgerAmountMinor
+                    : (line.amountMinor ?? 0)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No lines</p>
+          )}
+          {showInvoiceTax && invoiceSnapshot?.taxSummary && invoiceSnapshot.taxSummary.length > 0 ? (
+            <ul>
+              {invoiceSnapshot.taxSummary.map((t, i) => (
+                <li key={`${t.taxRuleId ?? t.label ?? 'tax'}-${i}`}>
+                  {t.label ?? 'Tax'} {t.amountMinor ?? 0}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {invoiceSnapshot?.totals ? (
+            <p>
+              Charges {invoiceSnapshot.totals.chargesMinor ?? 0}
+              {showInvoiceTax && typeof invoiceSnapshot.totals.taxMinor === 'number'
+                ? ` · Tax ${invoiceSnapshot.totals.taxMinor}`
+                : ''}
+              {' · Balance '}
+              {invoiceSnapshot.totals.balanceMinor ?? 0}
+            </p>
+          ) : null}
+          {canAdjust ? (
+            <Button
+              type="button"
+              data-testid="invoice-void"
+              disabled={voidInv.isPending || folioDegraded}
+              onClick={() => voidInv.mutate()}
+            >
+              Void invoice
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
 
       {message ? <p data-testid="folio-message">{message}</p> : null}
 

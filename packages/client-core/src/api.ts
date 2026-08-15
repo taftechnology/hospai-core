@@ -1693,15 +1693,33 @@ export function createClient(opts: {
       const idempotencyKey =
         input.idempotencyKey ??
         stableKeyForOperation(`invoice:generate:${input.reservationId}`, opts.keyStore);
-      return getJson(`/v1/properties/${enc(propertyId)}/invoices`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          reservationId: input.reservationId,
-          ...(input.folioWindowId ? { folioWindowId: input.folioWindowId } : {}),
-          idempotencyKey,
-        }),
-      });
+      try {
+        return await getJson(`/v1/properties/${enc(propertyId)}/invoices`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            reservationId: input.reservationId,
+            ...(input.folioWindowId ? { folioWindowId: input.folioWindowId } : {}),
+            idempotencyKey,
+          }),
+        });
+      } catch (e) {
+        if (e instanceof ClassifiedError) {
+          const body = e.classified.body;
+          if (
+            e.classified.status === 409 &&
+            body &&
+            typeof body === 'object' &&
+            'error' in body &&
+            (body as { error?: string }).error === 'invoice_already_exists' &&
+            'invoiceId' in body &&
+            typeof (body as { invoiceId?: unknown }).invoiceId === 'string'
+          ) {
+            return { classified: e.classified, body };
+          }
+        }
+        throw e;
+      }
     },
     async getInvoice(propertyId: string, invoiceId: string) {
       return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}`);

@@ -22,6 +22,7 @@ import { RatesRoute } from './screens/RatesRoute.js';
 import { RatesScreen } from './screens/RatesScreen.js';
 import { SettingsRoute } from './screens/SettingsRoute.js';
 import { SettingsScreen } from './screens/SettingsScreen.js';
+import { CityLedgerScreen } from './screens/CityLedgerScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
@@ -68,6 +69,8 @@ export function App() {
             </Route>
             <Route path="staff" element={<StaffRoute />} />
             <Route path="roster" element={<RosterRoute />} />
+            <Route path="city-ledger" element={<CityLedgerScreen />} />
+            <Route path="city-ledger/:accountId" element={<CityLedgerScreen />} />
             <Route path="night-audit" element={<NightAuditRoute />} />
             <Route path="exceptions" element={<ExceptionsScreen />} />
             <Route path="settings" element={<SettingsRoute />}>

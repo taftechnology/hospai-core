@@ -4,6 +4,8 @@ import {
   createEntitlementStore,
   createQueuedCommandLog,
   createTransport,
+  requestJson,
+  stableKeyForOperation,
   type ClassifiedResponse,
 } from '@hospai/client-core';
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
@@ -37,7 +39,34 @@ const entitlements = createEntitlementStore({
   },
 });
 
-export const api = createClient({ transport, queued, entitlements, keyStore });
+export const api = createClient({
+  transport,
+  queued,
+  entitlements,
+  keyStore,
+  propertyDoRpc: {
+    async generateCityLedgerStatement(propertyId, accountId, input) {
+      const idempotencyKey =
+        input?.idempotencyKey ??
+        stableKeyForOperation(
+          `city-ledger:statement:${accountId}:${input?.asOfDate ?? 'today'}`,
+          keyStore,
+        );
+      return requestJson({
+        transport,
+        path: `/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts/${encodeURIComponent(accountId)}/statements/generate`,
+        init: {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            idempotencyKey,
+            ...(input?.asOfDate ? { asOfDate: input.asOfDate } : {}),
+          }),
+        },
+      });
+    },
+  },
+});
 export const queuedCommands = queued;
 export { tenant };
 

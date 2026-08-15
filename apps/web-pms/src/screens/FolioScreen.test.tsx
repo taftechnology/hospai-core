@@ -37,6 +37,8 @@ const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
 const voidInvoice = vi.fn();
 const listDomainConfig = vi.fn();
+const fetchCityLedgerAccounts = vi.fn();
+const validateCityLedgerBilledParty = vi.fn();
 
 const { queuedStore } = vi.hoisted(() => ({
   queuedStore: {
@@ -99,6 +101,8 @@ vi.mock('../client.js', () => ({
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
+    fetchCityLedgerAccounts: (...args: unknown[]) => fetchCityLedgerAccounts(...args),
+    validateCityLedgerBilledParty: (...args: unknown[]) => validateCityLedgerBilledParty(...args),
   },
 }));
 
@@ -229,6 +233,14 @@ describe('FolioScreen wiring', () => {
         { key: 'pms.invoice.gen_mode', value: 'Manually' },
         { key: 'pms.invoice.allow_pending', value: false },
       ],
+    });
+    fetchCityLedgerAccounts.mockResolvedValue({
+      body: { accounts: [{ accountId: 'a1', name: 'Acme Corp', status: 'active' }] },
+      classified: { class: 'live' },
+    });
+    validateCityLedgerBilledParty.mockResolvedValue({
+      body: { ok: true, billedParty: 'Acme Corp', accountId: 'a1' },
+      classified: { class: 'live' },
     });
   });
 
@@ -1237,7 +1249,7 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('folio-advanced')).toBeTruthy());
     advanced().open = true;
     await waitFor(() =>
-      expect(screen.getByPlaceholderText('Company or agency name')).toBeTruthy(),
+      expect(screen.getByTestId('company-account-picker')).toBeTruthy(),
     );
     expect(screen.queryByPlaceholderText(/billed party/i)).toBeNull();
     expect(screen.getByRole('button', { name: 'Open company folio' })).toBeTruthy();
@@ -1538,5 +1550,45 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('folio-balance')).toBeTruthy());
     expect(screen.queryByText(/unattributed until close discloses the count/i)).toBeNull();
     expect(screen.queryByText(/simulate/i)).toBeNull();
+  });
+
+  it('city ledger picker: company window uses account autocomplete', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    fetchCityLedgerAccounts.mockResolvedValue({
+      body: { accounts: [{ accountId: 'a1', name: 'Acme Corp', status: 'active' }] },
+      classified: { class: 'live' },
+    });
+    openFolioWindowMock.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+
+    renderFolio();
+    advanced().open = true;
+    await waitFor(() =>
+      expect(screen.getByTestId('company-account-picker').tagName).toBe('SELECT'),
+    );
+    const picker = screen.getByTestId('company-account-picker');
+    expect(screen.getByRole('option', { name: 'Acme Corp (active)' })).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Company or agency name')).toBeNull();
+
+    fireEvent.change(picker, { target: { value: 'Acme Corp' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('open-company-window'));
+    });
+    await waitFor(() =>
+      expect(openFolioWindowMock).toHaveBeenCalledWith(
+        'prop_demo',
+        'res_1',
+        { kind: 'COMPANY', billedParty: 'Acme Corp' },
+        expect.any(String),
+      ),
+    );
   });
 });

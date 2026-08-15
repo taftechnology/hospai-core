@@ -10,7 +10,7 @@ import {
 import { Alert, Badge, Button, Input, NativeSelect } from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   hasPropertyPermission,
   meShellStateFromQuery,
@@ -151,6 +151,7 @@ export function FolioScreen() {
   const [splitDestA, setSplitDestA] = useState('');
   const [splitDestB, setSplitDestB] = useState('');
   const [companyBilledParty, setCompanyBilledParty] = useState('');
+  const [billedPartyHint, setBilledPartyHint] = useState<string | null>(null);
   const [discountLineId, setDiscountLineId] = useState('');
   const [discountReason, setDiscountReason] = useState('');
   const [discountKind, setDiscountKind] = useState<'percent' | 'fixed'>('percent');
@@ -282,6 +283,51 @@ export function FolioScreen() {
     meShell.authority.kind === 'live' &&
     !hasPropertyPermission(meShell.authority.me, 'settings:configure');
   const canConfigureFx = !configureDenied;
+
+  const cityLedgerAccountsQ = useQuery({
+    queryKey: ['city-ledger-accounts-active', propertyId],
+    queryFn: () => api.fetchCityLedgerAccounts(propertyId, { status: 'active' }),
+    enabled: Boolean(propertyId) && canAdjust,
+    retry: false,
+  });
+
+  const cityLedgerAccounts = useMemo(() => {
+    if (!cityLedgerAccountsQ.isSuccess) return [];
+    const body = cityLedgerAccountsQ.data?.body as {
+      accounts?: Array<{ accountId: string; name: string; status: string }>;
+    };
+    return body?.accounts ?? [];
+  }, [cityLedgerAccountsQ.data, cityLedgerAccountsQ.isSuccess]);
+
+  const cityLedgerPickerAvailable = cityLedgerAccountsQ.isSuccess;
+
+  useEffect(() => {
+    const trimmed = companyBilledParty.trim();
+    if (!trimmed || cityLedgerPickerAvailable) {
+      setBilledPartyHint(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await api.validateCityLedgerBilledParty(propertyId, trimmed);
+        if (cancelled) return;
+        const body = result.body as { ok?: boolean; billedParty?: string };
+        if (body.ok && body.billedParty) {
+          setBilledPartyHint(`Valid account: ${body.billedParty}`);
+        } else {
+          setBilledPartyHint('Not an active account — may still work for grandfathered labels.');
+        }
+      } catch {
+        if (!cancelled) setBilledPartyHint(null);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [companyBilledParty, cityLedgerPickerAvailable, propertyId]);
+
   const folioLive = folioQ.isSuccess && paymentsQ.isSuccess;
   const ledgerCurrency = folioQ.data?.ledgerCurrency ?? fxRatesQ.data?.ledgerCurrency ?? 'USD';
   const openFxFrom = (fxRatesQ.data?.rates ?? [])
@@ -1385,12 +1431,35 @@ export function FolioScreen() {
             </ul>
             {canAdjust ? (
               <div className="stack-row">
-                <Input
-                  aria-label="company-billed-party"
-                  placeholder="Company or agency name"
-                  value={companyBilledParty}
-                  onChange={(e) => setCompanyBilledParty(e.target.value)}
-                />
+                {cityLedgerPickerAvailable ? (
+                  <NativeSelect
+                    aria-label="company-billed-party"
+                    data-testid="company-account-picker"
+                    value={companyBilledParty}
+                    onChange={(e) => {
+                      setCompanyBilledParty(e.target.value);
+                      setBilledPartyHint(null);
+                    }}
+                  >
+                    <option value="">Select city ledger account…</option>
+                    {cityLedgerAccounts.map((account) => (
+                      <option key={account.accountId} value={account.name}>
+                        {account.name} ({account.status})
+                      </option>
+                    ))}
+                  </NativeSelect>
+                ) : (
+                  <>
+                    <Input
+                      aria-label="company-billed-party"
+                      data-testid="company-account-picker"
+                      placeholder="Company or agency name"
+                      value={companyBilledParty}
+                      onChange={(e) => setCompanyBilledParty(e.target.value)}
+                    />
+                    {billedPartyHint ? <span className="muted">{billedPartyHint}</span> : null}
+                  </>
+                )}
                 <Button
                   type="button"
                   data-testid="open-company-window"
@@ -1405,12 +1474,35 @@ export function FolioScreen() {
         ) : canAdjust ? (
           <section className="stack-row">
             <h2>Windows</h2>
-            <Input
-              aria-label="company-billed-party"
-              placeholder="Company or agency name"
-              value={companyBilledParty}
-              onChange={(e) => setCompanyBilledParty(e.target.value)}
-            />
+            {cityLedgerPickerAvailable ? (
+              <NativeSelect
+                aria-label="company-billed-party"
+                data-testid="company-account-picker"
+                value={companyBilledParty}
+                onChange={(e) => {
+                  setCompanyBilledParty(e.target.value);
+                  setBilledPartyHint(null);
+                }}
+              >
+                <option value="">Select city ledger account…</option>
+                {cityLedgerAccounts.map((account) => (
+                  <option key={account.accountId} value={account.name}>
+                    {account.name} ({account.status})
+                  </option>
+                ))}
+              </NativeSelect>
+            ) : (
+              <>
+                <Input
+                  aria-label="company-billed-party"
+                  data-testid="company-account-picker"
+                  placeholder="Company or agency name"
+                  value={companyBilledParty}
+                  onChange={(e) => setCompanyBilledParty(e.target.value)}
+                />
+                {billedPartyHint ? <span className="muted">{billedPartyHint}</span> : null}
+              </>
+            )}
             <Button
               type="button"
               data-testid="open-company-window"

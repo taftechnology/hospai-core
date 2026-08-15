@@ -172,8 +172,8 @@ describe('config register', () => {
 });
 
 describe('command catalog', () => {
-  it('covers all 35 prototype actions (catalog ∪ side-effect exemptions)', () => {
-    expect(PROTOTYPE_ACTIONS).toHaveLength(35);
+  it('covers all 34 prototype actions (catalog ∪ side-effect exemptions)', () => {
+    expect(PROTOTYPE_ACTIONS).toHaveLength(34);
     expect(PROTOTYPE_ACTIONS).toContain('ADD_AUDIT_LOG');
     expect(PROTOTYPE_ACTIONS_AS_SIDE_EFFECT).toEqual([
       {
@@ -748,7 +748,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[143]?.id).toBe('get_city_ledger_statement');
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(63);
-    expect(COMMAND_CATALOG).toHaveLength(90);
+    expect(COMMAND_CATALOG).toHaveLength(89);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

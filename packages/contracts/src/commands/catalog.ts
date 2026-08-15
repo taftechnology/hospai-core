@@ -854,15 +854,6 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'staff:write',
   },
   {
-    id: 'reservations.update_extras',
-    prototypeAction: 'UPDATE_RESERVATION_EXTRAS',
-    lane: 'INTERACTIVE',
-    degraded: 'QUEUE_PROVISIONAL',
-    idempotent: true,
-    events: ['reservation.modified'],
-    permission: 'reservations:write',
-  },
-  {
     id: 'rooms.delete',
     prototypeAction: null,
     lane: 'INTERACTIVE',
@@ -1037,7 +1028,6 @@ export const PROTOTYPE_ACTIONS = [
   'ADD_STAFF',
   'UPDATE_STAFF',
   'DELETE_STAFF',
-  'UPDATE_RESERVATION_EXTRAS',
 ] as const;
 
 /** Prototype actions implemented as side effects, not catalog commands. */

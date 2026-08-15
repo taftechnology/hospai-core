@@ -579,7 +579,7 @@ describe('exception-queue workbench HTTP', () => {
     const actor = 'user_owner';
     const { propertyId, orgId, arrival, stub } = await provisionHotel(actor);
     await stub.recordProvisionalException(
-      sampleCmd({ propertyId, orgId, businessDate: arrival, type: 'reservations.update_extras', payload: {} }),
+      sampleCmd({ propertyId, orgId, businessDate: arrival, type: 'noop.unknown_command', payload: {} }),
       'unknown_command',
       null,
     );

@@ -6,6 +6,7 @@ import type { FolioLine } from './folio-fold.js';
 import { stableKeyForOperation } from './idempotency.js';
 import type { createQueuedCommandLog } from './queued-commands.js';
 import { ClassifiedError, requestJson } from './request.js';
+import type { ClassifiedResponse } from './classify.js';
 import type { createEntitlementStore } from './entitlements-state.js';
 import type { Transport } from './transport.js';
 
@@ -167,6 +168,14 @@ export type NightAuditStatus = {
   reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
 };
 
+export type PropertyDoRpc = {
+  generateCityLedgerStatement(
+    propertyId: string,
+    accountId: string,
+    input?: { asOfDate?: string; idempotencyKey?: string },
+  ): Promise<{ classified: ClassifiedResponse; body: unknown }>;
+};
+
 function enc(s: string): string {
   return encodeURIComponent(s);
 }
@@ -176,6 +185,7 @@ export function createClient(opts: {
   queued: ReturnType<typeof createQueuedCommandLog>;
   entitlements: ReturnType<typeof createEntitlementStore>;
   keyStore: Map<string, string>;
+  propertyDoRpc?: PropertyDoRpc;
 }) {
   const on402 = () => opts.entitlements.onEntitlementRequired();
 
@@ -1736,6 +1746,147 @@ export function createClient(opts: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ idempotencyKey, ...(input?.reason ? { reason: input.reason } : {}) }),
       });
+    },
+    async createCityLedgerAccount(
+      propertyId: string,
+      input: {
+        name: string;
+        creditLimitMinor?: number;
+        termsDays?: number;
+        idempotencyKey?: string;
+      },
+    ) {
+      const idempotencyKey =
+        input.idempotencyKey ??
+        stableKeyForOperation(`city-ledger:create:${input.name.trim()}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/city-ledger/accounts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: input.name,
+          ...(input.creditLimitMinor !== undefined ? { creditLimitMinor: input.creditLimitMinor } : {}),
+          ...(input.termsDays !== undefined ? { termsDays: input.termsDays } : {}),
+          idempotencyKey,
+        }),
+      });
+    },
+    async fetchCityLedgerAccounts(propertyId: string, opts2?: { status?: 'active' | 'all' }) {
+      const q = opts2?.status ? `?status=${encodeURIComponent(opts2.status)}` : '';
+      return getJson(`/v1/properties/${enc(propertyId)}/city-ledger/accounts${q}`);
+    },
+    async fetchCityLedgerAccount(propertyId: string, accountId: string) {
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts?accountId=${encodeURIComponent(accountId)}`,
+      );
+    },
+    async updateCityLedgerAccount(
+      propertyId: string,
+      accountId: string,
+      patch: {
+        name?: string;
+        creditLimitMinor?: number;
+        termsDays?: number;
+        idempotencyKey?: string;
+      },
+    ) {
+      const idempotencyKey =
+        patch.idempotencyKey ??
+        stableKeyForOperation(`city-ledger:update:${accountId}`, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts/${enc(accountId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(patch.creditLimitMinor !== undefined
+              ? { creditLimitMinor: patch.creditLimitMinor }
+              : {}),
+            ...(patch.termsDays !== undefined ? { termsDays: patch.termsDays } : {}),
+            idempotencyKey,
+          }),
+        },
+      );
+    },
+    async archiveCityLedgerAccount(
+      propertyId: string,
+      accountId: string,
+      input?: { idempotencyKey?: string },
+    ) {
+      const idempotencyKey =
+        input?.idempotencyKey ??
+        stableKeyForOperation(`city-ledger:archive:${accountId}`, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts/${enc(accountId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status: 'archived', idempotencyKey }),
+        },
+      );
+    },
+    async receiveCityLedgerPayment(
+      propertyId: string,
+      accountId: string,
+      input: {
+        amountMinor: number;
+        businessDate?: string;
+        reference?: string | null;
+        idempotencyKey?: string;
+      },
+    ) {
+      const idempotencyKey =
+        input.idempotencyKey ??
+        stableKeyForOperation(
+          `city-ledger:payment:${accountId}:${input.amountMinor}`,
+          opts.keyStore,
+        );
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts/${enc(accountId)}/payments`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: input.amountMinor,
+            ...(input.businessDate !== undefined ? { businessDate: input.businessDate } : {}),
+            ...(input.reference !== undefined ? { reference: input.reference } : {}),
+            idempotencyKey,
+          }),
+        },
+      );
+    },
+    async generateCityLedgerStatement(
+      propertyId: string,
+      accountId: string,
+      input?: { asOfDate?: string; idempotencyKey?: string },
+    ) {
+      if (!opts.propertyDoRpc?.generateCityLedgerStatement) {
+        throw new Error('generateCityLedgerStatement requires propertyDoRpc');
+      }
+      return opts.propertyDoRpc.generateCityLedgerStatement(propertyId, accountId, input);
+    },
+    async fetchCityLedgerStatement(propertyId: string, accountId: string, statementId: string) {
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts/${enc(accountId)}/statements/${enc(statementId)}`,
+      );
+    },
+    async validateCityLedgerBilledParty(propertyId: string, billedParty: string) {
+      const trimmed = billedParty.trim();
+      const { classified, body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/city-ledger/accounts?status=active`,
+      );
+      const accounts = (body as { accounts?: Array<{ accountId: string; name: string }> }).accounts ?? [];
+      const match = accounts.find((a) => a.accountId === trimmed || a.name === trimmed);
+      if (match) {
+        return {
+          classified,
+          body: { ok: true, billedParty: match.name, accountId: match.accountId },
+        };
+      }
+      return {
+        classified,
+        body: { ok: false, error: 'city_ledger_billed_party_invalid' as const },
+      };
     },
     async listRatePromos(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-promos`);

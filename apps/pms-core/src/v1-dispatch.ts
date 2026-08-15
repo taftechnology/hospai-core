@@ -101,6 +101,15 @@ import {
   INVOICE_R2_UNBOUND,
   INVOICE_REQUIRED,
   FOLIO_BALANCE_DUE,
+  CITY_LEDGER_ACCOUNT_EXISTS,
+  CITY_LEDGER_ACCOUNT_NOT_FOUND,
+  CITY_LEDGER_ACCOUNT_ARCHIVED,
+  CITY_LEDGER_CREDIT_LIMIT_EXCEEDED,
+  CITY_LEDGER_BILLED_PARTY_INVALID,
+  CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE,
+  CITY_LEDGER_STATEMENT_NOT_FOUND,
+  CITY_LEDGER_R2_UNBOUND,
+  CITY_LEDGER_CHARGE_ALREADY_POSTED,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -293,7 +302,10 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === LEDGER_INCONSISTENT ||
     error === PROMO_CODE_EXISTS ||
     error === INVOICE_ALREADY_EXISTS ||
-    error === INVOICE_VOIDED
+    error === INVOICE_VOIDED ||
+    error === CITY_LEDGER_ACCOUNT_EXISTS ||
+    error === CITY_LEDGER_ACCOUNT_ARCHIVED ||
+    error === CITY_LEDGER_CHARGE_ALREADY_POSTED
   ) {
     return 409;
   }
@@ -364,7 +376,10 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === PAYMENT_NOT_REFUNDABLE ||
     error === LINE_NOT_DISCOUNTABLE ||
     error === DISCOUNT_REASON_REQUIRED ||
-    error === PROMO_NOT_APPLICABLE
+    error === PROMO_NOT_APPLICABLE ||
+    error === CITY_LEDGER_CREDIT_LIMIT_EXCEEDED ||
+    error === CITY_LEDGER_BILLED_PARTY_INVALID ||
+    error === CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE
   ) {
     return 422;
   }
@@ -374,12 +389,14 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === INVOICE_NOT_FOUND ||
     error === CHARGE_CODE_NOT_FOUND ||
     error === TAX_RULE_NOT_FOUND ||
-    error === SHIFT_NOT_FOUND
+    error === SHIFT_NOT_FOUND ||
+    error === CITY_LEDGER_ACCOUNT_NOT_FOUND ||
+    error === CITY_LEDGER_STATEMENT_NOT_FOUND
   ) {
     return 404;
   }
   if (error === BUSINESS_DATE_UNSET) return 500;
-  if (error === INVOICE_R2_UNBOUND) return 503;
+  if (error === INVOICE_R2_UNBOUND || error === CITY_LEDGER_R2_UNBOUND) return 503;
   if (error === 'org_id_unset') return 500;
   return mapAddRoomTypeErrorStatus(error);
 }
@@ -4865,6 +4882,273 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   return json(result, 200);
 }
 
+function mapCityLedgerCommandFailure(
+  error: string,
+  permission: 'folio:adjust' | 'folio:read',
+): Response {
+  if (error === FORBIDDEN) return json({ error: 'forbidden', permission }, 403);
+  if (error === 'not_member' || error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+  return json({ ok: false, error }, mapReservationCommandErrorStatus(error));
+}
+
+async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    name: string;
+    creditLimitMinor?: number;
+    termsDays?: number;
+  };
+  if (!body?.idempotencyKey || !body.name) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    name: body.name,
+    ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
+    ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
+  };
+  const fingerprint = await fingerprintPayload({ name: body.name.trim() });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateCityLedgerAccount']>>>({
+    env: ctx.env,
+    commandId: 'city_ledger.create_account',
+    routeId: 'post_city_ledger_accounts',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCreateCityLedgerAccount(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return mapCityLedgerCommandFailure(result.error, 'folio:adjust');
+  return json(result, 201);
+}
+
+async function handleGetCityLedgerAccounts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const url = new URL(ctx.request.url);
+  const accountId = url.searchParams.get('accountId');
+  const statusParam = url.searchParams.get('status');
+  const status =
+    statusParam === 'all' || statusParam === 'active' ? statusParam : ('active' as const);
+
+  try {
+    if (accountId) {
+      const detail = await resolvedCtx.resolved.stub.readCityLedgerAccount(accountId);
+      if (!detail.ok) {
+        if (detail.error === CITY_LEDGER_ACCOUNT_NOT_FOUND) {
+          return json({ ok: false, error: detail.error }, 404);
+        }
+        return json({ ok: false, error: detail.error }, 422);
+      }
+      return json({ ...detail, statements: [] }, 200);
+    }
+
+    const list = await resolvedCtx.resolved.stub.readCityLedgerAccounts({ status });
+    if (!list.ok) return json({ ok: false, error: list.error }, 422);
+    return json({ accounts: list.accounts }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const accountId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    name?: string;
+    creditLimitMinor?: number;
+    termsDays?: number;
+    status?: string;
+  };
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  if (body.status === 'archived') {
+    const commandPayload = { accountId };
+    const fingerprint = await fingerprintPayload({ accountId });
+    const idem = { key: body.idempotencyKey, fingerprint };
+    const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchiveCityLedgerAccount']>>>({
+      env: ctx.env,
+      commandId: 'city_ledger.archive_account',
+      routeId: 'patch_city_ledger_account',
+      orgId: resolvedCtx.property.orgId,
+      propertyId,
+      timeZone: resolvedCtx.property.timeZone,
+      actorUserId: ctx.actor.userId,
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+      observability: ctx.observability,
+      invoke: () => resolvedCtx.resolved.stub.tryArchiveCityLedgerAccount(actor, commandPayload, idem),
+    });
+    if (invoked.kind === 'response') return invoked.response;
+    const result = invoked.result;
+    if (!result.ok) return mapCityLedgerCommandFailure(result.error, 'folio:adjust');
+    return json(result, 200);
+  }
+
+  if (
+    body.name === undefined &&
+    body.creditLimitMinor === undefined &&
+    body.termsDays === undefined
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const commandPayload = {
+    accountId,
+    ...(body.name !== undefined ? { name: body.name } : {}),
+    ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
+    ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
+  };
+  const fingerprint = await fingerprintPayload(
+    Object.fromEntries(
+      Object.entries(commandPayload).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+  );
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateCityLedgerAccount']>>>({
+    env: ctx.env,
+    commandId: 'city_ledger.update_account',
+    routeId: 'patch_city_ledger_account',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateCityLedgerAccount(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return mapCityLedgerCommandFailure(result.error, 'folio:adjust');
+  return json(result, 200);
+}
+
+async function handlePostCityLedgerAccountPayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const accountId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    idempotencyKey: string;
+    amountMinor: number;
+    businessDate?: string;
+    reference?: string | null;
+  };
+  if (!body?.idempotencyKey || body.amountMinor === undefined) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    accountId,
+    amountMinor: body.amountMinor,
+    ...(body.businessDate !== undefined ? { businessDate: body.businessDate } : {}),
+    ...(body.reference !== undefined ? { reference: body.reference } : {}),
+  };
+  const fingerprint = await fingerprintPayload({
+    accountId,
+    amountMinor: body.amountMinor,
+    businessDate: body.businessDate ?? null,
+    reference: body.reference ?? null,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReceiveCityLedgerPayment']>>>({
+    env: ctx.env,
+    commandId: 'city_ledger.receive_payment',
+    routeId: 'post_city_ledger_account_payment',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryReceiveCityLedgerPayment(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return mapCityLedgerCommandFailure(result.error, 'folio:adjust');
+  return json(result, 201);
+}
+
+async function handleGetCityLedgerStatement(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const accountId = decodeURIComponent(ctx.match[2]!);
+  const statementId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readCityLedgerStatement({ accountId, statementId });
+    if (!result.ok) {
+      if (result.error === CITY_LEDGER_STATEMENT_NOT_FOUND) {
+        return json({ ok: false, error: result.error }, 404);
+      }
+      if (result.error === CITY_LEDGER_R2_UNBOUND) {
+        return json({ ok: false, error: result.error }, 503);
+      }
+      return json({ ok: false, error: result.error }, 422);
+    }
+
+    const snapshot = result.snapshot;
+    const asOfDate = typeof snapshot.asOfDate === 'string' ? snapshot.asOfDate : null;
+    const generatedAt = typeof snapshot.generatedAt === 'number' ? snapshot.generatedAt : null;
+    let sha256: string | null = null;
+    const obj = await ctx.env.EVENT_LOG_R2?.get(result.r2Key);
+    if (obj) {
+      const encoded = new TextEncoder().encode(await obj.text());
+      const digest = await crypto.subtle.digest('SHA-256', encoded);
+      sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    return json(
+      {
+        statementId: result.statementId,
+        accountId: result.accountId,
+        asOfDate,
+        r2Key: result.r2Key,
+        sha256,
+        generatedAt,
+        snapshot,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 function inclusiveDateRangeError(fromDate: string | null, toDate: string | null): Response | null {
   if (!fromDate || !toDate || !ISO_DATE_RE.test(fromDate) || !ISO_DATE_RE.test(toDate)) {
     return json({ error: 'invalid_date' }, 400);
@@ -8008,6 +8292,49 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'invoice.void',
     entitlement: 'pms.core',
     handler: handlePostInvoiceVoid,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts$/,
+    permission: 'folio:adjust',
+    commandId: 'city_ledger.create_account',
+    entitlement: 'pms.core',
+    handler: handlePostCityLedgerAccounts,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetCityLedgerAccounts,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)$/,
+    permission: 'folio:adjust',
+    commandId: 'city_ledger.update_account',
+    entitlement: 'pms.core',
+    handler: handlePatchCityLedgerAccount,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)\/payments$/,
+    permission: 'folio:adjust',
+    commandId: 'city_ledger.receive_payment',
+    entitlement: 'pms.core',
+    handler: handlePostCityLedgerAccountPayment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)\/statements\/([^/]+)$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetCityLedgerStatement,
   },
 ];
 

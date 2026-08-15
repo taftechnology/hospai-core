@@ -10,7 +10,9 @@ import {
   CITY_LEDGER_R2_UNBOUND,
   CITY_LEDGER_STATEMENT_NOT_FOUND,
 } from '@hospai/contracts';
+import worker from '../src/index.js';
 import type { PropertyDO } from '../src/property-do';
+import { insertProperty } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
 
@@ -765,5 +767,333 @@ describe('city ledger night-audit catch-up', () => {
     expect(detail.ok).toBe(true);
     if (!detail.ok) return;
     expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
+  });
+});
+
+const HTTP_ACTOR = 'user_owner';
+
+async function registerPropertyForHttp(propertyId: string, orgId: string): Promise<void> {
+  await insertProperty(env, {
+    propertyId,
+    orgId,
+    name: 'City Ledger Test Hotel',
+    jurisdiction: null,
+    timeZone: 'UTC',
+  });
+}
+
+async function provisionedPropertyForHttp(name: string) {
+  const { stub, orgId } = await provisionedPropertyStub(name, 'UTC', 'USD');
+  await registerPropertyForHttp(name, orgId);
+  return { stub, propertyId: name, orgId };
+}
+
+async function postCityLedgerAccountHttp(
+  propertyId: string,
+  actor: string,
+  body: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ idempotencyKey: `idem-cla-${crypto.randomUUID()}`, ...body }),
+    }),
+    env,
+  );
+}
+
+async function getCityLedgerAccountsHttp(propertyId: string, actor: string, query = '') {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts${query}`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
+}
+
+async function patchCityLedgerAccountHttp(
+  propertyId: string,
+  actor: string,
+  accountId: string,
+  body: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts/${encodeURIComponent(accountId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-cla-patch-${crypto.randomUUID()}`, ...body }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postCityLedgerPaymentHttp(
+  propertyId: string,
+  actor: string,
+  accountId: string,
+  body: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts/${encodeURIComponent(accountId)}/payments`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-cla-pay-${crypto.randomUUID()}`, ...body }),
+      },
+    ),
+    env,
+  );
+}
+
+async function getCityLedgerStatementHttp(
+  propertyId: string,
+  actor: string,
+  accountId: string,
+  statementId: string,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts/${encodeURIComponent(accountId)}/statements/${encodeURIComponent(statementId)}`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
+}
+
+describe('city ledger HTTP dispatch', () => {
+  it('POST create returns 201 with account body', async () => {
+    const propertyId = `cl-http-create-${crypto.randomUUID()}`;
+    await provisionedPropertyForHttp(propertyId);
+    const res = await postCityLedgerAccountHttp(propertyId, HTTP_ACTOR, {
+      name: 'Http Acme Corp',
+      creditLimitMinor: 500_000,
+      termsDays: 30,
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      name: 'Http Acme Corp',
+      status: 'active',
+      creditLimitMinor: 500_000,
+      termsDays: 30,
+    });
+  });
+
+  it('POST duplicate name returns 409 city_ledger_account_exists', async () => {
+    const propertyId = `cl-http-dup-${crypto.randomUUID()}`;
+    await provisionedPropertyForHttp(propertyId);
+    expect(
+      await postCityLedgerAccountHttp(propertyId, HTTP_ACTOR, { name: 'Dup Co' }),
+    ).toMatchObject({ status: 201 });
+    const dup = await postCityLedgerAccountHttp(propertyId, HTTP_ACTOR, { name: 'Dup Co' });
+    expect(dup.status).toBe(409);
+    expect(await dup.json()).toMatchObject({ ok: false, error: CITY_LEDGER_ACCOUNT_EXISTS });
+  });
+
+  it('GET list returns 200 with aging buckets', async () => {
+    const propertyId = `cl-http-list-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'List Http Co', termsDays: 30 });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.setBusinessDateForTest('2026-08-01');
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 10_000,
+      businessDate: '2026-07-01',
+    });
+
+    const res = await getCityLedgerAccountsHttp(propertyId, HTTP_ACTOR);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      accounts: Array<{ accountId: string; aging: { totalOpenMinor: number; days30Minor: number } }>;
+    };
+    expect(body.accounts).toHaveLength(1);
+    expect(body.accounts[0]).toMatchObject({
+      accountId: created.accountId,
+      name: 'List Http Co',
+    });
+    expect(body.accounts[0]!.aging.totalOpenMinor).toBe(10_000);
+    expect(body.accounts[0]!.aging.days30Minor).toBe(10_000);
+  });
+
+  it('GET account detail returns 200 with entries and aging', async () => {
+    const propertyId = `cl-http-detail-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Detail Http Co', termsDays: 30 });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.setBusinessDateForTest('2026-08-15');
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 5_000,
+      businessDate: '2026-08-01',
+    });
+
+    const res = await getCityLedgerAccountsHttp(
+      propertyId,
+      HTTP_ACTOR,
+      `?accountId=${encodeURIComponent(created.accountId)}`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      accountId: string;
+      entries: unknown[];
+      aging: { totalOpenMinor: number };
+      openBalanceMinor: number;
+    };
+    expect(body.accountId).toBe(created.accountId);
+    expect(body.entries).toHaveLength(1);
+    expect(body.openBalanceMinor).toBe(5_000);
+    expect(body.aging.totalOpenMinor).toBe(5_000);
+  });
+
+  it('PATCH update returns 200 with name, terms, and credit limit', async () => {
+    const propertyId = `cl-http-patch-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Patch Before Co' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const res = await patchCityLedgerAccountHttp(propertyId, HTTP_ACTOR, created.accountId, {
+      name: 'Patch After Co',
+      creditLimitMinor: 888_000,
+      termsDays: 45,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      name: 'Patch After Co',
+      creditLimitMinor: 888_000,
+      termsDays: 45,
+    });
+  });
+
+  it('PATCH archive with open balance returns 422 city_ledger_payment_exceeds_balance', async () => {
+    const propertyId = `cl-http-arch-bal-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Arch Bal Co' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 2_000,
+      businessDate: '2026-08-01',
+    });
+
+    const res = await patchCityLedgerAccountHttp(propertyId, HTTP_ACTOR, created.accountId, {
+      status: 'archived',
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ ok: false, error: CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE });
+  });
+
+  it('POST payment returns 201 with payment entry', async () => {
+    const propertyId = `cl-http-pay-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Pay Http Co' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 5_000,
+      businessDate: '2026-08-01',
+    });
+
+    const res = await postCityLedgerPaymentHttp(propertyId, HTTP_ACTOR, created.accountId, {
+      amountMinor: 2_000,
+      businessDate: '2026-08-01',
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { ok: true; entryId: string; openBalanceMinor: number };
+    expect(body.ok).toBe(true);
+    expect(body.entryId).toBeTruthy();
+    expect(body.openBalanceMinor).toBe(3_000);
+  });
+
+  it('POST overpayment returns 422 city_ledger_payment_exceeds_balance', async () => {
+    const propertyId = `cl-http-overpay-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Overpay Http Co' });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 1_000,
+      businessDate: '2026-08-01',
+    });
+
+    const res = await postCityLedgerPaymentHttp(propertyId, HTTP_ACTOR, created.accountId, {
+      amountMinor: 2_000,
+      businessDate: '2026-08-01',
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ ok: false, error: CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE });
+  });
+
+  it('case 13: GET statement returns snapshot from R2; unknown returns 404', async () => {
+    const propertyId = `cl-http-stmt-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyForHttp(propertyId);
+    const created = await createCityLedgerAccount(stub, { name: 'Stmt Http Co', termsDays: 30 });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    await stub.setBusinessDateForTest('2026-08-15');
+    await stub.seedCityLedgerEntryForTest({
+      accountId: created.accountId,
+      kind: 'charge',
+      amountMinor: 4_000,
+      businessDate: '2026-08-01',
+    });
+
+    const genFp = { accountId: created.accountId, asOfDate: '2026-08-15' };
+    const generated = await stub.tryGenerateCityLedgerStatement(
+      TEST_OWNER_ACTOR,
+      genFp,
+      await idemFor('cla-http-stmt', genFp),
+    );
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const got = await getCityLedgerStatementHttp(
+      propertyId,
+      HTTP_ACTOR,
+      created.accountId,
+      generated.statementId,
+    );
+    expect(got.status).toBe(200);
+    const body = (await got.json()) as {
+      statementId: string;
+      accountId: string;
+      snapshot: { totals: { openMinor: number } };
+    };
+    expect(body.statementId).toBe(generated.statementId);
+    expect(body.accountId).toBe(created.accountId);
+    expect(body.snapshot.totals.openMinor).toBe(4_000);
+
+    const missing = await getCityLedgerStatementHttp(
+      propertyId,
+      HTTP_ACTOR,
+      created.accountId,
+      crypto.randomUUID(),
+    );
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ ok: false, error: CITY_LEDGER_STATEMENT_NOT_FOUND });
   });
 });

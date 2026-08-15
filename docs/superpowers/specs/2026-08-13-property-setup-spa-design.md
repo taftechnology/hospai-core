@@ -65,7 +65,7 @@ This chunk rebuilds the prototype’s inventory / rates / settings interaction a
 
 ### 1.3 Scope out (normative — name them so a later pass does not “fix” them here)
 
-- **Virtual room types** (§7.1). No constituent graph, no `virtual` flag, no inherited-restriction UI.
+- **Virtual room types** (run-of-house OR) landed in [2026-08-14 virtual room types](./2026-08-14-virtual-room-types-design.md); Inventory SPA create/edit and booking/check-in consume widened GETs — constituent graphs and allocation remain PropertyDO-owned.
 - **Derived / OrgDO rate plans** (§7.2). Phase 1 plans stay property-local. No “BAR minus 10%”, no chain-wide definition projection.
 - **`rooms.delete` / physical-unit archive.** Rooms-vertical leftover. `rooms.update` covers typos; a `room_count` slot is not freed this chunk.
 - **Tape chart / hibernating WebSockets** (§7.7 / §16.4). Front-desk board stays the list it is.
@@ -535,7 +535,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | Virtual room types | §7.1; no constituent UI |
+| 1 | Virtual room types | Landed in [2026-08-14 virtual room types](./2026-08-14-virtual-room-types-design.md). |
 | 2 | Derived / OrgDO rate plans | §7.2; property-local plans stay |
 | 3 | `rooms.delete` / unit archive | Rooms-vertical leftover |
 | 4 | Tape chart / hibernating WebSockets | Closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md). |

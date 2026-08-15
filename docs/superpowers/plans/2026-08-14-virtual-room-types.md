@@ -1,6 +1,6 @@
 # Virtual room types (run-of-house OR) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > **Status:** Approved (reviewer, 2026-08-14). Implement task-by-task. Do not skip D6.
 
@@ -212,17 +212,17 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
 (SELECT COUNT(*) FROM room_type_constituent) +
 ```
 
-- [ ] **Step 1: Add v27 statements + PROPERTY_MIGRATIONS entry + purge list**
+- [x] **Step 1: Add v27 statements + PROPERTY_MIGRATIONS entry + purge list**
 
 Follow `CARD_DISPLAY_TOKEN_V26_STATEMENTS` at ~978–1116 in `property-migrations.ts`. Insert `'room_type_constituent'` in `PROPERTY_PURGE_INVENTORY_TABLES` immediately before `'room_type'` (FK order). Add matching `+ (SELECT COUNT(*) FROM room_type_constituent)` term in `countPropertyInventoryRows`.
 
-- [ ] **Step 2: Write failing migrate.test.ts assertions**
+- [x] **Step 2: Write failing migrate.test.ts assertions**
 
 Update both `expect(PROPERTY_SCHEMA_HEAD).toBe(26)` sites (~608, ~745) to **27**. Add:
 - `property schema head is 27 after virtual_room_types`
 - `migrations/do-property/0027_virtual_room_types.sql matches VIRTUAL_ROOM_TYPES_V27_SQL` (same strip-comments pattern as v26 ~754–763).
 
-- [ ] **Step 3: Write failing sqlite migration test**
+- [x] **Step 3: Write failing sqlite migration test**
 
 `virtual-room-types-migration.sqlite.test.ts`:
 
@@ -274,7 +274,7 @@ describe('virtual_room_types v27 real sqlite', () => {
 });
 ```
 
-- [ ] **Step 4: Wire DDL generator, regenerate, run tests**
+- [x] **Step 4: Wire DDL generator, regenerate, run tests**
 
 Export `VIRTUAL_ROOM_TYPES_V27_SQL` / `VIRTUAL_ROOM_TYPES_V27_STATEMENTS` from `packages/do-runtime/src/index.ts`. Add `scripts/property-ddl.mjs` import + `doPropertyTargets` entry:
 
@@ -302,7 +302,7 @@ pnpm --filter @hospai/do-runtime exec vitest run \
 
 Expect generated `migrations/do-property/0027_virtual_room_types.sql` in this commit.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/do-runtime/src/property-migrations.ts \
@@ -435,7 +435,7 @@ export {
 export { sumConstituentFree } from './domain/virtual-free.js';
 ```
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
 
 `virtual-allocation.test.ts`:
 
@@ -539,15 +539,15 @@ describe('allocateVirtualConstituent', () => {
 
 Add `sumConstituentFree` test: King free=1 + Queen free=2 on same night → sum 3.
 
-- [ ] **Step 2: Implement domain files + export**
+- [x] **Step 2: Implement domain files + export**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-inventory exec vitest run src/domain/virtual-allocation.test.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add modules/pms/inventory/src/domain/virtual-allocation.ts \
@@ -805,7 +805,7 @@ const commandPayload =
 
 Constituent count/min-two/duplicate/nested validation stays in DO (`422` wire codes). HTTP 400 only when required virtual fields are absent.
 
-- [ ] **Step 1: Write failing Worker tests**
+- [x] **Step 1: Write failing Worker tests**
 
 `virtual-room-types.spec.ts` — use `provisionedPropertyStub`, `idemFor`, `TEST_OWNER_ACTOR`, `worker.fetch` for HTTP where convenient:
 
@@ -819,18 +819,18 @@ Constituent count/min-two/duplicate/nested validation stays in DO (`422` wire co
 
 Helper to seed King + Queen physical types + optional ROH virtual in tests.
 
-- [ ] **Step 2: Implement DO + dispatch + wire constants**
+- [x] **Step 2: Implement DO + dispatch + wire constants**
 
 Map new errors in catch blocks to `{ ok: false, error: WIRE_CODE }`. `mapAddRoomTypeErrorStatus` returns 422 for virtual validation codes.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-room-types.spec.ts
 pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/contracts/src/idempotency.ts \
@@ -909,7 +909,7 @@ export type RoomTypeRead = {
 allocatedRoomTypeId?: string;
 ```
 
-- [ ] **Step 1: Write failing read tests**
+- [x] **Step 1: Write failing read tests**
 
 `virtual-reads.spec.ts`:
 - Seed King + Queen + ROH virtual `{King, Queen}` via stub
@@ -917,16 +917,16 @@ allocatedRoomTypeId?: string;
 - HTTP `GET /v1/properties/:pid/room-types` same shape
 - `readReservation` / HTTP GET reservation response **includes** `allocatedRoomTypeId` as a string (may be `''` before Task 6 writes the column on insert — do not assert equality with `roomTypeId` here; that is Task 6)
 
-- [ ] **Step 2: Implement list + read widen**
+- [x] **Step 2: Implement list + read widen**
 
-- [ ] **Step 3: Widen client types + build**
+- [x] **Step 3: Widen client types + build**
 
 ```bash
 pnpm --filter @hospai/client-core build
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-reads.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1102,7 +1102,7 @@ const items = rows.map((row) => ({
 
 Do **not** call `freeAvailability()` on virtual zero-bucket rows. If `row.free` is omitted on a virtual synthetic row, `/book` `selectableRoomTypeIds` will see `free === 0` — the Task 5 test below is the acceptance gate.
 
-- [ ] **Step 1: Write failing availability test**
+- [x] **Step 1: Write failing availability test**
 
 King `physical=2`, Queen `physical=1`, ROH `{King, Queen}`:
 - `GET /availability?fromDate&toDate` includes ROH rows with **`free === 3`** on a night where King sold=0 and Queen sold=0
@@ -1110,17 +1110,17 @@ King `physical=2`, Queen `physical=1`, ROH `{King, Queen}`:
 - No `availability_day` row for ROH id (`countAvailabilityDays(rohId) === 0`)
 - Physical filtered GET with `roomTypeId=rt_king` still hits KV when keys exist (Branch 1 unchanged — no DO pre-call)
 
-- [ ] **Step 2: Implement synthesis + Branch 2 free mapping**
+- [x] **Step 2: Implement synthesis + Branch 2 free mapping**
 
 Branch 1: leave untouched.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-availability.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1255,7 +1255,7 @@ WHERE allocated_room_type_id = ? AND status IN (...)
   AND allocated_room_type_id != ''
 ```
 
-- [ ] **Step 1: Write failing reservation tests**
+- [x] **Step 1: Write failing reservation tests**
 
 `virtual-reservations.spec.ts`:
 - King=1, Queen=1, ROH book → sold King=1; reservation has `roomTypeId=ROH`, `allocatedRoomTypeId=King`; no availability_day for ROH
@@ -1264,15 +1264,15 @@ WHERE allocated_room_type_id = ? AND status IN (...)
 - Virtual SKU stop-sell → ROH book `restriction_violated` while constituents open (real rule/date from seeded restriction row)
 - Property assertion: `countSoldHoldingReservationsCovering('rt_king', night)` matches ledger sold
 
-- [ ] **Step 2: Implement resolver + create/confirm + census helper**
+- [x] **Step 2: Implement resolver + create/confirm + census helper**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-reservations.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1323,21 +1323,21 @@ const allocated = reservation.allocated_room_type_id || reservation.room_type_id
 
 Apply in `tryAssignRoom`, `tryCheckIn`, `tryModifyReservation` preassigned check.
 
-- [ ] **Step 1: Write failing check-in tests**
+- [x] **Step 1: Write failing check-in tests**
 
 Setup: King room unit `rm_king`, Queen unit `rm_queen`, ROH booked allocating King.
 - Assign/check-in Queen room → `room_type_mismatch`
 - Assign/check-in King room → success
 
-- [ ] **Step 2: Implement allocated comparisons**
+- [x] **Step 2: Implement allocated comparisons**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-check-in.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1390,20 +1390,20 @@ const ledgerId = reservation.allocated_room_type_id || reservation.room_type_id;
 if (ledgerId) this.releaseSoldNightsSync(ledgerId, nights);
 ```
 
-- [ ] **Step 1: Write failing modify/cancel tests**
+- [x] **Step 1: Write failing modify/cancel tests**
 
 - ROH allocated King; modify dates only when Queen still free but King full on new night → stub `{ error: NO_AVAILABILITY }`; allocation stays King (no reallocate to Queen)
 - Cancel virtual reservation → King sold decrements; ROH sold SKU unchanged on reservation row until cancel clears status
 
-- [ ] **Step 2: Implement modify/cancel/expiry ledger paths**
+- [x] **Step 2: Implement modify/cancel/expiry ledger paths**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/virtual-reservations.spec.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -1457,26 +1457,26 @@ const [constituentIds, setConstituentIds] = useState<string[]>([]);
 - Archive error copy for `constituent_in_use`, `virtual_*` codes in `inventoryErrorCopy`
 - Rooms tab: when selected type `kind === 'virtual'`, disable create + copy “Virtual types do not have room units.”
 
-- [ ] **Step 1: Rebuild client-core**
+- [x] **Step 1: Rebuild client-core**
 
 ```bash
 pnpm --filter @hospai/client-core build
 ```
 
-- [ ] **Step 2: Write failing RTL test**
+- [x] **Step 2: Write failing RTL test**
 
 Mock `listRoomTypes` with King + Queen; fire virtual create with two constituents; expect `createRoomType` called with `{ kind: 'virtual', roomCount: 0, constituentRoomTypeIds: [...] }`; list shows **Virtual** badge.
 
-- [ ] **Step 3: Implement InventoryScreen UI**
+- [x] **Step 3: Implement InventoryScreen UI**
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/InventoryScreen.test.tsx
 pnpm check:web-pms-colors
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts \
@@ -1533,13 +1533,13 @@ const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : 
 ) : null}
 ```
 
-- [ ] **Step 1: Write failing CheckInScreen test**
+- [x] **Step 1: Write failing CheckInScreen test**
 
 Mock reservation `{ roomTypeId: 'roh', allocatedRoomTypeId: 'rt_king' }`; rooms King + Queen; room select options contain King code only.
 
-- [ ] **Step 2: Implement Booking + CheckIn UI**
+- [x] **Step 2: Implement Booking + CheckIn UI**
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run \
@@ -1547,7 +1547,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
 pnpm check:web-pms-colors
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web-pms/src/screens/BookingScreen.tsx \
@@ -1579,7 +1579,7 @@ EOF
 
 Add reciprocal sentence to virtual spec §1 if not already bidirectional.
 
-- [ ] **Step 1: Pin frozen heads**
+- [x] **Step 1: Pin frozen heads**
 
 ```bash
 pnpm generate:ddl
@@ -1591,7 +1591,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 Expect: catalog **77**; route **[127] = post_demo_seed**; `PROPERTY_SCHEMA_HEAD === 27`; `ORG_SCHEMA_HEAD === 7`; `AUDIT_WRITER_COMMAND_IDS.size === 52`; `PLATFORM_GAPS === []`; `NIGHT_AUDIT_STEPS.length === 7` (existing pin in `night-audit-room-charges.spec.ts` / `rooms-ooo.spec.ts` — run one `-t` filter above or add `expect(NIGHT_AUDIT_STEPS).toHaveLength(7)` in `virtual-room-types.spec.ts`).
 
-- [ ] **Step 2: Run targeted virtual test superset**
+- [x] **Step 2: Run targeted virtual test superset**
 
 ```bash
 pnpm --filter @hospai/do-runtime exec vitest run \
@@ -1608,7 +1608,7 @@ pnpm --filter @hospai/web-pms exec vitest run \
   src/screens/CheckInScreen.test.tsx
 ```
 
-- [ ] **Step 3: Full CI sequence (copy `.github/workflows/ci.yml` `checks` job + pms-core matrix)**
+- [x] **Step 3: Full CI sequence (copy `.github/workflows/ci.yml` `checks` job + pms-core matrix)**
 
 ```bash
 pnpm build
@@ -1647,9 +1647,9 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=7/8
 pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 ```
 
-- [ ] **Step 4: Tick every `- [ ]` on Tasks 1–11 in this file**
+- [x] **Step 4: Tick every `- [x]` on Tasks 1–11 in this file**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-13-property-setup-spa-design.md \
@@ -1668,22 +1668,22 @@ EOF
 
 ## Spec §15 reviewer checklist (copied; implementation must satisfy)
 
-- [ ] v27 migration: `kind`, `room_type_constituent`, `allocated_room_type_id` + backfill; head **27**.
-- [ ] Extended `inventory.add_room_type` / `update` / `delete` — **no** new catalog id; physical fingerprints unchanged when `kind` omitted; virtual fingerprints include `kind` + sorted constituents.
-- [ ] Virtual: no `availability_day`, no rooms, `room_count=0`; `reconcileHorizon` skips virtual; virtual create/update/archive **no** `availability.changed`.
-- [ ] Virtual archive → `archive_blocked` when live reservations on SKU; physical constituent archive → `constituent_in_use`.
-- [ ] Virtual occupancy ≤ min(constituents); `virtual_occupancy_exceeds_constituents` on create/update.
-- [ ] `allocated_room_type_id = ''` only pre-commit; set on first sold write.
-- [ ] Book allocates one constituent; decrements one physical `sold`; persists both ids.
-- [ ] Quote `free` = sum constituent free; rates on virtual SKU only.
-- [ ] Restrictions OR model: per-constituent eligibility + virtual-SKU product gate; King stop-sell does not block Queen allocation.
-- [ ] Check-in / assign use `allocatedRoomTypeId`.
-- [ ] Modify dates keeps allocation; cancel releases allocated physical.
-- [ ] Widened GET room-types / reservation / availability — **no** new route audit index.
-- [ ] Inventory + Book + CheckIn SPA paths per §12; tokens only; `check:web-pms-colors` clean.
-- [ ] Demo seed untouched. `NIGHT_AUDIT_STEPS` **7**. `PLATFORM_GAPS` `[]`.
-- [ ] Tests §13 green — mapped to Tasks 1–11.
-- [ ] Pointer sentence added to property setup SPA spec when landed.
+- [x] v27 migration: `kind`, `room_type_constituent`, `allocated_room_type_id` + backfill; head **27**.
+- [x] Extended `inventory.add_room_type` / `update` / `delete` — **no** new catalog id; physical fingerprints unchanged when `kind` omitted; virtual fingerprints include `kind` + sorted constituents.
+- [x] Virtual: no `availability_day`, no rooms, `room_count=0`; `reconcileHorizon` skips virtual; virtual create/update/archive **no** `availability.changed`.
+- [x] Virtual archive → `archive_blocked` when live reservations on SKU; physical constituent archive → `constituent_in_use`.
+- [x] Virtual occupancy ≤ min(constituents); `virtual_occupancy_exceeds_constituents` on create/update.
+- [x] `allocated_room_type_id = ''` only pre-commit; set on first sold write.
+- [x] Book allocates one constituent; decrements one physical `sold`; persists both ids.
+- [x] Quote `free` = sum constituent free; rates on virtual SKU only.
+- [x] Restrictions OR model: per-constituent eligibility + virtual-SKU product gate; King stop-sell does not block Queen allocation.
+- [x] Check-in / assign use `allocatedRoomTypeId`.
+- [x] Modify dates keeps allocation; cancel releases allocated physical.
+- [x] Widened GET room-types / reservation / availability — **no** new route audit index.
+- [x] Inventory + Book + CheckIn SPA paths per §12; tokens only; `check:web-pms-colors` clean.
+- [x] Demo seed untouched. `NIGHT_AUDIT_STEPS` **7**. `PLATFORM_GAPS` `[]`.
+- [x] Tests §13 green — mapped to Tasks 1–11.
+- [x] Pointer sentence added to property setup SPA spec when landed.
 
 ---
 

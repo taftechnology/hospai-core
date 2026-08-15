@@ -961,7 +961,7 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
     if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
-    if (result.error === OVERSELL) {
+    if (result.error === OVERSELL && 'dates' in result) {
       return json({ ok: false, error: result.error, dates: result.dates }, 409);
     }
     return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));

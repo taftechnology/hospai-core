@@ -4919,6 +4919,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_TYPE_CODE_EXISTS }
     | { ok: false; error: typeof ROOM_UNITS_EXCEED_COUNT }
     | { ok: false; error: 'internal_error' }
+    | { ok: false; error: string }
   > {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();

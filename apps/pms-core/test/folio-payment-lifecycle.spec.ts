@@ -115,6 +115,24 @@ describe('folio payment lifecycle — void, refund, capture-due', () => {
     ).toMatchObject({ ok: false, error: PAYMENT_NOT_VOIDABLE });
   });
 
+  it('reads refundedAmountMinor as 0 before any refund posted', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorize(stub, reservationId, paymentId, 5000)).toMatchObject({ ok: true });
+    expect(await capture(stub, paymentId, 5000)).toMatchObject({ ok: true });
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) throw new Error('list');
+    expect(listed.payments.find((p) => p.paymentId === paymentId)).toMatchObject({
+      status: 'captured',
+      refundedAmountMinor: 0,
+    });
+    const single = await stub.readPayment(paymentId);
+    expect(single.ok && single.payment.refundedAmountMinor).toBe(0);
+  });
+
   it('28: refund full capture → refunded, PAYMENT_REFUND line, payment_id NULL, capture untouched', async () => {
     const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
     const reservationId = `res_${crypto.randomUUID()}`;

@@ -299,6 +299,7 @@ type PaymentRow = {
   tender_type: 'CARD' | 'CASH';
   shift_id: string | null;
   purpose: 'STAY' | 'DAMAGE';
+  refunded_amount_minor: number | null;
   void_fingerprint: string | null;
   refund_fingerprint: string | null;
   fx_rate: string | null;
@@ -13216,7 +13217,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                capture_fingerprint, tender_type, shift_id, purpose, refunded_amount_minor,
+                void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
                 card_last4, card_brand, created_at, updated_at
          FROM payment WHERE payment_id = ?`,
@@ -13258,7 +13260,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
                 gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
-                capture_fingerprint, tender_type, shift_id, purpose, void_fingerprint, refund_fingerprint,
+                capture_fingerprint, tender_type, shift_id, purpose, refunded_amount_minor,
+                void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
                 card_last4, card_brand, created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
@@ -13659,6 +13662,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     status: PaymentStatus;
     gatewayReference: string | null;
     capturedAmountMinor: number | null;
+    refundedAmountMinor: number;
     tenderType: 'CARD' | 'CASH';
     shiftId: string | null;
     cardLast4: string | null;
@@ -13674,6 +13678,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       status: row.status,
       gatewayReference: row.gateway_reference,
       capturedAmountMinor: row.captured_amount_minor,
+      refundedAmountMinor: row.refunded_amount_minor ?? 0,
       tenderType: row.tender_type,
       shiftId: row.shift_id,
       cardLast4: row.card_last4,
@@ -15375,6 +15380,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           purpose: 'STAY' | 'DAMAGE';
           gatewayReference: string | null;
           capturedAmountMinor: number | null;
+          refundedAmountMinor: number;
           createdAt: number;
           updatedAt: number;
           tenderType: 'CARD' | 'CASH';
@@ -15399,7 +15405,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT payment_id, reservation_id, amount_minor, currency, status, purpose, gateway_reference,
-                captured_amount_minor, created_at, updated_at, tender_type, card_last4, card_brand
+                captured_amount_minor, refunded_amount_minor, created_at, updated_at, tender_type, card_last4, card_brand
          FROM payment WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -15413,6 +15419,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       purpose: 'STAY' | 'DAMAGE';
       gateway_reference: string | null;
       captured_amount_minor: number | null;
+      refunded_amount_minor: number | null;
       created_at: number;
       updated_at: number;
       tender_type: 'CARD' | 'CASH';
@@ -15431,6 +15438,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         purpose: row.purpose,
         gatewayReference: row.gateway_reference,
         capturedAmountMinor: row.captured_amount_minor,
+        refundedAmountMinor: row.refunded_amount_minor ?? 0,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         tenderType: row.tender_type,

@@ -201,7 +201,9 @@ import {
   validateFxRate,
   LedgerAmountMismatchError,
   roundHalfAwayFromZero,
+  applyPromoToAmountMinor,
   type CurrencyCode,
+  type PromoApplyInput,
   type PostedLineAmount,
 } from '@hospai/money';
 import { isJurisdictionSimulate, isPspSimulate, type PmsEnv } from './env.js';
@@ -888,6 +890,8 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof OCCUPANCY_EXCEEDED }
   | { ok: false; error: typeof FRONT_OFFICE_COMMENT_TOO_LONG }
   | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+  | { ok: false; error: typeof PROMO_NOT_FOUND }
+  | { ok: false; error: typeof PROMO_NOT_APPLICABLE }
   | { ok: false; error: typeof RATE_MISSING; date: string }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
   | { ok: false; error: typeof OOO_INVALID_RANGE }
@@ -923,6 +927,8 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof OccupancyExceededError) return { ok: false, error: OCCUPANCY_EXCEEDED };
   if (e instanceof FrontOfficeCommentTooLongError) return { ok: false, error: FRONT_OFFICE_COMMENT_TOO_LONG };
   if (e instanceof RatePlanNotFoundError) return { ok: false, error: RATE_PLAN_NOT_FOUND };
+  if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
+  if (e instanceof PromoNotApplicableError) return { ok: false, error: PROMO_NOT_APPLICABLE };
   if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
   if (e instanceof OooInvalidRangeError) return { ok: false, error: OOO_INVALID_RANGE };
@@ -6991,11 +6997,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     roomTypeId: string,
     ratePlanId: string,
     nights: string[],
+    promo: {
+      kind: 'percent' | 'fixed_per_night';
+      bps: number | null;
+      amount_minor: number | null;
+    } | null = null,
   ): void {
     const currency = this.readStoredLedgerCurrencySync();
     if (!currency) throw new Error(CURRENCY_UNSET);
+    const promoInput = promo ? this.promoApplyInputFromRowSync(promo) : null;
     for (const stayDate of nights) {
-      const amount = this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+      let amount = this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+      if (promoInput) {
+        amount = applyPromoToAmountMinor(amount, promoInput);
+      }
       this.ctx.storage.sql.exec(
         `INSERT INTO reservation_rate_night (reservation_id, stay_date, amount_minor, currency, rate_plan_id)
          VALUES (?, ?, ?, ?, ?)`,
@@ -7116,7 +7131,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const added = newNights.filter((d) => !oldSet.has(d));
     if (added.length > 0) {
-      this.snapshotRateNightsSync(reservationId, roomTypeId, ratePlanId, added);
+      const promoRows = this.ctx.storage.sql
+        .exec(`SELECT promo_id FROM reservation WHERE reservation_id = ?`, reservationId)
+        .toArray() as Array<{ promo_id: string | null }>;
+      const promoId = promoRows[0]?.promo_id ?? null;
+      const promoRow = this.resolveStoredPromoForSnapshotSync(promoId, ratePlanId, added);
+      this.snapshotRateNightsSync(reservationId, roomTypeId, ratePlanId, added, promoRow);
     }
   }
 
@@ -7415,6 +7435,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       adults?: number;
       children?: number;
       ratePlanId?: string;
+      promoCode?: string;
       confirmBy?: number;
       expiresAt?: number;
       noPost?: boolean;
@@ -7486,6 +7507,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
           this.assertOccupancySync(input.roomTypeId, adults, children);
           this.assertActiveRatePlanSync(ratePlanId);
+          const { promoId, row: promoRow } = this.resolvePromoForBookSync(
+            input.promoCode,
+            ratePlanId,
+            nights,
+          );
 
           const commitsInventory = status === 'pending' || status === 'confirmed';
           let allocatedRoomTypeId = '';
@@ -7520,10 +7546,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.ctx.storage.sql.exec(
             `INSERT INTO reservation (
                reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
-               status, adults, children, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
+               status, adults, children, rate_plan_id, promo_id, cancel_penalty_type, cancel_grace_hours,
                cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post,
                allocated_room_type_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
@@ -7534,6 +7560,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             adults,
             children,
             ratePlanId,
+            promoId,
             snapshot.cancelPenaltyType,
             snapshot.cancelGraceHours,
             snapshot.cancelPenaltyNights,
@@ -7546,7 +7573,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
           );
           if (commitsInventory) {
-            this.snapshotRateNightsSync(input.reservationId, input.roomTypeId, ratePlanId, nights);
+            this.snapshotRateNightsSync(
+              input.reservationId,
+              input.roomTypeId,
+              ratePlanId,
+              nights,
+              promoRow,
+            );
           }
           this.ensureGuestFolioWindowSync(input.reservationId);
 
@@ -7644,7 +7677,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, adults, children
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, promo_id, adults, children
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -7656,6 +7689,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             departure_date: string;
             status: string;
             rate_plan_id: string;
+            promo_id: string | null;
             adults: number;
             children: number;
           }>;
@@ -7687,11 +7721,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               nights,
             );
             const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+            const promoRow = this.resolveStoredPromoForSnapshotSync(
+              reservation.promo_id,
+              ratePlanId,
+              nights,
+            );
             this.snapshotRateNightsSync(
               input.reservationId,
               reservation.room_type_id,
               ratePlanId,
               nights,
+              promoRow,
             );
             this.ctx.storage.sql.exec(
               `UPDATE reservation SET status = 'confirmed', rate_plan_id = ?, cancel_penalty_type = ?,
@@ -7785,7 +7825,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, adults, children
+              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, promo_id, adults, children
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -7797,6 +7837,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             departure_date: string;
             status: string;
             rate_plan_id: string;
+            promo_id: string | null;
             adults: number;
             children: number;
           }>;
@@ -7822,11 +7863,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             nights,
           );
           const snapshot = this.snapshotPenaltyFromPlanSync(ratePlanId);
+          const promoRow = this.resolveStoredPromoForSnapshotSync(
+            reservation.promo_id,
+            ratePlanId,
+            nights,
+          );
           this.snapshotRateNightsSync(
             input.reservationId,
             reservation.room_type_id,
             ratePlanId,
             nights,
+            promoRow,
           );
           const now = Date.now();
           const holdHours = Number(this.readConfigValueSync('pms.reservations.pending_hold_hours') ?? 24);
@@ -9340,6 +9387,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           vipFlag: boolean;
           dndFlag: boolean;
           ratePlanId: string;
+          promoId: string | null;
           cancelPenaltyType: string;
           confirmBy: number | null;
           expiresAt: number | null;
@@ -9353,7 +9401,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
-                adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, cancel_penalty_type,
+                adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, promo_id, cancel_penalty_type,
                 confirm_by, expires_at, allocated_room_type_id, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
@@ -9373,6 +9421,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       vip_flag: number;
       dnd_flag: number;
       rate_plan_id: string;
+      promo_id: string | null;
       cancel_penalty_type: string;
       confirm_by: number | null;
       expires_at: number | null;
@@ -9399,6 +9448,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         vipFlag: row.vip_flag === 1,
         dndFlag: row.dnd_flag === 1,
         ratePlanId: row.rate_plan_id,
+        promoId: row.promo_id ?? null,
         cancelPenaltyType: row.cancel_penalty_type,
         confirmBy: row.confirm_by,
         expiresAt: row.expires_at,
@@ -10789,6 +10839,68 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray();
     return (rows[0] as typeof rows[0] | undefined) ?? null;
+  }
+
+  private promoApplyInputFromRowSync(row: {
+    kind: 'percent' | 'fixed_per_night';
+    bps: number | null;
+    amount_minor: number | null;
+  }): PromoApplyInput {
+    if (row.kind === 'percent') {
+      return { kind: 'percent', bps: row.bps! };
+    }
+    return { kind: 'fixed_per_night', amountMinor: row.amount_minor! };
+  }
+
+  private assertPromoApplicableSync(
+    promo: NonNullable<ReturnType<PropertyDO['loadPromoByIdSync']>>,
+    ratePlanId: string,
+    nights: string[],
+  ): void {
+    if (promo.status !== 'active') throw new PromoNotApplicableError();
+    if (promo.rate_plan_id != null && promo.rate_plan_id !== ratePlanId) {
+      throw new PromoNotApplicableError();
+    }
+    if (promo.valid_from != null && promo.valid_to != null) {
+      for (const night of nights) {
+        if (night < promo.valid_from || night > promo.valid_to) throw new PromoNotApplicableError();
+      }
+    }
+  }
+
+  private resolvePromoForBookSync(
+    promoCode: string | undefined,
+    ratePlanId: string,
+    nights: string[],
+  ): {
+    promoId: string | null;
+    row: NonNullable<ReturnType<PropertyDO['loadPromoByIdSync']>> | null;
+  } {
+    if (promoCode == null || promoCode.trim() === '') {
+      return { promoId: null, row: null };
+    }
+    const normalized = this.normalizePromoCodeSync(promoCode);
+    if (!PropertyDO.PROMO_CODE_CHARSET.test(normalized)) throw new PromoNotFoundError();
+    const row = this.resolvePromoByCodeSync(normalized);
+    if (!row) throw new PromoNotFoundError();
+    this.assertPromoApplicableSync(row, ratePlanId, nights);
+    return { promoId: row.promo_id, row };
+  }
+
+  private resolveStoredPromoForSnapshotSync(
+    promoId: string | null,
+    ratePlanId: string,
+    nights: string[],
+  ): {
+    kind: 'percent' | 'fixed_per_night';
+    bps: number | null;
+    amount_minor: number | null;
+  } | null {
+    if (!promoId) return null;
+    const row = this.loadPromoByIdSync(promoId);
+    if (!row) throw new PromoNotApplicableError();
+    this.assertPromoApplicableSync(row, ratePlanId, nights);
+    return row;
   }
 
   /**

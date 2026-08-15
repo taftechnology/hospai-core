@@ -1747,6 +1747,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     adults?: number;
     children?: number;
     ratePlanId?: string;
+    promoCode?: string;
     confirmBy?: number;
     expiresAt?: number;
   };
@@ -1764,6 +1765,14 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
+  const normalizedPromoCode =
+    body.promoCode != null && body.promoCode.trim() !== ''
+      ? normalizePromoCode(body.promoCode)
+      : null;
+  if (normalizedPromoCode != null && !promoCodeCharsetOk(normalizedPromoCode)) {
+    return json({ ok: false, error: PROMO_NOT_FOUND }, 404);
+  }
+
   const fingerprint = await fingerprintPayload({
     reservationId: body.reservationId,
     roomTypeId: body.roomTypeId,
@@ -1774,6 +1783,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     adults: body.adults,
     children: body.children,
     ratePlanId: body.ratePlanId ?? 'BAR',
+    ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}),
   });
 
   const commandPayload = {
@@ -1786,6 +1796,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     ...(body.adults !== undefined ? { adults: body.adults } : {}),
     ...(body.children !== undefined ? { children: body.children } : {}),
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+    ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}),
     ...(body.confirmBy !== undefined ? { confirmBy: body.confirmBy } : {}),
     ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
   };

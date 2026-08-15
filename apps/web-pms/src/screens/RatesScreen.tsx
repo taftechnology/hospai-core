@@ -39,6 +39,8 @@ type RatePlanRow = {
   cancelPenaltyNights: number | null;
   cancelPenaltyBps: number | null;
   cancelPolicyText: string | null;
+  parentRatePlanId: string | null;
+  deriveBps: number | null;
 };
 
 type RateDayRow = {
@@ -96,6 +98,20 @@ function ledgerCurrency(keys: Array<{ key: string; value: unknown }> | undefined
   return typeof row?.value === 'string' && row.value ? row.value : 'USD';
 }
 
+function formatDerivePercent(deriveBps: number): string {
+  const pct = deriveBps / 100;
+  const rounded = Math.round(pct * 100) / 100;
+  const text = Number.isInteger(rounded) ? String(rounded) : String(rounded);
+  return rounded > 0 ? `+${text}%` : `${text}%`;
+}
+
+function derivedPlanBadge(plan: RatePlanRow, plans: RatePlanRow[]): string | null {
+  if (plan.parentRatePlanId == null || plan.deriveBps == null) return null;
+  const parent = plans.find((p) => p.ratePlanId === plan.parentRatePlanId);
+  const parentCode = parent?.code ?? plan.parentRatePlanId;
+  return `${formatDerivePercent(plan.deriveBps)} of ${parentCode}`;
+}
+
 function RateCell(props: {
   code: string;
   roomTypeId: string;
@@ -104,6 +120,7 @@ function RateCell(props: {
   currency: string;
   ratePlanId: string;
   propertyId: string;
+  readOnly?: boolean;
 }) {
   const [raw, setRaw] = useState(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
   return (
@@ -113,8 +130,14 @@ function RateCell(props: {
         <Input
           value={raw}
           autoComplete="off"
-          onChange={(e) => setRaw(e.target.value)}
+          readOnly={props.readOnly}
+          disabled={props.readOnly}
+          onChange={(e) => {
+            if (props.readOnly) return;
+            setRaw(e.target.value);
+          }}
           onBlur={async () => {
+            if (props.readOnly) return;
             if (raw.trim() === '') return;
             const amountMinor = parseMajorToMinor(raw);
             if (!Number.isFinite(amountMinor)) return;
@@ -145,6 +168,8 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
   const [planCode, setPlanCode] = useState('');
   const [planName, setPlanName] = useState('');
+  const [derivedFrom, setDerivedFrom] = useState('');
+  const [derivePercent, setDerivePercent] = useState('');
   const [cancelType, setCancelType] = useState('none');
   const [graceHours, setGraceHours] = useState('0');
   const [penaltyNights, setPenaltyNights] = useState('');
@@ -207,10 +232,18 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   }, [restQ.data]);
 
   const typeIds = selectedTypes ?? new Set(types.map((t) => t.roomTypeId));
+  const independentPlans = plans.filter((p) => p.status === 'active' && p.parentRatePlanId == null);
+  const selectedPlan = plans.find((p) => p.ratePlanId === plan);
+  const isDerivedMatrix = selectedPlan?.parentRatePlanId != null;
 
   const createPlan = useMutation({
-    mutationFn: () =>
-      api.createRatePlan(propertyId, {
+    mutationFn: () => {
+      const isDerived = derivedFrom !== '';
+      const deriveBps =
+        isDerived && derivePercent.trim() !== ''
+          ? Math.round(parseFloat(derivePercent) * 100)
+          : null;
+      return api.createRatePlan(propertyId, {
         ratePlanId: crypto.randomUUID(),
         code: planCode,
         name: planName,
@@ -219,10 +252,16 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
         cancelPenaltyNights: cancelType === 'nights' ? Number(penaltyNights) : null,
         cancelPenaltyBps: cancelType === 'percent' ? Number(penaltyBps) : null,
         cancelPolicyText: policyText || null,
-      }),
+        ...(isDerived && deriveBps != null && Number.isFinite(deriveBps)
+          ? { parentRatePlanId: derivedFrom, deriveBps }
+          : {}),
+      });
+    },
     onSuccess: async () => {
       setPlanCode('');
       setPlanName('');
+      setDerivedFrom('');
+      setDerivePercent('');
       setMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
     },
@@ -284,7 +323,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   <DataTableCell>
                     <span translate="no">{p.code}</span>
                   </DataTableCell>
-                  <DataTableCell>{p.name}</DataTableCell>
+                  <DataTableCell>
+                    {p.name}
+                    {derivedPlanBadge(p, plans) ? (
+                      <span className="muted"> {derivedPlanBadge(p, plans)}</span>
+                    ) : null}
+                  </DataTableCell>
                   <DataTableCell>{p.cancelPenaltyType}</DataTableCell>
                   <DataTableCell>
                     {p.ratePlanId === 'BAR' ? null : (
@@ -321,6 +365,38 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 <Input value={planName} onChange={(e) => setPlanName(e.target.value)} autoComplete="off" />
               }
             />
+            <Field
+              label="Derived from"
+              control={
+                <NativeSelect
+                  value={derivedFrom}
+                  onChange={(e) => {
+                    setDerivedFrom(e.target.value);
+                    if (!e.target.value) setDerivePercent('');
+                  }}
+                >
+                  <option value="">Independent</option>
+                  {independentPlans.map((p) => (
+                    <option key={p.ratePlanId} value={p.ratePlanId}>
+                      {p.code}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            {derivedFrom ? (
+              <Field
+                label="Derive percent"
+                control={
+                  <Input
+                    type="number"
+                    value={derivePercent}
+                    onChange={(e) => setDerivePercent(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+            ) : null}
             <Field
               label="Cancel penalty"
               control={
@@ -430,6 +506,9 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 </NativeSelect>
               }
             />
+            {isDerivedMatrix ? (
+              <p className="muted">Edit the parent plan’s rates.</p>
+            ) : null}
             <DataTable>
               <DataTableHead>
                 <DataTableRow>
@@ -459,6 +538,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                             currency={currency}
                             ratePlanId={plan}
                             propertyId={propertyId}
+                            readOnly={isDerivedMatrix}
                           />
                         </DataTableCell>
                       );
@@ -468,84 +548,86 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               </DataTableBody>
             </DataTable>
 
-            <form
-              className="stack"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const amountMinor = parseMajorToMinor(bulkAmount);
-                if (!Number.isFinite(amountMinor) || bulkAmount.trim() === '') return;
-                const updates = types
-                  .filter((t) => typeIds.has(t.roomTypeId))
-                  .flatMap((t) =>
-                    dates
-                      .filter((d) => weekdays.has(weekdayUtc(d)))
-                      .map((stayDate) => ({
-                        roomTypeId: t.roomTypeId,
-                        ratePlanId: plan,
-                        stayDate,
-                        amountMinor,
-                        currency,
-                      })),
-                  );
-                setSavingBulk(true);
-                try {
-                  await api.bulkUpdateRates(propertyId, updates);
-                  setMessage('Saved.');
-                  await queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
-                } finally {
-                  setSavingBulk(false);
-                }
-              }}
-            >
-              <h2>Bulk fill</h2>
-              {types.map((t) => (
-                <Field
-                  key={t.roomTypeId}
-                  label={t.code}
-                  control={
-                    <Checkbox
-                      checked={typeIds.has(t.roomTypeId)}
-                      onChange={(e) => {
-                        const next = new Set(typeIds);
-                        if (e.target.checked) next.add(t.roomTypeId);
-                        else next.delete(t.roomTypeId);
-                        setSelectedTypes(next);
-                      }}
-                    />
+            {!isDerivedMatrix ? (
+              <form
+                className="stack"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const amountMinor = parseMajorToMinor(bulkAmount);
+                  if (!Number.isFinite(amountMinor) || bulkAmount.trim() === '') return;
+                  const updates = types
+                    .filter((t) => typeIds.has(t.roomTypeId))
+                    .flatMap((t) =>
+                      dates
+                        .filter((d) => weekdays.has(weekdayUtc(d)))
+                        .map((stayDate) => ({
+                          roomTypeId: t.roomTypeId,
+                          ratePlanId: plan,
+                          stayDate,
+                          amountMinor,
+                          currency,
+                        })),
+                    );
+                  setSavingBulk(true);
+                  try {
+                    await api.bulkUpdateRates(propertyId, updates);
+                    setMessage('Saved.');
+                    await queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
+                  } finally {
+                    setSavingBulk(false);
                   }
-                />
-              ))}
-              {WEEKDAYS.map((w) => (
-                <Field
-                  key={w.n}
-                  label={w.label}
-                  control={
-                    <Checkbox
-                      checked={weekdays.has(w.n)}
-                      onChange={(e) => {
-                        const next = new Set(weekdays);
-                        if (e.target.checked) next.add(w.n);
-                        else next.delete(w.n);
-                        setWeekdays(next);
-                      }}
-                    />
-                  }
-                />
-              ))}
-              <Field
-                label="Bulk amount"
-                control={
-                  <Input
-                    value={bulkAmount}
-                    onChange={(e) => setBulkAmount(e.target.value)}
-                    autoComplete="off"
+                }}
+              >
+                <h2>Bulk fill</h2>
+                {types.map((t) => (
+                  <Field
+                    key={t.roomTypeId}
+                    label={t.code}
+                    control={
+                      <Checkbox
+                        checked={typeIds.has(t.roomTypeId)}
+                        onChange={(e) => {
+                          const next = new Set(typeIds);
+                          if (e.target.checked) next.add(t.roomTypeId);
+                          else next.delete(t.roomTypeId);
+                          setSelectedTypes(next);
+                        }}
+                      />
+                    }
                   />
-                }
-              />
-              <Button type="submit" intent="primary" disabled={savingBulk}>
-                {savingBulk ? 'Saving…' : 'Fill Selected Days'}
-              </Button>
-            </form>
+                ))}
+                {WEEKDAYS.map((w) => (
+                  <Field
+                    key={w.n}
+                    label={w.label}
+                    control={
+                      <Checkbox
+                        checked={weekdays.has(w.n)}
+                        onChange={(e) => {
+                          const next = new Set(weekdays);
+                          if (e.target.checked) next.add(w.n);
+                          else next.delete(w.n);
+                          setWeekdays(next);
+                        }}
+                      />
+                    }
+                  />
+                ))}
+                <Field
+                  label="Bulk amount"
+                  control={
+                    <Input
+                      value={bulkAmount}
+                      onChange={(e) => setBulkAmount(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Button type="submit" intent="primary" disabled={savingBulk}>
+                  {savingBulk ? 'Saving…' : 'Fill Selected Days'}
+                </Button>
+              </form>
+            ) : null}
           </>
         )
       ) : null}

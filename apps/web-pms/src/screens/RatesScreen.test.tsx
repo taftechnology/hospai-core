@@ -1,4 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
+import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -66,6 +67,8 @@ const bar = {
   cancelPenaltyNights: null,
   cancelPenaltyBps: null,
   cancelPolicyText: null,
+  parentRatePlanId: null,
+  deriveBps: null,
 };
 
 function renderRates(path: string) {
@@ -185,6 +188,8 @@ describe('RatesScreen', () => {
           cancelPenaltyNights: null,
           cancelPenaltyBps: null,
           cancelPolicyText: null,
+          parentRatePlanId: null,
+          deriveBps: null,
         },
       ],
     });
@@ -210,6 +215,76 @@ describe('RatesScreen', () => {
       stopSell: true,
     });
     expect(args[1]).not.toHaveProperty('ratePlanId');
+  });
+
+  it('derived plan create sends parentRatePlanId and deriveBps', async () => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        bar,
+        {
+          ratePlanId: 'CORP',
+          code: 'CORP',
+          name: 'Corporate',
+          status: 'active',
+          cancelPenaltyType: 'none',
+          cancelGraceHours: 0,
+          cancelPenaltyNights: null,
+          cancelPenaltyBps: null,
+          cancelPolicyText: null,
+          parentRatePlanId: null,
+          deriveBps: null,
+        },
+      ],
+    });
+    renderRates('/rates/plans');
+    await screen.findByText('Corporate');
+    fireEvent.change(screen.getByLabelText('Derived from'), { target: { value: 'BAR' } });
+    fireEvent.change(screen.getByLabelText('Derive percent'), { target: { value: '-15' } });
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'BAR15' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'BAR −15%' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Rate Plan' }));
+    await waitFor(() => expect(createRatePlan).toHaveBeenCalled());
+    expect(createRatePlan.mock.calls[0]?.[1]).toMatchObject({
+      parentRatePlanId: 'BAR',
+      deriveBps: -1500,
+    });
+  });
+
+  it('derived matrix is read-only with exact helper copy', async () => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        bar,
+        {
+          ...bar,
+          ratePlanId: 'BAR15',
+          code: 'BAR15',
+          name: 'BAR −15%',
+          parentRatePlanId: 'BAR',
+          deriveBps: -1500,
+        },
+      ],
+    });
+    listRateDays.mockResolvedValue({
+      ok: true,
+      days: [
+        {
+          roomTypeId: 'rt_king',
+          ratePlanId: 'BAR15',
+          stayDate: '2026-08-13',
+          amountMinor: 8500,
+          currency: 'USD',
+        },
+      ],
+    });
+    renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR15');
+    expect(await screen.findByText('Edit the parent plan’s rates.')).toBeTruthy();
+    const cell = screen.getByLabelText('Rate for KNG on 2026-08-13');
+    expect(cell).toHaveAttribute('readonly');
+    fireEvent.blur(cell);
+    expect(putRateDay).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Fill Selected Days' })).toBeNull();
   });
 
   it('has no yield, competitor, forecast, or plan-scoped restriction column', async () => {

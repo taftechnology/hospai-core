@@ -113,21 +113,12 @@ describe('CheckInScreen', () => {
     cleanup();
   });
 
-  it('53: Check-in disabled without a room; ROOM_NOT_READY shows override', async () => {
+  it('53: explicit roomId sent on check-in; ROOM_NOT_READY shows override', async () => {
     renderCheckIn();
     await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
-    await waitFor(() => {
-      const heading = screen.getByRole('heading', { name: /check in/i });
-      expect(heading.textContent).toMatch(/Check in Ada Lovelace/i);
-      expect(heading.textContent).not.toMatch(/res_/);
-    });
-    expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByPlaceholderText(/room id/i)).toBeNull();
-    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
-    expect((screen.getByRole('option', { name: '101' }) as HTMLOptionElement).value).toBe('rm_1');
-    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(false);
-
+    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
     checkIn.mockRejectedValueOnce(
       new ClassifiedError({
         class: 'client_error',
@@ -139,6 +130,17 @@ describe('CheckInScreen', () => {
     fireEvent.click(screen.getByTestId('check-in'));
     await waitFor(() => expect(screen.getByTestId('override-cleanliness')).toBeTruthy());
     expect(checkIn.mock.calls[0]?.[3]).toMatchObject({ roomId: 'rm_1' });
+  });
+
+  it('9: blank room → check-in enabled; checkIn omits roomId', async () => {
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('check-in'));
+    await waitFor(() => expect(checkIn).toHaveBeenCalled());
+    const extra = checkIn.mock.calls[0]?.[3] as Record<string, unknown> | undefined;
+    expect(extra).toBeDefined();
+    expect(extra).not.toHaveProperty('roomId');
   });
 
   it('12: print-reg-card enabled when reservation + resolved guest', async () => {

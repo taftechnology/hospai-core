@@ -603,7 +603,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             label="Auto assign rooms"
             configKey="pms.ops.auto_assign_rooms"
             initial={lookup(keys, 'pms.ops.auto_assign_rooms')}
-            hint="Stored for later. Check-in still requires an explicit room."
+            hint="When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready."
             {...common}
           />
 

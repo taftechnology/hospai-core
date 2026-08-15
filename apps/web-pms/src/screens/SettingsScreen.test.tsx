@@ -140,11 +140,13 @@ describe('SettingsScreen', () => {
     });
   });
 
-  it('shows auto_assign_rooms unread copy', async () => {
+  it('shows auto_assign_rooms consumer copy', async () => {
     renderSettings('/settings/property');
     expect(await screen.findByLabelText('Auto assign rooms')).toBeTruthy();
     expect(
-      screen.getByText('Stored for later. Check-in still requires an explicit room.'),
+      screen.getByText(
+        'When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready.',
+      ),
     ).toBeTruthy();
   });
 

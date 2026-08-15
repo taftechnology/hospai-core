@@ -88,8 +88,11 @@ export function CheckInScreen() {
       api.checkIn(
         tenant.propertyId,
         reservationId,
-        `checkin:${reservationId}:${roomId}:${overrideCleanliness ? '1' : '0'}`,
-        { roomId, ...(overrideCleanliness ? { overrideCleanliness: true } : {}) },
+        `checkin:${reservationId}:${roomId || 'auto'}:${overrideCleanliness ? '1' : '0'}`,
+        {
+          ...(roomId.trim() ? { roomId: roomId.trim() } : {}),
+          ...(overrideCleanliness ? { overrideCleanliness: true } : {}),
+        },
       ),
     onError: (err) => {
       const c = asClassified(err);
@@ -117,7 +120,7 @@ export function CheckInScreen() {
     },
   });
 
-  const canCheckIn = roomId.trim().length > 0 && !checkIn.isPending;
+  const canCheckIn = !checkIn.isPending;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const guestResolved = guestState?.kind === 'resolved';
   const canPrint = reservationQ.isSuccess && guestResolved;
@@ -148,7 +151,7 @@ export function CheckInScreen() {
         <Link to="/arrivals">← Arrivals</Link>
       </p>
       <h1>Check in {displayName ?? 'guest'}</h1>
-      <p className="muted">A room is required to check in.</p>
+      <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
       {reservationQ.isSuccess ? (
         <p>
           Adults {adults} · Children {children}

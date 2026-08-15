@@ -74,6 +74,7 @@ export const PAYMENT_NOT_REFUNDABLE = 'payment_not_refundable' as const;
 export const DISCOUNT_REASON_REQUIRED = 'discount_reason_required' as const;
 export const FX_REASON_REQUIRED = 'fx_reason_required' as const;
 export const PAYMENT_NOT_CHARGEBACKABLE = 'payment_not_chargebackable' as const;
+export const REFUND_EXCEEDS_REMAINING = 'refund_exceeds_remaining' as const;
 
 /** Payment wire codes */
 export const PSP_UNAVAILABLE = 'psp_unavailable' as const;

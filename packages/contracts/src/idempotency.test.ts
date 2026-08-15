@@ -67,6 +67,7 @@ import {
   DISCOUNT_REASON_REQUIRED,
   FX_REASON_REQUIRED,
   PAYMENT_NOT_CHARGEBACKABLE,
+  REFUND_EXCEEDS_REMAINING,
   OOO_VIA_RANGE,
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
@@ -204,6 +205,11 @@ describe('fingerprintPayload', () => {
     expect(PAYMENT_NOT_REFUNDABLE).toBe('payment_not_refundable');
     expect(DISCOUNT_REASON_REQUIRED).toBe('discount_reason_required');
     expect(FX_REASON_REQUIRED).toBe('fx_reason_required');
+    expect(PAYMENT_NOT_CHARGEBACKABLE).toBe('payment_not_chargebackable');
+  });
+
+  it('exports payment refund wire codes', () => {
+    expect(REFUND_EXCEEDS_REMAINING).toBe('refund_exceeds_remaining');
     expect(PAYMENT_NOT_CHARGEBACKABLE).toBe('payment_not_chargebackable');
   });
 

@@ -31,7 +31,7 @@ export type PaymentRefundedV1 = {
   propertyId: string;
   paymentId: string;
   reservationId: string;
-  amountMinor: number;          // txn, full refund
+  amountMinor: number;          // txn — this refund's amount (partial or final slice)
   currency: string;
   folioLineId: string;
 };

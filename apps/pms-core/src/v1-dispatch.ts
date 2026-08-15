@@ -57,6 +57,7 @@ import {
   FX_RATE_OPEN_EXISTS,
   FX_REASON_REQUIRED,
   PAYMENT_NOT_CHARGEBACKABLE,
+  REFUND_EXCEEDS_REMAINING,
   LEDGER_AMOUNT_MISMATCH,
   MONEY_INVALID,
   SPLIT_AMOUNT_MISMATCH,
@@ -5146,7 +5147,8 @@ function mapPaymentCommandErrorStatus(error: string): number {
     error === FX_RATE_NOT_LEDGER ||
     error === FX_RATE_OPEN_EXISTS ||
     error === FX_REASON_REQUIRED ||
-    error === PAYMENT_NOT_CHARGEBACKABLE
+    error === PAYMENT_NOT_CHARGEBACKABLE ||
+    error === REFUND_EXCEEDS_REMAINING
   ) {
     return 422;
   }

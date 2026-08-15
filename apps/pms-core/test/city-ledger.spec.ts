@@ -362,23 +362,30 @@ describe('city ledger statements', () => {
     const idem = await idemFor('cla-stmt', genFp);
     const first = await stub.tryGenerateCityLedgerStatement(TEST_OWNER_ACTOR, genFp, idem);
     expect(first).toMatchObject({ ok: true });
-    if (!first.ok) return;
-    expect(first.r2Key).toContain(`city-ledger-statements/${propertyId}/${created.accountId}/`);
-    expect(first.sha256).toBeTruthy();
-    expect(first.snapshot.totals.openMinor).toBe(4_000);
-    expect(Array.isArray(first.snapshot.entries)).toBe(true);
+    if (!first.ok) throw new Error(`generate statement failed: ${first.error}`);
+    const firstOk = first as unknown as {
+      ok: true;
+      statementId: string;
+      r2Key: string;
+      sha256: string;
+      snapshot: { totals: { openMinor: number }; entries: unknown[] };
+    };
+    expect(firstOk.r2Key).toContain(`city-ledger-statements/${propertyId}/${created.accountId}/`);
+    expect(firstOk.sha256).toBeTruthy();
+    expect(firstOk.snapshot.totals.openMinor).toBe(4_000);
+    expect(Array.isArray(firstOk.snapshot.entries)).toBe(true);
 
-    const obj = await env.EVENT_LOG_R2.get(first.r2Key);
+    const obj = await env.EVENT_LOG_R2!.get(firstOk.r2Key);
     expect(obj).not.toBeNull();
     const body = new Uint8Array(await obj!.arrayBuffer());
-    expect(await sha256HexFromBody(body)).toBe(first.sha256);
+    expect(await sha256HexFromBody(body)).toBe(firstOk.sha256);
 
     const replay = await stub.tryGenerateCityLedgerStatement(TEST_OWNER_ACTOR, genFp, idem);
     expect(replay).toMatchObject({
       ok: true,
-      statementId: first.statementId,
-      r2Key: first.r2Key,
-      sha256: first.sha256,
+      statementId: firstOk.statementId,
+      r2Key: firstOk.r2Key,
+      sha256: firstOk.sha256,
     });
   });
 
@@ -395,16 +402,27 @@ describe('city ledger statements', () => {
       await idemFor('cla-get-stmt', genFp),
     );
     expect(generated.ok).toBe(true);
-    if (!generated.ok) return;
-
-    const got = await stub.readCityLedgerStatement({
-      accountId: created.accountId,
-      statementId: generated.statementId,
-    });
-    expect(got.ok).toBe(true);
-    if (!got.ok) return;
-    expect(got.statementId).toBe(generated.statementId);
-    expect(got.snapshot.totals.openMinor).toBeDefined();
+    if (generated.ok) {
+      const generatedOk = generated as unknown as { ok: true; statementId: string };
+      const got = await stub.readCityLedgerStatement({
+        accountId: created.accountId,
+        statementId: generatedOk.statementId,
+      });
+      expect(got.ok).toBe(true);
+      if (got.ok) {
+        const gotOk = got as unknown as {
+          ok: true;
+          statementId: string;
+          snapshot: { totals: { openMinor: number } };
+        };
+        expect(gotOk.statementId).toBe(generatedOk.statementId);
+        expect(gotOk.snapshot.totals.openMinor).toBeDefined();
+      } else {
+        throw new Error(`read statement failed: ${got.error}`);
+      }
+    } else {
+      throw new Error(`generate statement failed: ${generated.error}`);
+    }
 
     const missing = await stub.readCityLedgerStatement({
       accountId: created.accountId,
@@ -1069,23 +1087,26 @@ describe('city ledger HTTP dispatch', () => {
       await idemFor('cla-http-stmt', genFp),
     );
     expect(generated.ok).toBe(true);
-    if (!generated.ok) return;
-
-    const got = await getCityLedgerStatementHttp(
-      propertyId,
-      HTTP_ACTOR,
-      created.accountId,
-      generated.statementId,
-    );
-    expect(got.status).toBe(200);
-    const body = (await got.json()) as {
-      statementId: string;
-      accountId: string;
-      snapshot: { totals: { openMinor: number } };
-    };
-    expect(body.statementId).toBe(generated.statementId);
-    expect(body.accountId).toBe(created.accountId);
-    expect(body.snapshot.totals.openMinor).toBe(4_000);
+    if (generated.ok) {
+      const generatedOk = generated as unknown as { ok: true; statementId: string };
+      const got = await getCityLedgerStatementHttp(
+        propertyId,
+        HTTP_ACTOR,
+        created.accountId,
+        generatedOk.statementId,
+      );
+      expect(got.status).toBe(200);
+      const body = (await got.json()) as {
+        statementId: string;
+        accountId: string;
+        snapshot: { totals: { openMinor: number } };
+      };
+      expect(body.statementId).toBe(generatedOk.statementId);
+      expect(body.accountId).toBe(created.accountId);
+      expect(body.snapshot.totals.openMinor).toBe(4_000);
+    } else {
+      throw new Error(`generate statement failed: ${generated.error}`);
+    }
 
     const missing = await getCityLedgerStatementHttp(
       propertyId,

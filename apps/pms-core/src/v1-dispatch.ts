@@ -5110,39 +5110,45 @@ async function handleGetCityLedgerStatement(ctx: V1DispatchContext): Promise<Res
 
   try {
     const result = await resolvedCtx.resolved.stub.readCityLedgerStatement({ accountId, statementId });
-    if (!result.ok) {
-      if (result.error === CITY_LEDGER_STATEMENT_NOT_FOUND) {
-        return json({ ok: false, error: result.error }, 404);
+    if (result.ok) {
+      const ok = result as unknown as {
+        ok: true;
+        snapshot: Record<string, unknown>;
+        r2Key: string;
+        statementId: string;
+        accountId: string;
+      };
+      const { snapshot, r2Key, statementId: stmtId, accountId: acctId } = ok;
+      const asOfDate = typeof snapshot.asOfDate === 'string' ? snapshot.asOfDate : null;
+      const generatedAt = typeof snapshot.generatedAt === 'number' ? snapshot.generatedAt : null;
+      let sha256: string | null = null;
+      const obj = await ctx.env.EVENT_LOG_R2?.get(r2Key);
+      if (obj) {
+        const encoded = new TextEncoder().encode(await obj.text());
+        const digest = await crypto.subtle.digest('SHA-256', encoded);
+        sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
       }
-      if (result.error === CITY_LEDGER_R2_UNBOUND) {
-        return json({ ok: false, error: result.error }, 503);
-      }
-      return json({ ok: false, error: result.error }, 422);
-    }
 
-    const snapshot = result.snapshot;
-    const asOfDate = typeof snapshot.asOfDate === 'string' ? snapshot.asOfDate : null;
-    const generatedAt = typeof snapshot.generatedAt === 'number' ? snapshot.generatedAt : null;
-    let sha256: string | null = null;
-    const obj = await ctx.env.EVENT_LOG_R2?.get(result.r2Key);
-    if (obj) {
-      const encoded = new TextEncoder().encode(await obj.text());
-      const digest = await crypto.subtle.digest('SHA-256', encoded);
-      sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      return json(
+        {
+          statementId: stmtId,
+          accountId: acctId,
+          asOfDate,
+          r2Key,
+          sha256,
+          generatedAt,
+          snapshot,
+        },
+        200,
+      );
     }
-
-    return json(
-      {
-        statementId: result.statementId,
-        accountId: result.accountId,
-        asOfDate,
-        r2Key: result.r2Key,
-        sha256,
-        generatedAt,
-        snapshot,
-      },
-      200,
-    );
+    if (result.error === CITY_LEDGER_STATEMENT_NOT_FOUND) {
+      return json({ ok: false, error: result.error }, 404);
+    }
+    if (result.error === CITY_LEDGER_R2_UNBOUND) {
+      return json({ ok: false, error: result.error }, 503);
+    }
+    return json({ ok: false, error: result.error }, 422);
   } catch (e) {
     if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
     throw e;

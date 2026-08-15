@@ -50,13 +50,16 @@ function wireCode(err: unknown): string | null {
   return null;
 }
 
-function inventoryErrorCopy(err: unknown): string {
+function inventoryErrorCopy(err: unknown, context?: 'room' | 'type'): string {
   const code = wireCode(err);
   if (code === 'room_type_code_exists') return 'An active room type already uses this code.';
   if (code === 'room_units_exceed_count') {
-    return 'Cannot lower room count below the number of rooms. Rename rooms or wait for a delete path.';
+    return 'Cannot lower room count below the number of live rooms. Archive extra units first.';
   }
   if (code === 'archive_blocked') {
+    if (context === 'room') {
+      return 'This room has a live reservation or a future out-of-order period — it cannot be archived.';
+    }
     return 'This type still has future sold or blocked inventory — it cannot be archived.';
   }
   if (code === 'constituent_in_use') {
@@ -108,6 +111,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<RoomTypeRow | null>(null);
+  const [roomArchiveTarget, setRoomArchiveTarget] = useState<{ roomId: string; code: string } | null>(
+    null,
+  );
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -191,6 +197,15 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
     },
   });
 
+  const archiveRoomUnit = useMutation({
+    mutationFn: ({ roomId }: { roomId: string }) => api.archiveRoom(propertyId, roomId),
+    onSuccess: async () => {
+      setRoomArchiveTarget(null);
+      setMessage('Saved.');
+      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+    },
+  });
+
   const saveType = useMutation({
     mutationFn: (t: RoomTypeRow) =>
       api.updateRoomType(propertyId, t.roomTypeId, {
@@ -245,8 +260,21 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           {message}
         </p>
       ) : null}
-      {createType.isError || archiveType.isError || addRoom.isError || saveType.isError ? (
-        <Alert>{inventoryErrorCopy(createType.error ?? archiveType.error ?? addRoom.error ?? saveType.error)}</Alert>
+      {createType.isError ||
+      archiveType.isError ||
+      archiveRoomUnit.isError ||
+      addRoom.isError ||
+      saveType.isError ? (
+        <Alert>
+          {inventoryErrorCopy(
+            createType.error ??
+              archiveRoomUnit.error ??
+              archiveType.error ??
+              addRoom.error ??
+              saveType.error,
+            archiveRoomUnit.isError ? 'room' : archiveType.isError ? 'type' : undefined,
+          )}
+        </Alert>
       ) : null}
 
       {activeTab === 'types' ? (
@@ -537,6 +565,15 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                               >
                                 Save Room {room.code}
                               </Button>
+                              <Button
+                                type="button"
+                                intent="destructive"
+                                onClick={() =>
+                                  setRoomArchiveTarget({ roomId: room.roomId, code: room.code })
+                                }
+                              >
+                                Archive {room.code}
+                              </Button>
                             </DataTableCell>
                           </DataTableRow>
                         );
@@ -616,6 +653,24 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
             disabled={archiveType.isPending}
           >
             {archiveType.isPending ? 'Archiving…' : 'Archive'}
+          </Button>
+        </div>
+      ) : null}
+      {roomArchiveTarget ? (
+        <div role="dialog" aria-modal="true" className="panel overscroll-contain">
+          <p>
+            Archive {roomArchiveTarget.code}? It will free a unit slot. History stays.
+          </p>
+          <Button type="button" onClick={() => setRoomArchiveTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            intent="destructive"
+            onClick={() => archiveRoomUnit.mutate({ roomId: roomArchiveTarget.roomId })}
+            disabled={archiveRoomUnit.isPending}
+          >
+            {archiveRoomUnit.isPending ? 'Archiving…' : 'Archive'}
           </Button>
         </div>
       ) : null}

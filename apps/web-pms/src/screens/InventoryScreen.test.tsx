@@ -9,6 +9,7 @@ const listRooms = vi.fn();
 const createRoomType = vi.fn();
 const updateRoomType = vi.fn();
 const archiveRoomType = vi.fn();
+const archiveRoom = vi.fn();
 const createRoom = vi.fn();
 const updateRoom = vi.fn();
 
@@ -20,6 +21,7 @@ vi.mock('../client.js', () => ({
     createRoomType: (...a: unknown[]) => createRoomType(...a),
     updateRoomType: (...a: unknown[]) => updateRoomType(...a),
     archiveRoomType: (...a: unknown[]) => archiveRoomType(...a),
+    archiveRoom: (...a: unknown[]) => archiveRoom(...a),
     createRoom: (...a: unknown[]) => createRoom(...a),
     updateRoom: (...a: unknown[]) => updateRoom(...a),
   },
@@ -97,6 +99,7 @@ describe('InventoryScreen', () => {
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
     createRoomType.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     archiveRoomType.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    archiveRoom.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createRoom.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     updateRoom.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     updateRoomType.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
@@ -337,7 +340,65 @@ describe('InventoryScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Room Type' }));
     expect(
       await screen.findByText(
-        'Cannot lower room count below the number of rooms. Rename rooms or wait for a delete path.',
+        'Cannot lower room count below the number of live rooms. Archive extra units first.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('rooms tab: archive unit confirm copy and success invalidates rooms query', async () => {
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [king] });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_1',
+          roomTypeId: 'rt_king',
+          code: '10I',
+          status: 'clean',
+          floor: null,
+          oooRanges: [],
+        },
+      ],
+    });
+    renderInventory('rooms');
+    expect(await screen.findByDisplayValue('10I')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive 10I' }));
+    expect(
+      screen.getByText('Archive 10I? It will free a unit slot. History stays.'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(archiveRoom).toHaveBeenCalledWith('prop_demo', 'rm_1'));
+  });
+
+  it('room archive archive_blocked uses room-specific copy', async () => {
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [king] });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_1',
+          roomTypeId: 'rt_king',
+          code: '101',
+          status: 'clean',
+          floor: null,
+          oooRanges: [],
+        },
+      ],
+    });
+    archiveRoom.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 409,
+        body: { ok: false, error: 'archive_blocked' },
+        retryAfterMs: null,
+      }),
+    );
+    renderInventory('rooms');
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive 101' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    expect(
+      await screen.findByText(
+        'This room has a live reservation or a future out-of-order period — it cannot be archived.',
       ),
     ).toBeTruthy();
   });

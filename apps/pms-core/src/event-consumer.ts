@@ -140,6 +140,11 @@ export async function handleDomainEvent(
     case 'rate_promo.changed':
     case 'invoice.generated':
     case 'invoice.voided':
+    case 'city_ledger.account_created':
+    case 'city_ledger.account_updated':
+    case 'city_ledger.account_archived':
+    case 'city_ledger.payment_received':
+    case 'city_ledger.statement_generated':
     case 'charge_code.changed':
     case 'folio.routing_rule_changed':
     case 'tax_rule.changed':

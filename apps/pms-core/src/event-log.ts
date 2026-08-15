@@ -27,6 +27,18 @@ export function invoicesPrefixForProperty(propertyId: string): string {
   return `invoices/${propertyId}/`;
 }
 
+export function cityLedgerStatementObjectKey(
+  propertyId: string,
+  accountId: string,
+  statementId: string,
+): string {
+  return `city-ledger-statements/${propertyId}/${accountId}/${statementId}.json`;
+}
+
+export function cityLedgerStatementsPrefixForProperty(propertyId: string): string {
+  return `city-ledger-statements/${propertyId}/`;
+}
+
 export function eventLogPrefixesForOrg(orgId: string, propertyIds: string[]): string[] {
   return [
     eventLogPrefix({ do: 'org', id: orgId }),

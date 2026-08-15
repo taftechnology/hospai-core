@@ -63,6 +63,15 @@ import {
   INVOICE_REQUIRED,
   INVOICE_R2_UNBOUND,
   INVOICE_VOIDED,
+  CITY_LEDGER_ACCOUNT_NOT_FOUND,
+  CITY_LEDGER_ACCOUNT_EXISTS,
+  CITY_LEDGER_ACCOUNT_ARCHIVED,
+  CITY_LEDGER_CREDIT_LIMIT_EXCEEDED,
+  CITY_LEDGER_BILLED_PARTY_INVALID,
+  CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE,
+  CITY_LEDGER_STATEMENT_NOT_FOUND,
+  CITY_LEDGER_R2_UNBOUND,
+  CITY_LEDGER_CHARGE_ALREADY_POSTED,
   WINDOW_CLOSED,
   WINDOW_NOT_CLOSABLE,
   WINDOW_BALANCE_DUE,
@@ -227,7 +236,12 @@ import {
 } from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
-import { hasEventLogR2, invoiceObjectKey, reportObjectKey } from './event-log.js';
+import {
+  cityLedgerStatementObjectKey,
+  hasEventLogR2,
+  invoiceObjectKey,
+  reportObjectKey,
+} from './event-log.js';
 
 type PaymentStatus =
   | 'pending'
@@ -806,6 +820,140 @@ class InvoiceRequiredError extends Error {
   }
 }
 
+class CityLedgerError extends Error {
+  constructor(public code: string) {
+    super(code);
+    this.name = 'CityLedgerError';
+  }
+}
+
+class CityLedgerCreditLimitExceededError extends Error {
+  constructor() {
+    super(CITY_LEDGER_CREDIT_LIMIT_EXCEEDED);
+    this.name = 'CityLedgerCreditLimitExceededError';
+  }
+}
+
+class CityLedgerBilledPartyInvalidError extends Error {
+  constructor() {
+    super(CITY_LEDGER_BILLED_PARTY_INVALID);
+    this.name = 'CityLedgerBilledPartyInvalidError';
+  }
+}
+
+class CityLedgerR2UnboundError extends Error {
+  constructor() {
+    super(CITY_LEDGER_R2_UNBOUND);
+    this.name = 'CityLedgerR2UnboundError';
+  }
+}
+
+class CityLedgerStatementNotFoundError extends Error {
+  constructor() {
+    super(CITY_LEDGER_STATEMENT_NOT_FOUND);
+    this.name = 'CityLedgerStatementNotFoundError';
+  }
+}
+
+type CityLedgerAgingBuckets = {
+  currentMinor: number;
+  days30Minor: number;
+  days60Minor: number;
+  days90PlusMinor: number;
+  totalOpenMinor: number;
+};
+
+type CityLedgerEntryForAging = {
+  entryId: string;
+  kind: 'charge' | 'payment' | 'adjustment';
+  amountMinor: number;
+  businessDate: string;
+  createdAt: number;
+};
+
+function cityLedgerCalendarDaysBetween(fromYmd: string, toYmd: string): number {
+  const fromMs = Date.parse(`${fromYmd}T00:00:00Z`);
+  const toMs = Date.parse(`${toYmd}T00:00:00Z`);
+  return Math.floor((toMs - fromMs) / 86_400_000);
+}
+
+function cityLedgerAddCalendarDays(isoDate: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) throw new Error(`invalid date: ${isoDate}`);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d + days));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+function buildAgingBucketsSync(
+  entries: CityLedgerEntryForAging[],
+  termsDays: number,
+  asOfDate: string,
+): CityLedgerAgingBuckets {
+  const sorted = [...entries].sort((a, b) =>
+    a.businessDate !== b.businessDate ? a.businessDate.localeCompare(b.businessDate) : a.createdAt - b.createdAt,
+  );
+
+  type Receivable = {
+    openMinor: number;
+    dueDate: string;
+  };
+  const receivables: Receivable[] = [];
+  let paymentPoolMinor = 0;
+
+  for (const entry of sorted) {
+    if (entry.kind === 'payment') {
+      paymentPoolMinor += entry.amountMinor;
+      continue;
+    }
+    if (entry.kind === 'charge') {
+      receivables.push({
+        openMinor: entry.amountMinor,
+        dueDate: cityLedgerAddCalendarDays(entry.businessDate, termsDays),
+      });
+      continue;
+    }
+    if (entry.amountMinor >= 0) {
+      receivables.push({
+        openMinor: entry.amountMinor,
+        dueDate: cityLedgerAddCalendarDays(entry.businessDate, termsDays),
+      });
+    } else {
+      paymentPoolMinor += -entry.amountMinor;
+    }
+  }
+
+  let remainingPaymentMinor = paymentPoolMinor;
+  for (const receivable of receivables) {
+    if (remainingPaymentMinor <= 0) break;
+    const applied = Math.min(receivable.openMinor, remainingPaymentMinor);
+    receivable.openMinor -= applied;
+    remainingPaymentMinor -= applied;
+  }
+
+  const buckets: CityLedgerAgingBuckets = {
+    currentMinor: 0,
+    days30Minor: 0,
+    days60Minor: 0,
+    days90PlusMinor: 0,
+    totalOpenMinor: 0,
+  };
+
+  for (const receivable of receivables) {
+    if (receivable.openMinor <= 0) continue;
+    buckets.totalOpenMinor += receivable.openMinor;
+    const daysOverdue = Math.max(0, cityLedgerCalendarDaysBetween(receivable.dueDate, asOfDate));
+    if (daysOverdue === 0) buckets.currentMinor += receivable.openMinor;
+    else if (daysOverdue <= 30) buckets.days30Minor += receivable.openMinor;
+    else if (daysOverdue <= 60) buckets.days60Minor += receivable.openMinor;
+    else buckets.days90PlusMinor += receivable.openMinor;
+  }
+
+  return buckets;
+}
+
 class WindowClosedError extends Error {
   constructor() {
     super(WINDOW_CLOSED);
@@ -967,6 +1115,15 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof INVOICE_R2_UNBOUND }
   | { ok: false; error: typeof INVOICE_NOT_FOUND }
   | { ok: false; error: typeof INVOICE_VOIDED }
+  | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+  | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_EXISTS }
+  | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_ARCHIVED }
+  | { ok: false; error: typeof CITY_LEDGER_CREDIT_LIMIT_EXCEEDED }
+  | { ok: false; error: typeof CITY_LEDGER_BILLED_PARTY_INVALID }
+  | { ok: false; error: typeof CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE }
+  | { ok: false; error: typeof CITY_LEDGER_STATEMENT_NOT_FOUND }
+  | { ok: false; error: typeof CITY_LEDGER_R2_UNBOUND }
+  | { ok: false; error: typeof CITY_LEDGER_CHARGE_ALREADY_POSTED }
   | null {
   if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
   if (e instanceof ProvisionalBusinessDateClosedError) {
@@ -1012,6 +1169,17 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof InvoiceR2UnboundError) return { ok: false, error: INVOICE_R2_UNBOUND };
   if (e instanceof InvoiceNotFoundError) return { ok: false, error: INVOICE_NOT_FOUND };
   if (e instanceof InvoiceVoidedError) return { ok: false, error: INVOICE_VOIDED };
+  if (e instanceof CityLedgerError) return { ok: false, error: e.code as typeof CITY_LEDGER_ACCOUNT_NOT_FOUND };
+  if (e instanceof CityLedgerCreditLimitExceededError) {
+    return { ok: false, error: CITY_LEDGER_CREDIT_LIMIT_EXCEEDED };
+  }
+  if (e instanceof CityLedgerBilledPartyInvalidError) {
+    return { ok: false, error: CITY_LEDGER_BILLED_PARTY_INVALID };
+  }
+  if (e instanceof CityLedgerR2UnboundError) return { ok: false, error: CITY_LEDGER_R2_UNBOUND };
+  if (e instanceof CityLedgerStatementNotFoundError) {
+    return { ok: false, error: CITY_LEDGER_STATEMENT_NOT_FOUND };
+  }
   return null;
 }
 
@@ -18875,6 +19043,1015 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async drainOutboxBatch(opts?: { maxMessages?: number; maxBytes?: number }): Promise<OutboxRow[]> {
     return drainOutbox(this.ctx.storage.sql, { ...opts, source: this.outboxSourceSync() }).rows;
   }
+
+  private readCityLedgerAsOfDateSync(asOfDate?: string): string {
+    if (asOfDate) return asOfDate;
+    return this.readBusinessDateSync() ?? new Date().toISOString().slice(0, 10);
+  }
+
+  private readCityLedgerAccountRowSync(accountId: string): {
+    accountId: string;
+    name: string;
+    status: 'active' | 'archived';
+    creditLimitMinor: number;
+    termsDays: number;
+    createdAt: number;
+    updatedAt: number;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT account_id, name, status, credit_limit_minor, terms_days, created_at, updated_at
+         FROM city_ledger_account WHERE account_id = ?`,
+        accountId,
+      )
+      .toArray() as Array<{
+      account_id: string;
+      name: string;
+      status: 'active' | 'archived';
+      credit_limit_minor: number;
+      terms_days: number;
+      created_at: number;
+      updated_at: number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      accountId: row.account_id,
+      name: row.name,
+      status: row.status,
+      creditLimitMinor: row.credit_limit_minor,
+      termsDays: row.terms_days,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private readCityLedgerEntriesForAccountSync(accountId: string): CityLedgerEntryForAging[] {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT entry_id, kind, amount_minor, business_date, created_at
+         FROM city_ledger_entry
+         WHERE account_id = ?
+         ORDER BY business_date ASC, created_at ASC`,
+        accountId,
+      )
+      .toArray() as Array<{
+      entry_id: string;
+      kind: 'charge' | 'payment' | 'adjustment';
+      amount_minor: number;
+      business_date: string;
+      created_at: number;
+    }>;
+    return rows.map((row) => ({
+      entryId: row.entry_id,
+      kind: row.kind,
+      amountMinor: row.amount_minor,
+      businessDate: row.business_date,
+      createdAt: row.created_at,
+    }));
+  }
+
+  private openBalanceMinorSync(accountId: string): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT COALESCE(SUM(
+           CASE
+             WHEN kind = 'charge' THEN amount_minor
+             WHEN kind = 'payment' THEN -amount_minor
+             WHEN kind = 'adjustment' THEN amount_minor
+             ELSE 0
+           END
+         ), 0) AS total
+         FROM city_ledger_entry WHERE account_id = ?`,
+        accountId,
+      )
+      .toArray() as Array<{ total: number }>;
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  private resolveCityLedgerAccountSync(
+    raw: string,
+  ): { accountId: string; name: string; status: 'active' | 'archived' } | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT account_id, name, status FROM city_ledger_account
+         WHERE account_id = ? OR name = ?
+         LIMIT 1`,
+        trimmed,
+        trimmed,
+      )
+      .toArray() as Array<{ account_id: string; name: string; status: 'active' | 'archived' }>;
+    const row = rows[0];
+    return row ? { accountId: row.account_id, name: row.name, status: row.status } : null;
+  }
+
+  private hasGrandfatheredCompanyBilledPartySync(billedParty: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 FROM folio_window WHERE kind = 'COMPANY' AND billed_party = ? LIMIT 1`,
+        billedParty,
+      )
+      .toArray();
+    return rows.length > 0;
+  }
+
+  private buildCityLedgerStatementSnapshotSync(input: {
+    accountId: string;
+    statementId: string;
+    asOfDate: string;
+    propertyId: string;
+  }): Record<string, unknown> {
+    const account = this.readCityLedgerAccountRowSync(input.accountId);
+    if (!account) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_NOT_FOUND);
+
+    const entries = this.readCityLedgerEntriesForAccountSync(input.accountId);
+    const aging = buildAgingBucketsSync(entries, account.termsDays, input.asOfDate);
+
+    const detailRows = this.ctx.storage.sql
+      .exec(
+        `SELECT entry_id, kind, amount_minor, business_date, reservation_id, folio_window_id, source, reference, created_at
+         FROM city_ledger_entry
+         WHERE account_id = ?
+         ORDER BY business_date ASC, created_at ASC`,
+        input.accountId,
+      )
+      .toArray() as Array<{
+      entry_id: string;
+      kind: 'charge' | 'payment' | 'adjustment';
+      amount_minor: number;
+      business_date: string;
+      reservation_id: string | null;
+      folio_window_id: string | null;
+      source: string;
+      reference: string | null;
+      created_at: number;
+    }>;
+
+    const openEntries = detailRows.map((row) => {
+      const dueDate = cityLedgerAddCalendarDays(row.business_date, account.termsDays);
+      const daysOverdue = Math.max(0, cityLedgerCalendarDaysBetween(dueDate, input.asOfDate));
+      return {
+        entryId: row.entry_id,
+        kind: row.kind,
+        amountMinor: row.amount_minor,
+        businessDate: row.business_date,
+        dueDate,
+        daysOverdue,
+        reservationId: row.reservation_id,
+        folioWindowId: row.folio_window_id,
+        source: row.source,
+        reference: row.reference,
+        createdAt: row.created_at,
+      };
+    });
+
+    let chargesMinor = 0;
+    let paymentsMinor = 0;
+    let adjustmentsMinor = 0;
+    for (const entry of entries) {
+      if (entry.kind === 'charge') chargesMinor += entry.amountMinor;
+      else if (entry.kind === 'payment') paymentsMinor += entry.amountMinor;
+      else adjustmentsMinor += entry.amountMinor;
+    }
+
+    return {
+      schemaVersion: 1,
+      statementId: input.statementId,
+      accountId: input.accountId,
+      propertyId: input.propertyId,
+      asOfDate: input.asOfDate,
+      generatedAt: Date.now(),
+      account: {
+        name: account.name,
+        termsDays: account.termsDays,
+        creditLimitMinor: account.creditLimitMinor,
+        status: account.status,
+      },
+      ledgerCurrency: this.readStoredLedgerCurrencySync(),
+      aging,
+      entries: openEntries,
+      totals: {
+        chargesMinor,
+        paymentsMinor,
+        adjustmentsMinor,
+        openMinor: aging.totalOpenMinor,
+      },
+    };
+  }
+
+  private async putCityLedgerStatementObject(
+    propertyId: string,
+    accountId: string,
+    statementId: string,
+    body: unknown,
+  ): Promise<{ r2Key: string; sha256: string }> {
+    let bucket: R2Bucket;
+    try {
+      bucket = this.assertReportsR2Bound();
+    } catch (e) {
+      if (e instanceof Error && e.message === 'reports_r2_unbound') {
+        throw new CityLedgerR2UnboundError();
+      }
+      throw e;
+    }
+    const encoded = new TextEncoder().encode(JSON.stringify(body));
+    const sha256 = await this.sha256Hex(encoded);
+    const r2Key = cityLedgerStatementObjectKey(propertyId, accountId, statementId);
+    await bucket.put(r2Key, encoded);
+    return { r2Key, sha256 };
+  }
+
+  async tryCreateCityLedgerAccount(
+    actor: ActorContext,
+    input: { name: string; creditLimitMinor?: number; termsDays?: number },
+    idem: IdempotencyKey,
+  ): Promise<
+    | {
+        ok: true;
+        accountId: string;
+        name: string;
+        status: 'active';
+        creditLimitMinor: number;
+        termsDays: number;
+      }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_EXISTS }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const normalizedName = input.name.trim();
+    if (normalizedName.length < 1 || normalizedName.length > 128) {
+      return { ok: false, error: 'validation_error' };
+    }
+    const creditLimitMinor = input.creditLimitMinor ?? 0;
+    const termsDays = input.termsDays ?? 30;
+    if (!Number.isInteger(creditLimitMinor) || creditLimitMinor < 0) {
+      return { ok: false, error: 'validation_error' };
+    }
+    if (!Number.isInteger(termsDays) || termsDays < 0) {
+      return { ok: false, error: 'validation_error' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT account_id FROM city_ledger_account WHERE name = ?`, normalizedName)
+            .toArray();
+          if (existing.length > 0) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_EXISTS);
+
+          const accountId = crypto.randomUUID();
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO city_ledger_account
+             (account_id, name, status, credit_limit_minor, terms_days, created_at, updated_at)
+             VALUES (?, ?, 'active', ?, ?, ?, ?)`,
+            accountId,
+            normalizedName,
+            creditLimitMinor,
+            termsDays,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'city_ledger.account_created',
+            payload: { propertyId, accountId, name: normalizedName, creditLimitMinor, termsDays },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'city_ledger.create_account',
+            entityType: 'city_ledger_account',
+            entityId: accountId,
+            beforeJson: null,
+            afterJson: {
+              accountId,
+              name: normalizedName,
+              status: 'active',
+              creditLimitMinor,
+              termsDays,
+            },
+          });
+
+          return {
+            ok: true as const,
+            accountId,
+            name: normalizedName,
+            status: 'active' as const,
+            creditLimitMinor,
+            termsDays,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryUpdateCityLedgerAccount(
+    actor: ActorContext,
+    input: {
+      accountId: string;
+      name?: string;
+      creditLimitMinor?: number;
+      termsDays?: number;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | {
+        ok: true;
+        accountId: string;
+        name: string;
+        status: 'active' | 'archived';
+        creditLimitMinor: number;
+        termsDays: number;
+      }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_EXISTS }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_ARCHIVED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const account = this.readCityLedgerAccountRowSync(input.accountId);
+          if (!account) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_NOT_FOUND);
+          if (account.status === 'archived') throw new CityLedgerError(CITY_LEDGER_ACCOUNT_ARCHIVED);
+
+          const nextName = input.name !== undefined ? input.name.trim() : account.name;
+          if (nextName.length < 1 || nextName.length > 128) {
+            throw new Error('validation_error');
+          }
+          const nextCreditLimitMinor = input.creditLimitMinor ?? account.creditLimitMinor;
+          const nextTermsDays = input.termsDays ?? account.termsDays;
+          if (!Number.isInteger(nextCreditLimitMinor) || nextCreditLimitMinor < 0) {
+            throw new Error('validation_error');
+          }
+          if (!Number.isInteger(nextTermsDays) || nextTermsDays < 0) {
+            throw new Error('validation_error');
+          }
+
+          if (nextName !== account.name) {
+            const collision = this.ctx.storage.sql
+              .exec(
+                `SELECT account_id FROM city_ledger_account WHERE name = ? AND account_id != ?`,
+                nextName,
+                input.accountId,
+              )
+              .toArray();
+            if (collision.length > 0) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_EXISTS);
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE city_ledger_account
+             SET name = ?, credit_limit_minor = ?, terms_days = ?, updated_at = ?
+             WHERE account_id = ?`,
+            nextName,
+            nextCreditLimitMinor,
+            nextTermsDays,
+            now,
+            input.accountId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'city_ledger.account_updated',
+            payload: {
+              propertyId,
+              accountId: input.accountId,
+              name: nextName,
+              creditLimitMinor: nextCreditLimitMinor,
+              termsDays: nextTermsDays,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'city_ledger.update_account',
+            entityType: 'city_ledger_account',
+            entityId: input.accountId,
+            beforeJson: {
+              name: account.name,
+              creditLimitMinor: account.creditLimitMinor,
+              termsDays: account.termsDays,
+            },
+            afterJson: {
+              name: nextName,
+              creditLimitMinor: nextCreditLimitMinor,
+              termsDays: nextTermsDays,
+            },
+          });
+
+          return {
+            ok: true as const,
+            accountId: input.accountId,
+            name: nextName,
+            status: account.status,
+            creditLimitMinor: nextCreditLimitMinor,
+            termsDays: nextTermsDays,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryArchiveCityLedgerAccount(
+    actor: ActorContext,
+    input: { accountId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; accountId: string; status: 'archived' }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+    | { ok: false; error: typeof CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const account = this.readCityLedgerAccountRowSync(input.accountId);
+          if (!account) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_NOT_FOUND);
+          if (account.status === 'archived') {
+            return { ok: true as const, accountId: input.accountId, status: 'archived' as const };
+          }
+
+          const openBalanceMinor = this.openBalanceMinorSync(input.accountId);
+          if (openBalanceMinor !== 0) {
+            throw new CityLedgerError(CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE);
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE city_ledger_account SET status = 'archived', updated_at = ? WHERE account_id = ?`,
+            now,
+            input.accountId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'city_ledger.account_archived',
+            payload: { propertyId, accountId: input.accountId },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'city_ledger.archive_account',
+            entityType: 'city_ledger_account',
+            entityId: input.accountId,
+            beforeJson: { status: 'active' },
+            afterJson: { status: 'archived' },
+          });
+
+          return { ok: true as const, accountId: input.accountId, status: 'archived' as const };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryReceiveCityLedgerPayment(
+    actor: ActorContext,
+    input: {
+      accountId: string;
+      amountMinor: number;
+      businessDate?: string;
+      reference?: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; entryId: string; openBalanceMinor: number }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_ARCHIVED }
+    | { ok: false; error: typeof CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const businessDate = input.businessDate ?? this.readCityLedgerAsOfDateSync();
+    const reference = input.reference?.trim() ?? null;
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: 'validation_error' };
+    }
+    if (reference != null && (reference.length < 1 || reference.length > 128)) {
+      return { ok: false, error: 'validation_error' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const account = this.readCityLedgerAccountRowSync(input.accountId);
+          if (!account) throw new CityLedgerError(CITY_LEDGER_ACCOUNT_NOT_FOUND);
+          if (account.status === 'archived') throw new CityLedgerError(CITY_LEDGER_ACCOUNT_ARCHIVED);
+
+          const openBalanceMinor = this.openBalanceMinorSync(input.accountId);
+          if (input.amountMinor > openBalanceMinor) {
+            throw new CityLedgerError(CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE);
+          }
+
+          const entryId = crypto.randomUUID();
+          const now = Date.now();
+          const currency = this.readStoredLedgerCurrencySync() ?? 'USD';
+          this.ctx.storage.sql.exec(
+            `INSERT INTO city_ledger_entry
+             (entry_id, account_id, reservation_id, folio_window_id, kind, amount_minor, currency,
+              business_date, source, reference, created_at)
+             VALUES (?, ?, NULL, NULL, 'payment', ?, ?, ?, 'desk', ?, ?)`,
+            entryId,
+            input.accountId,
+            input.amountMinor,
+            currency,
+            businessDate,
+            reference,
+            now,
+          );
+
+          const nextOpenBalanceMinor = openBalanceMinor - input.amountMinor;
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'city_ledger.payment_received',
+            payload: {
+              propertyId,
+              accountId: input.accountId,
+              entryId,
+              amountMinor: input.amountMinor,
+              openBalanceMinor: nextOpenBalanceMinor,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'city_ledger.receive_payment',
+            entityType: 'city_ledger_entry',
+            entityId: entryId,
+            beforeJson: null,
+            afterJson: {
+              accountId: input.accountId,
+              amountMinor: input.amountMinor,
+              businessDate,
+              reference,
+            },
+          });
+
+          return { ok: true as const, entryId, openBalanceMinor: nextOpenBalanceMinor };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async tryGenerateCityLedgerStatement(
+    actor: ActorContext,
+    input: { accountId: string; asOfDate?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | {
+        ok: true;
+        statementId: string;
+        r2Key: string;
+        sha256: string;
+        snapshot: Record<string, unknown>;
+      }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+    | { ok: false; error: typeof CITY_LEDGER_R2_UNBOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'folio:read');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const asOfDate = input.asOfDate ?? this.readCityLedgerAsOfDateSync();
+
+    type GenerateOk = {
+      ok: true;
+      statementId: string;
+      r2Key: string;
+      sha256: string;
+      snapshot: Record<string, unknown>;
+    };
+
+    const prior = this.lookupIdempotentResponse<GenerateOk>(idem);
+    if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
+    if (prior) return prior;
+
+    const account = this.readCityLedgerAccountRowSync(input.accountId);
+    if (!account) return { ok: false, error: CITY_LEDGER_ACCOUNT_NOT_FOUND };
+
+    const statementId = crypto.randomUUID();
+    const snapshot = this.buildCityLedgerStatementSnapshotSync({
+      accountId: input.accountId,
+      statementId,
+      asOfDate,
+      propertyId,
+    });
+
+    let put: { r2Key: string; sha256: string };
+    try {
+      put = await this.putCityLedgerStatementObject(propertyId, input.accountId, statementId, snapshot);
+    } catch (e) {
+      if (e instanceof CityLedgerR2UnboundError) return { ok: false, error: CITY_LEDGER_R2_UNBOUND };
+      if (e instanceof Error && e.message === 'reports_r2_unbound') {
+        return { ok: false, error: CITY_LEDGER_R2_UNBOUND };
+      }
+      throw e;
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'city_ledger.statement_generated',
+            payload: {
+              propertyId,
+              accountId: input.accountId,
+              statementId,
+              asOfDate,
+              r2Key: put.r2Key,
+              sha256: put.sha256,
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'city_ledger.generate_statement',
+            entityType: 'city_ledger_statement',
+            entityId: statementId,
+            beforeJson: null,
+            afterJson: { accountId: input.accountId, statementId, asOfDate, r2Key: put.r2Key },
+          });
+          return {
+            ok: true as const,
+            statementId,
+            r2Key: put.r2Key,
+            sha256: put.sha256,
+            snapshot,
+          };
+        }),
+      );
+    } catch (e) {
+      const mapped = mapReservationPreconditionError(e);
+      if (mapped) return mapped;
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async readCityLedgerAccounts(input?: { status?: 'active' | 'all' }): Promise<
+    | {
+        ok: true;
+        accounts: Array<{
+          accountId: string;
+          name: string;
+          status: 'active' | 'archived';
+          creditLimitMinor: number;
+          termsDays: number;
+          openBalanceMinor: number;
+          aging: CityLedgerAgingBuckets;
+        }>;
+      }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const status = input?.status ?? 'active';
+    const asOfDate = this.readCityLedgerAsOfDateSync();
+    const rows = this.ctx.storage.sql
+      .exec(
+        status === 'all'
+          ? `SELECT account_id, name, status, credit_limit_minor, terms_days
+             FROM city_ledger_account ORDER BY name ASC`
+          : `SELECT account_id, name, status, credit_limit_minor, terms_days
+             FROM city_ledger_account WHERE status = 'active' ORDER BY name ASC`,
+      )
+      .toArray() as Array<{
+      account_id: string;
+      name: string;
+      status: 'active' | 'archived';
+      credit_limit_minor: number;
+      terms_days: number;
+    }>;
+
+    const accounts = rows.map((row) => {
+      const entries = this.readCityLedgerEntriesForAccountSync(row.account_id);
+      const openBalanceMinor = this.openBalanceMinorSync(row.account_id);
+      const aging = buildAgingBucketsSync(entries, row.terms_days, asOfDate);
+      return {
+        accountId: row.account_id,
+        name: row.name,
+        status: row.status,
+        creditLimitMinor: row.credit_limit_minor,
+        termsDays: row.terms_days,
+        openBalanceMinor,
+        aging,
+      };
+    });
+
+    return { ok: true, accounts };
+  }
+
+  async readCityLedgerAccount(accountId: string): Promise<
+    | {
+        ok: true;
+        accountId: string;
+        name: string;
+        status: 'active' | 'archived';
+        creditLimitMinor: number;
+        termsDays: number;
+        openBalanceMinor: number;
+        aging: CityLedgerAgingBuckets;
+        entries: Array<{
+          entryId: string;
+          kind: 'charge' | 'payment' | 'adjustment';
+          amountMinor: number;
+          businessDate: string;
+          dueDate: string;
+          daysOverdue: number;
+          source: string;
+          reference: string | null;
+          createdAt: number;
+        }>;
+      }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_NOT_FOUND }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const account = this.readCityLedgerAccountRowSync(accountId);
+    if (!account) return { ok: false, error: CITY_LEDGER_ACCOUNT_NOT_FOUND };
+
+    const asOfDate = this.readCityLedgerAsOfDateSync();
+    const rawEntries = this.ctx.storage.sql
+      .exec(
+        `SELECT entry_id, kind, amount_minor, business_date, source, reference, created_at
+         FROM city_ledger_entry
+         WHERE account_id = ?
+         ORDER BY business_date ASC, created_at ASC`,
+        accountId,
+      )
+      .toArray() as Array<{
+      entry_id: string;
+      kind: 'charge' | 'payment' | 'adjustment';
+      amount_minor: number;
+      business_date: string;
+      source: string;
+      reference: string | null;
+      created_at: number;
+    }>;
+
+    const entries = rawEntries.map((row) => {
+      const dueDate = cityLedgerAddCalendarDays(row.business_date, account.termsDays);
+      const daysOverdue = Math.max(0, cityLedgerCalendarDaysBetween(dueDate, asOfDate));
+      return {
+        entryId: row.entry_id,
+        kind: row.kind,
+        amountMinor: row.amount_minor,
+        businessDate: row.business_date,
+        dueDate,
+        daysOverdue,
+        source: row.source,
+        reference: row.reference,
+        createdAt: row.created_at,
+      };
+    });
+
+    const agingEntries = rawEntries.map((row) => ({
+      entryId: row.entry_id,
+      kind: row.kind,
+      amountMinor: row.amount_minor,
+      businessDate: row.business_date,
+      createdAt: row.created_at,
+    }));
+
+    return {
+      ok: true,
+      accountId: account.accountId,
+      name: account.name,
+      status: account.status,
+      creditLimitMinor: account.creditLimitMinor,
+      termsDays: account.termsDays,
+      openBalanceMinor: this.openBalanceMinorSync(accountId),
+      aging: buildAgingBucketsSync(agingEntries, account.termsDays, asOfDate),
+      entries,
+    };
+  }
+
+  async readCityLedgerStatement(input: {
+    accountId: string;
+    statementId: string;
+  }): Promise<
+    | {
+        ok: true;
+        statementId: string;
+        accountId: string;
+        r2Key: string;
+        snapshot: Record<string, unknown>;
+      }
+    | { ok: false; error: typeof CITY_LEDGER_STATEMENT_NOT_FOUND }
+    | { ok: false; error: typeof CITY_LEDGER_R2_UNBOUND }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    let bucket: R2Bucket;
+    try {
+      bucket = this.assertReportsR2Bound();
+    } catch {
+      return { ok: false, error: CITY_LEDGER_R2_UNBOUND };
+    }
+
+    const r2Key = cityLedgerStatementObjectKey(propertyId, input.accountId, input.statementId);
+    const obj = await bucket.get(r2Key);
+    if (!obj) return { ok: false, error: CITY_LEDGER_STATEMENT_NOT_FOUND };
+
+    const snapshot = JSON.parse(await obj.text()) as Record<string, unknown>;
+    return {
+      ok: true,
+      statementId: input.statementId,
+      accountId: input.accountId,
+      r2Key,
+      snapshot,
+    };
+  }
+
+  async validateCityLedgerBilledParty(input: { billedParty: string }): Promise<
+    | { ok: true; billedParty: string; accountId?: string; grandfathered?: true }
+    | { ok: false; error: typeof CITY_LEDGER_BILLED_PARTY_INVALID }
+    | { ok: false; error: typeof CITY_LEDGER_ACCOUNT_ARCHIVED }
+  > {
+    this.assertRpcAvailable();
+    const raw = input.billedParty.trim();
+    if (!raw || raw.length > 128) {
+      return { ok: false, error: CITY_LEDGER_BILLED_PARTY_INVALID };
+    }
+
+    const resolved = this.resolveCityLedgerAccountSync(raw);
+    if (resolved) {
+      if (resolved.status === 'archived') {
+        return { ok: false, error: CITY_LEDGER_ACCOUNT_ARCHIVED };
+      }
+      return { ok: true, billedParty: resolved.name, accountId: resolved.accountId };
+    }
+
+    if (this.hasGrandfatheredCompanyBilledPartySync(raw)) {
+      return { ok: true, billedParty: raw, grandfathered: true };
+    }
+
+    return { ok: false, error: CITY_LEDGER_BILLED_PARTY_INVALID };
+  }
+
+  async seedCityLedgerEntryForTest(input: {
+    accountId: string;
+    kind: 'charge' | 'payment' | 'adjustment';
+    amountMinor: number;
+    businessDate: string;
+    source?: string;
+    reference?: string | null;
+  }): Promise<void> {
+    this.assertUnsafeLocal('seedCityLedgerEntryForTest');
+    const currency = this.readStoredLedgerCurrencySync() ?? 'USD';
+    this.ctx.storage.sql.exec(
+      `INSERT INTO city_ledger_entry
+       (entry_id, account_id, reservation_id, folio_window_id, kind, amount_minor, currency,
+        business_date, source, reference, created_at)
+       VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+      crypto.randomUUID(),
+      input.accountId,
+      input.kind,
+      input.amountMinor,
+      currency,
+      input.businessDate,
+      input.source ?? 'desk',
+      input.reference ?? null,
+      Date.now(),
+    );
+  }
+
+  async seedLegacyCompanyWindowForTest(reservationId: string, billedParty: string): Promise<void> {
+    this.assertUnsafeLocal('seedLegacyCompanyWindowForTest');
+    const slug = billedPartySlug(billedParty);
+    const folioWindowId = `${reservationId}:COMPANY:${slug}`;
+    this.ctx.storage.sql.exec(`DROP TRIGGER IF EXISTS folio_window_billed_party_city_ledger_insert`);
+    try {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO folio_window (folio_window_id, reservation_id, kind, billed_party, status)
+         VALUES (?, ?, 'COMPANY', ?, 'OPEN')`,
+        folioWindowId,
+        reservationId,
+        billedParty,
+      );
+    } finally {
+      this.ctx.storage.sql.exec(`
+        CREATE TRIGGER folio_window_billed_party_city_ledger_insert
+        BEFORE INSERT ON folio_window
+        WHEN NEW.kind = 'COMPANY' AND NEW.billed_party IS NOT NULL
+        BEGIN
+          SELECT RAISE(ABORT, 'city_ledger_billed_party_invalid')
+          WHERE NOT EXISTS (
+            SELECT 1 FROM city_ledger_account
+            WHERE status = 'active'
+              AND (name = NEW.billed_party OR account_id = NEW.billed_party)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM folio_window fw
+            WHERE fw.kind = 'COMPANY' AND fw.billed_party = NEW.billed_party
+          );
+        END`);
+    }
+  }
+
 
   async ackOutboxThrough(seq: number): Promise<void> {
     ackOutboxThroughSql(this.ctx.storage.sql, seq);

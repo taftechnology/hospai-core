@@ -5557,7 +5557,7 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   ctx.observability.propertyId = propertyId;
 
   const body = (await ctx.request.json()) as {
-    splits: Array<{ folioLineId: string; amountMinor: number }>;
+    splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
     idempotencyKey: string;
   };
   if (!body?.splits?.length || !body.idempotencyKey) {
@@ -5742,46 +5742,6 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
     commandPayload,
     observability: ctx.observability,
     invoke: () => resolvedCtx.resolved.stub.tryTransferCharge(actor, commandPayload, idem),
-  });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
-  }
-  return json(result, 200);
-}
-
-async function handlePostFolioSplitV2(ctx: V1DispatchContext): Promise<Response> {
-  const propertyId = decodeURIComponent(ctx.match[1]!);
-  const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
-  ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
-    splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
-    idempotencyKey: string;
-  };
-  if (!body?.splits?.length || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
-  if (resolvedCtx instanceof Response) return resolvedCtx;
-  const commandPayload = { sourceFolioLineId, splits: body.splits };
-  const fingerprint = await fingerprintPayload(commandPayload);
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const idem = { key: body.idempotencyKey, fingerprint };
-  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySplitChargeV2']>>>({
-    env: ctx.env,
-    commandId: 'folio.split_charge_v2',
-    routeId: 'post_folio_split_v2',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
-    invoke: () => resolvedCtx.resolved.stub.trySplitChargeV2(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
@@ -6223,53 +6183,6 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
-  }
-  return json(result, 200);
-}
-
-async function handlePostFolioSplitPayment(ctx: V1DispatchContext): Promise<Response> {
-  const propertyId = decodeURIComponent(ctx.match[1]!);
-  const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
-  ctx.observability.propertyId = propertyId;
-
-  const body = (await ctx.request.json()) as {
-    splits: Array<{ folioLineId: string; amountMinor: number }>;
-    idempotencyKey: string;
-  };
-  if (!body?.splits?.length || !body.idempotencyKey) {
-    return json({ error: 'invalid_body' }, 400);
-  }
-
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
-  if (resolvedCtx instanceof Response) return resolvedCtx;
-
-  const commandPayload = { sourceFolioLineId, splits: body.splits };
-  const fingerprint = await fingerprintPayload(commandPayload);
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const idem = { key: body.idempotencyKey, fingerprint };
-
-  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySplitChargePayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.split_charge_payment',
-    routeId: 'post_folio_split_payment',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
-    invoke: () => resolvedCtx.resolved.stub.trySplitChargePayment(actor, commandPayload, idem),
-  });
-
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
     return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
   }
   return json(result, 200);
@@ -7339,6 +7252,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split$/,
     permission: 'folio:adjust',
     commandId: 'folio.split_charge',
+    entitlement: 'pms.core',
     handler: handlePostFolioSplit,
   },
   {
@@ -7516,14 +7430,6 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:post',
     commandId: 'folio.capture',
     handler: handlePostFolioCapture,
-  },
-  {
-    scope: 'property',
-    method: 'POST',
-    pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split-payment$/,
-    permission: 'folio:adjust',
-    commandId: 'folio.split_charge_payment',
-    handler: handlePostFolioSplitPayment,
   },
   {
     scope: 'property',
@@ -7935,15 +7841,6 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.transfer_charge',
     entitlement: 'pms.core',
     handler: handlePostFolioTransfer,
-  },
-  {
-    scope: 'property',
-    method: 'POST',
-    pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split-v2$/,
-    permission: 'folio:adjust',
-    commandId: 'folio.split_charge_v2',
-    entitlement: 'pms.core',
-    handler: handlePostFolioSplitV2,
   },
   {
     scope: 'property',

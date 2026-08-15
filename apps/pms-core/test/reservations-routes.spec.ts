@@ -5,8 +5,9 @@ import {
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
   NO_SHOW_BEFORE_ARRIVAL,
+  RATE_MISSING,
 } from '@hospai/contracts';
-import { TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
+import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import { parseLogLine } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
@@ -100,6 +101,42 @@ async function provisionHotel(actor: string, roomCount = 10) {
     userId: actor,
   });
   return { orgId, propertyId, actor, arrival: roomTypeData.fromDate, guestRef: guest.guestRef };
+}
+
+async function postRatePlan(
+  propertyId: string,
+  actor: string,
+  body: {
+    ratePlanId: string;
+    code: string;
+    name: string;
+    parentRatePlanId?: string;
+    deriveBps?: number;
+  },
+) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rate-plans`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ idempotencyKey: `idem-plan-${crypto.randomUUID()}`, ...body }),
+    }),
+    env,
+  );
+}
+
+async function postReservation(
+  propertyId: string,
+  actor: string,
+  body: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
 }
 
 async function assignCleanRoom(
@@ -1162,5 +1199,143 @@ describe('reservations vertical HTTP routes', () => {
     );
     expect(replay.status).toBe(409);
     expect(await replay.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
+  });
+
+  describe('booking plan picker (HTTP Lock 9)', () => {
+    it('1: non-BAR ratePlanId persists on reservation and snapshots derived nights', async () => {
+      const actor = `user_plan_http_1_${crypto.randomUUID()}`;
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 1);
+      const childId = `plan_${crypto.randomUUID()}`;
+      expect(
+        (await postRatePlan(propertyId, actor, {
+          ratePlanId: childId,
+          code: 'BAR15',
+          name: 'BAR −15%',
+          parentRatePlanId: DEFAULT_RATE_PLAN_ID,
+          deriveBps: -1500,
+        })).status,
+      ).toBe(201);
+
+      const res = await postReservation(propertyId, actor, {
+        reservationId: `res_plan_1_${crypto.randomUUID()}`,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        ratePlanId: childId,
+        idempotencyKey: `idem-plan-1-${crypto.randomUUID()}`,
+      });
+      expect(res.status).toBe(201);
+
+      const resolved = await resolvePropertyFromRegistry(env, propertyId);
+      const stub = resolved!.stub as DurableObjectStub<PropertyDO>;
+      const reservationId = ((await res.json()) as { reservationId: string }).reservationId;
+      const read = await stub.readReservation(reservationId);
+      expect(read.ok && read.reservation.ratePlanId).toBe(childId);
+      expect(await stub.listReservationRateNightsForTest(reservationId)).toEqual([
+        { stayDate: arrival, amountMinor: 8500, currency: 'USD', ratePlanId: childId },
+      ]);
+    });
+
+    it('2: omit ratePlanId vs explicit BAR — same idempotency acceptance', async () => {
+      const actor = `user_plan_http_2_${crypto.randomUUID()}`;
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 1);
+      const reservationId = `res_plan_2_${crypto.randomUUID()}`;
+      const idempotencyKey = `idem-plan-2-${crypto.randomUUID()}`;
+
+      const first = await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        idempotencyKey,
+      });
+      expect(first.status).toBe(201);
+
+      const replay = await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        ratePlanId: 'BAR',
+        idempotencyKey,
+      });
+      expect(replay.status).toBe(201);
+      expect(await replay.json()).toMatchObject({ ok: true, reservationId });
+    });
+
+    it('3: same key different ratePlanId → idempotency_key_reused', async () => {
+      const actor = `user_plan_http_3_${crypto.randomUUID()}`;
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 1);
+      const childId = `plan_${crypto.randomUUID()}`;
+      expect(
+        (await postRatePlan(propertyId, actor, {
+          ratePlanId: childId,
+          code: 'CORP',
+          name: 'Corporate',
+        })).status,
+      ).toBe(201);
+
+      const reservationId = `res_plan_3_${crypto.randomUUID()}`;
+      const idempotencyKey = `idem-plan-3-${crypto.randomUUID()}`;
+      const first = await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        ratePlanId: DEFAULT_RATE_PLAN_ID,
+        idempotencyKey,
+      });
+      expect(first.status).toBe(201);
+
+      const clash = await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        ratePlanId: childId,
+        idempotencyKey,
+      });
+      expect(clash.status).toBe(409);
+      expect(await clash.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
+    });
+
+    it('4: valid plan missing rate_day night → 422 rate_missing with date', async () => {
+      const actor = `user_plan_http_4_${crypto.randomUUID()}`;
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 1);
+      const orphanId = `plan_${crypto.randomUUID()}`;
+      expect(
+        (await postRatePlan(propertyId, actor, {
+          ratePlanId: orphanId,
+          code: 'ORPH',
+          name: 'Orphan',
+        })).status,
+      ).toBe(201);
+
+      const res = await postReservation(propertyId, actor, {
+        reservationId: `res_plan_4_${crypto.randomUUID()}`,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        ratePlanId: orphanId,
+        status: 'pending',
+        idempotencyKey: `idem-plan-4-${crypto.randomUUID()}`,
+      });
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({
+        ok: false,
+        error: RATE_MISSING,
+        date: arrival,
+      });
+    });
   });
 });

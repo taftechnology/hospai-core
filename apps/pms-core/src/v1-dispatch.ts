@@ -27,6 +27,7 @@ import {
   ROOM_NOT_ASSIGNABLE,
   BALANCE_DUE,
   RATE_PLAN_NOT_FOUND,
+  RATE_MISSING,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
@@ -321,6 +322,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||
+    error === RATE_MISSING ||
     error === DERIVED_RATE_PLAN_INVALID ||
     error === DERIVED_RATE_PLAN_WRITE_FORBIDDEN ||
     error === CHARGE_CODE_EXISTS ||
@@ -1751,6 +1753,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     status: body.status,
     adults: body.adults,
     children: body.children,
+    ratePlanId: body.ratePlanId ?? 'BAR',
   });
 
   const commandPayload = {
@@ -1825,6 +1828,10 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     }
     if (err === UNBOOKABLE) {
       const fail = result as { ok: false; error: typeof UNBOOKABLE; date: string };
+      return json({ ok: false, error: fail.error, date: fail.date }, 422);
+    }
+    if (err === RATE_MISSING) {
+      const fail = result as { ok: false; error: typeof RATE_MISSING; date: string };
       return json({ ok: false, error: fail.error, date: fail.date }, 422);
     }
     if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);

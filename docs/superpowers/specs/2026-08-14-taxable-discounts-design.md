@@ -249,7 +249,7 @@ Fixture discipline: `crypto.randomUUID()` keys; `check:pms-core-test-dates`.
 |---|---|---|
 | 1 | **Discount tax true-up to remaining** | Per-line rounding may leave net tax off by 1 minor vs `computeTax(remaining)`; do not fix here |
 | 2 | **Reallocate discount/tax when splitting the source ROOM** | Split already handles tax on children; discount `split_of` linkage unchanged this chunk |
-| 3 | **Stay-level discount** (no source line) | Folio-money leftover **6** |
+| 3 | ~~**Stay-level discount** (no source line). Folio-money leftover **6**~~ **Closed** in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md). Stay-level tax allocation remains a leftover. | |
 | 4 | **Promo codes** | Folio-money leftover **7** |
 | 5 | **Inclusive / non-PERCENTAGE tax** | Engine skips non-`PERCENTAGE`; unchanged |
 | 6 | **Reverse original TAX + restamp on source** | Forbidden by `folio_line_tax_uniq`; not revisited |

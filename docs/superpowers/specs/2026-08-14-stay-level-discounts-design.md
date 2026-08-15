@@ -356,15 +356,15 @@ Copy `folio-routes.spec.ts` style: `provisionHotel` + `worker.fetch` + `x-dev-ac
 
 ## 10. Implementation checklist
 
-- [ ] `tryPostDiscount`: RPC union — `sourceFolioLineId` → existing line path (bit-identical + stamp); `reservationId` → stay path; both absent → invalid.
-- [ ] Stay path: GUEST window resolve without auto-create; `baseLedger` sum with exclusions (§2 Lock 6); percent/fixed rules; identity `postToLedger`; one DISCOUNT insert with `splitOf: null`; **no** `stampTaxForChargeSync`.
-- [ ] Audit `afterJson`: stay-level includes `reservationId`, `amountMinor`, `reason`.
-- [ ] **Append** `V1_HTTP_ROUTE_AUDIT[128] post_folio_stay_discount`; dispatch route + `handlePostFolioStayDiscount`; fingerprint `{ reservationId, kind, bps, amountMinor, reason }`.
-- [ ] `[102]` / `[127]` unmoved; catalog **77**; writers **52**; schema **27**; `NIGHT_AUDIT_STEPS` **7**; `PLATFORM_GAPS` `[]`.
-- [ ] `postStayDiscount` in `client-core`; rebuild package; SPA branch + RTL.
-- [ ] DO tests §7 cases 1–7; HTTP stay + line regression; preserved tests 40–41 / 18–23 / 29–30 green.
-- [ ] `register.test.ts` pins `[128]`; demo seed untouched.
-- [ ] Bidirectional pointer sentences in folio-money-ops §7.3 + §19 and taxable-discounts §9 when landed (final implementation task).
+- [x] `tryPostDiscount`: RPC union — `sourceFolioLineId` → existing line path (bit-identical + stamp); `reservationId` → stay path; both absent → invalid.
+- [x] Stay path: GUEST window resolve without auto-create; `baseLedger` sum with exclusions (§2 Lock 6); percent/fixed rules; identity `postToLedger`; one DISCOUNT insert with `splitOf: null`; **no** `stampTaxForChargeSync`.
+- [x] Audit `afterJson`: stay-level includes `reservationId`, `amountMinor`, `reason`.
+- [x] **Append** `V1_HTTP_ROUTE_AUDIT[128] post_folio_stay_discount`; dispatch route + `handlePostFolioStayDiscount`; fingerprint `{ reservationId, kind, bps, amountMinor, reason }`.
+- [x] `[102]` / `[127]` unmoved; catalog **77**; writers **52**; schema **27**; `NIGHT_AUDIT_STEPS` **7**; `PLATFORM_GAPS` `[]`.
+- [x] `postStayDiscount` in `client-core`; rebuild package; SPA branch + RTL.
+- [x] DO tests §7 cases 1–7; HTTP stay + line regression; preserved tests 40–41 / 18–23 / 29–30 green.
+- [x] `register.test.ts` pins `[128]`; demo seed untouched.
+- [x] Bidirectional pointer sentences in folio-money-ops §7.3 + §19 and taxable-discounts §9 when landed (final implementation task).
 
 ---
 

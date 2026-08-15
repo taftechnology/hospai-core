@@ -387,7 +387,7 @@ Input: `{ sourceFolioLineId, kind: 'percent' | 'fixed', bps?, amountMinor?, reas
 - Charge code `DISCOUNT`, `tax_group` NULL. Manual discounts restamp tax on the new DISCOUNT parent using the source product charge code (not `DISCOUNT`); closed in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md). `source = 'DESK'`, `split_of = sourceFolioLineId`.
 - Seed `('DISCOUNT', 'Discount')`. Add to `SYSTEM_CHARGE_CODES`.
 
-Stay-level (no source line) is leftover 6. Line-level is auditable and foots.
+Stay-level lump DISCOUNT (no source line) on the GUEST window posts with `split_of` NULL and no tax restamp; closed in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md). Line-level is auditable and foots.
 
 ### 7.4 Promo codes — **defer**
 
@@ -798,7 +798,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 3. **`unknown` reconciliation exit** (payments leftover, unchanged).
 4. **Partial refunds** (chargebacks closed in [multi-currency folio](./2026-08-13-multi-currency-folio-design.md)).
 5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
-6. **Stay-level discount** (no source line).
+6. ~~**Stay-level discount** (no source line).~~ **Closed** in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md).
 7. **Promo codes** — §7.4.
 8. **Authorization expiry** / hold-lapse (payments leftover).
 9. **City ledger / AR** and MASTER group billing engine.

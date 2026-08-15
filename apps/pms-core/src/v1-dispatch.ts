@@ -7084,15 +7084,6 @@ export const V1_ROUTES: V1RouteDef[] = [
   {
     scope: 'property',
     method: 'POST',
-    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/discount$/,
-    permission: 'folio:adjust',
-    commandId: 'folio.post_discount',
-    entitlement: 'pms.core',
-    handler: handlePostFolioStayDiscount,
-  },
-  {
-    scope: 'property',
-    method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/capture-due$/,
     permission: 'folio:post',
     commandId: 'folio.capture_due',
@@ -7296,6 +7287,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     method: 'POST',
     pattern: /^\/v1\/admin\/demo-seed$/,
     handler: handlePostDemoSeed,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/discount$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.post_discount',
+    entitlement: 'pms.core',
+    handler: handlePostFolioStayDiscount,
   },
 ];
 

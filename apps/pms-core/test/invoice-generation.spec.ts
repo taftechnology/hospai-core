@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FOLIO_BALANCE_DUE,
   INVOICE_ALREADY_EXISTS,
+  INVOICE_REQUIRED,
   INVOICE_R2_UNBOUND,
   INVOICE_VOIDED,
 } from '@hospai/contracts';
@@ -142,6 +143,19 @@ async function postInvoiceVoid(
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
         body: JSON.stringify({ idempotencyKey: `idem-void-${crypto.randomUUID()}`, ...body }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postCheckOut(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/check-out`,
+      {
+        method: 'POST',
+        headers: { 'x-dev-actor': actor, 'x-idempotency-key': `idem-co-${crypto.randomUUID()}` },
       },
     ),
     env,
@@ -420,5 +434,52 @@ describe('invoice generation HTTP wire', () => {
     const again = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId);
     expect(again.status).toBe(409);
     expect(await again.json()).toMatchObject({ ok: false, error: INVOICE_VOIDED });
+  });
+});
+
+describe('invoice checkout gate', () => {
+  async function checkedInStay(propertyId: string) {
+    const { stub, guestRef, orgId } = await provisionedPropertyWithGuest(propertyId);
+    await registerPropertyForHttp(propertyId, orgId);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const reservationId = `res_gate_${propertyId}`;
+    await stayCheckedIn(
+      stub,
+      guestRef,
+      reservationId,
+      `rm_${propertyId}`,
+      added.fromDate,
+      addCalendarDays(added.fromDate, 1),
+    );
+    return { stub, reservationId };
+  }
+
+  it('case 9: gen_mode Automatically + no active invoice → checkout 422 invoice_required, stays checked_in', async () => {
+    const propertyId = `inv-gate-9-${crypto.randomUUID()}`;
+    const { stub, reservationId } = await checkedInStay(propertyId);
+    await writeConfigValueForTest(stub, 'pms.invoice.gen_mode', 'Automatically');
+    const co = await postCheckOut(propertyId, HTTP_ACTOR, reservationId);
+    expect(co.status).toBe(422);
+    expect(await co.json()).toMatchObject({ ok: false, error: INVOICE_REQUIRED });
+    expect(await stub.getReservationStatus(reservationId)).toBe('checked_in');
+  });
+
+  it('case 10: gen_mode Automatically + active invoice → checkout 200 checked_out', async () => {
+    const propertyId = `inv-gate-10-${crypto.randomUUID()}`;
+    const { stub, reservationId } = await checkedInStay(propertyId);
+    await writeConfigValueForTest(stub, 'pms.invoice.gen_mode', 'Automatically');
+    expect((await postInvoice(propertyId, HTTP_ACTOR, { reservationId })).status).toBe(201);
+    const co = await postCheckOut(propertyId, HTTP_ACTOR, reservationId);
+    expect(co.status).toBe(200);
+    expect(await stub.getReservationStatus(reservationId)).toBe('checked_out');
+  });
+
+  it('gen_mode Manually allows checkout without active invoice', async () => {
+    const propertyId = `inv-gate-manual-${crypto.randomUUID()}`;
+    const { stub, reservationId } = await checkedInStay(propertyId);
+    await writeConfigValueForTest(stub, 'pms.invoice.gen_mode', 'Manually');
+    const co = await postCheckOut(propertyId, HTTP_ACTOR, reservationId);
+    expect(co.status).toBe(200);
+    expect(await stub.getReservationStatus(reservationId)).toBe('checked_out');
   });
 });

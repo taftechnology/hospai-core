@@ -60,6 +60,7 @@ import {
   FOLIO_BALANCE_DUE,
   INVOICE_ALREADY_EXISTS,
   INVOICE_NOT_FOUND,
+  INVOICE_REQUIRED,
   INVOICE_R2_UNBOUND,
   INVOICE_VOIDED,
   WINDOW_CLOSED,
@@ -798,6 +799,13 @@ class InvoiceVoidedError extends Error {
   }
 }
 
+class InvoiceRequiredError extends Error {
+  constructor() {
+    super(INVOICE_REQUIRED);
+    this.name = 'InvoiceRequiredError';
+  }
+}
+
 class WindowClosedError extends Error {
   constructor() {
     super(WINDOW_CLOSED);
@@ -955,6 +963,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof BALANCE_DUE }
   | { ok: false; error: typeof FOLIO_BALANCE_DUE }
   | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+  | { ok: false; error: typeof INVOICE_REQUIRED }
   | { ok: false; error: typeof INVOICE_R2_UNBOUND }
   | { ok: false; error: typeof INVOICE_NOT_FOUND }
   | { ok: false; error: typeof INVOICE_VOIDED }
@@ -999,6 +1008,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof BalanceDueError) return { ok: false, error: BALANCE_DUE };
   if (e instanceof FolioBalanceDueError) return { ok: false, error: FOLIO_BALANCE_DUE };
   if (e instanceof InvoiceAlreadyExistsError) return { ok: false, error: INVOICE_ALREADY_EXISTS };
+  if (e instanceof InvoiceRequiredError) return { ok: false, error: INVOICE_REQUIRED };
   if (e instanceof InvoiceR2UnboundError) return { ok: false, error: INVOICE_R2_UNBOUND };
   if (e instanceof InvoiceNotFoundError) return { ok: false, error: INVOICE_NOT_FOUND };
   if (e instanceof InvoiceVoidedError) return { ok: false, error: INVOICE_VOIDED };
@@ -9165,6 +9175,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.readConfigValueSync('pms.reservations.allow_balance_override') !== false;
           if (requireZero && balanceMinor > 0 && !(input.overrideBalance === true && allowOverride)) {
             throw new BalanceDueError(balanceMinor);
+          }
+
+          if (this.readConfigValueSync('pms.invoice.gen_mode') === 'Automatically') {
+            const guestWindowId = this.guestFolioWindowId(input.reservationId);
+            if (!this.hasActiveInvoiceForWindowSync(input.reservationId, guestWindowId)) {
+              throw new InvoiceRequiredError();
+            }
           }
 
           const now = Date.now();

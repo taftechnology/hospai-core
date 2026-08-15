@@ -46,6 +46,8 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'rates.create_promo',
   'rates.update_promo',
   'rates.archive_promo',
+  'invoice.generate',
+  'invoice.void',
   'rates.update_room_type_rate',
   'rates.bulk_update',
   'rates.upsert_day',

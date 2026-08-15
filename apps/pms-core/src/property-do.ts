@@ -1270,6 +1270,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'fx_rate',
   'housekeeping_assignment',
   'idempotency',
+  'invoice',
   'night_audit_report',
   'night_audit_run',
   'outbox',
@@ -1308,6 +1309,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM fx_rate) +
       (SELECT COUNT(*) FROM housekeeping_assignment) +
       (SELECT COUNT(*) FROM idempotency) +
+      (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +

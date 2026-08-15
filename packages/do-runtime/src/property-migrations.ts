@@ -1070,6 +1070,30 @@ export const PROMO_CODES_V31_STATEMENTS = [
 
 export const PROMO_CODES_V31_SQL = PROMO_CODES_V31_STATEMENTS.join(';\n\n') + ';\n';
 
+export const INVOICE_GENERATION_V32_STATEMENTS = [
+  `CREATE TABLE invoice (
+  invoice_id        TEXT PRIMARY KEY,
+  invoice_number    TEXT NOT NULL,
+  reservation_id    TEXT NOT NULL,
+  folio_window_id   TEXT NOT NULL,
+  r2_key            TEXT NOT NULL,
+  sha256            TEXT NOT NULL,
+  generated_at      INTEGER NOT NULL,
+  generated_by      TEXT NOT NULL,
+  voided_at         INTEGER,
+  voided_by         TEXT,
+  UNIQUE (invoice_number),
+  CHECK (voided_at IS NULL OR (voided_by IS NOT NULL AND length(voided_by) > 0))
+)`,
+  `CREATE UNIQUE INDEX invoice_active_window
+  ON invoice (reservation_id, folio_window_id)
+  WHERE voided_at IS NULL`,
+  `CREATE INDEX invoice_reservation_idx ON invoice (reservation_id)`,
+] as const;
+
+export const INVOICE_GENERATION_V32_SQL =
+  INVOICE_GENERATION_V32_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1225,5 +1249,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 31,
     name: 'promo_codes',
     statements: PROMO_CODES_V31_STATEMENTS,
+  },
+  {
+    version: 32,
+    name: 'invoice_generation',
+    statements: INVOICE_GENERATION_V32_STATEMENTS,
   },
 ] as const;

@@ -77,6 +77,7 @@ if (process.argv.includes('--self-test')) {
   let ROOM_ARCHIVE_V29_SQL;
   let DERIVED_RATE_PLANS_V30_SQL;
   let PROMO_CODES_V31_SQL;
+  let INVOICE_GENERATION_V32_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -122,6 +123,7 @@ if (process.argv.includes('--self-test')) {
       ROOM_ARCHIVE_V29_SQL,
       DERIVED_RATE_PLANS_V30_SQL,
       PROMO_CODES_V31_SQL,
+      INVOICE_GENERATION_V32_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -445,6 +447,16 @@ const doPropertyTargets = [
 
 `,
     sql: PROMO_CODES_V31_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0032_invoice_generation.sql'),
+    header: `-- PropertyDO invoice generation — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE invoice → partial unique active window → reservation index.
+
+`,
+    sql: INVOICE_GENERATION_V32_SQL,
   },
 ];
 

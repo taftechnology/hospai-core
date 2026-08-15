@@ -817,4 +817,25 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'rates.archive_promo',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_invoices',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'invoice.generate',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_invoice',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_invoice_void',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'invoice.void',
+    entitlement: 'pms.core',
+  },
 ];

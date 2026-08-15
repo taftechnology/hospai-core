@@ -46,6 +46,7 @@ import {
   ROOM_ARCHIVE_V29_SQL,
   DERIVED_RATE_PLANS_V30_SQL,
   PROMO_CODES_V31_SQL,
+  INVOICE_GENERATION_V32_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -227,16 +228,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 31', () => {
+  it('applies property migrations through version 32', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(31);
+    expect(v1).toBe(32);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(31);
-    expect(sql.schemaVersion).toHaveLength(31);
+    expect(v2).toBe(32);
+    expect(sql.schemaVersion).toHaveLength(32);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31,
+      26, 27, 28, 29, 30, 31, 32,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -628,7 +629,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(31);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(32);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -883,5 +884,24 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(PROMO_CODES_V31_SQL.trim());
+  });
+
+  it('property schema head is 32 after invoice_generation', () => {
+    const v32 = PROPERTY_MIGRATIONS.find((m) => m.version === 32);
+    expect(v32?.name).toBe('invoice_generation');
+    expect(v32?.statements[0]).toContain('CREATE TABLE invoice');
+    expect(v32?.statements.some((s) => s.includes('invoice_active_window'))).toBe(true);
+  });
+
+  it('migrations/do-property/0032_invoice_generation.sql matches INVOICE_GENERATION_V32_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0032_invoice_generation.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(INVOICE_GENERATION_V32_SQL.trim());
   });
 });

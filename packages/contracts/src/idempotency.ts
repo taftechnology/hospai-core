@@ -105,6 +105,13 @@ export const PROMO_NOT_FOUND = 'promo_not_found' as const;
 export const PROMO_NOT_APPLICABLE = 'promo_not_applicable' as const;
 export const PROMO_CODE_EXISTS = 'promo_code_exists' as const;
 
+export const INVOICE_ALREADY_EXISTS = 'invoice_already_exists' as const;
+export const INVOICE_NOT_FOUND = 'invoice_not_found' as const;
+export const INVOICE_VOIDED = 'invoice_voided' as const;
+export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;
+export const INVOICE_REQUIRED = 'invoice_required' as const;
+export const FOLIO_BALANCE_DUE = 'folio_balance_due' as const;
+
 export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
 export const ROUTING_RULE_CONFLICT = 'routing_rule_conflict' as const;

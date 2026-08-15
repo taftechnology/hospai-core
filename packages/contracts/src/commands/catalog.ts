@@ -937,6 +937,26 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     entitlement: 'pms.core',
     permission: 'rates:write',
   },
+  {
+    id: 'invoice.generate',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['invoice.generated'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+  },
+  {
+    id: 'invoice.void',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['invoice.voided'],
+    entitlement: 'pms.core',
+    permission: 'folio:adjust',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

@@ -701,9 +701,29 @@ describe('command catalog', () => {
       commandId: 'rates.archive_promo',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[138]?.id).toBe('post_invoices');
+    expect(V1_HTTP_ROUTE_AUDIT[138]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:post',
+      commandId: 'invoice.generate',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[139]?.id).toBe('get_invoice');
+    expect(V1_HTTP_ROUTE_AUDIT[139]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[140]?.id).toBe('post_invoice_void');
+    expect(V1_HTTP_ROUTE_AUDIT[140]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:adjust',
+      commandId: 'invoice.void',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(59);
-    expect(COMMAND_CATALOG).toHaveLength(84);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(61);
+    expect(COMMAND_CATALOG).toHaveLength(86);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

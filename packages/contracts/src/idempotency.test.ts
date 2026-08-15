@@ -32,6 +32,12 @@ import {
   PROMO_NOT_FOUND,
   PROMO_NOT_APPLICABLE,
   PROMO_CODE_EXISTS,
+  INVOICE_ALREADY_EXISTS,
+  INVOICE_NOT_FOUND,
+  INVOICE_VOIDED,
+  INVOICE_R2_UNBOUND,
+  INVOICE_REQUIRED,
+  FOLIO_BALANCE_DUE,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -149,6 +155,12 @@ describe('fingerprintPayload', () => {
     expect(PROMO_NOT_FOUND).toBe('promo_not_found');
     expect(PROMO_NOT_APPLICABLE).toBe('promo_not_applicable');
     expect(PROMO_CODE_EXISTS).toBe('promo_code_exists');
+    expect(INVOICE_ALREADY_EXISTS).toBe('invoice_already_exists');
+    expect(INVOICE_NOT_FOUND).toBe('invoice_not_found');
+    expect(INVOICE_VOIDED).toBe('invoice_voided');
+    expect(INVOICE_R2_UNBOUND).toBe('invoice_r2_unbound');
+    expect(INVOICE_REQUIRED).toBe('invoice_required');
+    expect(FOLIO_BALANCE_DUE).toBe('folio_balance_due');
     expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
     expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
     expect(ROUTING_RULE_CONFLICT).toBe('routing_rule_conflict');

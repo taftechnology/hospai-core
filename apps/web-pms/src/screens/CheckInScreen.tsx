@@ -128,14 +128,19 @@ export function CheckInScreen() {
     reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status),
   );
   const rooms = roomsQ.data?.rooms ?? [];
-  const typedRooms = reservationQ.data?.roomTypeId
-    ? rooms.filter((r) => r.roomTypeId === reservationQ.data?.roomTypeId)
-    : rooms;
+  const assignTypeId =
+    reservationQ.data?.allocatedRoomTypeId &&
+    reservationQ.data.allocatedRoomTypeId !== reservationQ.data.roomTypeId
+      ? reservationQ.data.allocatedRoomTypeId
+      : reservationQ.data?.roomTypeId;
+  const typedRooms = assignTypeId ? rooms.filter((r) => r.roomTypeId === assignTypeId) : rooms;
   const roomOptions = typedRooms.length > 0 ? typedRooms : rooms;
   const selectedCode = rooms.find((r) => r.roomId === roomId)?.code;
   const roomTypeId = reservationQ.data?.roomTypeId;
+  const allocatedRoomTypeId = reservationQ.data?.allocatedRoomTypeId;
   const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
+  const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
 
   return (
     <div className="panel">
@@ -205,6 +210,9 @@ export function CheckInScreen() {
         />
       ) : null}
       <PrintRegCardControl canPrint={canPrint} />
+      {allocatedEntry && allocatedRoomTypeId !== roomTypeId ? (
+        <p className="muted">Allocated: {allocatedEntry.name || allocatedEntry.code}</p>
+      ) : null}
       <RegistrationCard
         propertyName={propertyQ.data?.property?.name ?? null}
         reservation={reservationQ.data}

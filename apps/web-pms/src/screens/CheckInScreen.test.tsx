@@ -179,6 +179,60 @@ describe('CheckInScreen', () => {
     vi.unstubAllGlobals();
   });
 
+  it('filters assignable rooms by allocatedRoomTypeId when it differs from sold roomTypeId', async () => {
+    getReservation.mockResolvedValue({
+      reservationId: 'res_1',
+      roomTypeId: 'roh',
+      allocatedRoomTypeId: 'rt_king',
+      guestRef: 'g1',
+      piiKeyId: 'k',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      status: 'confirmed',
+      roomId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [
+        { roomTypeId: 'roh', code: 'ROH', name: 'Run of House', kind: 'virtual' },
+        { roomTypeId: 'rt_king', code: 'KNG', name: 'King Room' },
+        { roomTypeId: 'rt_queen', code: 'QEN', name: 'Queen Room' },
+      ],
+    });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [
+        {
+          roomId: 'rm_king',
+          code: '201',
+          roomTypeId: 'rt_king',
+          status: 'clean',
+          floor: '2',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+        {
+          roomId: 'rm_queen',
+          code: '301',
+          roomTypeId: 'rt_queen',
+          status: 'clean',
+          floor: '3',
+          createdAt: 1,
+          updatedAt: 1,
+          oooRanges: [],
+        },
+      ],
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
+    expect(screen.getByRole('option', { name: '201' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: '301' })).toBeNull();
+    expect(screen.getByText(/Allocated: King Room/i)).toBeTruthy();
+  });
+
   it('13: print disabled when guest name_pending; window.print not called', async () => {
     const print = vi.fn();
     vi.stubGlobal('print', print);

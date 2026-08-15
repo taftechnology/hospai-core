@@ -160,13 +160,14 @@ export function BookingScreen() {
   });
 
   const typeDir = useMemo(() => {
-    const m = new Map<string, { code: string; name: string }>();
+    const m = new Map<string, { code: string; name: string; kind?: 'physical' | 'virtual' }>();
     for (const t of (typesQ.data?.roomTypes ?? []) as Array<{
       roomTypeId: string;
       code: string;
       name: string;
+      kind?: 'physical' | 'virtual';
     }>) {
-      m.set(t.roomTypeId, { code: t.code, name: t.name });
+      m.set(t.roomTypeId, { code: t.code, name: t.name, kind: t.kind });
     }
     return m;
   }, [typesQ.data]);
@@ -431,9 +432,10 @@ export function BookingScreen() {
                 {(() => {
                   const t = typeDir.get(id);
                   if (!t) return 'Room type unavailable';
+                  const suffix = t.kind === 'virtual' ? ' · Run of house' : '';
                   return (
                     <>
-                      {t.name} (<span translate="no">{t.code}</span>)
+                      {t.name} (<span translate="no">{t.code}</span>){suffix}
                     </>
                   );
                 })()}

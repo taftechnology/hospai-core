@@ -29,6 +29,9 @@ import {
   DEFAULT_RATE_PLAN_PROTECTED,
   DERIVED_RATE_PLAN_INVALID,
   DERIVED_RATE_PLAN_WRITE_FORBIDDEN,
+  PROMO_NOT_FOUND,
+  PROMO_NOT_APPLICABLE,
+  PROMO_CODE_EXISTS,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -143,6 +146,9 @@ describe('fingerprintPayload', () => {
     expect(DEFAULT_RATE_PLAN_PROTECTED).toBe('default_rate_plan_protected');
     expect(DERIVED_RATE_PLAN_INVALID).toBe('derived_rate_plan_invalid');
     expect(DERIVED_RATE_PLAN_WRITE_FORBIDDEN).toBe('derived_rate_plan_write_forbidden');
+    expect(PROMO_NOT_FOUND).toBe('promo_not_found');
+    expect(PROMO_NOT_APPLICABLE).toBe('promo_not_applicable');
+    expect(PROMO_CODE_EXISTS).toBe('promo_code_exists');
     expect(CHARGE_CODE_NOT_FOUND).toBe('charge_code_not_found');
     expect(CHARGE_CODE_EXISTS).toBe('charge_code_exists');
     expect(ROUTING_RULE_CONFLICT).toBe('routing_rule_conflict');

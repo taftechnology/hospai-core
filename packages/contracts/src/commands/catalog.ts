@@ -907,6 +907,36 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'Operator-asserted exit from authorize-timeout unknown. Never calls PSP. ' +
       'authorized → hold exists; declined → no hold. unknown-only input.',
   },
+  {
+    id: 'rates.create_promo',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['rate_promo.changed'],
+    entitlement: 'pms.core',
+    permission: 'rates:write',
+  },
+  {
+    id: 'rates.update_promo',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['rate_promo.changed'],
+    entitlement: 'pms.core',
+    permission: 'rates:write',
+  },
+  {
+    id: 'rates.archive_promo',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['rate_promo.changed'],
+    entitlement: 'pms.core',
+    permission: 'rates:write',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

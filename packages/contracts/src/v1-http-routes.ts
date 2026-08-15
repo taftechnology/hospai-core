@@ -789,4 +789,32 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.reconcile_payment',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_rate_promos',
+    scope: 'property',
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_rate_promos',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.create_promo',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'patch_rate_promo',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.update_promo',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'delete_rate_promo',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.archive_promo',
+    entitlement: 'pms.core',
+  },
 ];

@@ -74,6 +74,9 @@ import {
   DEFAULT_RATE_PLAN_PROTECTED,
   DERIVED_RATE_PLAN_INVALID,
   DERIVED_RATE_PLAN_WRITE_FORBIDDEN,
+  PROMO_NOT_FOUND,
+  PROMO_NOT_APPLICABLE,
+  PROMO_CODE_EXISTS,
   CHARGE_CODE_NOT_FOUND,
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
@@ -466,6 +469,27 @@ class RatePlanNotFoundError extends Error {
   constructor() {
     super('Rate plan not found');
     this.name = 'RatePlanNotFoundError';
+  }
+}
+
+class PromoNotFoundError extends Error {
+  constructor() {
+    super(PROMO_NOT_FOUND);
+    this.name = 'PromoNotFoundError';
+  }
+}
+
+class PromoNotApplicableError extends Error {
+  constructor() {
+    super(PROMO_NOT_APPLICABLE);
+    this.name = 'PromoNotApplicableError';
+  }
+}
+
+class PromoCodeExistsError extends Error {
+  constructor() {
+    super(PROMO_CODE_EXISTS);
+    this.name = 'PromoCodeExistsError';
   }
 }
 
@@ -10719,6 +10743,387 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         day.currency,
       );
     }
+  }
+
+  private static readonly PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
+
+  private normalizePromoCodeSync(raw: string): string {
+    return raw.trim().toUpperCase();
+  }
+
+  private assertPromoCodeCharsetSync(code: string): void {
+    if (!PropertyDO.PROMO_CODE_CHARSET.test(code)) {
+      throw new Error('invalid_promo_code');
+    }
+  }
+
+  private resolvePromoByCodeSync(code: string): {
+    promo_id: string;
+    code: string;
+    name: string;
+    status: string;
+    kind: 'percent' | 'fixed_per_night';
+    bps: number | null;
+    amount_minor: number | null;
+    valid_from: string | null;
+    valid_to: string | null;
+    rate_plan_id: string | null;
+  } | null {
+    const normalized = this.normalizePromoCodeSync(code);
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT promo_id, code, name, status, kind, bps, amount_minor, valid_from, valid_to, rate_plan_id
+         FROM promo WHERE code = ? AND status = 'active'`,
+        normalized,
+      )
+      .toArray();
+    return (rows[0] as typeof rows[0] | undefined) ?? null;
+  }
+
+  private loadPromoByIdSync(promoId: string) {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT promo_id, code, name, status, kind, bps, amount_minor, valid_from, valid_to, rate_plan_id
+         FROM promo WHERE promo_id = ?`,
+        promoId,
+      )
+      .toArray();
+    return (rows[0] as typeof rows[0] | undefined) ?? null;
+  }
+
+  /**
+   * Create a promo code. Implements catalog `rates.create_promo`.
+   */
+  async tryCreatePromo(
+    actor: ActorContext,
+    input: {
+      promoId: string;
+      code: string;
+      name: string;
+      kind: 'percent' | 'fixed_per_night';
+      bps?: number;
+      amountMinor?: number;
+      validFrom?: string | null;
+      validTo?: string | null;
+      ratePlanId?: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; promoId: string }
+    | { ok: false; error: typeof PROMO_CODE_EXISTS }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const code = this.normalizePromoCodeSync(input.code);
+    try {
+      this.assertPromoCodeCharsetSync(code);
+    } catch {
+      return { ok: false, error: 'invalid_promo_code' };
+    }
+
+    const validFrom = input.validFrom ?? null;
+    const validTo = input.validTo ?? null;
+    if ((validFrom == null) !== (validTo == null)) {
+      return { ok: false, error: 'invalid_promo_window' };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existingId = this.ctx.storage.sql
+            .exec(`SELECT promo_id FROM promo WHERE promo_id = ?`, input.promoId)
+            .toArray();
+          if (existingId.length > 0) throw new Error('promo_id_exists');
+
+          const codeTaken = this.ctx.storage.sql
+            .exec(`SELECT promo_id FROM promo WHERE code = ? AND status = 'active'`, code)
+            .toArray();
+          if (codeTaken.length > 0) throw new PromoCodeExistsError();
+
+          const now = Date.now();
+          const bps = input.kind === 'percent' ? (input.bps ?? null) : null;
+          const amountMinor = input.kind === 'fixed_per_night' ? (input.amountMinor ?? null) : null;
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO promo (
+               promo_id, code, name, status, kind, bps, amount_minor,
+               valid_from, valid_to, rate_plan_id, created_at, updated_at
+             ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            input.promoId,
+            code,
+            input.name,
+            input.kind,
+            bps,
+            amountMinor,
+            validFrom,
+            validTo,
+            input.ratePlanId ?? null,
+            now,
+            now,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_promo.changed',
+            payload: { propertyId, promoId: input.promoId, op: 'create', at: now },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.create_promo',
+            entityType: 'promo',
+            entityId: input.promoId,
+            beforeJson: null,
+            afterJson: { promoId: input.promoId, code, name: input.name, kind: input.kind },
+          });
+
+          return { ok: true as const, promoId: input.promoId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof PromoCodeExistsError) return { ok: false, error: PROMO_CODE_EXISTS };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Update an active promo. Implements catalog `rates.update_promo`.
+   * Code and kind are immutable after create.
+   */
+  async tryUpdatePromo(
+    actor: ActorContext,
+    input: {
+      promoId: string;
+      name?: string;
+      bps?: number;
+      amountMinor?: number;
+      validFrom?: string | null;
+      validTo?: string | null;
+      ratePlanId?: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; promoId: string }
+    | { ok: false; error: typeof PROMO_NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadPromoByIdSync(input.promoId) as {
+            promo_id: string;
+            code: string;
+            name: string;
+            status: string;
+            kind: 'percent' | 'fixed_per_night';
+            bps: number | null;
+            amount_minor: number | null;
+            valid_from: string | null;
+            valid_to: string | null;
+            rate_plan_id: string | null;
+          } | null;
+          if (!row || row.status !== 'active') throw new PromoNotFoundError();
+
+          const nextName = input.name ?? row.name;
+          const validFrom = input.validFrom !== undefined ? input.validFrom : row.valid_from;
+          const validTo = input.validTo !== undefined ? input.validTo : row.valid_to;
+          if ((validFrom == null) !== (validTo == null)) {
+            throw new Error('invalid_promo_window');
+          }
+
+          const nextRatePlanId =
+            input.ratePlanId !== undefined ? input.ratePlanId : row.rate_plan_id;
+          let nextBps = row.bps;
+          let nextAmountMinor = row.amount_minor;
+          if (row.kind === 'percent') {
+            if (input.amountMinor !== undefined) throw new Error('invalid_promo_kind_field');
+            nextBps = input.bps ?? row.bps;
+          } else {
+            if (input.bps !== undefined) throw new Error('invalid_promo_kind_field');
+            nextAmountMinor = input.amountMinor ?? row.amount_minor;
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE promo SET name = ?, bps = ?, amount_minor = ?, valid_from = ?, valid_to = ?,
+               rate_plan_id = ?, updated_at = ?
+             WHERE promo_id = ?`,
+            nextName,
+            nextBps,
+            nextAmountMinor,
+            validFrom,
+            validTo,
+            nextRatePlanId,
+            now,
+            input.promoId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_promo.changed',
+            payload: { propertyId, promoId: input.promoId, op: 'update', at: now },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.update_promo',
+            entityType: 'promo',
+            entityId: input.promoId,
+            beforeJson: { name: row.name, bps: row.bps, amountMinor: row.amount_minor },
+            afterJson: { name: nextName, bps: nextBps, amountMinor: nextAmountMinor },
+          });
+
+          return { ok: true as const, promoId: input.promoId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Archive a promo. Implements catalog `rates.archive_promo`.
+   */
+  async tryArchivePromo(
+    actor: ActorContext,
+    input: { promoId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; promoId: string }
+    | { ok: false; error: typeof PROMO_NOT_FOUND }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadPromoByIdSync(input.promoId) as { status: string } | null;
+          if (!row || row.status !== 'active') throw new PromoNotFoundError();
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE promo SET status = 'archived', updated_at = ? WHERE promo_id = ?`,
+            now,
+            input.promoId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_promo.changed',
+            payload: { propertyId, promoId: input.promoId, op: 'archive', at: now },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.archive_promo',
+            entityType: 'promo',
+            entityId: input.promoId,
+            beforeJson: { status: 'active' },
+            afterJson: { status: 'archived' },
+          });
+
+          return { ok: true as const, promoId: input.promoId };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Active promos only. */
+  async listRatePromos(): Promise<
+    Array<{
+      promoId: string;
+      code: string;
+      name: string;
+      kind: 'percent' | 'fixed_per_night';
+      bps: number | null;
+      amountMinor: number | null;
+      validFrom: string | null;
+      validTo: string | null;
+      ratePlanId: string | null;
+    }>
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT promo_id, code, name, kind, bps, amount_minor, valid_from, valid_to, rate_plan_id
+         FROM promo
+         WHERE status = 'active' ORDER BY code`,
+      )
+      .toArray() as Array<{
+      promo_id: string;
+      code: string;
+      name: string;
+      kind: 'percent' | 'fixed_per_night';
+      bps: number | null;
+      amount_minor: number | null;
+      valid_from: string | null;
+      valid_to: string | null;
+      rate_plan_id: string | null;
+    }>;
+    return rows.map((r) => ({
+      promoId: r.promo_id,
+      code: r.code,
+      name: r.name,
+      kind: r.kind,
+      bps: r.bps,
+      amountMinor: r.amount_minor,
+      validFrom: r.valid_from,
+      validTo: r.valid_to,
+      ratePlanId: r.rate_plan_id,
+    }));
   }
 
   /**

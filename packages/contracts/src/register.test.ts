@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(56);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(59);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -674,9 +674,36 @@ describe('command catalog', () => {
       commandId: 'folio.reconcile_payment',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[134]?.id).toBe('get_rate_promos');
+    expect(V1_HTTP_ROUTE_AUDIT[134]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[135]?.id).toBe('post_rate_promos');
+    expect(V1_HTTP_ROUTE_AUDIT[135]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.create_promo',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[136]?.id).toBe('patch_rate_promo');
+    expect(V1_HTTP_ROUTE_AUDIT[136]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.update_promo',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[137]?.id).toBe('delete_rate_promo');
+    expect(V1_HTTP_ROUTE_AUDIT[137]).toMatchObject({
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.archive_promo',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(56);
-    expect(COMMAND_CATALOG).toHaveLength(81);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(59);
+    expect(COMMAND_CATALOG).toHaveLength(84);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

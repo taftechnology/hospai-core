@@ -92,6 +92,9 @@ import {
   PAYMENT_NOT_REFUNDABLE,
   LINE_NOT_DISCOUNTABLE,
   DISCOUNT_REASON_REQUIRED,
+  PROMO_NOT_FOUND,
+  PROMO_NOT_APPLICABLE,
+  PROMO_CODE_EXISTS,
   fingerprintPayload,
   requireCatalogEntry,
   requiredPermissionForKey,
@@ -278,7 +281,12 @@ function mapAddRoomTypeErrorStatus(error: string): number {
 }
 
 function mapReservationCommandErrorStatus(error: string): number {
-  if (error === IDEM_KEY_REUSED || error === ALREADY_CANCELLED || error === LEDGER_INCONSISTENT) {
+  if (
+    error === IDEM_KEY_REUSED ||
+    error === ALREADY_CANCELLED ||
+    error === LEDGER_INCONSISTENT ||
+    error === PROMO_CODE_EXISTS
+  ) {
     return 409;
   }
   if (error === NO_AVAILABILITY) return 409;
@@ -345,12 +353,14 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === PAYMENT_NOT_VOIDABLE ||
     error === PAYMENT_NOT_REFUNDABLE ||
     error === LINE_NOT_DISCOUNTABLE ||
-    error === DISCOUNT_REASON_REQUIRED
+    error === DISCOUNT_REASON_REQUIRED ||
+    error === PROMO_NOT_APPLICABLE
   ) {
     return 422;
   }
   if (
     error === RATE_PLAN_NOT_FOUND ||
+    error === PROMO_NOT_FOUND ||
     error === CHARGE_CODE_NOT_FOUND ||
     error === TAX_RULE_NOT_FOUND ||
     error === SHIFT_NOT_FOUND
@@ -360,6 +370,16 @@ function mapReservationCommandErrorStatus(error: string): number {
   if (error === BUSINESS_DATE_UNSET) return 500;
   if (error === 'org_id_unset') return 500;
   return mapAddRoomTypeErrorStatus(error);
+}
+
+const PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
+
+function normalizePromoCode(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+function promoCodeCharsetOk(code: string): boolean {
+  return PROMO_CODE_CHARSET.test(code);
 }
 
 /** Shared by the four guest handlers + `POST /reservations` guestRef lookup. */
@@ -4518,6 +4538,205 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetRatePromos(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const promos = await resolvedCtx.resolved.stub.listRatePromos();
+    return json({ ok: true, promos }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    promoId: string;
+    code: string;
+    name: string;
+    kind: 'percent' | 'fixed_per_night';
+    bps?: number;
+    amountMinor?: number;
+    validFrom?: string | null;
+    validTo?: string | null;
+    ratePlanId?: string | null;
+    idempotencyKey: string;
+  };
+  if (!body?.promoId || !body.code || !body.name || !body.kind || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const normalized = normalizePromoCode(body.code);
+  if (!promoCodeCharsetOk(normalized)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    promoId: body.promoId,
+    code: body.code,
+    name: body.name,
+    kind: body.kind,
+    ...(body.bps !== undefined ? { bps: body.bps } : {}),
+    ...(body.amountMinor !== undefined ? { amountMinor: body.amountMinor } : {}),
+    ...(body.validFrom !== undefined ? { validFrom: body.validFrom } : {}),
+    ...(body.validTo !== undefined ? { validTo: body.validTo } : {}),
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreatePromo']>>>({
+    env: ctx.env,
+    commandId: 'rates.create_promo',
+    routeId: 'post_rate_promos',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryCreatePromo(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === 'invalid_promo_code') return json({ error: 'invalid_body' }, 400);
+    if (err === PROMO_CODE_EXISTS) return json({ ok: false, error: err }, 409);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 201);
+}
+
+async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const promoId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    name?: string;
+    bps?: number;
+    amountMinor?: number;
+    validFrom?: string | null;
+    validTo?: string | null;
+    ratePlanId?: string | null;
+    code?: string;
+    kind?: string;
+    idempotencyKey: string;
+  };
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.code !== undefined || body.kind !== undefined) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (
+    body.name === undefined &&
+    body.bps === undefined &&
+    body.amountMinor === undefined &&
+    body.validFrom === undefined &&
+    body.validTo === undefined &&
+    body.ratePlanId === undefined
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    promoId,
+    ...(body.name !== undefined ? { name: body.name } : {}),
+    ...(body.bps !== undefined ? { bps: body.bps } : {}),
+    ...(body.amountMinor !== undefined ? { amountMinor: body.amountMinor } : {}),
+    ...(body.validFrom !== undefined ? { validFrom: body.validFrom } : {}),
+    ...(body.validTo !== undefined ? { validTo: body.validTo } : {}),
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdatePromo']>>>({
+    env: ctx.env,
+    commandId: 'rates.update_promo',
+    routeId: 'patch_rate_promo',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpdatePromo(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const promoId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey =
+    ctx.request.headers.get('x-idempotency-key') ?? ctx.url.searchParams.get('idempotencyKey');
+  if (!idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { promoId };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchivePromo']>>>({
+    env: ctx.env,
+    commandId: 'rates.archive_promo',
+    routeId: 'delete_rate_promo',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryArchivePromo(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 function inclusiveDateRangeError(fromDate: string | null, toDate: string | null): Response | null {
   if (!fromDate || !toDate || !ISO_DATE_RE.test(fromDate) || !ISO_DATE_RE.test(toDate)) {
     return json({ error: 'invalid_date' }, 400);
@@ -7600,6 +7819,41 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.reconcile_payment',
     entitlement: 'pms.core',
     handler: handlePostFolioReconcilePayment,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-promos$/,
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    handler: handleGetRatePromos,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-promos$/,
+    permission: 'rates:write',
+    commandId: 'rates.create_promo',
+    entitlement: 'pms.core',
+    handler: handlePostRatePromos,
+  },
+  {
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-promos\/([^/]+)$/,
+    permission: 'rates:write',
+    commandId: 'rates.update_promo',
+    entitlement: 'pms.core',
+    handler: handlePatchRatePromo,
+  },
+  {
+    scope: 'property',
+    method: 'DELETE',
+    pattern: /^\/v1\/properties\/([^/]+)\/rate-promos\/([^/]+)$/,
+    permission: 'rates:write',
+    commandId: 'rates.archive_promo',
+    entitlement: 'pms.core',
+    handler: handleDeleteRatePromo,
   },
 ];
 

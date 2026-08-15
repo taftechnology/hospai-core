@@ -137,6 +137,7 @@ export async function handleDomainEvent(
     case 'restriction.changed':
     case 'rate.changed':
     case 'rate_plan.changed':
+    case 'rate_promo.changed':
     case 'charge_code.changed':
     case 'folio.routing_rule_changed':
     case 'tax_rule.changed':

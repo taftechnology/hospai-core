@@ -6,6 +6,7 @@ import { fingerprintPayload } from '@hospai/contracts';
 import { toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
 import {
+  cityLedgerStatementsPrefixForProperty,
   invoicesPrefixForProperty,
   listEventLogKeys,
   reportsPrefixForProperty,
@@ -509,7 +510,7 @@ describe('PurgeWorkflow org plan', () => {
     expect(await listEventLogKeys(env.EVENT_LOG_R2!, `events/org/${orgId}/`)).toEqual([]);
   });
 
-  it('org purge deletes reports and invoice R2 prefixes and pending_command_open rows', async () => {
+  it('org purge deletes reports, invoice, and city-ledger statement R2 prefixes and pending_command_open rows', async () => {
     const orgId = `org_na_r2_${crypto.randomUUID().slice(0, 8)}`;
     const propertyId = `prop_na_r2_${crypto.randomUUID().slice(0, 8)}`;
     expect(await createOrg(env, orgId, 'Purge NA R2')).toBe(true);
@@ -532,6 +533,7 @@ describe('PurgeWorkflow org plan', () => {
 
     const reportsPrefix = reportsPrefixForProperty(propertyId);
     const invoicesPrefix = invoicesPrefixForProperty(propertyId);
+    const cityLedgerPrefix = cityLedgerStatementsPrefixForProperty(propertyId);
     await env.EVENT_LOG_R2!.put(
       `${reportsPrefix}2026-03-01/occupancy.json`,
       JSON.stringify({ businessDate: '2026-03-01' }),
@@ -539,6 +541,10 @@ describe('PurgeWorkflow org plan', () => {
     await env.EVENT_LOG_R2!.put(
       `${invoicesPrefix}INV-000001.json`,
       JSON.stringify({ invoiceNumber: 'INV-000001' }),
+    );
+    await env.EVENT_LOG_R2!.put(
+      `${cityLedgerPrefix}acct-1/stmt-1.json`,
+      JSON.stringify({ statementId: 'stmt-1' }),
     );
     await insertPendingOpen(env.PLATFORM_DB, {
       propertyId,
@@ -548,6 +554,7 @@ describe('PurgeWorkflow org plan', () => {
     });
     expect((await listEventLogKeys(env.EVENT_LOG_R2!, reportsPrefix)).length).toBeGreaterThan(0);
     expect((await listEventLogKeys(env.EVENT_LOG_R2!, invoicesPrefix)).length).toBeGreaterThan(0);
+    expect((await listEventLogKeys(env.EVENT_LOG_R2!, cityLedgerPrefix)).length).toBeGreaterThan(0);
     expect(await countPendingOpen(env.PLATFORM_DB, propertyId)).toBe(1);
 
     expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
@@ -564,6 +571,7 @@ describe('PurgeWorkflow org plan', () => {
 
     expect(await listEventLogKeys(env.EVENT_LOG_R2!, reportsPrefix)).toEqual([]);
     expect(await listEventLogKeys(env.EVENT_LOG_R2!, invoicesPrefix)).toEqual([]);
+    expect(await listEventLogKeys(env.EVENT_LOG_R2!, cityLedgerPrefix)).toEqual([]);
     expect(await countPendingOpen(env.PLATFORM_DB, propertyId)).toBe(0);
   });
 

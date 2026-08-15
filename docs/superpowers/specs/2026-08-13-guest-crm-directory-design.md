@@ -572,7 +572,7 @@ Page size 25 ⇒ no virtualization requirement (guideline threshold is >50).
 | 4 | Tape chart / live board / WebSockets | Shipped; no guest deltas on the socket |
 | 5 | Property setup / rates / settings | Shipped |
 | 6 | `ui-kit` / visual identity | §16.4 |
-| 7 | City ledger / AR | §7.3 |
+| 7 | ~~City ledger / AR~~ **Closed** in [2026-08-15 city ledger / AR](./2026-08-15-city-ledger-ar-design.md). | ~~§7.3~~ |
 | ~~| 8 | Invoice generation | §16.1 / §4.7 R2 |~~ **Closed** in [2026-08-15 invoice generation engine](./2026-08-15-invoice-generation-engine-design.md). |
 | 9 | Night-audit auto-transfer | Pinned 7 steps |
 | 10 | Recurring charges / `breakfast_rule` engine | Prototype-holes leftover 1 |

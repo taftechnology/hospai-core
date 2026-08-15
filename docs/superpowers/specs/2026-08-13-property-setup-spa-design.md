@@ -540,7 +540,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 3 | ~~**`rooms.delete` / unit archive**~~ **Closed** in [2026-08-15 rooms delete — physical-unit archive](./2026-08-15-rooms-delete-archive-design.md). | ~~Rooms-vertical leftover~~ |
 | 4 | Tape chart / hibernating WebSockets | Closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md). |
 | 5 | `ui-kit` / visual identity | §16.4 |
-| 6 | City ledger / AR | §7.3 |
+| 6 | ~~City ledger / AR~~ **Closed** in [2026-08-15 city ledger / AR](./2026-08-15-city-ledger-ar-design.md): property-local corporate accounts, append-only AR, derived aging, R2 statements, Folio COMPANY picker. | ~~§7.3~~ |
 | ~~| 7 | Invoice generation | §16.1 / §4.7 R2 |~~ **Closed** in [2026-08-15 invoice generation engine](./2026-08-15-invoice-generation-engine-design.md): immutable folio snapshots in R2, monotonic numbering from `pms.invoice.*`, Folio desk surface. |
 | 8 | Night-audit auto-transfer | Folio-money leftover; pinned 7 steps |
 | 9 | Recurring charges / `breakfast_rule` engine | Prototype-holes leftover 1; Settings may **edit the string** |

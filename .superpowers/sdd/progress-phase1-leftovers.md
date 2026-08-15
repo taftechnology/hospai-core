@@ -38,7 +38,7 @@ Out of this campaign:
 8. Priced wizard / plan picker (derived plans cannot be booked from the desk) — DONE `2a25ebd` (spec `093f042`, plan `dd0f55c`; client `6169c34`, HTTP `df79fe7`, SPA `311a7a7`)
 9. Promo codes (on derivation graph) — DONE `92bf6ba` (spec `6ba7332`, plan `a4434f2`; schema `d1c9bdc`, CRUD `539a9e6`, snapshot `1c9bab8`+`6e1228d`, Rates `05d787d`, Booking `46a17e3`, leftovers `d94b34f`)
 10. Invoice generation engine (R2 + existing numbering config) — DONE `811b2dd` (spec `8d767c4`, plan `b61747e`; v32 `invoice` table, R2 snapshots, Folio generate/view; schema `2a4b693`, DO `b347859`, HTTP `67766b9`, checkout `0647ef3`, SPA `811b2dd`, leftovers `7a165d7`)
-11. City ledger / AR (not MASTER groups)
+11. City ledger / AR (not MASTER groups) — DONE `0282a5a` (spec `5a86dc8`, plan `317cda8`; v33 `city_ledger_*` tables, R2 statements, City Ledger SPA; schema `1904bf9`, DO `e809038`+`112d703`+`977a69e`, SPA `0282a5a`)
 12. Collapse split commands (SPA still calls v2 **and** `splitFolioPayment`)
 13. Retire `reservations.update_extras`
 
@@ -47,7 +47,6 @@ Out of this campaign:
 Sellable = a desk can take/price a stay, house it, settle money, roll the date. ARCHITECTURE §14 / §16.1.
 
 Still owed:
-1. **City ledger / AR** — §7.3 direct bill; not MASTER groups (Phase 2).
 
 Hygiene (not sellable; catalog debt):
 5. Collapse `folio.split_charge` / `split_charge_payment` / `split_charge_v2` — SPA still calls v2 **and** `splitFolioPayment`.

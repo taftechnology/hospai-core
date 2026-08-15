@@ -504,7 +504,7 @@ No `ARCHITECTURE.md` rewrite beyond dropping the exception-queue UX clause from 
 | 5 | Derived / OrgDO rate plans | §7.2 |
 | 6 | `rooms.delete` / unit archive | Rooms-vertical leftover |
 | 7 | `ui-kit` / visual identity | §16.4 |
-| 8 | City ledger / AR | §7.3 |
+| 8 | ~~City ledger / AR~~ **Closed** in [2026-08-15 city ledger / AR](./2026-08-15-city-ledger-ar-design.md). | ~~§7.3~~ |
 | ~~| 9 | Invoice generation | §16.1 / §4.7 R2 |~~ **Closed** in [2026-08-15 invoice generation engine](./2026-08-15-invoice-generation-engine-design.md). |
 | 10 | Night-audit auto-transfer | Pinned 7 steps |
 | 11 | Recurring charges | Prototype-holes leftover 1 |

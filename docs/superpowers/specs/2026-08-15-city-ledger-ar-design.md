@@ -854,17 +854,17 @@ Invoice pointers (**#7** / **#6** / **#9** / **#6** respectively) already closed
 
 ## 8. Implementation checklist
 
-- [ ] v33 migration + `PROPERTY_SCHEMA_HEAD` **33** + purge tables + R2 prefix + triggers
-- [ ] Wire codes + HTTP status map (`CITY_LEDGER_*`)
-- [ ] Catalog **92** + audit writers **65** + exemptions for `post_charge` / `archive_account` + five HTTP routes **`[141]–[145]`**
-- [ ] DO account CRUD + entry posting + aging reads + statement R2
-- [ ] COMPANY close hook + night-audit catch-up in `SNAPSHOT_REPORTS` (Txn B)
-- [ ] `billed_party` validation in `tryOpenFolioWindow` + triggers
-- [ ] HTTP handlers + client API + City Ledger SPA + Folio account picker
-- [ ] Tests Lock 13 (TDD order); `pnpm generate:ddl`
-- [ ] Register pins: catalog **92**, writers **65**, `[140]` unchanged, `[141]–[145]`, schema **33**, steps **8**
-- [ ] Leftover pointer closes in property-setup §19, guest-crm §12, exception-queue §10, tape-chart §13
-- [ ] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
+- [x] v33 migration + `PROPERTY_SCHEMA_HEAD` **33** + purge tables + R2 prefix + triggers
+- [x] Wire codes + HTTP status map (`CITY_LEDGER_*`)
+- [x] Catalog **92** + audit writers **65** + exemptions for `post_charge` / `archive_account` + five HTTP routes **`[141]–[145]`**
+- [x] DO account CRUD + entry posting + aging reads + statement R2
+- [x] COMPANY close hook + night-audit catch-up in `SNAPSHOT_REPORTS` (Txn B)
+- [x] `billed_party` validation in `tryOpenFolioWindow` + triggers
+- [x] HTTP handlers + client API + City Ledger SPA + Folio account picker
+- [x] Tests Lock 13 (TDD order); `pnpm generate:ddl`
+- [x] Register pins: catalog **92**, writers **65**, `[140]` unchanged, `[141]–[145]`, schema **33**, steps **8**
+- [x] Leftover pointer closes in property-setup §19, guest-crm §12, exception-queue §10, tape-chart §13
+- [x] CI: file-filter vitest; shard syntax; Workerd retry; last-task checkbox only
 
 ---
 

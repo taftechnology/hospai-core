@@ -12,6 +12,7 @@ import type { PmsEnv, PurgeWorkflowParams } from './env.js';
 import { isJurisdictionSimulate } from './env.js';
 import {
   assertEventLogPrefixEmpty,
+  cityLedgerStatementsPrefixForProperty,
   deleteEventLogPrefix,
   eventLogPrefixesForOrg,
   hasEventLogR2,
@@ -184,6 +185,10 @@ async function runOrgPlan(
         env.EVENT_LOG_R2,
         invoicesPrefixForProperty(propertyId),
       );
+      deleted += await deleteEventLogPrefix(
+        env.EVENT_LOG_R2,
+        cityLedgerStatementsPrefixForProperty(propertyId),
+      );
     }
     replaceStore(stores, { store: 'r2', status: 'reached', deleted });
   });
@@ -273,6 +278,10 @@ async function runOrgPlan(
           await assertEventLogPrefixEmpty(
             env.EVENT_LOG_R2,
             invoicesPrefixForProperty(propertyId),
+          );
+          await assertEventLogPrefixEmpty(
+            env.EVENT_LOG_R2,
+            cityLedgerStatementsPrefixForProperty(propertyId),
           );
         } catch {
           throw new HaltError('verify_r2_residue');

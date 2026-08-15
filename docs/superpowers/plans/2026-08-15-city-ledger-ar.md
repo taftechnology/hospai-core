@@ -1297,7 +1297,7 @@ EOF
 
 > ~~| 5 | City ledger / AR | §7.3 |~~ **Closed** in [2026-08-15 city ledger / AR](./2026-08-15-city-ledger-ar-design.md).
 
-- [ ] **Step 1: Add city-ledger R2 prefix to purge workflow**
+- [x] **Step 1: Add city-ledger R2 prefix to purge workflow**
 
 In `apps/pms-core/src/purge-workflow.ts` import `cityLedgerStatementsPrefixForProperty` from `event-log.js`. In `purge-r2` step (~178–186):
 
@@ -1312,7 +1312,7 @@ Mirror in verify/residue check path if reports/invoices prefixes are checked the
 
 Add purge test: seed statement R2 key → purge → prefix empty.
 
-- [ ] **Step 2: Pin frozen heads (register + schema + night-audit step count)**
+- [x] **Step 2: Pin frozen heads (register + schema + night-audit step count)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"
@@ -1321,7 +1321,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **92**; writers **65**; `[140]=post_invoice_void` unchanged; `[141]=post_city_ledger_accounts` … `[145]=get_city_ledger_statement`; `PLATFORM_GAPS === []`; `PROPERTY_SCHEMA_HEAD === 33`; `ORG_SCHEMA_HEAD === 7`; `NIGHT_AUDIT_STEPS.length === 8`.
 
-- [ ] **Step 3: Targeted test superset (Lock 13 full slice)**
+- [x] **Step 3: Targeted test superset (Lock 13 full slice)**
 
 ```bash
 pnpm build
@@ -1340,7 +1340,7 @@ pnpm check:ddl
 
 Expected: **PASS**.
 
-- [ ] **Step 4: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 4: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -1381,15 +1381,15 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true`.
 
-- [ ] **Step 5: Apply doc pointers + tick city ledger spec §8 checklist**
+- [x] **Step 5: Apply doc pointers + tick city ledger spec §8 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-city-ledger-ar-design.md` §8.
 
-- [ ] **Step 6: Tick Task 6 checkboxes in this plan only**
+- [x] **Step 6: Tick Task 6 checkboxes in this plan only**
 
 Do **not** tick Tasks 1–5 checkboxes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/pms-core/src/purge-workflow.ts \

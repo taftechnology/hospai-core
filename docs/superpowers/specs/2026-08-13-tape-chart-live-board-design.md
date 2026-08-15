@@ -530,7 +530,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional §16.3 note when the ch
 | 2 | Derived / OrgDO rate plans | §7.2 |
 | 3 | `rooms.delete` / unit archive | Rooms-vertical leftover |
 | 4 | `ui-kit` / visual identity | §16.4 |
-| 5 | City ledger / AR | §7.3 |
+| 5 | ~~City ledger / AR~~ **Closed** in [2026-08-15 city ledger / AR](./2026-08-15-city-ledger-ar-design.md). | ~~§7.3~~ |
 | ~~| 6 | Invoice generation | §16.1 / §4.7 R2 |~~ **Closed** in [2026-08-15 invoice generation engine](./2026-08-15-invoice-generation-engine-design.md). |
 | 7 | Night-audit auto-transfer | Pinned 7 steps |
 | 8 | Recurring charges / `breakfast_rule` engine | Prototype-holes leftover 1 |

@@ -1234,6 +1234,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'property_config',
   'property_config_audit',
   'provisional_exception',
+  'promo',
   'rate_day',
   'rate_plan',
   'reservation',
@@ -1271,6 +1272,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM property_config) +
       (SELECT COUNT(*) FROM property_config_audit) +
       (SELECT COUNT(*) FROM provisional_exception) +
+      (SELECT COUNT(*) FROM promo) +
       (SELECT COUNT(*) FROM rate_day) +
       (SELECT COUNT(*) FROM rate_plan) +
       (SELECT COUNT(*) FROM reservation) +

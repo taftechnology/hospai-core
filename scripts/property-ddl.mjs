@@ -76,6 +76,7 @@ if (process.argv.includes('--self-test')) {
   let FOLIO_ROUTING_RULE_V28_SQL;
   let ROOM_ARCHIVE_V29_SQL;
   let DERIVED_RATE_PLANS_V30_SQL;
+  let PROMO_CODES_V31_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -120,6 +121,7 @@ if (process.argv.includes('--self-test')) {
       FOLIO_ROUTING_RULE_V28_SQL,
       ROOM_ARCHIVE_V29_SQL,
       DERIVED_RATE_PLANS_V30_SQL,
+      PROMO_CODES_V31_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -433,6 +435,16 @@ const doPropertyTargets = [
 
 `,
     sql: DERIVED_RATE_PLANS_V30_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0031_promo_codes.sql'),
+    header: `-- PropertyDO promo codes — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE promo → partial unique index → reservation.promo_id.
+
+`,
+    sql: PROMO_CODES_V31_SQL,
   },
 ];
 

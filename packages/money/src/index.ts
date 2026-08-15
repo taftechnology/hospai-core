@@ -128,6 +128,37 @@ export function roundHalfAwayFromZero(numerator: bigint, denominator: bigint): b
   return (numerator - denominator / 2n) / denominator;
 }
 
+export type PromoKind = 'percent' | 'fixed_per_night';
+
+export type PromoApplyInput =
+  | { kind: 'percent'; bps: number }
+  | { kind: 'fixed_per_night'; amountMinor: number };
+
+export function applyPromoToAmountMinor(
+  amountMinor: number,
+  promo: PromoApplyInput,
+): number {
+  if (!Number.isInteger(amountMinor) || amountMinor < 0) {
+    throw new InvalidMoneyError('amountMinor must be a non-negative integer');
+  }
+  if (promo.kind === 'percent') {
+    const discounted = Number(
+      roundHalfAwayFromZero(
+        BigInt(amountMinor) * BigInt(10_000 - promo.bps),
+        10_000n,
+      ),
+    );
+    if (!Number.isSafeInteger(discounted)) {
+      throw new InvalidMoneyError('promo amount overflow');
+    }
+    return Math.max(0, discounted);
+  }
+  if (!Number.isInteger(promo.amountMinor) || promo.amountMinor < 0) {
+    throw new InvalidMoneyError('amountMinor must be a non-negative integer');
+  }
+  return Math.max(0, amountMinor - promo.amountMinor);
+}
+
 function parseDecimalRate(
   rate: string,
   opts: { allowNegative: boolean },

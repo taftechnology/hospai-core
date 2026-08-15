@@ -45,6 +45,7 @@ import {
   FOLIO_ROUTING_RULE_V28_SQL,
   ROOM_ARCHIVE_V29_SQL,
   DERIVED_RATE_PLANS_V30_SQL,
+  PROMO_CODES_V31_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -187,6 +188,9 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO reservation_v20')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation_v20 RENAME TO reservation')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE rate_plan ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN promo_id')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('PRAGMA foreign_keys')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO folio_window_v21')) return { toArray: () => [] };
     if (q.startsWith('DROP TABLE folio_window')) return { toArray: () => [] };
@@ -223,16 +227,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 30', () => {
+  it('applies property migrations through version 31', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(30);
+    expect(v1).toBe(31);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(30);
-    expect(sql.schemaVersion).toHaveLength(30);
+    expect(v2).toBe(31);
+    expect(sql.schemaVersion).toHaveLength(31);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30,
+      26, 27, 28, 29, 30, 31,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -624,7 +628,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(30);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(31);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -859,5 +863,25 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(DERIVED_RATE_PLANS_V30_SQL.trim());
+  });
+
+  it('property schema head is 31 after promo_codes', () => {
+    const v31 = PROPERTY_MIGRATIONS.find((m) => m.version === 31);
+    expect(v31?.name).toBe('promo_codes');
+    expect(v31?.statements[0]).toContain('CREATE TABLE promo');
+    expect(v31?.statements.some((s) => s.includes('promo_code_active'))).toBe(true);
+    expect(v31?.statements.some((s) => s.includes('ADD COLUMN promo_id'))).toBe(true);
+  });
+
+  it('migrations/do-property/0031_promo_codes.sql matches PROMO_CODES_V31_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0031_promo_codes.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PROMO_CODES_V31_SQL.trim());
   });
 });

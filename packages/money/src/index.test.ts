@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   add,
   allocate,
+  applyPromoToAmountMinor,
   assertPostedMatches,
   computeTax,
   currencyCode,
@@ -203,5 +204,23 @@ describe('structuredClone', () => {
   it('round-trips negated money', () => {
     const m = negate(money(50, currencyCode('USD')));
     expect(structuredClone(m)).toEqual(m);
+  });
+});
+
+describe('applyPromoToAmountMinor', () => {
+  it('1: percent 1500 bps off 10000 → 8500', () => {
+    expect(applyPromoToAmountMinor(10_000, { kind: 'percent', bps: 1500 })).toBe(8500);
+  });
+
+  it('2: fixed_per_night floors at 0', () => {
+    expect(applyPromoToAmountMinor(500, { kind: 'fixed_per_night', amountMinor: 800 })).toBe(0);
+  });
+
+  it('3: percent 10000 bps → 0', () => {
+    expect(applyPromoToAmountMinor(10_000, { kind: 'percent', bps: 10_000 })).toBe(0);
+  });
+
+  it('rejects non-integer negative amountMinor', () => {
+    expect(() => applyPromoToAmountMinor(-1, { kind: 'percent', bps: 100 })).toThrow(InvalidMoneyError);
   });
 });

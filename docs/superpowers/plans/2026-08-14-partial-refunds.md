@@ -1,6 +1,6 @@
 # Partial refunds (folio money ops leftover 4) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > **I'm using the writing-plans skill to create the implementation plan.**
 >
@@ -170,7 +170,7 @@ error === REFUND_EXCEEDS_REMAINING ||
 
 Import `REFUND_EXCEEDS_REMAINING` from `@hospai/contracts` at top of `v1-dispatch.ts`.
 
-- [ ] **Step 1: Write failing idempotency.test.ts pin**
+- [x] **Step 1: Write failing idempotency.test.ts pin**
 
 Add import + assertion in the payment wire codes block (~207):
 
@@ -183,7 +183,7 @@ it('exports payment refund wire codes', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts -t "payment refund wire"
@@ -191,11 +191,11 @@ pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts -t "paym
 
 Expected: FAIL — `REFUND_EXCEEDS_REMAINING` not exported.
 
-- [ ] **Step 3: Implement contracts + comment + dispatch map**
+- [x] **Step 3: Implement contracts + comment + dispatch map**
 
 Add constant to `idempotency.ts`. Update `payment.ts` comment. Add `REFUND_EXCEEDS_REMAINING` to 422 list in `mapPaymentCommandErrorStatus`.
 
-- [ ] **Step 4: Rebuild contracts and run tests**
+- [x] **Step 4: Rebuild contracts and run tests**
 
 ```bash
 pnpm --filter @hospai/contracts build
@@ -204,7 +204,7 @@ pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts -t "paym
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/idempotency.ts \
@@ -260,7 +260,7 @@ refundedAmountMinor: row.refunded_amount_minor ?? 0,
 - Inline row type adds `refunded_amount_minor: number | null`.
 - Return map adds `refundedAmountMinor: row.refunded_amount_minor ?? 0`.
 
-- [ ] **Step 1: Write failing read test**
+- [x] **Step 1: Write failing read test**
 
 Append to `apps/pms-core/test/folio-payment-lifecycle.spec.ts` (after helpers, before case 28):
 
@@ -284,7 +284,7 @@ it('reads refundedAmountMinor as 0 before any refund posted', async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts -t "refundedAmountMinor as 0"
@@ -292,11 +292,11 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec
 
 Expected: FAIL — property missing or undefined.
 
-- [ ] **Step 3: Implement read widen only**
+- [x] **Step 3: Implement read widen only**
 
 Do not change refund write logic yet.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts -t "refundedAmountMinor as 0"
@@ -304,7 +304,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-payment-lifecycle.spec.ts
@@ -468,7 +468,7 @@ expect(refundLine?.folioLineId ?? folio.lines.find(...)?.folioLineId).toBe(`${pa
 
 Apply same pattern to cases 29 (still `{ paymentId, amountMinor: 3000 }` — fails before amount matters), 30 (cash `amountMinor: 2500`), 31 (full 6000 + idempotent replay).
 
-- [ ] **Step 1: Write failing partial-refund test (spec §11 #3)**
+- [x] **Step 1: Write failing partial-refund test (spec §11 #3)**
 
 Add to `folio-payment-lifecycle.spec.ts`:
 
@@ -525,7 +525,7 @@ it('33: partial then remaining refund — :refund:1 then :refund:2, captured the
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts -t "33: partial then remaining"
@@ -533,11 +533,11 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec
 
 Expected: FAIL — still full-refund-only behaviour.
 
-- [ ] **Step 3: Implement `applyPaymentEventSync` + `tryRefundPayment`**
+- [x] **Step 3: Implement `applyPaymentEventSync` + `tryRefundPayment`**
 
 Per normative blocks above. Import `REFUND_EXCEEDS_REMAINING`, `MONEY_INVALID` as needed. Widen return type union for `status: 'captured' | 'refunded'`.
 
-- [ ] **Step 4: Add remaining domain tests + update 28–31 + FX case 15**
+- [x] **Step 4: Add remaining domain tests + update 28–31 + FX case 15**
 
 **Over-refund (spec #4):**
 
@@ -634,7 +634,7 @@ expect(refund).toMatchObject({
 });
 ```
 
-- [ ] **Step 5: Run targeted tests**
+- [x] **Step 5: Run targeted tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts
@@ -643,7 +643,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-fx-payments.spec.ts -t
 
 Expected: PASS (cases 28–31 included).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \
@@ -702,7 +702,7 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
 }
 ```
 
-- [ ] **Step 1: Write failing HTTP tests**
+- [x] **Step 1: Write failing HTTP tests**
 
 Append to `apps/pms-core/test/folio-payments.spec.ts`. Add `REFUND_EXCEEDS_REMAINING` to the `@hospai/contracts` import at top of file.
 
@@ -772,7 +772,7 @@ it('Test 24: POST refund over remaining → 422 refund_exceeds_remaining', async
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payments.spec.ts -t "Test 23|Test 24"
@@ -780,9 +780,9 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payments.spec.ts -t "T
 
 Expected: FAIL — missing body validation or wrong status.
 
-- [ ] **Step 3: Implement handler widen**
+- [x] **Step 3: Implement handler widen**
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payments.spec.ts -t "Test 23|Test 24"
@@ -790,7 +790,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payments.spec.ts -t "T
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/v1-dispatch.ts apps/pms-core/test/folio-payments.spec.ts
@@ -825,7 +825,7 @@ if ((payment.refunded_amount_minor ?? 0) > 0) {
 }
 ```
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```ts
 it('36: chargeback after partial refund → PAYMENT_NOT_CHARGEBACKABLE', async () => {
@@ -854,7 +854,7 @@ it('36: chargeback after partial refund → PAYMENT_NOT_CHARGEBACKABLE', async (
 
 Add `PAYMENT_NOT_CHARGEBACKABLE` import if not present.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts -t "36: chargeback after partial"
@@ -862,11 +862,11 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec
 
 Expected: FAIL — chargeback succeeds or wrong error.
 
-- [ ] **Step 3: Add guard in `tryRecordChargeback`**
+- [x] **Step 3: Add guard in `tryRecordChargeback`**
 
 Insert guard immediately after payment load (~14598), **before** existing status check.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec.ts -t "36: chargeback after partial"
@@ -874,7 +874,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/folio-payment-lifecycle.spec
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts apps/pms-core/test/folio-payment-lifecycle.spec.ts
@@ -961,13 +961,13 @@ mutationFn: ({ paymentId, amountMinor }: { paymentId: string; amountMinor: numbe
 },
 ```
 
-- [ ] **Step 1: Widen client type + rebuild**
+- [x] **Step 1: Widen client type + rebuild**
 
 ```bash
 pnpm --filter @hospai/client-core build
 ```
 
-- [ ] **Step 2: Write failing FolioScreen tests**
+- [x] **Step 2: Write failing FolioScreen tests**
 
 Add to `FolioScreen.test.tsx`:
 
@@ -1002,9 +1002,9 @@ it('refund amount input defaults to remaining on captured payment', async () => 
 
 Existing test **54** already asserts staff refund hidden — no change required beyond ensuring it still passes (spec #14). Existing **happy path copy has no simulate** (~1299) must still pass (spec #15).
 
-- [ ] **Step 3: Implement FolioScreen refund amount UI**
+- [x] **Step 3: Implement FolioScreen refund amount UI**
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx
@@ -1013,7 +1013,7 @@ pnpm check:web-pms-colors
 
 Expected: PASS; no simulate copy in refund path.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/client-core/src/api.ts \
@@ -1051,7 +1051,7 @@ Multi-currency §1.3 scope-out partial refunds bullet (~65):
 
 > Partial refunds (folio-money-ops leftover 4 remainder) closed in [2026-08-14 partial refunds](./2026-08-14-partial-refunds-design.md); chargeback-of-remainder remains deferred.
 
-- [ ] **Step 1: Pin frozen heads (no schema bump)**
+- [x] **Step 1: Pin frozen heads (no schema bump)**
 
 ```bash
 pnpm generate:ddl
@@ -1063,7 +1063,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 Expect: catalog **77**; route **[127] = post_demo_seed**; `[101] = post_folio_refund`; `PROPERTY_SCHEMA_HEAD === 27`; `ORG_SCHEMA_HEAD === 7`; `AUDIT_WRITER_COMMAND_IDS.size === 52`; `PLATFORM_GAPS === []`; `NIGHT_AUDIT_STEPS.length === 7`.
 
-- [ ] **Step 2: Run targeted partial-refund test superset**
+- [x] **Step 2: Run targeted partial-refund test superset**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts
@@ -1075,7 +1075,7 @@ pnpm --filter @hospai/web-pms exec vitest run src/screens/FolioScreen.test.tsx
 pnpm check:pms-core-test-dates
 ```
 
-- [ ] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -1116,11 +1116,11 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true` failures.
 
-- [ ] **Step 4: Add spec pointers**
+- [x] **Step 4: Add spec pointers**
 
-- [ ] **Step 5: Tick every `- [ ]` on Tasks 1–7 in this file**
+- [x] **Step 5: Tick every `- [x]` on Tasks 1–7 in this file**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-folio-money-operations-design.md \
@@ -1140,21 +1140,21 @@ EOF
 
 ## Spec §13 reviewer checklist (copied; implementation must satisfy)
 
-- [ ] `amountMinor` required on HTTP + RPC; fingerprint `{ paymentId, amountMinor }`.
-- [ ] `refunded_amount_minor` written; remaining formula §3.1; no schema migration; head **27**.
-- [ ] Status `captured` until remainder 0, then `refunded`; no `partially_refunded`.
-- [ ] Each refund: one `PAYMENT_REFUND` line; capture untouched; ids `` `:refund:n` ``.
-- [ ] `applyPaymentEventSync` honours partial amount + cumulative refund + conditional status.
-- [ ] Hybrid idempotency: `refunded` + mismatch → `IDEM_KEY_REUSED` (no peek/PSP); peek via `lookupIdempotentResponse` before PSP for `captured` replays; `runIdempotent` in txn; no `payment_refund` table.
-- [ ] `refund_exceeds_remaining` → 422; `MONEY_INVALID` for bad amounts.
-- [ ] FX refund uses capture frozen rate (not live quote).
-- [ ] `PaymentRefundedV1` comment updated; contract version **1**.
-- [ ] GET payments expose `refundedAmountMinor`.
-- [ ] SPA amount field + remaining default; testid preserved; staff gate unchanged.
-- [ ] Chargeback blocked when `refunded_amount_minor > 0`.
-- [ ] `[101]` / catalog **77** / writers **52** / route **[127]** unchanged.
-- [ ] Tests §11 green — mapped to Tasks 1–7.
-- [ ] Bidirectional pointer sentences in folio-money-ops + multi-currency specs when landed.
+- [x] `amountMinor` required on HTTP + RPC; fingerprint `{ paymentId, amountMinor }`.
+- [x] `refunded_amount_minor` written; remaining formula §3.1; no schema migration; head **27**.
+- [x] Status `captured` until remainder 0, then `refunded`; no `partially_refunded`.
+- [x] Each refund: one `PAYMENT_REFUND` line; capture untouched; ids `` `:refund:n` ``.
+- [x] `applyPaymentEventSync` honours partial amount + cumulative refund + conditional status.
+- [x] Hybrid idempotency: `refunded` + mismatch → `IDEM_KEY_REUSED` (no peek/PSP); peek via `lookupIdempotentResponse` before PSP for `captured` replays; `runIdempotent` in txn; no `payment_refund` table.
+- [x] `refund_exceeds_remaining` → 422; `MONEY_INVALID` for bad amounts.
+- [x] FX refund uses capture frozen rate (not live quote).
+- [x] `PaymentRefundedV1` comment updated; contract version **1**.
+- [x] GET payments expose `refundedAmountMinor`.
+- [x] SPA amount field + remaining default; testid preserved; staff gate unchanged.
+- [x] Chargeback blocked when `refunded_amount_minor > 0`.
+- [x] `[101]` / catalog **77** / writers **52** / route **[127]** unchanged.
+- [x] Tests §11 green — mapped to Tasks 1–7.
+- [x] Bidirectional pointer sentences in folio-money-ops + multi-currency specs when landed.
 
 ---
 

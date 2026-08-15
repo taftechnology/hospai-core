@@ -285,7 +285,7 @@ Event: `folio.payment_voided` `{ propertyId, paymentId, reservationId, gatewayRe
 
 ### 6.3 Refund — `folio.refund`
 
-**Full refund only.** Partial refund is leftover 4.
+Partial refunds (multiple slices until remainder zero) landed in [2026-08-14 partial refunds](./2026-08-14-partial-refunds-design.md); `folio.refund` now requires `amountMinor` and writes `refunded_amount_minor`.
 
 Captured → `refunded`. Post a **positive** reversing `PAYMENT` line (undoes the negative capture). Original capture line untouched. Refund line: `source = 'PAYMENT_REFUND'`, `charge_code = 'PAYMENT'`, `split_of = captureLineId`, **`payment_id = NULL`** (must not violate `folio_line_payment_uidx`). Amount = `captured_amount_minor` (not `payment.amount_minor` — partial capture already exists).
 

@@ -62,7 +62,7 @@ This chunk turns the existing columns on, sources rates honestly (staff-entered,
 - Settlement-file ingestion and an automated settlement exception queue (leftover 1). The *rule* (mismatch → exception, never auto-correct) is locked; the actuator is not.
 - A PCI-isolated payments Worker, real PSP, PAN/token vault. Simulate adapter stays.
 - Changing the property ledger currency after first write.
-- Partial refunds (folio-money-ops leftover 4 remainder).
+- Partial refunds (folio-money-ops leftover 4 remainder) closed in [2026-08-14 partial refunds](./2026-08-14-partial-refunds-design.md); chargeback-of-remainder remains deferred.
 - Authorization expiry / hold-lapse; `unknown` reconciliation exit.
 - City ledger / AR; night-audit auto-transfer; growing `NIGHT_AUDIT_STEPS`.
 - Taxable FX adjustments; tax on FX_GAIN/FX_LOSS (exempt).

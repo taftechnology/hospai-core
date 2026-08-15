@@ -94,7 +94,8 @@ describe('reservation check-in auto-assign', () => {
     expect(read.ok && read.reservation.roomId).toBe('rm_101');
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_aa1' });
     expect(audit.ok).toBe(true);
-    const rows = (audit as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> }).rows;
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> })
+      .rows;
     const ci = rows.find((r) => r.commandId === 'reservations.check_in');
     expect(ci?.afterJson).toMatchObject({ autoAssigned: true, roomId: 'rm_101' });
     expect(await stub.listOutboxEventTypes()).toContain('reservation.room_assigned');

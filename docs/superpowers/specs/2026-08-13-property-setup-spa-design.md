@@ -353,7 +353,7 @@ Gate `settings:configure`. Nested tabs in the URL: `property` (default), `charge
 | Folio | `breakfast_rule` (copy: “Display only — night audit does not auto-post from this.”). `close_window_on_check_out`, `auto_capture_on_check_out`. `pms.folio.configs` JSON, optional/advanced, `autocomplete="off"`. |
 | Reservations | `pending_hold_hours`, `inquiry_ttl_days`, `check_in_cleanliness` (`strict` \| `off`), `check_out_require_zero_balance` |
 | Housekeeping | `pms.housekeeping.require_inspection` |
-| Ops (unread) | `pms.ops.auto_assign_rooms` — checkbox. Copy: “Stored for later. Check-in still requires an explicit room.” |
+| Ops (unread) | `pms.ops.auto_assign_rooms` — checkbox. Copy: ~~“Stored for later. Check-in still requires an explicit room.”~~ **“When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready.”** Consumer: [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md). |
 
 Each PUT: existing `PUT …/config/domain` with operator `reason` (required text, placeholder “Why this change…”). Idempotency via `stableKeyForOperation`. Boolean = checkbox. Integer = `type="number"`. Enum = `<select>`. Time `audit_time` / `same_day_cutoff` = `type="time"` or `HH:mm` text. Submit “Save {label}”; “Saving…” in flight. `aria-live="polite"` on success “Saved.” Errors inline from wire (`undeclared:`, class gate, schema fail).
 
@@ -550,7 +550,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 13 | Plan-scoped restrictions | Rate-plans §2.3 |
 | 14 | `rematerializesRates` consumer | Rule-3 leftover |
 | 15 | `pms.money.currencies_list` as FX allowlist | Multi-currency leftover 2 |
-| 16 | Auto-extend / auto-assign **consumers** | Display/edit only |
+| 16 | ~~Auto-extend / auto-assign **consumers** — Display/edit only~~ **Closed** for `auto_assign_rooms` in [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md). `auto_extend` consumer remains deferred. |
 | 17 | Room-type photos | Prototype-holes leftover 5 |
 | 18 | Rate-plan inclusions | Prototype-holes leftover 6 |
 | 19 | OPERATIONAL/PRESENTATION OrgDO settings screen | No store |

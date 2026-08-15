@@ -255,7 +255,7 @@ Three machines meet on `confirmed → checked_in`: reservation status, physical 
 
 If both are present and differ, the payload wins: run the assign-room conflict checks (type, overlap, not OOO) against `input.roomId` and write `reservation.room_id` in the **same** transaction as the status flip. That is “assignment happens at check-in” as one desk action.
 
-`pms.ops.auto_assign_rooms` is **not** consulted (leftover).
+**`pms.ops.auto_assign_rooms`** is consulted as resolution step **3** when true (see [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md)).
 
 ### 4.2 Cleanliness
 
@@ -848,7 +848,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 
 1. **`availability_day.held` behaviour** — CRS / group holds, Phase 3 (§7.1).
 2. **Quote snapshot** (nightly rates frozen on the reservation at create) — wizard is still quantity-only; penalty uses current `rate_day`. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §8.
-3. **`pms.ops.auto_assign_rooms`** — `pms.ops.auto_assign_rooms` reclassified DOMAIN + `consumersExempt` and is editable on Settings ([property setup SPA](./2026-08-13-property-setup-spa-design.md)); check-in stays explicit — no consumer.
+3. ~~**`pms.ops.auto_assign_rooms`** — reclassified DOMAIN + `consumersExempt`… check-in stays explicit — no consumer.~~ **Closed** in [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md): `tryCheckIn` consults `pms.ops.auto_assign_rooms` and picks lowest eligible `room.code`.
 4. **Folio window close on check-out** — money-ops; window stays `OPEN` by default. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §4 (explicit close; optional auto-close config).
 5. **Deposits / capture on `folio.balance_due`** — payments worker. Capture seam specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6.4 (`folio.capture_due` + live check-out `autoCapture`).
 6. **Priced wizard / plan picker** — schema is ready; UI is not this chunk’s job beyond Hold/Quote.

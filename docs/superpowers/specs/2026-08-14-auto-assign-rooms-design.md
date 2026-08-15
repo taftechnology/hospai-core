@@ -277,15 +277,15 @@ Only if an existing check-in HTTP test file is the natural home — **`worker.fe
 
 ## 9. Implementation checklist
 
-- [ ] `tryCheckIn`: resolution order Lock 1 (steps 1–4); call `pickAutoAssignRoomSync` at step 3.
-- [ ] `pickAutoAssignRoomSync`: candidate query `ORDER BY code ASC`; skip ineligible; first win; null → `ROOM_REQUIRED`.
-- [ ] Reuse assign-at-check-in txn block for pick-forced assign; `reservation.room_assigned` when pick writes `room_id`.
-- [ ] Check-in audit `afterJson.autoAssigned: true` when pick assigned in this txn.
-- [ ] `CheckInScreen`: optional room, copy, `canCheckIn`, omit `roomId`; RTL case **9**.
-- [ ] `SettingsScreen` hint + `SettingsScreen.test.tsx` case **10**.
-- [ ] DO tests §7.1 cases **1–8**; register pins unchanged.
-- [ ] `pnpm check:web-pms-colors` if SPA tokens touched.
-- [ ] Bidirectional pointers: lifecycle §4.1 + leftover **3**; property-setup §8 + leftover **16**; rooms-housekeeping §2.4; room-operations leftover **11** (final implementation task).
+- [x] `tryCheckIn`: resolution order Lock 1 (steps 1–4); call `pickAutoAssignRoomSync` at step 3.
+- [x] `pickAutoAssignRoomSync`: candidate query `ORDER BY code ASC`; skip ineligible; first win; null → `ROOM_REQUIRED`.
+- [x] Reuse assign-at-check-in txn block for pick-forced assign; `reservation.room_assigned` when pick writes `room_id`.
+- [x] Check-in audit `afterJson.autoAssigned: true` when pick assigned in this txn.
+- [x] `CheckInScreen`: optional room, copy, `canCheckIn`, omit `roomId`; RTL case **9**.
+- [x] `SettingsScreen` hint + `SettingsScreen.test.tsx` case **10**.
+- [x] DO tests §7.1 cases **1–8**; register pins unchanged.
+- [x] `pnpm check:web-pms-colors` if SPA tokens touched.
+- [x] Bidirectional pointers: lifecycle §4.1 + leftover **3**; property-setup §8 + leftover **16**; rooms-housekeeping §2.4; room-operations leftover **11** (final implementation task).
 
 ---
 

@@ -1135,7 +1135,7 @@ Property-based tests (§11) assert the ledger invariant: for each `(room_type_id
 `sold` equals the count of reservations in `pending | confirmed | checked_in | checked_out`
 covering that night.
 
-Pre-assign is allowed; check-in without a resolved room is rejected.
+Pre-assign is allowed; check-in without a resolved room is rejected unless `pms.ops.auto_assign_rooms` is on, in which case `tryCheckIn` may auto-pick the lowest eligible physical room of the booked type.
 
 When holds do land, three things become mandatory at the same time: a `hold-expiry` schedule on
 the `AlarmScheduler` (§4.4), held inventory reading as **unavailable** in the ARI projection
@@ -2212,7 +2212,7 @@ Already implied by earlier sections; recorded here so a later pass does not "fix
 
 `waitingForRoom` is the one that looks like an unnamed gap and is not. §7.1 already chose
 type-level inventory with optional pre-assign. Pre-assign is allowed; check-in without a
-resolved room is rejected. Parking arrivals as "waiting" without a room is a different product.
+resolved room is rejected unless `pms.ops.auto_assign_rooms` is on, in which case `tryCheckIn` may auto-pick the lowest eligible physical room of the booked type. Parking arrivals as "waiting" without a room is a different product.
 
 #### What "rebuild the prototype's screens" still means
 

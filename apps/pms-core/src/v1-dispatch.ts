@@ -7446,7 +7446,9 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
       held: row.held,
       sold: row.sold,
       oversell: row.oversell,
-      free: row.physical - row.blocked - row.held - row.sold + row.oversell,
+      free:
+        row.free ??
+        row.physical - row.blocked - row.held - row.sold + row.oversell,
     }));
 
     return json({

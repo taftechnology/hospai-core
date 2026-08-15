@@ -162,6 +162,8 @@ import {
   enumerateHorizonDates,
   HORIZON_DAYS,
   oversellDates,
+  sumConstituentFree,
+  type ConstituentAvailabilityRow,
   type InventoryRow,
 } from '@hospai/pms-inventory';
 import {
@@ -4438,11 +4440,55 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       held: number;
       sold: number;
       oversell: number;
+      free?: number;
     }>;
   }> {
     this.assertRpcAvailable();
     const ariVersion = this.readAriVersionSync();
-    const rows = this.ctx.storage.sql
+    const physicalRows = this.loadAvailabilityDayRowsSync(fromDate, toDate, roomTypeId);
+
+    if (roomTypeId) {
+      const kindRows = this.ctx.storage.sql
+        .exec(`SELECT kind FROM room_type WHERE room_type_id = ?`, roomTypeId)
+        .toArray() as Array<{ kind: string }>;
+      if (kindRows[0]?.kind === 'virtual') {
+        const constituentIds = this.readVirtualConstituentIdsSync(roomTypeId);
+        const constituentRows = this.loadAvailabilityDayRowsForTypesSync(fromDate, toDate, constituentIds);
+        const physicalByTypeDate = this.buildPhysicalAvailabilityMap(constituentRows);
+        const synthetic = this.syntheticVirtualRowsForRange(
+          fromDate,
+          toDate,
+          roomTypeId,
+          constituentIds,
+          physicalByTypeDate,
+        );
+        return { ariVersion, rows: synthetic };
+      }
+      return { ariVersion, rows: physicalRows };
+    }
+
+    const physicalByTypeDate = this.buildPhysicalAvailabilityMap(physicalRows);
+    const virtuals = this.readVirtualTypesWithConstituentsSync();
+    const syntheticRows = virtuals.flatMap((v) =>
+      this.syntheticVirtualRowsForRange(fromDate, toDate, v.virtualId, v.constituentIds, physicalByTypeDate),
+    );
+    return { ariVersion, rows: [...physicalRows, ...syntheticRows] };
+  }
+
+  private loadAvailabilityDayRowsSync(
+    fromDate: string,
+    toDate: string,
+    roomTypeId?: string,
+  ): Array<{
+    roomTypeId: string;
+    stayDate: string;
+    physical: number;
+    blocked: number;
+    held: number;
+    sold: number;
+    oversell: number;
+  }> {
+    return this.ctx.storage.sql
       .exec(
         `SELECT room_type_id AS roomTypeId, stay_date AS stayDate,
                 physical, blocked, held, sold, oversell
@@ -4464,8 +4510,129 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       sold: number;
       oversell: number;
     }>;
+  }
 
-    return { ariVersion, rows };
+  private loadAvailabilityDayRowsForTypesSync(
+    fromDate: string,
+    toDate: string,
+    roomTypeIds: string[],
+  ): Array<{
+    roomTypeId: string;
+    stayDate: string;
+    physical: number;
+    blocked: number;
+    held: number;
+    sold: number;
+    oversell: number;
+  }> {
+    if (roomTypeIds.length === 0) return [];
+    const placeholders = roomTypeIds.map(() => '?').join(', ');
+    return this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id AS roomTypeId, stay_date AS stayDate,
+                physical, blocked, held, sold, oversell
+           FROM availability_day
+          WHERE stay_date >= ? AND stay_date <= ?
+            AND room_type_id IN (${placeholders})
+          ORDER BY room_type_id, stay_date`,
+        fromDate,
+        toDate,
+        ...roomTypeIds,
+      )
+      .toArray() as Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+    }>;
+  }
+
+  private readVirtualTypesWithConstituentsSync(): Array<{
+    virtualId: string;
+    constituentIds: string[];
+  }> {
+    const virtuals = this.ctx.storage.sql
+      .exec(`SELECT room_type_id FROM room_type WHERE status = 'active' AND kind = 'virtual'`)
+      .toArray() as Array<{ room_type_id: string }>;
+    return virtuals.map((v) => ({
+      virtualId: v.room_type_id,
+      constituentIds: this.readVirtualConstituentIdsSync(v.room_type_id),
+    }));
+  }
+
+  private buildPhysicalAvailabilityMap(
+    physicalRows: Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+    }>,
+  ): Map<string, Map<string, ConstituentAvailabilityRow>> {
+    const map = new Map<string, Map<string, ConstituentAvailabilityRow>>();
+    for (const row of physicalRows) {
+      let byDate = map.get(row.roomTypeId);
+      if (!byDate) {
+        byDate = new Map();
+        map.set(row.roomTypeId, byDate);
+      }
+      byDate.set(row.stayDate, {
+        physical: row.physical,
+        blocked: row.blocked,
+        held: row.held,
+        sold: row.sold,
+        oversell: row.oversell,
+      });
+    }
+    return map;
+  }
+
+  private syntheticVirtualRowsForRange(
+    fromDate: string,
+    toDate: string,
+    virtualId: string,
+    constituentIds: string[],
+    physicalByTypeDate: Map<string, Map<string, ConstituentAvailabilityRow>>,
+  ): Array<{
+    roomTypeId: string;
+    stayDate: string;
+    physical: number;
+    blocked: number;
+    held: number;
+    sold: number;
+    oversell: number;
+    free: number;
+  }> {
+    const out: Array<{
+      roomTypeId: string;
+      stayDate: string;
+      physical: number;
+      blocked: number;
+      held: number;
+      sold: number;
+      oversell: number;
+      free: number;
+    }> = [];
+    let stayDate = fromDate;
+    while (stayDate <= toDate) {
+      out.push({
+        roomTypeId: virtualId,
+        stayDate,
+        physical: 0,
+        blocked: 0,
+        held: 0,
+        sold: 0,
+        oversell: 0,
+        free: sumConstituentFree(constituentIds, stayDate, physicalByTypeDate),
+      });
+      stayDate = enumerateFromDate(stayDate, 2)[1]!;
+    }
+    return out;
   }
 
   private validateVirtualConstituentsSync(ids: string[] | undefined): string[] {

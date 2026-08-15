@@ -1132,6 +1132,7 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.night_audit',
       'pms.booking',
       'pms.money',
+      'pms.payments',
       'pms.folio',
       'pms.reservations',
       'pms.housekeeping',

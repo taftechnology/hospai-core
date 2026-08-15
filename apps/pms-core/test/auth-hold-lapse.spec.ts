@@ -110,8 +110,9 @@ describe('auth hold lapse', () => {
 
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
     expect(audit.ok).toBe(true);
-    const rows = (audit as { ok: true; rows: Array<{ actor: string; commandId: string; afterJson: unknown }> })
-      .rows;
+    const rows = (
+      audit as unknown as { ok: true; rows: Array<{ actor: string; commandId: string; afterJson: unknown }> }
+    ).rows;
     const voidRow = rows.find((r) => r.commandId === 'folio.void' && r.afterJson && typeof r.afterJson === 'object');
     expect(voidRow?.actor).toBe('system:auth_hold_lapse');
     expect(voidRow?.afterJson).toMatchObject({ status: 'voided', automated: true });
@@ -204,16 +205,12 @@ describe('auth hold lapse', () => {
 
     await fireAuthHoldLapseAlarm(stub);
 
-    expect((await stub.readPayment(cashId)).ok && (await stub.readPayment(cashId)).ok).toBe(true);
-    expect((await stub.readPayment(cashId)).ok && (await stub.readPayment(cashId)).payment!.status).toBe(
-      'captured',
-    );
-    expect((await stub.readPayment(unknownId)).ok && (await stub.readPayment(unknownId)).payment!.status).toBe(
-      'unknown',
-    );
-    expect((await stub.readPayment(pendingId)).ok && (await stub.readPayment(pendingId)).payment!.status).toBe(
-      'pending',
-    );
+    const cashPay = await stub.readPayment(cashId);
+    expect(cashPay.ok && cashPay.payment.status).toBe('captured');
+    const unknownPay = await stub.readPayment(unknownId);
+    expect(unknownPay.ok && unknownPay.payment.status).toBe('unknown');
+    const pendingPay = await stub.readPayment(pendingId);
+    expect(pendingPay.ok && pendingPay.payment.status).toBe('pending');
   });
 
   it('case 6: void declined on aged hold → stays authorized; schedule advanced', async () => {
@@ -248,7 +245,8 @@ describe('auth hold lapse', () => {
       ),
     ).toMatchObject({ ok: true, status: 'voided' });
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
-    const rows = (audit as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> }).rows;
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string; afterJson: unknown }> })
+      .rows;
     const voidRow = rows.find((r) => r.commandId === 'folio.void');
     expect(voidRow?.afterJson).toMatchObject({ status: 'voided' });
     expect(voidRow?.afterJson).not.toMatchObject({ automated: true });

@@ -335,7 +335,7 @@ Cases enumerated in Lock 6. Register pin verification: catalog **81**, writers *
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **Authorization expiry / hold-lapse** | Queue item 6 — `authorized` never ages out |
+| 1 | ~~**Authorization expiry / hold-lapse** \| Queue item 6 — `authorized` never ages out~~ **Closed** in [2026-08-15 auth hold lapse](./2026-08-15-auth-hold-lapse-design.md) (explicitly scoped out of unknown-reconcile). |
 | 2 | **`pending` seam auto-recovery** | Test 20 path — explicit scope-out |
 | 3 | **Real PSP inquire / webhook reconcile** | Operator-asserted only this chunk |
 | 4 | **SPA gatewayReference capture** | API field optional; no modal this chunk |

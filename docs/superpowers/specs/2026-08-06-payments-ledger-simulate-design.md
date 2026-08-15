@@ -359,7 +359,7 @@ Env: `HOSPAI_PSP_MODE` on `PmsEnv`; `isPspSimulate`; `assertEnvSafeForRequest` b
 |---|---|
 | Auth holds invisible on `readFolio` | **UI half retired** by [folio front-desk](./2026-08-08-folio-front-desk-design.md) (`get_folio_payments` beside balance). Remaining: `balanceMinor` still ignores `authorized` by design |
 | Departed-with-balance | Checkout ≠ settled; no operator view surfaces open balances after `checked_out` |
-| Auth expiry | `authorized` never ages out; no hold-lapse process |
+| ~~Auth expiry \| `authorized` never ages out; no hold-lapse process~~ **Closed** in [2026-08-15 auth hold lapse](./2026-08-15-auth-hold-lapse-design.md): PropertyDO `auth-hold-lapse` alarm voids aged CARD `authorized` holds via `folio.void` with `afterJson.automated: true`. |
 | ~~`unknown` has no exit \| Reachable via simulate timeout; no reconciliation transition this slice~~ **Closed** in [2026-08-15 unknown payment reconcile](./2026-08-15-unknown-payment-reconcile-design.md). |
 | `folio_window.closed_at` inert; `status` wire-constant `OPEN` | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `status` is a real discriminator and `closed_at` is written on close. |
 | Closed-window rejects postings | Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md): `insertFolioLineSync` rejects `WINDOW_CLOSED`. |

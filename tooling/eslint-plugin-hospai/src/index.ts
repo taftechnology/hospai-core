@@ -50,6 +50,7 @@ export const DOMAIN_KEY_PREFIXES = [
   'pms.night_audit',
   'pms.booking',
   'pms.money',
+  'pms.payments',
   'pms.folio',
   'pms.reservations',
   'pms.housekeeping',

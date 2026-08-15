@@ -247,14 +247,14 @@ flowchart LR
 
 ## 6. Implementation checklist
 
-- [ ] `SystemActor.reason` includes `'auth_hold_lapse'`
-- [ ] Config register + SPA + invariants (**97** prototype keys)
-- [ ] Settings SPA hint: **`Authorized card holds older than this many hours are voided automatically.`**
-- [ ] `voidAuthorizedCardHoldSync` extracted; desk `tryVoidPayment` delegates
-- [ ] `runAuthHoldLapseSync` + `auth-hold-lapse` alarm schedule + ensure at provision, test stub, and `alarm()` entry (Lock 1 three call sites)
-- [ ] `setPaymentCreatedAtForTest` unsafe-local helper
-- [ ] Tests Lock 6 (cases **1–9**); register pins unchanged (**81** / **56** / `[133]`)
-- [ ] Bidirectional pointers: payments-ledger §5 row; folio-money §19 item **8**; unknown-reconcile §7 item **1** (final implementation task)
+- [x] `SystemActor.reason` includes `'auth_hold_lapse'`
+- [x] Config register + SPA + invariants (**97** prototype keys)
+- [x] Settings SPA hint: **`Authorized card holds older than this many hours are voided automatically.`**
+- [x] `voidAuthorizedCardHoldSync` extracted; desk `tryVoidPayment` delegates
+- [x] `runAuthHoldLapseSync` + `auth-hold-lapse` alarm schedule + ensure at provision, test stub, and `alarm()` entry (Lock 1 three call sites)
+- [x] `setPaymentCreatedAtForTest` unsafe-local helper
+- [x] Tests Lock 6 (cases **1–9**); register pins unchanged (**81** / **56** / `[133]`)
+- [x] Bidirectional pointers: payments-ledger §5 row; folio-money §19 item **8**; unknown-reconcile §7 item **1** (final implementation task)
 
 ---
 

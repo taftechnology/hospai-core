@@ -798,7 +798,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 5. ~~**Taxable discounts** / tax restamp on discount.~~ **Closed** in [2026-08-14 taxable discounts](./2026-08-14-taxable-discounts-design.md).
 6. ~~**Stay-level discount** (no source line).~~ **Closed** in [2026-08-14 stay-level discounts](./2026-08-14-stay-level-discounts-design.md).
 7. **Promo codes** — §7.4.
-8. **Authorization expiry** / hold-lapse (payments leftover).
+8. ~~**Authorization expiry** / hold-lapse (payments leftover).~~ **Closed** in [2026-08-15 auth hold lapse](./2026-08-15-auth-hold-lapse-design.md).
 9. **City ledger / AR** and MASTER group billing engine.
 10. **`folio.add_item` catalog class review** (front-desk leftover 1) — still QUEUE_PROVISIONAL; close makes replay honest.
 11. **SQL CHECK on `folio_window.status`** — **closed this chunk** by the v21 rebuild (payments leftover discharged).

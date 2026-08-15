@@ -43,6 +43,18 @@ type RatePlanRow = {
   deriveBps: number | null;
 };
 
+type RatePromoRow = {
+  promoId: string;
+  code: string;
+  name: string;
+  kind: 'percent' | 'fixed_per_night';
+  bps: number | null;
+  amountMinor: number | null;
+  validFrom: string | null;
+  validTo: string | null;
+  ratePlanId: string | null;
+};
+
 type RateDayRow = {
   roomTypeId: string;
   ratePlanId: string;
@@ -180,6 +192,14 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [selectedTypes, setSelectedTypes] = useState<Set<string> | null>(null);
   const [savingBulk, setSavingBulk] = useState(false);
   const [archivePlan, setArchivePlan] = useState<RatePlanRow | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoName, setPromoName] = useState('');
+  const [promoKind, setPromoKind] = useState<'percent' | 'fixed_per_night'>('percent');
+  const [promoBps, setPromoBps] = useState('');
+  const [promoAmount, setPromoAmount] = useState('');
+  const [promoValidFrom, setPromoValidFrom] = useState('');
+  const [promoValidTo, setPromoValidTo] = useState('');
+  const [promoPlanId, setPromoPlanId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   const unsavedGuard = useUnsavedChanges(Boolean(planCode || planName));
@@ -192,6 +212,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const plansQ = useQuery({
     queryKey: ['rate-plans', propertyId],
     queryFn: () => api.listRatePlans(propertyId),
+    retry: false,
+  });
+  const promosQ = useQuery({
+    queryKey: ['rate-promos', propertyId],
+    queryFn: () => api.listRatePromos(propertyId),
+    enabled: activeTab === 'plans',
     retry: false,
   });
   const configQ = useQuery({
@@ -215,6 +241,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
   const types = (typesQ.data?.roomTypes ?? []) as RoomTypeRow[];
   const plans = (plansQ.data?.plans ?? []) as RatePlanRow[];
+  const promos = (promosQ.data?.promos ?? []) as RatePromoRow[];
   const currency = ledgerCurrency(configQ.data?.keys as Array<{ key: string; value: unknown }>);
   const dayMap = useMemo(() => {
     const m = new Map<string, RateDayRow>();
@@ -273,6 +300,44 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       setArchivePlan(null);
       setMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
+    },
+  });
+
+  const createPromo = useMutation({
+    mutationFn: () => {
+      const input: Parameters<typeof api.createRatePromo>[1] = {
+        promoId: crypto.randomUUID(),
+        code: promoCode,
+        name: promoName,
+        kind: promoKind,
+        ...(promoKind === 'percent'
+          ? { bps: Number(promoBps) }
+          : { amountMinor: Number(promoAmount) }),
+        ...(promoValidFrom && promoValidTo
+          ? { validFrom: promoValidFrom, validTo: promoValidTo }
+          : {}),
+        ...(promoPlanId ? { ratePlanId: promoPlanId } : {}),
+      };
+      return api.createRatePromo(propertyId, input);
+    },
+    onSuccess: async () => {
+      setPromoCode('');
+      setPromoName('');
+      setPromoBps('');
+      setPromoAmount('');
+      setPromoValidFrom('');
+      setPromoValidTo('');
+      setPromoPlanId('');
+      setMessage('Saved.');
+      await queryClient.invalidateQueries({ queryKey: ['rate-promos', propertyId] });
+    },
+  });
+
+  const doArchivePromo = useMutation({
+    mutationFn: (promoId: string) => api.archiveRatePromo(propertyId, promoId),
+    onSuccess: async () => {
+      setMessage('Saved.');
+      await queryClient.invalidateQueries({ queryKey: ['rate-promos', propertyId] });
     },
   });
 
@@ -457,6 +522,149 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             />
             <Button type="submit" intent="primary" disabled={createPlan.isPending}>
               {createPlan.isPending ? 'Saving…' : 'Create Rate Plan'}
+            </Button>
+          </form>
+
+          <h2>Promo codes</h2>
+          <ul data-testid="promo-list">
+            {promos.map((p) => (
+              <li key={p.promoId}>
+                <span translate="no">
+                  {p.code} — {p.name}
+                </span>{' '}
+                <Button
+                  type="button"
+                  intent="destructive"
+                  data-testid={`promo-archive-${p.code}`}
+                  onClick={() => doArchivePromo.mutate(p.promoId)}
+                >
+                  Archive
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <form
+            className="stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createPromo.mutate();
+            }}
+          >
+            <Field
+              label="Code"
+              control={
+                <Input
+                  data-testid="promo-code-input"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Name"
+              control={
+                <Input
+                  data-testid="promo-name-input"
+                  value={promoName}
+                  onChange={(e) => setPromoName(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Kind"
+              control={
+                <NativeSelect
+                  data-testid="promo-kind-select"
+                  value={promoKind}
+                  onChange={(e) =>
+                    setPromoKind(e.target.value as 'percent' | 'fixed_per_night')
+                  }
+                >
+                  <option value="percent">percent</option>
+                  <option value="fixed_per_night">fixed_per_night</option>
+                </NativeSelect>
+              }
+            />
+            {promoKind === 'percent' ? (
+              <Field
+                label="Bps"
+                control={
+                  <Input
+                    data-testid="promo-bps-input"
+                    type="number"
+                    min={1}
+                    value={promoBps}
+                    onChange={(e) => setPromoBps(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+            ) : (
+              <Field
+                label="Amount (minor)"
+                control={
+                  <Input
+                    data-testid="promo-amount-input"
+                    type="number"
+                    min={1}
+                    value={promoAmount}
+                    onChange={(e) => setPromoAmount(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+            )}
+            <Field
+              label="Valid from"
+              control={
+                <Input
+                  data-testid="promo-valid-from"
+                  type="date"
+                  value={promoValidFrom}
+                  onChange={(e) => setPromoValidFrom(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Valid to"
+              control={
+                <Input
+                  data-testid="promo-valid-to"
+                  type="date"
+                  value={promoValidTo}
+                  onChange={(e) => setPromoValidTo(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Rate plan"
+              control={
+                <NativeSelect
+                  value={promoPlanId}
+                  onChange={(e) => setPromoPlanId(e.target.value)}
+                >
+                  <option value="">All plans</option>
+                  {plans
+                    .filter((p) => p.status === 'active')
+                    .map((p) => (
+                      <option key={p.ratePlanId} value={p.ratePlanId}>
+                        {p.code}
+                      </option>
+                    ))}
+                </NativeSelect>
+              }
+            />
+            <Button
+              type="submit"
+              intent="primary"
+              data-testid="promo-create"
+              disabled={createPromo.isPending}
+            >
+              {createPromo.isPending ? 'Saving…' : 'Create Promo'}
             </Button>
           </form>
         </>

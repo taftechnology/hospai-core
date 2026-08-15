@@ -1684,6 +1684,68 @@ export function createClient(opts: {
         headers: { 'x-idempotency-key': idempotencyKey },
       });
     },
+    async listRatePromos(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-promos`);
+      return body as {
+        ok: true;
+        promos: Array<{
+          promoId: string;
+          code: string;
+          name: string;
+          kind: 'percent' | 'fixed_per_night';
+          bps: number | null;
+          amountMinor: number | null;
+          validFrom: string | null;
+          validTo: string | null;
+          ratePlanId: string | null;
+        }>;
+      };
+    },
+    async createRatePromo(
+      propertyId: string,
+      input: {
+        promoId: string;
+        code: string;
+        name: string;
+        kind: 'percent' | 'fixed_per_night';
+        bps?: number;
+        amountMinor?: number;
+        validFrom?: string | null;
+        validTo?: string | null;
+        ratePlanId?: string | null;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-promo:create:${input.promoId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-promos`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateRatePromo(propertyId: string, promoId: string, patch: Record<string, unknown>) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-promo:update:${promoId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-promos/${enc(promoId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...patch, idempotencyKey }),
+      });
+    },
+    async archiveRatePromo(propertyId: string, promoId: string) {
+      const idempotencyKey = stableKeyForOperation(
+        `rate-promo:archive:${promoId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/rate-promos/${enc(promoId)}`, {
+        method: 'DELETE',
+        headers: { 'x-idempotency-key': idempotencyKey },
+      });
+    },
     async listRateDays(
       propertyId: string,
       query: { fromDate: string; toDate: string; roomTypeId?: string; ratePlanId?: string },

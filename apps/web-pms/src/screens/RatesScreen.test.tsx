@@ -1,6 +1,6 @@
 import { ClassifiedError } from '@hospai/client-core';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,9 @@ const putRestrictionDay = vi.fn();
 const listDomainConfig = vi.fn();
 const createRatePlan = vi.fn();
 const archiveRatePlan = vi.fn();
+const listRatePromos = vi.fn();
+const createRatePromo = vi.fn();
+const archiveRatePromo = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -29,6 +32,9 @@ vi.mock('../client.js', () => ({
     listDomainConfig: (...a: unknown[]) => listDomainConfig(...a),
     createRatePlan: (...a: unknown[]) => createRatePlan(...a),
     archiveRatePlan: (...a: unknown[]) => archiveRatePlan(...a),
+    listRatePromos: (...a: unknown[]) => listRatePromos(...a),
+    createRatePromo: (...a: unknown[]) => createRatePromo(...a),
+    archiveRatePromo: (...a: unknown[]) => archiveRatePromo(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -104,6 +110,9 @@ describe('RatesScreen', () => {
     putRestrictionDay.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createRatePlan.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     archiveRatePlan.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
+    createRatePromo.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    archiveRatePromo.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
 
   afterEach(() => {
@@ -239,10 +248,11 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/plans');
     await screen.findByText('Corporate');
-    fireEvent.change(screen.getByLabelText('Derived from'), { target: { value: 'BAR' } });
-    fireEvent.change(screen.getByLabelText('Derive percent'), { target: { value: '-15' } });
-    fireEvent.change(screen.getByLabelText('Code'), { target: { value: 'BAR15' } });
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'BAR −15%' } });
+    const planForm = screen.getByRole('heading', { name: 'Create Rate Plan' }).closest('form')!;
+    fireEvent.change(within(planForm).getByLabelText('Derived from'), { target: { value: 'BAR' } });
+    fireEvent.change(within(planForm).getByLabelText('Derive percent'), { target: { value: '-15' } });
+    fireEvent.change(within(planForm).getByLabelText('Code'), { target: { value: 'BAR15' } });
+    fireEvent.change(within(planForm).getByLabelText('Name'), { target: { value: 'BAR −15%' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Rate Plan' }));
     await waitFor(() => expect(createRatePlan).toHaveBeenCalled());
     expect(createRatePlan.mock.calls[0]?.[1]).toMatchObject({
@@ -285,6 +295,49 @@ describe('RatesScreen', () => {
     fireEvent.blur(cell);
     expect(putRateDay).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Fill Selected Days' })).toBeNull();
+  });
+
+  it('Lock 13 Rates 1: create promo via form', async () => {
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
+    renderRates('/rates/plans');
+    fireEvent.change(await screen.findByTestId('promo-code-input'), {
+      target: { value: 'SUMMER15' },
+    });
+    fireEvent.change(screen.getByTestId('promo-name-input'), {
+      target: { value: 'Summer 15%' },
+    });
+    fireEvent.change(screen.getByTestId('promo-kind-select'), { target: { value: 'percent' } });
+    fireEvent.change(screen.getByTestId('promo-bps-input'), { target: { value: '1500' } });
+    fireEvent.click(screen.getByTestId('promo-create'));
+    await waitFor(() => expect(createRatePromo).toHaveBeenCalled());
+    expect(createRatePromo.mock.calls[0]?.[1]).toMatchObject({
+      code: 'SUMMER15',
+      name: 'Summer 15%',
+      kind: 'percent',
+      bps: 1500,
+    });
+  });
+
+  it('Lock 13 Rates 2: archive promo', async () => {
+    listRatePromos.mockResolvedValue({
+      ok: true,
+      promos: [
+        {
+          promoId: 'p1',
+          code: 'SUMMER15',
+          name: 'Summer 15%',
+          kind: 'percent',
+          bps: 1500,
+          amountMinor: null,
+          validFrom: null,
+          validTo: null,
+          ratePlanId: null,
+        },
+      ],
+    });
+    renderRates('/rates/plans');
+    fireEvent.click(await screen.findByTestId('promo-archive-SUMMER15'));
+    await waitFor(() => expect(archiveRatePromo).toHaveBeenCalledWith('prop_demo', 'p1'));
   });
 
   it('has no yield, competitor, forecast, or plan-scoped restriction column', async () => {

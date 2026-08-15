@@ -609,7 +609,7 @@ export function FolioScreen() {
     mutationFn: () => {
       if (!canSplit) throw new Error('policy_blocked_split');
       const opId = `split:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
-      return api.splitFolioLineV2(propertyId, splitLineId, splitPayload(), opId);
+      return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
     onSuccess: () => {
       setMessage('Split posted.');
@@ -630,7 +630,7 @@ export function FolioScreen() {
     mutationFn: () => {
       if (!canSplit) throw new Error('policy_blocked_split');
       const opId = `splitpay:${reservationId}:${splitLineId}:${crypto.randomUUID()}`;
-      return api.splitFolioPayment(propertyId, splitLineId, splitPayload(), opId);
+      return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
     onSuccess: () => {
       setMessage('Payment split posted.');

@@ -14,7 +14,7 @@ const authorizePayment = vi.fn();
 const checkOut = vi.fn();
 const postGuestsBatch = vi.fn();
 const recordCashPayment = vi.fn();
-const splitFolioLineV2 = vi.fn();
+const splitFolioLine = vi.fn();
 const closeFolioWindow = vi.fn();
 const transferFolioLine = vi.fn();
 const voidPayment = vi.fn();
@@ -77,8 +77,7 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     capturePayment: vi.fn(),
-    splitFolioLine: vi.fn(),
-    splitFolioLineV2: (...args: unknown[]) => splitFolioLineV2(...args),
+    splitFolioLine: (...args: unknown[]) => splitFolioLine(...args),
     closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
     reopenFolioWindow: vi.fn(),
     openFolioWindow: (...args: unknown[]) => openFolioWindowMock(...args),
@@ -798,7 +797,7 @@ describe('FolioScreen wiring', () => {
     expect(postStayDiscount).not.toHaveBeenCalled();
   });
 
-  it('split dest picker lists OPEN windows and submits split v2', async () => {
+  it('split dest picker lists OPEN windows and submits split', async () => {
     getMe.mockResolvedValue(ownerMe);
     getFolio.mockResolvedValue({
       ok: true,
@@ -826,7 +825,7 @@ describe('FolioScreen wiring', () => {
     });
     getReservation.mockResolvedValue(liveReservation);
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
-    splitFolioLineV2.mockResolvedValue({
+    splitFolioLine.mockResolvedValue({
       classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
       body: { ok: true },
     });
@@ -844,10 +843,47 @@ describe('FolioScreen wiring', () => {
     fireEvent.change(screen.getByLabelText('split-a'), { target: { value: '30.00' } });
     fireEvent.change(screen.getByLabelText('split-b'), { target: { value: '20.00' } });
     screen.getByTestId('split-charge').click();
-    await waitFor(() => expect(splitFolioLineV2).toHaveBeenCalled());
-    expect(splitFolioLineV2.mock.calls[0]![2].splits[0]).toMatchObject({
+    await waitFor(() => expect(splitFolioLine).toHaveBeenCalled());
+    expect(splitFolioLine.mock.calls[0]![2].splits[0]).toMatchObject({
       folioWindowId: 'res_1:GUEST',
     });
+    expect(String(splitFolioLine.mock.calls[0]![3])).toMatch(/^split:res_1:line_room:/);
+  });
+
+  it('split payment button calls splitFolioLine with splitpay opId', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    splitFolioLine.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
+      body: { ok: true },
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('split-payment')).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText('split-line-id'), { target: { value: 'line_room' } });
+    fireEvent.change(screen.getByLabelText('split-a'), { target: { value: '30.00' } });
+    fireEvent.change(screen.getByLabelText('split-b'), { target: { value: '20.00' } });
+    screen.getByTestId('split-payment').click();
+    await waitFor(() => expect(splitFolioLine).toHaveBeenCalled());
+    expect(String(splitFolioLine.mock.calls[0]![3])).toMatch(/^splitpay:res_1:line_room:/);
   });
 
   it('check-out autoCapture failed shows capture-due retry and does not infer from payments', async () => {

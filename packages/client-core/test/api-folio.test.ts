@@ -83,7 +83,7 @@ describe('folio API', () => {
     ).rejects.toMatchObject({ classified: { class: 'not_configured' } });
   });
 
-  it('splitFolioLineV2 posts split-v2 with idempotency key', async () => {
+  it('splitFolioLine posts /split with optional folioWindowId', async () => {
     let seen = '';
     let body = '';
     const { client } = clientWith(async (path, init) => {
@@ -91,7 +91,7 @@ describe('folio API', () => {
       body = typeof init?.body === 'string' ? init.body : '';
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
-    await client.splitFolioLineV2(
+    await client.splitFolioLine(
       'p',
       'line_1',
       {
@@ -100,9 +100,9 @@ describe('folio API', () => {
           { folioLineId: 'b', amountMinor: 40 },
         ],
       },
-      'op-split-v2',
+      'op-split',
     );
-    expect(seen).toBe('/v1/properties/p/folio/lines/line_1/split-v2');
+    expect(seen).toBe('/v1/properties/p/folio/lines/line_1/split');
     expect(JSON.parse(body).splits[0].folioWindowId).toBe('res_1:COMPANY');
     expect(JSON.parse(body).idempotencyKey).toBeTruthy();
   });

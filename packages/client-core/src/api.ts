@@ -817,22 +817,6 @@ export function createClient(opts: {
     async splitFolioLine(
       propertyId: string,
       sourceFolioLineId: string,
-      input: { splits: Array<{ folioLineId: string; amountMinor: number }> },
-      opId: string,
-    ) {
-      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
-      return getJson(
-        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ splits: input.splits, idempotencyKey }),
-        },
-      );
-    },
-    async splitFolioLineV2(
-      propertyId: string,
-      sourceFolioLineId: string,
       input: {
         splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
       },
@@ -840,7 +824,7 @@ export function createClient(opts: {
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
-        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split-v2`,
+        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -1000,22 +984,6 @@ export function createClient(opts: {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ idempotencyKey }),
-        },
-      );
-    },
-    async splitFolioPayment(
-      propertyId: string,
-      sourceFolioLineId: string,
-      input: { splits: Array<{ folioLineId: string; amountMinor: number }> },
-      opId: string,
-    ) {
-      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
-      return getJson(
-        `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/split-payment`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ splits: input.splits, idempotencyKey }),
         },
       );
     },

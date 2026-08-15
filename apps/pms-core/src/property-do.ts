@@ -13500,8 +13500,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const capture = captureRows[0];
       if (!capture) throw new Error(NOT_FOUND);
 
-      const refundTxn = event.payload.amountMinor;
-      if (!Number.isInteger(refundTxn) || refundTxn <= 0) throw new Error(MONEY_INVALID);
+      const rawRefundTxn = event.payload.amountMinor;
+      if (
+        rawRefundTxn === undefined ||
+        !Number.isInteger(rawRefundTxn) ||
+        rawRefundTxn <= 0
+      ) {
+        throw new Error(MONEY_INVALID);
+      }
+      const refundTxn = rawRefundTxn;
       const capturedBase = payment.captured_amount_minor ?? payment.amount_minor;
       const refundedBase = payment.refunded_amount_minor ?? 0;
       const remaining = capturedBase - refundedBase;
@@ -15474,6 +15481,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           status: PaymentStatus;
           gatewayReference: string | null;
           capturedAmountMinor: number | null;
+          refundedAmountMinor: number;
           tenderType: 'CARD' | 'CASH';
           shiftId: string | null;
           cardLast4: string | null;

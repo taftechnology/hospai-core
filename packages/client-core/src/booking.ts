@@ -31,11 +31,13 @@ export function bookingReservationOpId(input: {
   status?: 'inquiry' | 'pending' | 'confirmed';
   adults?: number;
   children?: number;
+  ratePlanId?: string;
 }): string {
   const status = input.status ?? 'confirmed';
   const adults = input.adults ?? 1;
   const children = input.children ?? 0;
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}`;
+  const ratePlanId = input.ratePlanId ?? 'BAR';
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}`;
 }
 
 /**

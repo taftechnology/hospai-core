@@ -22,7 +22,7 @@ describe('bookingReservationOpId', () => {
       departureDate: '2026-08-12',
       guestRef: 'g1',
     });
-    expect(a).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0');
+    expect(a).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR');
     expect(a).not.toBe(b);
   });
 
@@ -57,6 +57,34 @@ describe('bookingReservationOpId', () => {
     expect(confirm).toContain(':confirmed');
     expect(hold).toContain(':pending');
     expect(quote).toContain(':inquiry');
+  });
+
+  it('appends ratePlanId segment; omit defaults to BAR', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+    };
+    const omitted = bookingReservationOpId(base);
+    expect(omitted).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR');
+    const explicitBar = bookingReservationOpId({ ...base, ratePlanId: 'BAR' });
+    expect(explicitBar).toBe(omitted);
+  });
+
+  it('changes when ratePlanId changes', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+    };
+    const bar = bookingReservationOpId({ ...base, ratePlanId: 'BAR' });
+    const corp = bookingReservationOpId({ ...base, ratePlanId: 'CORP' });
+    expect(bar).not.toBe(corp);
+    expect(corp.endsWith(':CORP')).toBe(true);
   });
 });
 

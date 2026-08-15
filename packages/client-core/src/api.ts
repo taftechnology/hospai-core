@@ -1151,6 +1151,7 @@ export function createClient(opts: {
         status?: 'inquiry' | 'pending' | 'confirmed';
         adults?: number;
         children?: number;
+        ratePlanId?: string;
       },
       opId: string,
     ) {
@@ -1168,6 +1169,7 @@ export function createClient(opts: {
           ...(input.status !== undefined ? { status: input.status } : {}),
           ...(input.adults !== undefined ? { adults: input.adults } : {}),
           ...(input.children !== undefined ? { children: input.children } : {}),
+          ...(input.ratePlanId !== undefined ? { ratePlanId: input.ratePlanId } : {}),
           idempotencyKey,
         }),
       });

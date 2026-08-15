@@ -1120,6 +1120,7 @@ describe('degraded mode §4.6 fault injection', () => {
   it('39: replay check-out vs folio.add_item orderings', async () => {
     async function setupCheckedIn(actor: string, reservationId: string) {
       const { propertyId, arrival, stub, guestRef, orgId } = await provisionHotel(actor);
+      await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
       const departure = addDays(arrival, 2);
       expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
         201,

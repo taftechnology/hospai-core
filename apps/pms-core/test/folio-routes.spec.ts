@@ -534,4 +534,98 @@ describe('folio vertical HTTP routes', () => {
     expect(requireCatalogEntry('folio.split_charge').entitlement).toBe('pms.core');
     expect(requireCatalogEntry('folio.split_charge').degraded).toBe('FAIL_CLOSED');
   });
+
+  it('stay POST /reservations/:rid/folio/discount → lump DISCOUNT; GET folio splitOf null; no tax on discount', async () => {
+    const owner = `user_stay_http_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
+    const reservationId = `res_stay_http_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    expect(
+      (
+        await postFolioLine(propertyId, owner, reservationId, {
+          chargeCode: 'ROOM',
+          amountMinor: 10_000,
+          idempotencyKey: `idem-room-stay-${crypto.randomUUID()}`,
+        })
+      ).status,
+    ).toBe(201);
+
+    const discountLineId = `disc_stay_${crypto.randomUUID()}`;
+    const discountRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/discount`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+          body: JSON.stringify({
+            kind: 'percent',
+            bps: 1000,
+            reason: 'http stay comp',
+            folioLineId: discountLineId,
+            idempotencyKey: `idem-stay-disc-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(discountRes.status).toBe(200);
+    expect(await discountRes.json()).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const folioRes = await getFolio(propertyId, owner, reservationId);
+    expect(folioRes.status).toBe(200);
+    const body = (await folioRes.json()) as {
+      ok: true;
+      lines: Array<{ folioLineId: string; chargeCode: string; amountMinor: number; splitOf: string | null; source: string; taxOf?: string }>;
+    };
+    expect(body.lines.find((l) => l.folioLineId === discountLineId)).toMatchObject({
+      chargeCode: 'DISCOUNT',
+      amountMinor: -1000,
+      splitOf: null,
+    });
+    expect(body.lines.some((l) => l.source === 'TAX' && l.taxOf === discountLineId)).toBe(false);
+  });
+
+  it('[102] line POST /folio/lines/:lid/discount still works (regression smoke)', async () => {
+    const owner = `user_line_disc_http_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
+    const reservationId = `res_line_disc_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    const lineIdem = `idem-misc-line-disc-${crypto.randomUUID()}`;
+    const lineRes = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'MISC',
+      amountMinor: 5000,
+      idempotencyKey: lineIdem,
+    });
+    expect(lineRes.status).toBe(201);
+    const chargeLineId = `${reservationId}:item:${lineIdem}`;
+
+    const discountLineId = `disc_line_${crypto.randomUUID()}`;
+    const discountRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/${encodeURIComponent(chargeLineId)}/discount`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+          body: JSON.stringify({
+            kind: 'percent',
+            bps: 1000,
+            reason: 'line smoke',
+            folioLineId: discountLineId,
+            idempotencyKey: `idem-line-disc-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(discountRes.status).toBe(200);
+    expect(await discountRes.json()).toMatchObject({ ok: true, folioLineId: discountLineId });
+  });
 });

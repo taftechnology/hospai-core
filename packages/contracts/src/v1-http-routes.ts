@@ -747,4 +747,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     id: 'post_demo_seed',
     scope: 'dev',
   },
+  {
+    id: 'post_folio_stay_discount',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.post_discount',
+    entitlement: 'pms.core',
+  },
 ];

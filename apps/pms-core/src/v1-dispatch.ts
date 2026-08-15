@@ -5101,6 +5101,65 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
   return json(result, 200);
 }
 
+async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const body = (await ctx.request.json()) as {
+    kind: 'percent' | 'fixed';
+    bps?: number;
+    amountMinor?: number;
+    reason: string;
+    folioLineId: string;
+    idempotencyKey: string;
+  };
+  if (!body?.kind || !body.folioLineId || body.reason == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    reservationId,
+    kind: body.kind,
+    bps: body.bps,
+    amountMinor: body.amountMinor,
+    reason: body.reason,
+    folioLineId: body.folioLineId,
+  };
+  const fingerprint = await fingerprintPayload({
+    reservationId,
+    kind: body.kind,
+    bps: body.bps,
+    amountMinor: body.amountMinor,
+    reason: body.reason,
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostDiscount']>>>({
+    env: ctx.env,
+    commandId: 'folio.post_discount',
+    routeId: 'post_folio_stay_discount',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryPostDiscount(actor, commandPayload, idem),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
@@ -7021,6 +7080,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.post_discount',
     entitlement: 'pms.core',
     handler: handlePostFolioDiscount,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/discount$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.post_discount',
+    entitlement: 'pms.core',
+    handler: handlePostFolioStayDiscount,
   },
   {
     scope: 'property',

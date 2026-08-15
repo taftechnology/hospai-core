@@ -622,6 +622,21 @@ describe('command catalog', () => {
     expect('permission' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
     expect('entitlement' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
     expect('degradedRead' in (V1_HTTP_ROUTE_AUDIT[127] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[101]?.id).toBe('post_folio_refund');
+    expect(V1_HTTP_ROUTE_AUDIT[102]?.id).toBe('post_folio_discount');
+    expect(V1_HTTP_ROUTE_AUDIT[102]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:adjust',
+      commandId: 'folio.post_discount',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[128]?.id).toBe('post_folio_stay_discount');
+    expect(V1_HTTP_ROUTE_AUDIT[128]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:adjust',
+      commandId: 'folio.post_discount',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(52);
     expect(COMMAND_CATALOG).toHaveLength(77);

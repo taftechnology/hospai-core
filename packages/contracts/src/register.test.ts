@@ -637,6 +637,28 @@ describe('command catalog', () => {
       commandId: 'folio.post_discount',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[129]?.id).toBe('get_folio_routing_rules');
+    expect(V1_HTTP_ROUTE_AUDIT[129]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[129] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[130]?.id).toBe('put_folio_routing_rule');
+    expect(V1_HTTP_ROUTE_AUDIT[130]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      commandId: 'folio.upsert_routing_rule',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[131]?.id).toBe('post_folio_routing_rule_archive');
+    expect(V1_HTTP_ROUTE_AUDIT[131]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      commandId: 'folio.archive_routing_rule',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(54);
     expect(COMMAND_CATALOG).toHaveLength(79);

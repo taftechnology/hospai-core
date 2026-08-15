@@ -754,4 +754,25 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.post_discount',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_folio_routing_rules',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'put_folio_routing_rule',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.upsert_routing_rule',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_folio_routing_rule_archive',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.archive_routing_rule',
+    entitlement: 'pms.core',
+  },
 ];

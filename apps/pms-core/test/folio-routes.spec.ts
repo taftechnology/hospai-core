@@ -628,4 +628,125 @@ describe('folio vertical HTTP routes', () => {
     expect(discountRes.status).toBe(200);
     expect(await discountRes.json()).toMatchObject({ ok: true, folioLineId: discountLineId });
   });
+
+  it('routing PUT upsert → GET list shows rule', async () => {
+    const owner = `user_rr_${crypto.randomUUID()}`;
+    const { propertyId } = await provisionHotel(owner);
+    const ruleId = `rr_${crypto.randomUUID()}`;
+    const putRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules/${encodeURIComponent(ruleId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+          body: JSON.stringify({
+            chargeCode: 'ROOM',
+            destWindowKind: 'COMPANY',
+            idempotencyKey: `idem-rr-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(putRes.status).toBe(200);
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as { ok: true; rules: Array<{ ruleId: string; chargeCode: string }> };
+    expect(body.rules.some((r) => r.ruleId === ruleId && r.chargeCode === 'ROOM')).toBe(true);
+  });
+
+  it('routing POST archive removes rule from active GET', async () => {
+    const owner = `user_rr_arch_${crypto.randomUUID()}`;
+    const { propertyId } = await provisionHotel(owner);
+    const ruleId = `rr_${crypto.randomUUID()}`;
+    const idem = `idem-rr-arch-${crypto.randomUUID()}`;
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules/${encodeURIComponent(ruleId)}`,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+              body: JSON.stringify({
+                chargeCode: 'ROOM',
+                destWindowKind: 'MASTER',
+                idempotencyKey: idem,
+              }),
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await worker.fetch(
+          new Request(
+            `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules/${encodeURIComponent(ruleId)}/archive`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': owner },
+              body: JSON.stringify({ idempotencyKey: `idem-arch-${crypto.randomUUID()}` }),
+            },
+          ),
+          env,
+        )
+      ).status,
+    ).toBe(200);
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules?status=active`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    const body = (await getRes.json()) as { ok: true; rules: Array<{ ruleId: string }> };
+    expect(body.rules.some((r) => r.ruleId === ruleId)).toBe(false);
+  });
+
+  it('routing PUT/POST archive without settings:configure → 403', async () => {
+    const owner = `user_rr_forbid_${crypto.randomUUID()}`;
+    const staff = `user_rr_staff_${crypto.randomUUID()}`;
+    const { propertyId, orgId } = await provisionHotel(owner);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    await org.ensureMember(staff, 'staff');
+    const ruleId = `rr_${crypto.randomUUID()}`;
+    const putRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules/${encodeURIComponent(ruleId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': staff },
+          body: JSON.stringify({
+            chargeCode: 'ROOM',
+            destWindowKind: 'COMPANY',
+            idempotencyKey: `idem-${crypto.randomUUID()}`,
+          }),
+        },
+      ),
+      env,
+    );
+    expect(putRes.status).toBe(403);
+  });
+
+  it('routing GET without folio:read → 403', async () => {
+    const owner = `user_rr_get_forbid_${crypto.randomUUID()}`;
+    const outsider = 'user_without_folio_read';
+    const { propertyId } = await provisionHotel(owner);
+    const getRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/routing-rules`,
+        { headers: { 'x-dev-actor': outsider } },
+      ),
+      env,
+    );
+    expect(getRes.status).toBe(404);
+  });
 });

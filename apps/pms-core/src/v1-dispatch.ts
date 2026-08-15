@@ -3913,6 +3913,129 @@ async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetFolioRoutingRules(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const url = new URL(ctx.request.url);
+  const statusParam = url.searchParams.get('status');
+  const status =
+    statusParam === 'archived' || statusParam === 'all' ? statusParam : ('active' as const);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const rules = await resolvedCtx.resolved.stub.listFolioRoutingRules(status);
+    return json({ ok: true, rules }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ruleId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as {
+    chargeCode: string;
+    destWindowKind: string;
+    idempotencyKey: string;
+  };
+  if (
+    !body?.chargeCode ||
+    !body.idempotencyKey ||
+    (body.destWindowKind !== 'COMPANY' && body.destWindowKind !== 'MASTER')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    ruleId,
+    chargeCode: body.chargeCode,
+    destWindowKind: body.destWindowKind as 'COMPANY' | 'MASTER',
+  };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRoutingRule']>>>({
+    env: ctx.env,
+    commandId: 'folio.upsert_routing_rule',
+    routeId: 'put_folio_routing_rule',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryUpsertRoutingRule(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
+async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ruleId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const body = (await ctx.request.json()) as { idempotencyKey: string };
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { ruleId };
+  const fingerprint = await fingerprintPayload(commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchiveRoutingRule']>>>({
+    env: ctx.env,
+    commandId: 'folio.archive_routing_rule',
+    routeId: 'post_folio_routing_rule_archive',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () => resolvedCtx.resolved.stub.tryArchiveRoutingRule(actor, commandPayload, idem),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) {
+    const err = result.error;
+    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+  }
+  return json(result, 200);
+}
+
 async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -7296,6 +7419,33 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.post_discount',
     entitlement: 'pms.core',
     handler: handlePostFolioStayDiscount,
+  },
+  {
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+    handler: handleGetFolioRoutingRules,
+  },
+  {
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'folio.upsert_routing_rule',
+    entitlement: 'pms.core',
+    handler: handlePutFolioRoutingRule,
+  },
+  {
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules\/([^/]+)\/archive$/,
+    permission: 'settings:configure',
+    commandId: 'folio.archive_routing_rule',
+    entitlement: 'pms.core',
+    handler: handlePostFolioRoutingRuleArchive,
   },
 ];
 

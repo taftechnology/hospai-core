@@ -1017,6 +1017,15 @@ export const FOLIO_ROUTING_RULE_V28_STATEMENTS = [
 export const FOLIO_ROUTING_RULE_V28_SQL =
   FOLIO_ROUTING_RULE_V28_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ROOM_ARCHIVE_V29_STATEMENTS = [
+  `ALTER TABLE room ADD COLUMN archived_at INTEGER`,
+  `DROP INDEX room_code_uidx`,
+  `CREATE UNIQUE INDEX room_code_live_uidx ON room(code) WHERE archived_at IS NULL`,
+] as const;
+
+export const ROOM_ARCHIVE_V29_SQL =
+  ROOM_ARCHIVE_V29_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1157,5 +1166,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 28,
     name: 'folio_routing_rule',
     statements: FOLIO_ROUTING_RULE_V28_STATEMENTS,
+  },
+  {
+    version: 29,
+    name: 'room_archive',
+    statements: ROOM_ARCHIVE_V29_STATEMENTS,
   },
 ] as const;

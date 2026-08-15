@@ -42,6 +42,8 @@ import {
   EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
   CARD_DISPLAY_TOKEN_V26_SQL,
   VIRTUAL_ROOM_TYPES_V27_SQL,
+  FOLIO_ROUTING_RULE_V28_SQL,
+  ROOM_ARCHIVE_V29_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -175,6 +177,12 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('UPDATE reservation SET allocated_room_type_id')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE room ADD COLUMN archived_at INTEGER')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('DROP INDEX room_code_uidx')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('INSERT INTO reservation_v20')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation_v20 RENAME TO reservation')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE rate_plan ADD COLUMN')) return { toArray: () => [] };
@@ -214,16 +222,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 28', () => {
+  it('applies property migrations through version 29', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(28);
+    expect(v1).toBe(29);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(28);
-    expect(sql.schemaVersion).toHaveLength(28);
+    expect(v2).toBe(29);
+    expect(sql.schemaVersion).toHaveLength(29);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28,
+      26, 27, 28, 29,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -615,7 +623,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(28);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(29);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -805,5 +813,27 @@ describe('schema head constants', () => {
     expect(v28?.statements.some((s) => s.includes('CREATE TABLE folio_routing_rule'))).toBe(true);
     expect(v28?.statements.some((s) => s.includes('folio_routing_rule_active_code_uniq'))).toBe(true);
     expect(v28?.statements.some((s) => s.includes("dest_window_kind  TEXT NOT NULL CHECK (dest_window_kind IN ('COMPANY', 'MASTER'))"))).toBe(true);
+  });
+
+  it('property schema head is 29 after room_archive', () => {
+    const v29 = PROPERTY_MIGRATIONS.find((m) => m.version === 29);
+    expect(v29?.name).toBe('room_archive');
+    expect(v29?.statements).toEqual([
+      'ALTER TABLE room ADD COLUMN archived_at INTEGER',
+      'DROP INDEX room_code_uidx',
+      'CREATE UNIQUE INDEX room_code_live_uidx ON room(code) WHERE archived_at IS NULL',
+    ]);
+  });
+
+  it('migrations/do-property/0029_room_archive.sql matches ROOM_ARCHIVE_V29_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0029_room_archive.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ROOM_ARCHIVE_V29_SQL.trim());
   });
 });

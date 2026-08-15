@@ -74,6 +74,7 @@ if (process.argv.includes('--self-test')) {
   let CARD_DISPLAY_TOKEN_V26_SQL;
   let VIRTUAL_ROOM_TYPES_V27_SQL;
   let FOLIO_ROUTING_RULE_V28_SQL;
+  let ROOM_ARCHIVE_V29_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -116,6 +117,7 @@ if (process.argv.includes('--self-test')) {
       CARD_DISPLAY_TOKEN_V26_SQL,
       VIRTUAL_ROOM_TYPES_V27_SQL,
       FOLIO_ROUTING_RULE_V28_SQL,
+      ROOM_ARCHIVE_V29_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -409,6 +411,16 @@ const doPropertyTargets = [
 
 `,
     sql: FOLIO_ROUTING_RULE_V28_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0029_room_archive.sql'),
+    header: `-- PropertyDO room archive — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: ADD archived_at → DROP room_code_uidx → CREATE partial unique index on live codes.
+
+`,
+    sql: ROOM_ARCHIVE_V29_SQL,
   },
 ];
 

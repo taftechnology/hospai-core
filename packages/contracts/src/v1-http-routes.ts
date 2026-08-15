@@ -775,4 +775,11 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.archive_routing_rule',
     entitlement: 'pms.core',
   },
+  {
+    id: 'delete_room',
+    scope: 'property',
+    permission: 'inventory:write',
+    commandId: 'rooms.delete',
+    entitlement: 'pms.core',
+  },
 ];

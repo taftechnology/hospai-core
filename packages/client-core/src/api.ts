@@ -1586,6 +1586,13 @@ export function createClient(opts: {
         headers: { 'x-idempotency-key': idempotencyKey },
       });
     },
+    async archiveRoom(propertyId: string, roomId: string) {
+      const idempotencyKey = stableKeyForOperation(`room:archive:${roomId}`, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}`, {
+        method: 'DELETE',
+        headers: { 'x-idempotency-key': idempotencyKey },
+      });
+    },
     async createRoom(
       propertyId: string,
       input: { roomId: string; roomTypeId: string; code: string; floor?: string },

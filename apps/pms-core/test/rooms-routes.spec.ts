@@ -203,6 +203,23 @@ async function postHousekeepingAssign(
   );
 }
 
+async function deleteRoom(
+  propertyId: string,
+  actor: string,
+  roomId: string,
+  idempotencyKey?: string,
+) {
+  const headers: Record<string, string> = { 'x-dev-actor': actor };
+  if (idempotencyKey) headers['x-idempotency-key'] = idempotencyKey;
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/rooms/${encodeURIComponent(roomId)}`,
+      { method: 'DELETE', headers },
+    ),
+    env,
+  );
+}
+
 async function provisionHotel(actor: string, roomCount = 10) {
   const orgId = `org_rooms_${crypto.randomUUID()}`;
   const propertyId = `prop_rooms_${crypto.randomUUID()}`;
@@ -519,5 +536,68 @@ describe('rooms & housekeeping HTTP routes', () => {
       idempotencyKey: 'idem-unent',
     });
     expect(unentitled.status).toBe(402);
+  });
+
+  it('DELETE /rooms/:id — 200 archives unit', async () => {
+    const actor = 'user_rm_del_ok';
+    const { propertyId, stub } = await provisionHotel(actor);
+    expect(
+      (
+        await postRoom(propertyId, actor, {
+          roomId: 'room_101',
+          roomTypeId: 'rt_king',
+          code: '101',
+          idempotencyKey: 'idem-del-ok',
+        })
+      ).status,
+    ).toBe(201);
+    const res = await deleteRoom(propertyId, actor, 'room_101', `idem-archive-${crypto.randomUUID()}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, roomId: 'room_101' });
+    expect((await stub.listRooms()).rooms).toHaveLength(0);
+  });
+
+  it('DELETE /rooms/:id — 404 unknown or already archived', async () => {
+    const actor = 'user_rm_del_404';
+    const { propertyId } = await provisionHotel(actor);
+    expect((await deleteRoom(propertyId, actor, 'missing', 'idem-404')).status).toBe(404);
+  });
+
+  it('DELETE /rooms/:id — 409 archive_blocked with live reservation', async () => {
+    const actor = 'user_rm_del_409';
+    const { propertyId, stub, guestRef } = await provisionHotel(actor);
+    expect(
+      (
+        await postRoom(propertyId, actor, {
+          roomId: 'room_101',
+          roomTypeId: 'rt_king',
+          code: '101',
+          idempotencyKey: 'idem-del-block',
+        })
+      ).status,
+    ).toBe(201);
+    const arrival = daysFromPropertyToday(0, FIXTURE_TZ);
+    const departure = addCalendarDays(arrival, 2);
+    await stub.insertReservationForTest({
+      reservationId: `res_${crypto.randomUUID()}`,
+      roomTypeId: 'rt_king',
+      guestRef,
+      piiKeyId: 'p1',
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'checked_in',
+      roomId: 'room_101',
+    });
+    const res = await deleteRoom(propertyId, actor, 'room_101', `idem-block-${crypto.randomUUID()}`);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ ok: false, error: 'archive_blocked' });
+  });
+
+  it('DELETE /rooms/:id — 400 missing idempotency key', async () => {
+    const actor = 'user_rm_del_400';
+    const { propertyId } = await provisionHotel(actor);
+    const res = await deleteRoom(propertyId, actor, 'room_x');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'invalid_body' });
   });
 });

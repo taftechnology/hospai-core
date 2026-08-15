@@ -659,6 +659,13 @@ describe('command catalog', () => {
       commandId: 'folio.archive_routing_rule',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[132]?.id).toBe('delete_room');
+    expect(V1_HTTP_ROUTE_AUDIT[132]).toMatchObject({
+      scope: 'property',
+      permission: 'inventory:write',
+      commandId: 'rooms.delete',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(55);
     expect(COMMAND_CATALOG).toHaveLength(80);

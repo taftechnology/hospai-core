@@ -1024,6 +1024,60 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   return json(result, 200);
 }
 
+async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey =
+    ctx.request.headers.get('x-idempotency-key') ?? ctx.url.searchParams.get('idempotencyKey');
+  if (!idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await fingerprintPayload({ roomId });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { roomId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRoom']>>>({
+    env: ctx.env,
+    commandId: 'rooms.delete',
+    routeId: 'delete_room',
+    orgId: resolvedCtx.property.orgId,
+    propertyId,
+    timeZone: resolvedCtx.property.timeZone,
+    actorUserId: ctx.actor.userId,
+    idempotencyKey,
+    requestFingerprint: fingerprint,
+    commandPayload,
+    observability: ctx.observability,
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryDeleteRoom(actor, commandPayload, {
+        key: idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+
+  if (!result.ok) {
+    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === FORBIDDEN) {
+      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    }
+    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === ARCHIVE_BLOCKED) {
+      return json({ ok: false, error: result.error }, 409);
+    }
+    return json({ ok: false, error: result.error }, 422);
+  }
+  return json(result, 200);
+}
+
 async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -7445,6 +7499,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.archive_routing_rule',
     entitlement: 'pms.core',
     handler: handlePostFolioRoutingRuleArchive,
+  },
+  {
+    scope: 'property',
+    method: 'DELETE',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)$/,
+    permission: 'inventory:write',
+    commandId: 'rooms.delete',
+    entitlement: 'pms.core',
+    handler: handleDeleteRoom,
   },
 ];
 

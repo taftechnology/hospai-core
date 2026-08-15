@@ -124,6 +124,7 @@ import {
 import {
   assignHousekeeping,
   bulkUpdateRoomStatus,
+  deleteFutureHousekeepingAssignments,
   HousekeepingOooViaRangeError,
   HousekeepingRoomNotFoundError,
   HousekeepingRoomOutOfOrderError,
@@ -5623,11 +5624,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.roomId,
           );
 
-          this.ctx.storage.sql.exec(
-            `DELETE FROM housekeeping_assignment WHERE room_id = ? AND business_date >= ?`,
-            input.roomId,
-            today,
-          );
+          deleteFutureHousekeepingAssignments(this.moduleTxnCtx(orgId, propertyId), {
+            roomId: input.roomId,
+            businessDate: today,
+          });
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),

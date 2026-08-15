@@ -413,16 +413,16 @@ Cases enumerated in Lock 7. Register pin verification: catalog **80**, writers *
 
 ## 8. Implementation checklist
 
-- [ ] v29 migration + `pnpm generate:ddl` + migrate tests
-- [ ] Catalog `rooms.delete` appended; audit writer; event allowlist
-- [ ] HTTP `[132]` + dispatch handler + client `archiveRoom`
-- [ ] `tryDeleteRoom` with guards, HK future delete, outbox, audit
-- [ ] Live-count gates + live-only code checks in create/update/type-lower
-- [ ] Reader/writer archive filters (Lock 5)
-- [ ] SPA archive UX + RTL + `room_units_exceed_count` + room-specific `archive_blocked` copy (mutation-context branch)
-- [ ] DO + HTTP + register/migrate pins (Lock 7)
-- [ ] `pnpm check:ddl`, `check:permissions`, `check:entitlements`, `check:degraded`, `check:class-denylist`
-- [ ] Bidirectional pointers: rooms-vertical §7; room-operations leftover **6**; property-setup leftover **3**; auto-extend leftover **6** (final implementation task)
+- [x] v29 migration + `pnpm generate:ddl` + migrate tests
+- [x] Catalog `rooms.delete` appended; audit writer; event allowlist
+- [x] HTTP `[132]` + dispatch handler + client `archiveRoom`
+- [x] `tryDeleteRoom` with guards, HK future delete, outbox, audit
+- [x] Live-count gates + live-only code checks in create/update/type-lower
+- [x] Reader/writer archive filters (Lock 5)
+- [x] SPA archive UX + RTL + `room_units_exceed_count` + room-specific `archive_blocked` copy (mutation-context branch)
+- [x] DO + HTTP + register/migrate pins (Lock 7)
+- [x] `pnpm check:ddl`, `check:permissions`, `check:entitlements`, `check:degraded`, `check:class-denylist`
+- [x] Bidirectional pointers: rooms-vertical §7; room-operations leftover **6**; property-setup leftover **3**; auto-extend leftover **6** (final implementation task)
 
 ---
 

@@ -483,7 +483,7 @@ Extend reservation DO tests lightly:
 | Require `room_id` on check-in (A) | Collides with `FAIL_CLOSED` assign under §4.6 replay |
 | Auto-assign inside `tryCheckIn` | Deploy-day: zero `room` rows on existing properties; needs a designed no-rooms path |
 | `rooms.set_ooo_range` / OOO → `blocked` | Already in `PLATFORM_GAPS`; ledger coupling is the risky part this slice exists to avoid |
-| `rooms.delete` / archive lifecycle | `rooms.update` covers typo correction; freeing a `room_count` slot is a separate lifecycle question |
+| ~~`rooms.delete` / archive lifecycle~~ **Closed** in [2026-08-15 rooms delete — physical-unit archive](./2026-08-15-rooms-delete-archive-design.md): `rooms.delete` soft-archives via `archived_at`, frees live `room_count` slots without changing sellable `physical`. | ~~`rooms.update` covers typo correction; freeing a `room_count` slot is a separate lifecycle question~~ |
 | Housekeeping staff CRUD | Staff/user model × OrgDO membership |
 | Bound `housekeeping.assign` `businessDate` to open ± N | Deliberately unbounded in Phase 1 (§2.8); revisit with ops-derived horizon |
 | Room-status / arrivals KV projection (`READ_STALE`) | No projection consumer yet |

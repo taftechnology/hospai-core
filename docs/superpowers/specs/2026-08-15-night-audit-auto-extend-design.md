@@ -259,7 +259,7 @@ Optional on case **1**: audit row `commandId === 'reservations.modify'` and `aft
 | 3 | **Extend confirmed no-shows** | Explicitly out — no-show step owns `confirmed` |
 | 4 | **Smarter extend heuristics** | Rate re-quote, guest consent, payment guarantee |
 | 5 | **Recurring / `breakfast_rule` in POST** | Night-audit E2E leftover **3** — unrelated |
-| 6 | **`rooms.delete`** | Phase 1 queue item **4** |
+| 6 | ~~**`rooms.delete`**~~ **Closed** in [2026-08-15 rooms delete — physical-unit archive](./2026-08-15-rooms-delete-archive-design.md). | ~~Phase 1 queue item **4**~~ |
 
 ---
 

@@ -438,9 +438,9 @@ describe('PropertyDO rooms.delete (archive unit)', () => {
 
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { limit: 50 });
     expect(audit.ok).toBe(true);
-    const row = (audit as { ok: true; rows: Array<{ commandId: string; entityType: string }> }).rows.find(
-      (r) => r.commandId === 'rooms.delete',
-    );
+    const row = (
+      audit as unknown as { ok: true; rows: Array<{ commandId: string; entityType: string }> }
+    ).rows.find((r) => r.commandId === 'rooms.delete');
     expect(row?.entityType).toBe('room');
   });
 

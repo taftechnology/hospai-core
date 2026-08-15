@@ -679,7 +679,7 @@ OOO does **not** move into the housekeeping module (`availability_day` is not in
 3. **Auto-merge adjacent OOO ranges** — application overlap is the only constraint; two adjacent rows stand.
 4. **`OOO_WOULD_OVERSELL` gate** — taking the last vacant room OOO while `sold` fills the type. Allowed this chunk (oversell class).
 5. **Maintenance work orders** — consume `room.ooo_changed`; freeze-gate / module when `pms.maintenance` exists. Architecture §7.1 rule 3 is event-shaped until then.
-6. **`rooms.delete` / physical-unit archive** — rooms-vertical leftover; count invariant still has no delete path.
+6. ~~**`rooms.delete` / physical-unit archive** — rooms-vertical leftover; count invariant still has no delete path.~~ **Closed** in [2026-08-15 rooms delete — physical-unit archive](./2026-08-15-rooms-delete-archive-design.md).
 7. **Unassign / atomic move+OOO.**
 8. **Hibernating WebSocket operational reads** (§7.7) — closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md).
 9. **HK manager priorities / budgeting / mobile attendant / HK inventory** — extra tabs; `pms_hk_*` excluded keys. Workload counts are not that surface.

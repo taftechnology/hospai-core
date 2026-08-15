@@ -537,7 +537,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 |---|---|---|
 | 1 | Virtual room types | Landed in [2026-08-14 virtual room types](./2026-08-14-virtual-room-types-design.md). |
 | 2 | Derived / OrgDO rate plans | §7.2; property-local plans stay |
-| 3 | `rooms.delete` / unit archive | Rooms-vertical leftover |
+| 3 | ~~**`rooms.delete` / unit archive**~~ **Closed** in [2026-08-15 rooms delete — physical-unit archive](./2026-08-15-rooms-delete-archive-design.md). | ~~Rooms-vertical leftover~~ |
 | 4 | Tape chart / hibernating WebSockets | Closed by [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md). |
 | 5 | `ui-kit` / visual identity | §16.4 |
 | 6 | City ledger / AR | §7.3 |

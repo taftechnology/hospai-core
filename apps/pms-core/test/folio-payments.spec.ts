@@ -5,6 +5,7 @@ import {
   IDEM_KEY_REUSED,
   LINE_NOT_SPLITTABLE,
   PAYMENT_NOT_CAPTURABLE,
+  PAYMENT_NOT_RECONCILABLE,
   REFUND_EXCEEDS_REMAINING,
 } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
@@ -174,6 +175,54 @@ async function capturePayment(
   return stub.tryCapturePayment(
     { kind: 'user', userId: actor },
     { paymentId, amountMinor, idempotencyKey, captureFingerprint },
+  );
+}
+
+async function unknownPaymentViaTimeout(
+  stub: DurableObjectStub<PropertyDO>,
+  actor: string,
+  reservationId: string,
+  amountMinor = 3000,
+) {
+  await stub.setPspSimulateOutcomeForTest({ authorize: 'timeout' });
+  const paymentId = `pay_${crypto.randomUUID()}`;
+  try {
+    const auth = await authorizePayment(
+      stub,
+      actor,
+      reservationId,
+      paymentId,
+      amountMinor,
+      `idem-auth-timeout-${crypto.randomUUID()}`,
+    );
+    expect(auth).toMatchObject({ ok: true, status: 'unknown', gatewayReference: null });
+    return { paymentId, amountMinor };
+  } finally {
+    await stub.setPspSimulateOutcomeForTest(null);
+  }
+}
+
+async function reconcilePayment(
+  stub: DurableObjectStub<PropertyDO>,
+  actor: string,
+  paymentId: string,
+  outcome: 'authorized' | 'declined',
+  idempotencyKey: string,
+  gatewayReference?: string,
+) {
+  const fingerprintInput =
+    gatewayReference != null
+      ? { paymentId, outcome, gatewayReference }
+      : { paymentId, outcome };
+  const fingerprint = await fingerprintPayload(fingerprintInput);
+  return stub.tryReconcilePayment(
+    { kind: 'user', userId: actor },
+    {
+      paymentId,
+      outcome,
+      ...(gatewayReference != null ? { gatewayReference } : {}),
+    },
+    { key: idempotencyKey, fingerprint },
   );
 }
 
@@ -1234,5 +1283,144 @@ describe('folio payments DO', () => {
     );
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({ ok: false, error: REFUND_EXCEEDS_REMAINING });
+  });
+});
+
+describe('folio.reconcile_payment (unknown exit)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  it('case 1: unknown → authorized — no folio line; outbox events; balance_at_risk cleared; capture succeeds', async () => {
+    const actor = 'user_recon_1';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_1';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    await addCharge(stub, actor, reservationId, 5000);
+    const { paymentId, amountMinor } = await unknownPaymentViaTimeout(stub, actor, reservationId, 5000);
+
+    const folioUnknown = await stub.readFolio(reservationId);
+    expect(folioUnknown.ok && folioUnknown.balanceAtRisk).toBe(true);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
+
+    const recon = await reconcilePayment(stub, actor, paymentId, 'authorized', `idem-recon-1-${crypto.randomUUID()}`);
+    expect(recon).toMatchObject({ ok: true, paymentId, status: 'authorized' });
+
+    const read = await stub.readPayment(paymentId);
+    expect(read.ok && read.payment.status).toBe('authorized');
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
+
+    const events = await stub.listOutboxEventTypes();
+    expect(events).toContain('folio.payment_authorized');
+    expect(events).toContain('payment.authorized');
+
+    const folioAfter = await stub.readFolio(reservationId);
+    expect(folioAfter.ok && folioAfter.balanceAtRisk).toBe(false);
+
+    expect(await capturePayment(stub, actor, paymentId, amountMinor, `idem-cap-recon-1`)).toMatchObject({
+      ok: true,
+      status: 'captured',
+    });
+  });
+
+  it('case 2: unknown → declined — no folio.payment_authorized; payment.failed; capture blocked; balance_at_risk cleared', async () => {
+    const actor = 'user_recon_2';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_2';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    await addCharge(stub, actor, reservationId, 3000);
+    const { paymentId } = await unknownPaymentViaTimeout(stub, actor, reservationId, 3000);
+
+    const recon = await reconcilePayment(stub, actor, paymentId, 'declined', `idem-recon-2-${crypto.randomUUID()}`);
+    expect(recon).toMatchObject({ ok: true, paymentId, status: 'declined' });
+
+    const read = await stub.readPayment(paymentId);
+    expect(read.ok && read.payment.status).toBe('declined');
+    const events = await stub.listOutboxEventTypes();
+    expect(events).not.toContain('folio.payment_authorized');
+    expect(events).toContain('payment.failed');
+
+    const folioAfter = await stub.readFolio(reservationId);
+    expect(folioAfter.ok && folioAfter.balanceAtRisk).toBe(false);
+
+    expect(await capturePayment(stub, actor, paymentId, 3000, `idem-cap-recon-2`)).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_CAPTURABLE,
+    });
+  });
+
+  it('case 3: capture while still unknown → payment_not_capturable (Test 5 invariant)', async () => {
+    const actor = 'user_recon_3';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_3';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    const { paymentId } = await unknownPaymentViaTimeout(stub, actor, reservationId, 3000);
+    expect(await capturePayment(stub, actor, paymentId, 3000, `idem-cap-recon-3`)).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_CAPTURABLE,
+    });
+    const read = await stub.readPayment(paymentId);
+    expect(read.ok && read.payment.status).toBe('unknown');
+  });
+
+  it('case 4: reconcile non-unknown authorized → payment_not_reconcilable', async () => {
+    const actor = 'user_recon_4';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_4';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(
+      await authorizePayment(stub, actor, reservationId, paymentId, 4000, `idem-auth-recon-4`),
+    ).toMatchObject({ ok: true, status: 'authorized' });
+
+    expect(await reconcilePayment(stub, actor, paymentId, 'authorized', `idem-recon-4`)).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_RECONCILABLE,
+    });
+    expect(await reconcilePayment(stub, actor, paymentId, 'declined', `idem-recon-4b`)).toEqual({
+      ok: false,
+      error: PAYMENT_NOT_RECONCILABLE,
+    });
+  });
+
+  it('case 5: idempotent replay same key + fingerprint — one payment row; no duplicate outbox', async () => {
+    const actor = 'user_recon_5';
+    const { arrival, stub, guestRef, propertyId } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_recon_5';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(
+      201,
+    );
+    const { paymentId } = await unknownPaymentViaTimeout(stub, actor, reservationId, 2500);
+    const idemKey = `idem-recon-5-${crypto.randomUUID()}`;
+
+    const first = await reconcilePayment(stub, actor, paymentId, 'authorized', idemKey);
+    expect(first).toMatchObject({ ok: true, status: 'authorized' });
+    const eventsAfterFirst = await stub.listOutboxEventTypes();
+
+    const second = await reconcilePayment(stub, actor, paymentId, 'authorized', idemKey);
+    expect(second).toMatchObject({ ok: true, status: 'authorized', paymentId });
+
+    expect(await stub.listOutboxEventTypes()).toEqual(eventsAfterFirst);
+    const listed = await stub.listPaymentsForReservation(reservationId);
+    expect(listed.ok && listed.payments).toHaveLength(1);
   });
 });

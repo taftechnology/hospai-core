@@ -79,6 +79,7 @@ export const REFUND_EXCEEDS_REMAINING = 'refund_exceeds_remaining' as const;
 /** Payment wire codes */
 export const PSP_UNAVAILABLE = 'psp_unavailable' as const;
 export const PAYMENT_NOT_CAPTURABLE = 'payment_not_capturable' as const;
+export const PAYMENT_NOT_RECONCILABLE = 'payment_not_reconcilable' as const;
 export const LINE_NOT_SPLITTABLE = 'line_not_splittable' as const;
 
 /** Room / housekeeping wire codes */

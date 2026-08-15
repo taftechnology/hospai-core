@@ -894,6 +894,19 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'prototypeAction null: net-new surface (no prototype DELETE_ROOM). ' +
       'Soft archive via archived_at — frees room_count slot without ARI change.',
   },
+  {
+    id: 'folio.reconcile_payment',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.payment_authorized', 'payment.authorized', 'payment.failed'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+    notes:
+      'Operator-asserted exit from authorize-timeout unknown. Never calls PSP. ' +
+      'authorized → hold exists; declined → no hold. unknown-only input.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

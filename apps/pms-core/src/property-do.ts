@@ -97,6 +97,7 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  PAYMENT_NOT_RECONCILABLE,
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
   REFUND_EXCEEDS_REMAINING,
@@ -14977,6 +14978,190 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
 
     return this.authorizePaymentSuccessFromRow(txn2Row);
+  }
+
+  /**
+   * Operator-asserted exit from authorize-timeout `unknown`. Implements catalog `folio.reconcile_payment`.
+   * Fingerprint allowlist: `{ paymentId, outcome, gatewayReference? }`.
+   * Never calls PSP — must not gate on pspSimulateEnabled().
+   */
+  async tryReconcilePayment(
+    actor: ActorContext,
+    input: { paymentId: string; outcome: 'authorized' | 'declined'; gatewayReference?: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; paymentId: string; status: 'authorized' | 'declined'; gatewayReference: string | null }
+    | { ok: false; error: typeof NOT_FOUND | typeof PAYMENT_NOT_RECONCILABLE | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET | 'org_id_unset' }
+    | { ok: false; error: string }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const payment = this.readPaymentRowSync(input.paymentId);
+          if (!payment) throw new Error(NOT_FOUND);
+
+          if (payment.status !== 'unknown') {
+            throw new Error(PAYMENT_NOT_RECONCILABLE);
+          }
+
+          const now = Date.now();
+
+          if (input.outcome === 'authorized') {
+            const gwBind = input.gatewayReference ?? null;
+            const updated = this.ctx.storage.sql.exec(
+              `UPDATE payment
+               SET status = 'authorized',
+                   gateway_reference = COALESCE(?, gateway_reference),
+                   balance_at_risk = 0,
+                   updated_at = ?
+               WHERE payment_id = ? AND status = 'unknown'`,
+              gwBind,
+              now,
+              input.paymentId,
+            );
+            if (updated.rowsWritten === 0) {
+              const current = this.readPaymentRowSync(input.paymentId);
+              if (!current) throw new Error(NOT_FOUND);
+              if (current.status === 'authorized') {
+                return {
+                  ok: true as const,
+                  paymentId: current.payment_id,
+                  status: 'authorized' as const,
+                  gatewayReference: current.gateway_reference,
+                };
+              }
+              throw new Error(PAYMENT_NOT_RECONCILABLE);
+            }
+
+            const row = this.readPaymentRowSync(input.paymentId)!;
+            const authEventId = crypto.randomUUID();
+            this.appendPropertyOutbox({
+              eventId: authEventId,
+              eventType: 'folio.payment_authorized',
+              payload: {
+                propertyId,
+                paymentId: input.paymentId,
+                reservationId: row.reservation_id,
+                amountMinor: row.amount_minor,
+                currency: row.currency,
+                gatewayReference: row.gateway_reference,
+              },
+            });
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'payment.authorized',
+              payload: {
+                version: 1,
+                propertyId,
+                paymentId: input.paymentId,
+                reservationId: row.reservation_id,
+                amountMinor: row.amount_minor,
+                currency: row.currency,
+                purpose: row.purpose ?? 'STAY',
+                eventId: authEventId,
+                gatewayReference: row.gateway_reference,
+              },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'folio.reconcile_payment',
+              entityType: 'payment',
+              entityId: input.paymentId,
+              beforeJson: { paymentId: input.paymentId, status: 'unknown' },
+              afterJson: {
+                paymentId: input.paymentId,
+                status: 'authorized',
+                gatewayReference: row.gateway_reference,
+              },
+              shiftId: row.shift_id,
+              reservationId: row.reservation_id,
+            });
+            return {
+              ok: true as const,
+              paymentId: input.paymentId,
+              status: 'authorized' as const,
+              gatewayReference: row.gateway_reference,
+            };
+          }
+
+          const declinedUpdated = this.ctx.storage.sql.exec(
+            `UPDATE payment
+             SET status = 'declined',
+                 balance_at_risk = 0,
+                 updated_at = ?
+             WHERE payment_id = ? AND status = 'unknown'`,
+            now,
+            input.paymentId,
+          );
+          if (declinedUpdated.rowsWritten === 0) {
+            const current = this.readPaymentRowSync(input.paymentId);
+            if (!current) throw new Error(NOT_FOUND);
+            if (current.status === 'declined') {
+              return {
+                ok: true as const,
+                paymentId: current.payment_id,
+                status: 'declined' as const,
+                gatewayReference: current.gateway_reference,
+              };
+            }
+            throw new Error(PAYMENT_NOT_RECONCILABLE);
+          }
+
+          const row = this.readPaymentRowSync(input.paymentId)!;
+          const failEventId = crypto.randomUUID();
+          this.appendPropertyOutbox({
+            eventId: failEventId,
+            eventType: 'payment.failed',
+            payload: {
+              version: 1,
+              propertyId,
+              paymentId: input.paymentId,
+              reservationId: row.reservation_id,
+              stage: 'authorize',
+              reason: 'declined',
+            },
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.reconcile_payment',
+            entityType: 'payment',
+            entityId: input.paymentId,
+            beforeJson: { paymentId: input.paymentId, status: 'unknown' },
+            afterJson: { paymentId: input.paymentId, status: 'declined' },
+            shiftId: row.shift_id,
+            reservationId: row.reservation_id,
+          });
+          return {
+            ok: true as const,
+            paymentId: input.paymentId,
+            status: 'declined' as const,
+            gatewayReference: row.gateway_reference,
+          };
+        }),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof Error && e.message === NOT_FOUND) return { ok: false, error: NOT_FOUND };
+      if (e instanceof Error && e.message === PAYMENT_NOT_RECONCILABLE) {
+        return { ok: false, error: PAYMENT_NOT_RECONCILABLE };
+      }
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   async tryCapturePayment(

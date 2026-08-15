@@ -13,6 +13,7 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'rooms.delete',
   'folio.add_item',
   'folio.authorize',
+  'folio.reconcile_payment',
   'folio.capture',
   'folio.split_charge',
   'folio.split_charge_payment',

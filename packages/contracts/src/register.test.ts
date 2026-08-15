@@ -265,7 +265,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(55);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(56);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -667,8 +667,8 @@ describe('command catalog', () => {
       entitlement: 'pms.core',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(55);
-    expect(COMMAND_CATALOG).toHaveLength(80);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(56);
+    expect(COMMAND_CATALOG).toHaveLength(81);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

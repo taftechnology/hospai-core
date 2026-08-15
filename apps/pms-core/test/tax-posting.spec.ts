@@ -914,4 +914,280 @@ describe('tax posting matrix', () => {
       expect('affectsTaxMoney' in entry.consumers).toBe(false);
     }
   });
+
+  it('Test 18: percent discount on taxable ROOM restamps negative tax on discount line', async () => {
+    const owner = `user_tax_disc_pct_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_pct_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    const roomRuleId = `tr_room_${crypto.randomUUID()}`;
+    await seedRoomTaxRule(
+      propertyId,
+      owner,
+      arrival,
+      roomRuleId,
+      `room_sales_${crypto.randomUUID()}`,
+      '0.10',
+    );
+
+    const { res: roomRes, folioLineId: roomLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'ROOM',
+      amountMinor: 10_000,
+      idempotencyKey: `idem-room-${crypto.randomUUID()}`,
+    });
+    expect(roomRes.status).toBe(201);
+
+    const roomTaxBefore = (await stub.listFolioLinesForReservation(reservationId)).find(
+      (l) => l.source === 'TAX' && l.taxOf === roomLineId,
+    );
+    expect(roomTaxBefore).toMatchObject({
+      amountMinor: computeTax(10_000, '0.10'),
+      taxRuleId: roomRuleId,
+    });
+
+    const discountLineId = `disc_${crypto.randomUUID()}`;
+    const discountInput = {
+      sourceFolioLineId: roomLineId,
+      kind: 'percent' as const,
+      bps: 1000,
+      reason: 'comp night',
+      folioLineId: discountLineId,
+    };
+    expect(
+      await stub.tryPostDiscount(
+        { kind: 'user', userId: owner },
+        discountInput,
+        await idemFor(`disc-${discountLineId}`, discountInput),
+      ),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    expect(lines.find((l) => l.folioLineId === discountLineId)).toMatchObject({
+      chargeCode: 'DISCOUNT',
+      amountMinor: -1000,
+      splitOf: roomLineId,
+    });
+
+    const discountTax = lines.find((l) => l.source === 'TAX' && l.taxOf === discountLineId);
+    expect(discountTax).toMatchObject({
+      amountMinor: computeTax(-1000, '0.10'),
+      taxRuleId: roomRuleId,
+    });
+
+    const roomTaxAfter = lines.find((l) => l.source === 'TAX' && l.taxOf === roomLineId);
+    expect(roomTaxAfter).toEqual(roomTaxBefore);
+  });
+
+  it('Test 19: fixed discount on taxable ROOM restamps negative tax on discount line', async () => {
+    const owner = `user_tax_disc_fix_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_fix_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    const roomRuleId = `tr_room_fix_${crypto.randomUUID()}`;
+    await seedRoomTaxRule(
+      propertyId,
+      owner,
+      arrival,
+      roomRuleId,
+      `room_sales_fix_${crypto.randomUUID()}`,
+      '0.10',
+    );
+
+    const { folioLineId: roomLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'ROOM',
+      amountMinor: 8000,
+      idempotencyKey: `idem-room-fix-${crypto.randomUUID()}`,
+    });
+
+    const discountLineId = `disc_fix_${crypto.randomUUID()}`;
+    const discountInput = {
+      sourceFolioLineId: roomLineId,
+      kind: 'fixed' as const,
+      amountMinor: 2500,
+      reason: 'fixed comp',
+      folioLineId: discountLineId,
+    };
+    expect(
+      await stub.tryPostDiscount(
+        { kind: 'user', userId: owner },
+        discountInput,
+        await idemFor(`disc-fix-${discountLineId}`, discountInput),
+      ),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    expect(lines.find((l) => l.folioLineId === discountLineId)).toMatchObject({
+      chargeCode: 'DISCOUNT',
+      amountMinor: -2500,
+    });
+    expect(lines.find((l) => l.source === 'TAX' && l.taxOf === discountLineId)).toMatchObject({
+      amountMinor: computeTax(-2500, '0.10'),
+      taxRuleId: roomRuleId,
+    });
+  });
+
+  it('Test 20: exempt MISC (taxGroup null) discount posts DISCOUNT only', async () => {
+    const owner = `user_tax_disc_exempt_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_exempt_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    await seedGoodsTaxRule(propertyId, owner, arrival, `tr_goods_${crypto.randomUUID()}`, `goods_${crypto.randomUUID()}`, '0.0825');
+    expect((await patchChargeCode(propertyId, owner, 'MISC', { taxGroup: null })).status).toBe(200);
+
+    const { folioLineId: miscLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'MISC',
+      amountMinor: 5000,
+      idempotencyKey: `idem-misc-${crypto.randomUUID()}`,
+    });
+
+    const discountLineId = `disc_exempt_${crypto.randomUUID()}`;
+    const discountInput = {
+      sourceFolioLineId: miscLineId,
+      kind: 'percent' as const,
+      bps: 1000,
+      reason: 'exempt comp',
+      folioLineId: discountLineId,
+    };
+    expect(
+      await stub.tryPostDiscount(
+        { kind: 'user', userId: owner },
+        discountInput,
+        await idemFor(`disc-exempt-${discountLineId}`, discountInput),
+      ),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    expect(lines.some((l) => l.source === 'TAX' && l.taxOf === discountLineId)).toBe(false);
+    expect(lines.find((l) => l.folioLineId === discountLineId)).toMatchObject({
+      chargeCode: 'DISCOUNT',
+      amountMinor: -500,
+    });
+  });
+
+  it('Test 21: stacked ROOM tax rules produce two negative tax lines on discount', async () => {
+    const owner = `user_tax_disc_stack_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_stack_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    const stateRuleId = `tr_state_${crypto.randomUUID()}`;
+    const cityRuleId = `tr_city_${crypto.randomUUID()}`;
+    expect(
+      (
+        await postTaxRule(propertyId, owner, {
+          taxRuleId: stateRuleId,
+          ruleKey: `state_${crypto.randomUUID()}`,
+          name: 'State room',
+          ruleType: 'PERCENTAGE',
+          rate: '0.06',
+          taxGroup: 'ROOM',
+          outputChargeCode: 'TAX',
+          validFrom: arrival,
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await postTaxRule(propertyId, owner, {
+          taxRuleId: cityRuleId,
+          ruleKey: `city_${crypto.randomUUID()}`,
+          name: 'City room',
+          ruleType: 'PERCENTAGE',
+          rate: '0.02',
+          taxGroup: 'ROOM',
+          outputChargeCode: 'TAX',
+          validFrom: arrival,
+        })
+      ).status,
+    ).toBe(201);
+
+    const { folioLineId: roomLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'ROOM',
+      amountMinor: 10_000,
+      idempotencyKey: `idem-room-stack-${crypto.randomUUID()}`,
+    });
+
+    const discountLineId = `disc_stack_${crypto.randomUUID()}`;
+    const discountInput = {
+      sourceFolioLineId: roomLineId,
+      kind: 'percent' as const,
+      bps: 1000,
+      reason: 'stack comp',
+      folioLineId: discountLineId,
+    };
+    expect(
+      await stub.tryPostDiscount(
+        { kind: 'user', userId: owner },
+        discountInput,
+        await idemFor(`disc-stack-${discountLineId}`, discountInput),
+      ),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const discountTaxLines = (await stub.listFolioLinesForReservation(reservationId)).filter(
+      (l) => l.source === 'TAX' && l.taxOf === discountLineId,
+    );
+    expect(discountTaxLines).toHaveLength(2);
+    expect(discountTaxLines.map((l) => l.taxRuleId).sort()).toEqual([cityRuleId, stateRuleId].sort());
+    expect(discountTaxLines.every((l) => l.amountMinor < 0)).toBe(true);
+  });
+
+  it('Test 22: idempotent discount replay returns same folioLineId without duplicate tax', async () => {
+    const owner = `user_tax_disc_idem_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = `res_tax_disc_idem_${crypto.randomUUID()}`;
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    await seedRoomTaxRule(
+      propertyId,
+      owner,
+      arrival,
+      `tr_idem_${crypto.randomUUID()}`,
+      `room_idem_${crypto.randomUUID()}`,
+      '0.10',
+    );
+
+    const { folioLineId: roomLineId } = await postFolioLine(propertyId, owner, reservationId, {
+      chargeCode: 'ROOM',
+      amountMinor: 6000,
+      idempotencyKey: `idem-room-idem-${crypto.randomUUID()}`,
+    });
+
+    const discountLineId = `disc_idem_${crypto.randomUUID()}`;
+    const discountInput = {
+      sourceFolioLineId: roomLineId,
+      kind: 'percent' as const,
+      bps: 1000,
+      reason: 'idem comp',
+      folioLineId: discountLineId,
+    };
+    const idem = await idemFor(`disc-idem-${crypto.randomUUID()}`, discountInput);
+    expect(
+      await stub.tryPostDiscount({ kind: 'user', userId: owner }, discountInput, idem),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+    expect(
+      await stub.tryPostDiscount({ kind: 'user', userId: owner }, discountInput, idem),
+    ).toMatchObject({ ok: true, folioLineId: discountLineId });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    expect(lines.filter((l) => l.folioLineId === discountLineId)).toHaveLength(1);
+    expect(lines.filter((l) => l.source === 'TAX' && l.taxOf === discountLineId)).toHaveLength(1);
+  });
 });

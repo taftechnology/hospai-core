@@ -12814,6 +12814,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             splitOf: source.folio_line_id,
           });
 
+          this.stampTaxForChargeSync({
+            parentLineId: input.folioLineId,
+            parentAmountMinor: posted.amountMinor,
+            parentSource: 'DESK',
+            chargeCode: source.charge_code,
+            reservationId: source.reservation_id,
+            folioWindowId: source.folio_window_id,
+            postingDate: this.resolvePostingBusinessDateSync(),
+            posted,
+          });
+
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'folio.post_discount',

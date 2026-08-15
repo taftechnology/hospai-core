@@ -14580,7 +14580,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 refundedAmountMinor: currentCapturedBase,
               };
             }
-            throw new IdempotencyKeyReused();
+            throw new IdempotencyKeyReused(idem.key);
           }
           if (current.status !== 'captured') {
             throw new Error(PAYMENT_NOT_REFUNDABLE);

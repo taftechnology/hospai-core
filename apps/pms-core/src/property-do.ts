@@ -6079,7 +6079,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     roomId: string,
     reservation: {
       reservationId: string;
-      roomTypeId: string;
+      allocatedRoomTypeId: string;
       arrivalDate: string;
       departureDate: string;
     },
@@ -6090,7 +6090,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const room = roomRows[0];
     if (!room) throw new RoomNotFoundError();
     if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
-    if (room.room_type_id !== reservation.roomTypeId) throw new RoomTypeMismatchError();
+    if (room.room_type_id !== reservation.allocatedRoomTypeId) throw new RoomTypeMismatchError();
     const conflict = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id FROM reservation
@@ -6161,12 +6161,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, arrival_date, departure_date, status, room_id
+              `SELECT room_type_id, allocated_room_type_id, arrival_date, departure_date, status, room_id
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            allocated_room_type_id: string;
             arrival_date: string;
             departure_date: string;
             status: string;
@@ -6183,9 +6184,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             throw new RoomNotAssignableError();
           }
 
+          const allocatedRoomTypeId =
+            reservation.allocated_room_type_id || reservation.room_type_id;
           this.assertRoomAssignableSync(input.roomId, {
             reservationId: input.reservationId,
-            roomTypeId: reservation.room_type_id,
+            allocatedRoomTypeId,
             arrivalDate: reservation.arrival_date,
             departureDate: reservation.departure_date,
           });
@@ -7607,11 +7610,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id, adults, children FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id, adults, children FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
             room_type_id: string;
+            allocated_room_type_id: string;
             guest_ref: string;
             pii_key_id: string;
             arrival_date: string;
@@ -7717,9 +7721,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           if (reservation.room_id) {
+            const allocatedRoomTypeId =
+              reservation.allocated_room_type_id || reservation.room_type_id;
             this.assertRoomAssignableSync(reservation.room_id, {
               reservationId: input.reservationId,
-              roomTypeId: input.roomTypeId,
+              allocatedRoomTypeId,
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
             });
@@ -7981,7 +7987,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredTouchErr) return expiredTouchErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status, room_id, room_type_id, arrival_date, departure_date, adults, children
+              `SELECT guest_ref, pii_key_id, status, room_id, room_type_id, allocated_room_type_id, arrival_date, departure_date, adults, children
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -7991,6 +7997,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: string;
             room_id: string | null;
             room_type_id: string;
+            allocated_room_type_id: string;
             arrival_date: string;
             departure_date: string;
             adults: number;
@@ -8006,9 +8013,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (!resolvedRoomId) throw new RoomRequiredError();
 
           if (resolvedRoomId !== reservation.room_id) {
+            const allocatedRoomTypeId =
+              reservation.allocated_room_type_id || reservation.room_type_id;
             this.assertRoomAssignableSync(resolvedRoomId, {
               reservationId: input.reservationId,
-              roomTypeId: reservation.room_type_id,
+              allocatedRoomTypeId,
               arrivalDate: reservation.arrival_date,
               departureDate: reservation.departure_date,
             });

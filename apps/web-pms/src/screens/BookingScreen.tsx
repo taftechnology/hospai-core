@@ -7,6 +7,7 @@ import {
   selectableRoomTypeIds,
   stayNightsExceedAvailabilityCap,
 } from '@hospai/client-core';
+import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
@@ -54,6 +55,27 @@ function bodyField(body: unknown, key: string): string | undefined {
   return undefined;
 }
 
+const PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
+
+type RatePromoRow = {
+  promoId: string;
+  code: string;
+  name: string;
+  kind: 'percent' | 'fixed_per_night';
+  bps: number | null;
+  amountMinor: number | null;
+  validFrom: string | null;
+  validTo: string | null;
+  ratePlanId: string | null;
+};
+
+function promoApplyInput(promo: RatePromoRow): PromoApplyInput {
+  if (promo.kind === 'percent') {
+    return { kind: 'percent', bps: promo.bps ?? 0 };
+  }
+  return { kind: 'fixed_per_night', amountMinor: promo.amountMinor ?? 0 };
+}
+
 export function BookingScreen() {
   const propertyId = tenant.propertyId;
   const timeZone = usePropertyTimeZone();
@@ -74,6 +96,7 @@ export function BookingScreen() {
   const [adults, setAdults] = useState(1);
   const [children, setChildren] = useState(0);
   const [ratePlanId, setRatePlanId] = useState('');
+  const [promoCodeInput, setPromoCodeInput] = useState('');
   const [guestCreated, setGuestCreated] = useState(false);
   const [contextGuestRef, setContextGuestRef] = useState<string | null>(urlGuestRef);
   const [contextDisplayName, setContextDisplayName] = useState<string | null>(null);
@@ -136,6 +159,69 @@ export function BookingScreen() {
       Boolean(roomTypeId && arrivalDate && lastNight && lastNight >= arrivalDate && ratePlanId),
     retry: false,
   });
+
+  const promosQ = useQuery({
+    queryKey: ['rate-promos', propertyId],
+    queryFn: () => api.listRatePromos(propertyId),
+    retry: false,
+  });
+  const promos = (promosQ.data?.promos ?? []) as RatePromoRow[];
+
+  const normalizedPromoCode = promoCodeInput.trim().toUpperCase();
+  const promoResolution = useMemo(() => {
+    if (normalizedPromoCode === '') {
+      return {
+        matchedPromo: null as RatePromoRow | null,
+        promoError: null as string | null,
+        promoBlocked: false,
+      };
+    }
+    if (!PROMO_CODE_CHARSET.test(normalizedPromoCode)) {
+      return {
+        matchedPromo: null,
+        promoError: 'Promo code not found.',
+        promoBlocked: true,
+      };
+    }
+    const promo = promos.find((p) => p.code === normalizedPromoCode);
+    if (!promo) {
+      return {
+        matchedPromo: null,
+        promoError: 'Promo code not found.',
+        promoBlocked: true,
+      };
+    }
+    if (promo.ratePlanId != null && promo.ratePlanId !== ratePlanId) {
+      return {
+        matchedPromo: null,
+        promoError: 'Promo does not apply to this stay.',
+        promoBlocked: true,
+      };
+    }
+    if (arrivalDate && lastNight && lastNight >= arrivalDate) {
+      let cur = arrivalDate;
+      while (cur <= lastNight) {
+        if (promo.validFrom != null && cur < promo.validFrom) {
+          return {
+            matchedPromo: null,
+            promoError: 'Promo does not apply to this stay.',
+            promoBlocked: true,
+          };
+        }
+        if (promo.validTo != null && cur > promo.validTo) {
+          return {
+            matchedPromo: null,
+            promoError: 'Promo does not apply to this stay.',
+            promoBlocked: true,
+          };
+        }
+        cur = addCalendarDays(cur, 1);
+      }
+    }
+    return { matchedPromo: promo, promoError: null, promoBlocked: false };
+  }, [normalizedPromoCode, promos, ratePlanId, arrivalDate, lastNight]);
+  const { matchedPromo, promoError, promoBlocked } = promoResolution;
+
   const stayQuoteMinor = useMemo(() => {
     if (!arrivalDate || !lastNight || lastNight < arrivalDate) return null;
     const nights: string[] = [];
@@ -152,8 +238,12 @@ export function BookingScreen() {
       }
     }
     if (nights.length === 0 || nights.some((n) => !byDate.has(n))) return null;
-    return nights.reduce((sum, n) => sum + (byDate.get(n) ?? 0), 0);
-  }, [arrivalDate, lastNight, ratesQ.data]);
+    const applyInput = matchedPromo ? promoApplyInput(matchedPromo) : null;
+    return nights.reduce((sum, n) => {
+      const base = byDate.get(n) ?? 0;
+      return sum + (applyInput ? applyPromoToAmountMinor(base, applyInput) : base);
+    }, 0);
+  }, [arrivalDate, lastNight, ratesQ.data, matchedPromo]);
 
   const typesQ = useQuery({
     queryKey: ['room-types', propertyId, 'active'],
@@ -240,13 +330,20 @@ export function BookingScreen() {
   const confirmEnabled =
     !plansEmpty &&
     quoteComplete &&
+    !promoBlocked &&
     quoteAriVersion != null &&
     roomTypeId != null &&
     guestResolved &&
     !dateCapBlocked &&
     partyOk;
   const quoteEnabled =
-    !plansEmpty && quoteComplete && roomTypeId != null && guestResolved && !dateCapBlocked && partyOk;
+    !plansEmpty &&
+    quoteComplete &&
+    !promoBlocked &&
+    roomTypeId != null &&
+    guestResolved &&
+    !dateCapBlocked &&
+    partyOk;
 
   const availErrorClassified = availQ.isError ? asClassified(availQ.error) : null;
   const availDateRangeExceeded =
@@ -284,6 +381,7 @@ export function BookingScreen() {
         adults,
         children,
         ratePlanId,
+        ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
       });
       return api.createReservation(
         propertyId,
@@ -298,6 +396,7 @@ export function BookingScreen() {
           children,
           ratePlanId,
           ...(status === 'confirmed' ? {} : { status }),
+          ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
         },
         opId,
       );
@@ -466,6 +565,26 @@ export function BookingScreen() {
               </NativeSelect>
             }
           />
+        ) : null}
+      </section>
+
+      <section className="stack">
+        <h2>Promo code</h2>
+        <Field
+          label="Promo code"
+          control={
+            <Input
+              data-testid="promo-code"
+              value={promoCodeInput}
+              onChange={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
+              onBlur={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
+            />
+          }
+        />
+        {promoError ? (
+          <p className="muted" role="status">
+            {promoError}
+          </p>
         ) : null}
       </section>
 

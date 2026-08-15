@@ -12,6 +12,7 @@ const listRoomTypes = vi.fn();
 const searchGuests = vi.fn();
 const listRateDays = vi.fn();
 const listRatePlans = vi.fn();
+const listRatePromos = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -33,6 +34,7 @@ vi.mock('../client.js', () => ({
     searchGuests: (...a: unknown[]) => searchGuests(...a),
     listRateDays: (...a: unknown[]) => listRateDays(...a),
     listRatePlans: (...a: unknown[]) => listRatePlans(...a),
+    listRatePromos: (...a: unknown[]) => listRatePromos(...a),
   },
 }));
 
@@ -202,6 +204,7 @@ describe('BookingScreen', () => {
     });
     listRatePlans.mockResolvedValue({ ok: true, plans: [barPlan, corpPlan] });
     listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
   });
 
   afterEach(() => {
@@ -781,6 +784,7 @@ describe('BookingScreen', () => {
     );
     listRatePlans.mockResolvedValue({ ok: true, plans: [barPlan, corpPlan] });
     listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
     createReservation.mockRejectedValue(
       new ClassifiedError({
         class: 'client_error',
@@ -949,5 +953,54 @@ describe('BookingScreen', () => {
         'Rate plan unavailable — pick another plan.',
       ),
     );
+  });
+
+  it('Lock 13 Booking 1: SUMMER15 discounted stay-quote', async () => {
+    listRatePromos.mockResolvedValue({
+      ok: true,
+      promos: [
+        {
+          promoId: 'p1',
+          code: 'SUMMER15',
+          name: '15% off',
+          kind: 'percent',
+          bps: 1500,
+          amountMinor: null,
+          validFrom: null,
+          validTo: null,
+          ratePlanId: null,
+        },
+      ],
+    });
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(await screen.findByTestId('promo-code'), { target: { value: 'SUMMER15' } });
+    await waitFor(() =>
+      expect(screen.getByTestId('stay-quote').textContent).toBe('$127.50'),
+    );
+  });
+
+  it('Lock 13 Booking 2: empty promo omits promoCode on create', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    expect(createReservation.mock.calls[0]?.[1]).not.toHaveProperty('promoCode');
+  });
+
+  it('Lock 13 Booking 3: invalid promo disables all book buttons + copy', async () => {
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(await screen.findByTestId('promo-code'), { target: { value: 'NOPE' } });
+    await waitFor(() => expect(screen.getByText('Promo code not found.')).toBeTruthy());
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('hold-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
   });
 });

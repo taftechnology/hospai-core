@@ -32,12 +32,17 @@ export function bookingReservationOpId(input: {
   adults?: number;
   children?: number;
   ratePlanId?: string;
+  promoCode?: string;
 }): string {
   const status = input.status ?? 'confirmed';
   const adults = input.adults ?? 1;
   const children = input.children ?? 0;
   const ratePlanId = input.ratePlanId ?? 'BAR';
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}`;
+  const promoSegment =
+    input.promoCode != null && input.promoCode.trim() !== ''
+      ? `:${input.promoCode.trim().toUpperCase()}`
+      : '';
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}${promoSegment}`;
 }
 
 /**

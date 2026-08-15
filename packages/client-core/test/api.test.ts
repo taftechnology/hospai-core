@@ -429,6 +429,67 @@ describe('createClient booking', () => {
     expect(bodies[2]?.idempotencyKey).not.toBe(bodies[0]?.idempotencyKey);
   });
 
+  it('createReservation JSON includes promoCode when provided', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, reservationId: 'r1', ariVersion: 1 }), {
+          status: 201,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    const input = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      quoteAriVersion: 3,
+      ratePlanId: 'BAR',
+      promoCode: 'SUMMER15',
+    };
+    await client.createReservation('p', input, bookingReservationOpId(input));
+    expect(bodies[0]?.promoCode).toBe('SUMMER15');
+  });
+
+  it('createReservation omits promoCode when absent', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, reservationId: 'r1', ariVersion: 1 }), {
+          status: 201,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    await client.createReservation(
+      'p',
+      {
+        reservationId: 'r1',
+        roomTypeId: 'rt_a',
+        guestRef: 'g1',
+        arrivalDate: '2026-08-11',
+        departureDate: '2026-08-12',
+        quoteAriVersion: 3,
+      },
+      bookingReservationOpId({
+        reservationId: 'r1',
+        roomTypeId: 'rt_a',
+        guestRef: 'g1',
+        arrivalDate: '2026-08-11',
+        departureDate: '2026-08-12',
+      }),
+    );
+    expect(bodies[0]).not.toHaveProperty('promoCode');
+  });
+
   it('createReservation JSON includes ratePlanId when provided', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const client = createClient({

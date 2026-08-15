@@ -1152,6 +1152,7 @@ export function createClient(opts: {
         adults?: number;
         children?: number;
         ratePlanId?: string;
+        promoCode?: string;
       },
       opId: string,
     ) {
@@ -1170,6 +1171,7 @@ export function createClient(opts: {
           ...(input.adults !== undefined ? { adults: input.adults } : {}),
           ...(input.children !== undefined ? { children: input.children } : {}),
           ...(input.ratePlanId !== undefined ? { ratePlanId: input.ratePlanId } : {}),
+          ...(input.promoCode !== undefined ? { promoCode: input.promoCode } : {}),
           idempotencyKey,
         }),
       });

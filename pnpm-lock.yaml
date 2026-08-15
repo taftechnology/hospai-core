@@ -96,6 +96,9 @@ importers:
       '@hospai/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@hospai/money':
+        specifier: workspace:*
+        version: link:../../packages/money
       '@hospai/pms-housekeeping':
         specifier: workspace:*
         version: link:../../modules/pms/housekeeping

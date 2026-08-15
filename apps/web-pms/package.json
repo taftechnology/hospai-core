@@ -13,6 +13,7 @@
   "dependencies": {
     "@clerk/react": "^6.14.2",
     "@hospai/client-core": "workspace:*",
+    "@hospai/money": "workspace:*",
     "@hospai/contracts": "workspace:*",
     "@hospai/pms-housekeeping": "workspace:*",
     "@hospai/ui-kit": "workspace:*",

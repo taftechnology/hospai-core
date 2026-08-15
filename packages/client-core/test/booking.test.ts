@@ -86,6 +86,24 @@ describe('bookingReservationOpId', () => {
     expect(bar).not.toBe(corp);
     expect(corp.endsWith(':CORP')).toBe(true);
   });
+
+  it('appends normalized promoCode after ratePlanId segment', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+      ratePlanId: 'BAR',
+    };
+    const withPromo = bookingReservationOpId({ ...base, promoCode: 'summer15' });
+    expect(withPromo).toBe(
+      'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR:SUMMER15',
+    );
+    const omitted = bookingReservationOpId(base);
+    expect(omitted.endsWith(':BAR')).toBe(true);
+    expect(omitted.includes(':SUMMER15')).toBe(false);
+  });
 });
 
 describe('availabilityRangeForStay', () => {

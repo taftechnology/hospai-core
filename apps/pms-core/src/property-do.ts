@@ -157,6 +157,7 @@ import {
 } from '@hospai/do-runtime';
 import { REPLAY_DISPATCH } from './replay-dispatch.js';
 import {
+  allocateVirtualConstituent,
   archiveBlocked,
   enumerateFromDate,
   enumerateHorizonDates,
@@ -6657,6 +6658,95 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
   }
 
+  private loadConstituentAvailabilityMapsSync(
+    constituentIds: string[],
+    nights: string[],
+  ): Map<string, Map<string, ConstituentAvailabilityRow>> {
+    const map = new Map<string, Map<string, ConstituentAvailabilityRow>>();
+    for (const constituentId of constituentIds) {
+      const byDate = new Map<string, ConstituentAvailabilityRow>();
+      map.set(constituentId, byDate);
+      for (const stayDate of nights) {
+        const rows = this.ctx.storage.sql
+          .exec(
+            `SELECT physical, blocked, held, sold, oversell FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
+            constituentId,
+            stayDate,
+          )
+          .toArray() as Array<{
+          physical: number;
+          blocked: number;
+          held: number;
+          sold: number;
+          oversell: number;
+        }>;
+        const row = rows[0];
+        if (row) {
+          byDate.set(stayDate, row);
+        }
+      }
+    }
+    return map;
+  }
+
+  private resolveInventoryCommitSync(input: {
+    soldRoomTypeId: string;
+    arrivalDate: string;
+    departureDate: string;
+    nights: string[];
+  }): { allocatedRoomTypeId: string; ledgerRoomTypeId: string } {
+    const kindRows = this.ctx.storage.sql
+      .exec(`SELECT kind FROM room_type WHERE room_type_id = ?`, input.soldRoomTypeId)
+      .toArray() as Array<{ kind: string }>;
+    const kind = kindRows[0]?.kind ?? 'physical';
+    if (kind === 'physical') {
+      return { allocatedRoomTypeId: input.soldRoomTypeId, ledgerRoomTypeId: input.soldRoomTypeId };
+    }
+
+    this.restrictionFailureSync(input.soldRoomTypeId, input.arrivalDate, input.departureDate, input.nights);
+
+    const constituents = this.readVirtualConstituentIdsSync(input.soldRoomTypeId);
+    const availabilityByConstituent = this.loadConstituentAvailabilityMapsSync(constituents, input.nights);
+    const result = allocateVirtualConstituent({
+      nights: input.nights,
+      constituentIds: constituents,
+      availabilityByConstituent,
+      restrictionClean: (constituentId) => {
+        try {
+          this.restrictionFailureSync(constituentId, input.arrivalDate, input.departureDate, input.nights);
+          return true;
+        } catch (e) {
+          if (e instanceof RestrictionViolatedError) return false;
+          throw e;
+        }
+      },
+    });
+    if (!result.ok) {
+      if (result.error === 'restriction_violated') {
+        for (const constituentId of constituents) {
+          const freeEveryNight = input.nights.every((night) => {
+            const row = availabilityByConstituent.get(constituentId)?.get(night);
+            return row ? freeAvailability(row) >= 1 : false;
+          });
+          if (!freeEveryNight) continue;
+          try {
+            this.restrictionFailureSync(
+              constituentId,
+              input.arrivalDate,
+              input.departureDate,
+              input.nights,
+            );
+          } catch (e) {
+            if (e instanceof RestrictionViolatedError) throw e;
+            throw e;
+          }
+        }
+      }
+      throw new NoAvailabilityError(input.nights[0]!);
+    }
+    return { allocatedRoomTypeId: result.allocatedRoomTypeId, ledgerRoomTypeId: result.allocatedRoomTypeId };
+  }
+
   private commitSoldNightsSync(roomTypeId: string, arrivalDate: string, departureDate: string, nights: string[]): void {
     const rowsByDate = new Map<string, AvailabilitySnapshot>();
     for (const stayDate of nights) {
@@ -6889,8 +6979,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.assertActiveRatePlanSync(ratePlanId);
 
           const commitsInventory = status === 'pending' || status === 'confirmed';
+          let allocatedRoomTypeId = '';
+          let ledgerRoomTypeId = input.roomTypeId;
           if (commitsInventory) {
-            this.commitSoldNightsSync(input.roomTypeId, input.arrivalDate, input.departureDate, nights);
+            const commit = this.resolveInventoryCommitSync({
+              soldRoomTypeId: input.roomTypeId,
+              arrivalDate: input.arrivalDate,
+              departureDate: input.departureDate,
+              nights,
+            });
+            allocatedRoomTypeId = commit.allocatedRoomTypeId;
+            ledgerRoomTypeId = commit.ledgerRoomTypeId;
+            this.commitSoldNightsSync(ledgerRoomTypeId, input.arrivalDate, input.departureDate, nights);
           }
 
           const snapshot = commitsInventory
@@ -6912,8 +7012,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             `INSERT INTO reservation (
                reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
                status, adults, children, rate_plan_id, cancel_penalty_type, cancel_grace_hours,
-               cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post,
+               allocated_room_type_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
@@ -6931,6 +7032,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             confirmBy,
             expiresAt,
             input.noPost === true ? 1 : 0,
+            allocatedRoomTypeId,
             now,
             now,
           );
@@ -6961,7 +7063,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
-              payload: { propertyId, roomTypeId: input.roomTypeId, fromDate, toDate, version: ariVersion },
+              payload: { propertyId, roomTypeId: ledgerRoomTypeId, fromDate, toDate, version: ariVersion },
             });
           }
 
@@ -7059,10 +7161,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const toDate = nights[nights.length - 1]!;
           const now = Date.now();
           const fromInquiry = reservation.status === 'inquiry';
+          let ledgerRoomTypeId = reservation.room_type_id;
           if (fromInquiry) {
             this.assertOccupancySync(reservation.room_type_id, reservation.adults, reservation.children);
+            const commit = this.resolveInventoryCommitSync({
+              soldRoomTypeId: reservation.room_type_id,
+              arrivalDate: reservation.arrival_date,
+              departureDate: reservation.departure_date,
+              nights,
+            });
+            ledgerRoomTypeId = commit.ledgerRoomTypeId;
             this.commitSoldNightsSync(
-              reservation.room_type_id,
+              ledgerRoomTypeId,
               reservation.arrival_date,
               reservation.departure_date,
               nights,
@@ -7077,12 +7187,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.ctx.storage.sql.exec(
               `UPDATE reservation SET status = 'confirmed', rate_plan_id = ?, cancel_penalty_type = ?,
                cancel_grace_hours = ?, cancel_penalty_nights = ?, cancel_penalty_bps = ?,
-               confirm_by = NULL, expires_at = NULL, updated_at = ? WHERE reservation_id = ?`,
+               confirm_by = NULL, expires_at = NULL, allocated_room_type_id = ?, updated_at = ?
+               WHERE reservation_id = ?`,
               ratePlanId,
               snapshot.cancelPenaltyType,
               snapshot.cancelGraceHours,
               snapshot.cancelPenaltyNights,
               snapshot.cancelPenaltyBps,
+              commit.allocatedRoomTypeId,
               now,
               input.reservationId,
             );
@@ -7111,7 +7223,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
-              payload: { propertyId, roomTypeId: reservation.room_type_id, fromDate, toDate, version: ariVersion },
+              payload: { propertyId, roomTypeId: ledgerRoomTypeId, fromDate, toDate, version: ariVersion },
             });
           }
           this.appendAuditLogSync({
@@ -11723,7 +11835,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT COUNT(*) AS c FROM reservation
-         WHERE room_type_id = ? AND status IN ('pending', 'confirmed', 'checked_in', 'checked_out')
+         WHERE allocated_room_type_id = ? AND allocated_room_type_id != ''
+           AND status IN ('pending', 'confirmed', 'checked_in', 'checked_out')
            AND arrival_date <= ? AND departure_date > ?`,
         roomTypeId,
         stayDate,

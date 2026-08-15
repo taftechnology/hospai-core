@@ -742,7 +742,7 @@ Auto-assign §8 item **5** (~274):
 
 > ~~**`auto_extend` consumer** — Night-audit leftover — unrelated~~ **Closed** in [2026-08-15 night-audit auto-extend](./2026-08-15-night-audit-auto-extend-design.md).
 
-- [ ] **Step 1: Pin frozen heads (register + night-audit step count)**
+- [x] **Step 1: Pin frozen heads (register + night-audit step count)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes"
@@ -752,7 +752,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/night-audit-room-charges.spe
 
 Expect: catalog **79**; writers **54**; `[131]=post_folio_routing_rule_archive`; `[128]=post_folio_stay_discount`; `[127]=post_demo_seed`; `PLATFORM_GAPS === []`; `NIGHT_AUDIT_STEPS.length === 8`; `[3] === 'AUTO_TRANSFER'`; no `AUTO_EXTEND`.
 
-- [ ] **Step 2: Targeted test superset (spec §7)**
+- [x] **Step 2: Targeted test superset (spec §7)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/night-audit-auto-extend.spec.ts
@@ -764,7 +764,7 @@ pnpm check:pms-core-test-dates
 
 Expected: **PASS**.
 
-- [ ] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
+- [x] **Step 3: Full CI sequence (`.github/workflows/ci.yml` `checks` job + 8-shard pms-core)**
 
 ```bash
 pnpm build
@@ -805,13 +805,13 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true` failures. Do **not** run unsharded `pnpm --filter @hospai/pms-core test`.
 
-- [ ] **Step 4: Apply doc pointers + tick spec §9 checklist**
+- [x] **Step 4: Apply doc pointers + tick spec §9 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-night-audit-auto-extend-design.md` §9.
 
-- [ ] **Step 5: Tick Task 3 checkboxes in this plan**
+- [x] **Step 5: Tick Task 3 checkboxes in this plan**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-12-night-audit-e2e-design.md \

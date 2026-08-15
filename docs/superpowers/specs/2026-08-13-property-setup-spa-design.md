@@ -313,7 +313,7 @@ Sibling keys `pms.ops.auto_assign_rule` and `pms.ops.auto_assign_rooming` stay O
 
 `assertRegisterInvariants` / config-consumer CI: `consumersExempt` keeps the DOMAIN-must-have-consumers rule green.
 
-`pms.night_audit.auto_extend` is already DOMAIN — no register change. Still no night-audit reader.
+`pms.night_audit.auto_extend` is already DOMAIN — no register change. ~~Still no night-audit reader.~~ **`pms.night_audit.auto_extend`** consumer: [2026-08-15 night-audit auto-extend](./2026-08-15-night-audit-auto-extend-design.md) (`runAutoExtendSync` inside `POST_ROOM_CHARGES`).
 
 ### 8.2 `GET /config/domain` (index 114)
 
@@ -550,7 +550,7 @@ No `ARCHITECTURE.md` rewrite required beyond an optional Phase 1 note when the c
 | 13 | Plan-scoped restrictions | Rate-plans §2.3 |
 | 14 | `rematerializesRates` consumer | Rule-3 leftover |
 | 15 | `pms.money.currencies_list` as FX allowlist | Multi-currency leftover 2 |
-| 16 | ~~Auto-extend / auto-assign **consumers** — Display/edit only~~ **Closed** for `auto_assign_rooms` in [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md). `auto_extend` consumer remains deferred. |
+| 16 | ~~Auto-extend / auto-assign **consumers** — Display/edit only~~ **Closed** for `auto_assign_rooms` in [2026-08-14 auto-assign rooms at check-in](./2026-08-14-auto-assign-rooms-design.md). ~~`auto_extend` consumer remains deferred.~~ **Closed** for `auto_extend` in [2026-08-15 night-audit auto-extend](./2026-08-15-night-audit-auto-extend-design.md). |
 | 17 | Room-type photos | Prototype-holes leftover 5 |
 | 18 | Rate-plan inclusions | Prototype-holes leftover 6 |
 | 19 | OPERATIONAL/PRESENTATION OrgDO settings screen | No store |

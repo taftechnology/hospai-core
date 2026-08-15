@@ -271,7 +271,7 @@ Only if an existing check-in HTTP test file is the natural home — **`worker.fe
 | 2 | **Auto-assign outside check-in** | Booking / confirm / modify / night audit / `assign_room` — §1.3 |
 | 3 | **Smarter pick heuristics** | Floor preference, VIP, adjoining — only lowest `code` |
 | 4 | **Waiting-for-room / queue product** | Lifecycle §16.5 — different surface |
-| 5 | **`auto_extend` consumer** | Night-audit leftover — unrelated |
+| 5 | ~~**`auto_extend` consumer** — Night-audit leftover — unrelated~~ **Closed** in [2026-08-15 night-audit auto-extend](./2026-08-15-night-audit-auto-extend-design.md). |
 
 ---
 

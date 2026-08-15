@@ -561,7 +561,7 @@ Existing `night-audit.spec.ts` / `night-audit-room-charges.spec.ts` stay. New co
 1. **Year-end `ARCHIVE` prune** of `audit_log` / closed-year folio projection (policy in audit-log §2.4; nightly body does not DELETE).
 2. **No-show / cancel penalty posting** — **closed 2026-08-12** by [reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md) (desk cancel/no-show + `PROCESS_NO_SHOWS` P/R).
 3. **Recurring incidental schedule** + posting inside `POST_ROOM_CHARGES` (§8.1).
-4. **`pms.night_audit.auto_extend`** — Settings can display/edit `pms.night_audit.auto_extend` ([property setup SPA](./2026-08-13-property-setup-spa-design.md)); the 7-step machine still does not read it.
+4. ~~**`pms.night_audit.auto_extend`** — Settings can display/edit `pms.night_audit.auto_extend` ([property setup SPA](./2026-08-13-property-setup-spa-design.md)); the 7-step machine still does not read it.~~ **Closed** in [2026-08-15 night-audit auto-extend](./2026-08-15-night-audit-auto-extend-design.md): `POST_ROOM_CHARGES` reads `pms.night_audit.auto_extend` and runs `runAutoExtendSync` before `postRoomChargesSync`.
 5. **Alarm workflow ids** remain timestamped; HTTP run is deterministic get-or-create. Unifying them is optional hygiene, not required.
 6. **SQL `PENDING` status** on `night_audit_run` (ARCHITECTURE DDL vs shipped table) — do not introduce as a halt flag.
 7. **PDF / print** of close-out reports; fiscalization submission.

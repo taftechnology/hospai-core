@@ -189,7 +189,8 @@ No new wire codes.
 |---|---|
 | Per-reservation no availability / restriction / unbookable night | **Skip** reservation; step **`COMPLETED`** |
 | Assigned room OOO / overlap on extended range | **Skip** reservation |
-| Uncaught throw in helper or `postRoomChargesSync` (e.g. `rate_missing`, `CURRENCY_UNSET`) | Step **`FAILED`**; Txn B rolled back |
+| Missing BAR / `RateMissingError` on extra night **D+1** during extend | **Skip** reservation (same class as no-avail); step **`COMPLETED`** |
+| Other uncaught throw in helper or `postRoomChargesSync` (e.g. `CURRENCY_UNSET`) | Step **`FAILED`**; Txn B rolled back |
 | Config `false` | Helper not called; POST unchanged |
 | Confirmed due out `D+1` | Not a candidate; `PROCESS_NO_SHOWS` behaviour unchanged |
 
@@ -264,13 +265,13 @@ Optional on case **1**: audit row `commandId === 'reservations.modify'` and `aft
 
 ## 9. Implementation checklist
 
-- [ ] `runAutoExtendSync(businessDate)`: candidate query Lock 2; per-reservation extend Lock 3; skip vs throw contract.
-- [ ] `runAuditStep` `POST_ROOM_CHARGES`: config gate → helper → `postRoomChargesSync` (Lock 1).
-- [ ] Reuse `commitSoldNightsSync` / `assertRoomAssignableSync` / `syncReservationRateNightsOnModifySync`; emit modify outbox + audit (`automated: true`).
-- [ ] `SettingsScreen` hint + `SettingsScreen.test.tsx` case **8**.
-- [ ] DO tests §7.1 cases **1–7**; register pins unchanged.
-- [ ] `pnpm check:web-pms-colors` if SPA tokens touched.
-- [ ] Bidirectional pointers: night-audit E2E §12 leftover **4**; property-setup §8.1 + leftover **16**; auto-assign §8 leftover **5** (final implementation task).
+- [x] `runAutoExtendSync(businessDate)`: candidate query Lock 2; per-reservation extend Lock 3; skip vs throw contract.
+- [x] `runAuditStep` `POST_ROOM_CHARGES`: config gate → helper → `postRoomChargesSync` (Lock 1).
+- [x] Reuse `commitSoldNightsSync` / `assertRoomAssignableSync` / `syncReservationRateNightsOnModifySync`; emit modify outbox + audit (`automated: true`).
+- [x] `SettingsScreen` hint + `SettingsScreen.test.tsx` case **8**.
+- [x] DO tests §7.1 cases **1–7**; register pins unchanged.
+- [x] `pnpm check:web-pms-colors` if SPA tokens touched.
+- [x] Bidirectional pointers: night-audit E2E §12 leftover **4**; property-setup §8.1 + leftover **16**; auto-assign §8 leftover **5** (final implementation task).
 
 ---
 

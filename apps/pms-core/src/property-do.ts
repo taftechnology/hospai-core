@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   ARCHIVE_BLOCKED,
+  CONSTITUENT_IN_USE,
   ALREADY_RESOLVED,
   BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
@@ -23,7 +24,17 @@ import {
   PROPERTY_ID_UNSET,
   ROOM_TYPE_EXISTS,
   ROOM_TYPE_CODE_EXISTS,
+  ROOM_TYPE_KIND_IMMUTABLE,
   TIMEZONE_UNSET,
+  VIRTUAL_CONSTITUENT_NOT_PHYSICAL,
+  VIRTUAL_CONSTITUENTS_DUPLICATE,
+  VIRTUAL_CONSTITUENTS_MIN_TWO,
+  VIRTUAL_CONSTITUENTS_ON_PHYSICAL,
+  VIRTUAL_CONSTITUENTS_REQUIRED,
+  VIRTUAL_NESTED_FORBIDDEN,
+  VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS,
+  VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
+  VIRTUAL_TYPE_NO_ROOMS,
   UNBOOKABLE,
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
@@ -1070,7 +1081,7 @@ export function reconcileHorizon(
   const toDate = required[required.length - 1]!;
 
   const activeRoomTypes = sql
-    .exec(`SELECT room_type_id, room_count FROM room_type WHERE status = 'active'`)
+    .exec(`SELECT room_type_id, room_count FROM room_type WHERE status = 'active' AND kind = 'physical'`)
     .toArray() as Array<{ room_type_id: string; room_count: number }>;
 
   let insertedCount = 0;
@@ -4457,6 +4468,56 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ariVersion, rows };
   }
 
+  private validateVirtualConstituentsSync(ids: string[] | undefined): string[] {
+    if (!ids || ids.length === 0) throw new Error(VIRTUAL_CONSTITUENTS_REQUIRED);
+    const sorted = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+    if (sorted.length !== ids.length) throw new Error(VIRTUAL_CONSTITUENTS_DUPLICATE);
+    if (sorted.length < 2) throw new Error(VIRTUAL_CONSTITUENTS_MIN_TWO);
+    for (const id of sorted) {
+      const rows = this.ctx.storage.sql
+        .exec(`SELECT kind, status FROM room_type WHERE room_type_id = ?`, id)
+        .toArray() as Array<{ kind: string; status: string }>;
+      const row = rows[0];
+      if (row?.kind === 'virtual') throw new Error(VIRTUAL_NESTED_FORBIDDEN);
+      if (!row || row.status !== 'active' || row.kind !== 'physical') {
+        throw new Error(VIRTUAL_CONSTITUENT_NOT_PHYSICAL);
+      }
+    }
+    return sorted;
+  }
+
+  private assertVirtualOccupancyWithinConstituentsSync(
+    maxOccupancy: number,
+    maxAdults: number,
+    constituentIds: string[],
+  ): void {
+    let minOccupancy = Infinity;
+    let minAdults = Infinity;
+    for (const id of constituentIds) {
+      const rows = this.ctx.storage.sql
+        .exec(`SELECT max_occupancy, max_adults FROM room_type WHERE room_type_id = ?`, id)
+        .toArray() as Array<{ max_occupancy: number; max_adults: number }>;
+      const row = rows[0];
+      if (!row) continue;
+      minOccupancy = Math.min(minOccupancy, row.max_occupancy);
+      minAdults = Math.min(minAdults, row.max_adults);
+    }
+    if (maxOccupancy > minOccupancy || maxAdults > minAdults) {
+      throw new Error(VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS);
+    }
+  }
+
+  private readVirtualConstituentIdsSync(virtualRoomTypeId: string): string[] {
+    return (
+      this.ctx.storage.sql
+        .exec(
+          `SELECT physical_room_type_id FROM room_type_constituent WHERE virtual_room_type_id = ? ORDER BY physical_room_type_id`,
+          virtualRoomTypeId,
+        )
+        .toArray() as Array<{ physical_room_type_id: string }>
+    ).map((row) => row.physical_room_type_id);
+  }
+
   /**
    * Insert an active `room_type` row and seed the horizon (365 days from "today" in
    * the property's stored timezone) with `availability_day` rows at `physical = roomCount`.
@@ -4468,9 +4529,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       roomTypeId: string;
       code: string;
       name: string;
-      roomCount: number;
+      kind?: 'physical' | 'virtual';
+      roomCount?: number;
       maxOccupancy: number;
       maxAdults: number;
+      constituentRoomTypeIds?: string[];
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -4511,6 +4574,71 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .toArray();
           if (codeTaken.length > 0) throw new RoomTypeCodeExistsError();
 
+          const kind = input.kind ?? 'physical';
+          if (kind === 'virtual') {
+            if (input.roomCount !== undefined && input.roomCount !== 0) {
+              throw new Error(VIRTUAL_ROOM_COUNT_MUST_BE_ZERO);
+            }
+            const constituents = this.validateVirtualConstituentsSync(input.constituentRoomTypeIds);
+            this.assertVirtualOccupancyWithinConstituentsSync(
+              input.maxOccupancy,
+              input.maxAdults,
+              constituents,
+            );
+            const now = Date.now();
+            this.ctx.storage.sql.exec(
+              `INSERT INTO room_type (room_type_id, code, name, room_count, max_occupancy, max_adults, status, kind, created_at, updated_at)
+               VALUES (?, ?, ?, 0, ?, ?, 'active', 'virtual', ?, ?)`,
+              input.roomTypeId,
+              input.code,
+              input.name,
+              input.maxOccupancy,
+              input.maxAdults,
+              now,
+              now,
+            );
+            for (const physicalId of constituents) {
+              this.ctx.storage.sql.exec(
+                `INSERT INTO room_type_constituent (virtual_room_type_id, physical_room_type_id, created_at)
+                 VALUES (?, ?, ?)`,
+                input.roomTypeId,
+                physicalId,
+                now,
+              );
+            }
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'inventory.room_type_changed',
+              payload: { propertyId, roomTypeId: input.roomTypeId, op: 'add', at: now },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'inventory.add_room_type',
+              entityType: 'room_type',
+              entityId: input.roomTypeId,
+              beforeJson: null,
+              afterJson: {
+                roomTypeId: input.roomTypeId,
+                code: input.code,
+                name: input.name,
+                kind: 'virtual',
+                roomCount: 0,
+                maxOccupancy: input.maxOccupancy,
+                maxAdults: input.maxAdults,
+                constituentRoomTypeIds: constituents,
+                status: 'active',
+              },
+            });
+            return {
+              ok: true as const,
+              roomTypeId: input.roomTypeId,
+              ariVersion: this.readAriVersionSync(),
+              fromDate: '',
+              toDate: '',
+            };
+          }
+
+          const roomCount = input.roomCount!;
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO room_type (room_type_id, code, name, room_count, max_occupancy, max_adults, status, created_at, updated_at)
@@ -4518,7 +4646,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.roomTypeId,
             input.code,
             input.name,
-            input.roomCount,
+            roomCount,
             input.maxOccupancy,
             input.maxAdults,
             now,
@@ -4534,7 +4662,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                VALUES (?, ?, ?, 0, 0, 0, ?, 1)`,
               input.roomTypeId,
               stayDate,
-              input.roomCount,
+              roomCount,
               ledgerOversell,
             );
           }
@@ -4564,7 +4692,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomTypeId: input.roomTypeId,
               code: input.code,
               name: input.name,
-              roomCount: input.roomCount,
+              roomCount,
               maxOccupancy: input.maxOccupancy,
               maxAdults: input.maxAdults,
               status: 'active',
@@ -4585,7 +4713,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /**
    * Update an active `room_type`'s columns. Never inserts `availability_day` rows —
    * only updates existing rows from "today" forward when `roomCount` changes.
-   * Fingerprint allowlist: `{ roomTypeId, code?, name?, roomCount?, maxOccupancy?, maxAdults? }`.
+   * Fingerprint allowlist: `{ roomTypeId, code?, name?, roomCount?, maxOccupancy?, maxAdults?, constituentRoomTypeIds? }`.
    */
   async tryUpdateRoomType(
     actor: ActorContext,
@@ -4593,9 +4721,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       roomTypeId: string;
       code?: string;
       name?: string;
+      kind?: 'physical' | 'virtual';
       roomCount?: number;
       maxOccupancy?: number;
       maxAdults?: number;
+      constituentRoomTypeIds?: string[];
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -4634,7 +4764,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const existingRows = this.ctx.storage.sql
             .exec(
-              `SELECT code, name, room_count, max_occupancy, max_adults, status FROM room_type WHERE room_type_id = ?`,
+              `SELECT code, name, room_count, max_occupancy, max_adults, status, kind FROM room_type WHERE room_type_id = ?`,
               input.roomTypeId,
             )
             .toArray() as Array<{
@@ -4644,6 +4774,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             max_occupancy: number;
             max_adults: number;
             status: string;
+            kind: string;
           }>;
           const existing = existingRows[0];
           if (!existing || existing.status !== 'active') {
@@ -4652,9 +4783,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             throw new RoomTypeNotFoundError();
           }
 
+          const existingKind = existing.kind ?? 'physical';
+          if (input.kind !== undefined && input.kind !== existingKind) {
+            throw new Error(ROOM_TYPE_KIND_IMMUTABLE);
+          }
+          if (existingKind === 'physical' && input.constituentRoomTypeIds !== undefined) {
+            throw new Error(VIRTUAL_CONSTITUENTS_ON_PHYSICAL);
+          }
+          if (existingKind === 'virtual' && input.roomCount !== undefined && input.roomCount !== 0) {
+            throw new Error(VIRTUAL_ROOM_COUNT_MUST_BE_ZERO);
+          }
+
           const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
-          const nextRoomCount = input.roomCount ?? existing.room_count;
-          const roomCountChanged = input.roomCount !== undefined && input.roomCount !== existing.room_count;
+          const nextRoomCount =
+            existingKind === 'virtual' ? 0 : (input.roomCount ?? existing.room_count);
+          const roomCountChanged =
+            existingKind === 'physical' &&
+            input.roomCount !== undefined &&
+            input.roomCount !== existing.room_count;
 
           if (roomCountChanged && nextRoomCount < existing.room_count) {
             const unitCount = Number(
@@ -4719,17 +4865,49 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             }
           }
 
+          const nextMaxOccupancy = input.maxOccupancy ?? existing.max_occupancy;
+          const nextMaxAdults = input.maxAdults ?? existing.max_adults;
+
+          let constituentIds: string[] | undefined;
+          if (existingKind === 'virtual') {
+            constituentIds =
+              input.constituentRoomTypeIds !== undefined
+                ? this.validateVirtualConstituentsSync(input.constituentRoomTypeIds)
+                : this.readVirtualConstituentIdsSync(input.roomTypeId);
+            this.assertVirtualOccupancyWithinConstituentsSync(
+              nextMaxOccupancy,
+              nextMaxAdults,
+              constituentIds,
+            );
+          }
+
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `UPDATE room_type SET code = ?, name = ?, room_count = ?, max_occupancy = ?, max_adults = ?, updated_at = ? WHERE room_type_id = ?`,
             input.code ?? existing.code,
             input.name ?? existing.name,
             nextRoomCount,
-            input.maxOccupancy ?? existing.max_occupancy,
-            input.maxAdults ?? existing.max_adults,
+            nextMaxOccupancy,
+            nextMaxAdults,
             now,
             input.roomTypeId,
           );
+
+          if (existingKind === 'virtual' && input.constituentRoomTypeIds !== undefined) {
+            this.ctx.storage.sql.exec(
+              `DELETE FROM room_type_constituent WHERE virtual_room_type_id = ?`,
+              input.roomTypeId,
+            );
+            for (const physicalId of constituentIds!) {
+              this.ctx.storage.sql.exec(
+                `INSERT INTO room_type_constituent (virtual_room_type_id, physical_room_type_id, created_at)
+                 VALUES (?, ?, ?)`,
+                input.roomTypeId,
+                physicalId,
+                now,
+              );
+            }
+          }
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -4739,7 +4917,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           // Only writes touched availability_day rows bump the property ARI counter.
           const ariVersion = roomCountChanged ? this.bumpAriVersionSync() : this.readAriVersionSync();
-          if (fromDate && toDate) {
+          if (fromDate && toDate && existingKind === 'physical') {
             this.appendPropertyOutbox({
               eventId: crypto.randomUUID(),
               eventType: 'availability.changed',
@@ -4758,13 +4936,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomCount: existing.room_count,
               maxOccupancy: existing.max_occupancy,
               maxAdults: existing.max_adults,
+              ...(existingKind === 'virtual'
+                ? { kind: 'virtual', constituentRoomTypeIds: this.readVirtualConstituentIdsSync(input.roomTypeId) }
+                : {}),
             },
             afterJson: {
               code: input.code ?? existing.code,
               name: input.name ?? existing.name,
               roomCount: nextRoomCount,
-              maxOccupancy: input.maxOccupancy ?? existing.max_occupancy,
-              maxAdults: input.maxAdults ?? existing.max_adults,
+              maxOccupancy: nextMaxOccupancy,
+              maxAdults: nextMaxAdults,
+              ...(existingKind === 'virtual'
+                ? { kind: 'virtual', constituentRoomTypeIds: constituentIds ?? [] }
+                : {}),
             },
           });
 
@@ -4778,7 +4962,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { ok: false, error: ROOM_UNITS_EXCEED_COUNT };
       }
       if (e instanceof RoomTypeNotFoundError) return { ok: false, error: NOT_FOUND };
-      return { ok: false, error: 'internal_error' };
+      return { ok: false, error: e instanceof Error ? e.message : 'internal_error' };
     }
   }
 
@@ -4815,40 +4999,70 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const existingRows = this.ctx.storage.sql
-            .exec(`SELECT status FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
-            .toArray() as Array<{ status: string }>;
+            .exec(`SELECT status, kind FROM room_type WHERE room_type_id = ?`, input.roomTypeId)
+            .toArray() as Array<{ status: string; kind: string }>;
           if (!existingRows[0] || existingRows[0].status !== 'active') {
             // Thrown, not returned — see tryUpdateRoomType for why.
             throw new RoomTypeNotFoundError();
           }
 
+          const kind = existingRows[0].kind ?? 'physical';
           const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
-          const futureRows = this.ctx.storage.sql
-            .exec(
-              `SELECT stay_date, physical, blocked, held, sold, oversell FROM availability_day
-               WHERE room_type_id = ? AND stay_date >= ? ORDER BY stay_date`,
-              input.roomTypeId,
-              today,
-            )
-            .toArray() as Array<{
+          let futureRows: Array<{
             stay_date: string;
             physical: number;
             blocked: number;
             held: number;
             sold: number;
             oversell: number;
-          }>;
+          }> = [];
 
-          const inventoryRows: InventoryRow[] = futureRows.map((row) => ({
-            stayDate: row.stay_date,
-            physical: row.physical,
-            blocked: row.blocked,
-            held: row.held,
-            sold: row.sold,
-            oversell: row.oversell,
-          }));
-          if (archiveBlocked(inventoryRows)) {
-            throw new ArchiveBlockedError();
+          if (kind === 'virtual') {
+            const live = this.ctx.storage.sql
+              .exec(
+                `SELECT 1 FROM reservation WHERE room_type_id = ? AND status IN ('inquiry','pending','confirmed','checked_in') LIMIT 1`,
+                input.roomTypeId,
+              )
+              .toArray();
+            if (live.length > 0) throw new ArchiveBlockedError();
+          } else {
+            futureRows = this.ctx.storage.sql
+              .exec(
+                `SELECT stay_date, physical, blocked, held, sold, oversell FROM availability_day
+                 WHERE room_type_id = ? AND stay_date >= ? ORDER BY stay_date`,
+                input.roomTypeId,
+                today,
+              )
+              .toArray() as Array<{
+              stay_date: string;
+              physical: number;
+              blocked: number;
+              held: number;
+              sold: number;
+              oversell: number;
+            }>;
+
+            const inventoryRows: InventoryRow[] = futureRows.map((row) => ({
+              stayDate: row.stay_date,
+              physical: row.physical,
+              blocked: row.blocked,
+              held: row.held,
+              sold: row.sold,
+              oversell: row.oversell,
+            }));
+            if (archiveBlocked(inventoryRows)) {
+              throw new ArchiveBlockedError();
+            }
+
+            const constituent = this.ctx.storage.sql
+              .exec(
+                `SELECT 1 FROM room_type_constituent c
+                   JOIN room_type v ON v.room_type_id = c.virtual_room_type_id
+                  WHERE c.physical_room_type_id = ? AND v.status = 'active' LIMIT 1`,
+                input.roomTypeId,
+              )
+              .toArray();
+            if (constituent.length > 0) throw new Error(CONSTITUENT_IN_USE);
           }
 
           const now = Date.now();
@@ -4869,7 +5083,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           // always emits inventory.room_type_changed above, but there is no availability
           // range to report and no ARI-relevant write happened.
           let ariVersion = this.readAriVersionSync();
-          if (futureRows.length > 0) {
+          if (kind === 'physical' && futureRows.length > 0) {
             this.ctx.storage.sql.exec(
               `UPDATE availability_day SET physical = 0, version = version + 1 WHERE room_type_id = ? AND stay_date >= ?`,
               input.roomTypeId,
@@ -4946,14 +5160,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const typeRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_count, status FROM room_type WHERE room_type_id = ?`,
+              `SELECT room_count, status, kind FROM room_type WHERE room_type_id = ?`,
               input.roomTypeId,
             )
-            .toArray() as Array<{ room_count: number; status: string }>;
+            .toArray() as Array<{ room_count: number; status: string; kind: string }>;
           const roomType = typeRows[0];
           if (!roomType || roomType.status !== 'active') {
             throw new RoomTypeNotFoundError();
           }
+          if (roomType.kind === 'virtual') throw new Error(VIRTUAL_TYPE_NO_ROOMS);
 
           const codeTaken = this.ctx.storage.sql
             .exec(`SELECT room_id FROM room WHERE code = ?`, input.code)

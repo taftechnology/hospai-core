@@ -48,6 +48,7 @@ import {
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   UNBOOKABLE,
+  VIRTUAL_TYPE_NO_ROOMS,
   CURRENCY_UNSET,
   CROSS_CURRENCY_UNSUPPORTED,
   FX_RATE_INVALID,
@@ -311,6 +312,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === OOO_RANGE_OVERLAP ||
     error === OOO_INVALID_RANGE ||
     error === OCCUPANCY_EXCEEDED ||
+    error === VIRTUAL_TYPE_NO_ROOMS ||
     error === FRONT_OFFICE_COMMENT_TOO_LONG ||
     error === RATE_PLAN_CODE_EXISTS ||
     error === RATE_PLAN_ID_EXISTS ||
@@ -776,12 +778,29 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     roomTypeId: string;
     code: string;
     name: string;
-    roomCount: number;
+    kind?: 'physical' | 'virtual';
+    roomCount?: number;
     maxOccupancy: number;
     maxAdults: number;
+    constituentRoomTypeIds?: string[];
     idempotencyKey: string;
   };
-  if (
+  const kind = body.kind ?? 'physical';
+
+  if (kind === 'virtual') {
+    if (
+      !body.roomTypeId ||
+      !body.code ||
+      !body.name ||
+      typeof body.maxOccupancy !== 'number' ||
+      typeof body.maxAdults !== 'number' ||
+      !body.idempotencyKey ||
+      !body.constituentRoomTypeIds ||
+      body.constituentRoomTypeIds.length === 0
+    ) {
+      return json({ error: 'invalid_body' }, 400);
+    }
+  } else if (
     !body.roomTypeId ||
     !body.code ||
     !body.name ||
@@ -796,23 +815,48 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({
-    roomTypeId: body.roomTypeId,
-    code: body.code,
-    name: body.name,
-    roomCount: body.roomCount,
-    maxOccupancy: body.maxOccupancy,
-    maxAdults: body.maxAdults,
-  });
+  const fpInput =
+    kind === 'virtual'
+      ? {
+          roomTypeId: body.roomTypeId,
+          code: body.code,
+          name: body.name,
+          kind: 'virtual' as const,
+          roomCount: 0,
+          maxOccupancy: body.maxOccupancy,
+          maxAdults: body.maxAdults,
+          constituentRoomTypeIds: [...body.constituentRoomTypeIds!].sort((a, b) => a.localeCompare(b)),
+        }
+      : {
+          roomTypeId: body.roomTypeId,
+          code: body.code,
+          name: body.name,
+          roomCount: body.roomCount!,
+          maxOccupancy: body.maxOccupancy,
+          maxAdults: body.maxAdults,
+        };
+  const fingerprint = await fingerprintPayload(fpInput);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const commandPayload = {
-    roomTypeId: body.roomTypeId,
-    code: body.code,
-    name: body.name,
-    roomCount: body.roomCount,
-    maxOccupancy: body.maxOccupancy,
-    maxAdults: body.maxAdults,
-  };
+  const commandPayload =
+    kind === 'virtual'
+      ? {
+          roomTypeId: body.roomTypeId,
+          code: body.code,
+          name: body.name,
+          kind: 'virtual' as const,
+          roomCount: 0,
+          maxOccupancy: body.maxOccupancy,
+          maxAdults: body.maxAdults,
+          constituentRoomTypeIds: body.constituentRoomTypeIds,
+        }
+      : {
+          roomTypeId: body.roomTypeId,
+          code: body.code,
+          name: body.name,
+          roomCount: body.roomCount!,
+          maxOccupancy: body.maxOccupancy,
+          maxAdults: body.maxAdults,
+        };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddRoomType']>>>({
     env: ctx.env,
@@ -857,6 +901,7 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     roomCount?: number;
     maxOccupancy?: number;
     maxAdults?: number;
+    constituentRoomTypeIds?: string[];
     idempotencyKey: string;
   };
   if (!body || !body.idempotencyKey) {
@@ -872,6 +917,9 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   if (body.roomCount !== undefined) payload.roomCount = body.roomCount;
   if (body.maxOccupancy !== undefined) payload.maxOccupancy = body.maxOccupancy;
   if (body.maxAdults !== undefined) payload.maxAdults = body.maxAdults;
+  if (body.constituentRoomTypeIds !== undefined) {
+    payload.constituentRoomTypeIds = [...body.constituentRoomTypeIds].sort((a, b) => a.localeCompare(b));
+  }
 
   const fingerprint = await fingerprintPayload(payload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -882,6 +930,7 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     roomCount: body.roomCount,
     maxOccupancy: body.maxOccupancy,
     maxAdults: body.maxAdults,
+    constituentRoomTypeIds: body.constituentRoomTypeIds,
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomType']>>>({

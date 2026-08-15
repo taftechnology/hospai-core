@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ARCHIVE_BLOCKED,
+  CONSTITUENT_IN_USE,
   fingerprintPayload,
   IDEM_KEY_REUSED,
   NOT_FOUND,
@@ -70,6 +71,16 @@ import {
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
   OOO_INVALID_RANGE,
+  ROOM_TYPE_KIND_IMMUTABLE,
+  VIRTUAL_CONSTITUENT_NOT_PHYSICAL,
+  VIRTUAL_CONSTITUENTS_DUPLICATE,
+  VIRTUAL_CONSTITUENTS_MIN_TWO,
+  VIRTUAL_CONSTITUENTS_ON_PHYSICAL,
+  VIRTUAL_CONSTITUENTS_REQUIRED,
+  VIRTUAL_NESTED_FORBIDDEN,
+  VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS,
+  VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
+  VIRTUAL_TYPE_NO_ROOMS,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -96,6 +107,17 @@ describe('fingerprintPayload', () => {
     expect(ROOM_TYPE_CODE_EXISTS).toBe('room_type_code_exists');
     expect(OVERSELL).toBe('oversell');
     expect(ARCHIVE_BLOCKED).toBe('archive_blocked');
+    expect(VIRTUAL_CONSTITUENTS_REQUIRED).toBe('virtual_constituents_required');
+    expect(VIRTUAL_CONSTITUENTS_MIN_TWO).toBe('virtual_constituents_min_two');
+    expect(VIRTUAL_CONSTITUENTS_DUPLICATE).toBe('virtual_constituents_duplicate');
+    expect(VIRTUAL_CONSTITUENT_NOT_PHYSICAL).toBe('virtual_constituent_not_physical');
+    expect(VIRTUAL_ROOM_COUNT_MUST_BE_ZERO).toBe('virtual_room_count_must_be_zero');
+    expect(VIRTUAL_NESTED_FORBIDDEN).toBe('virtual_nested_forbidden');
+    expect(VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS).toBe('virtual_occupancy_exceeds_constituents');
+    expect(ROOM_TYPE_KIND_IMMUTABLE).toBe('room_type_kind_immutable');
+    expect(VIRTUAL_CONSTITUENTS_ON_PHYSICAL).toBe('virtual_constituents_on_physical');
+    expect(CONSTITUENT_IN_USE).toBe('constituent_in_use');
+    expect(VIRTUAL_TYPE_NO_ROOMS).toBe('virtual_type_no_rooms');
     expect(NOT_FOUND).toBe('not_found');
     expect(PROPERTY_ID_UNSET).toBe('property_id_unset');
     expect(NO_AVAILABILITY).toBe('no_availability');

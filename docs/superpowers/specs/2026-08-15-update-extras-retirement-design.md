@@ -284,12 +284,12 @@ TDD order: failing contracts test pins first (catalog 89, prototype 34), then de
 
 ## 9. Implementation checklist
 
-- [ ] Delete `reservations.update_extras` from `COMMAND_CATALOG`; remove `'UPDATE_RESERVATION_EXTRAS'` from `PROTOTYPE_ACTIONS`
-- [ ] `register.test.ts`: `COMMAND_CATALOG` **89**, `PROTOTYPE_ACTIONS` **34**, writers **63** unchanged
-- [ ] `exception-workbench.spec.ts` test 13: `noop.unknown_command`
-- [ ] `pnpm --filter @hospai/contracts test`; `pnpm check:permissions`; `pnpm check:degraded`; `pnpm check:entitlements`
-- [ ] Grep clean in `apps/`, `packages/`, `scripts/`
-- [ ] Lock 5 pointer sentences + progress item **13** DONE line (final task)
+- [x] Delete `reservations.update_extras` from `COMMAND_CATALOG`; remove `'UPDATE_RESERVATION_EXTRAS'` from `PROTOTYPE_ACTIONS`
+- [x] `register.test.ts`: `COMMAND_CATALOG` **89**, `PROTOTYPE_ACTIONS` **34**, writers **63** unchanged
+- [x] `exception-workbench.spec.ts` test 13: `noop.unknown_command`
+- [x] `pnpm --filter @hospai/contracts test`; `pnpm check:permissions`; `pnpm check:degraded`; `pnpm check:entitlements`
+- [x] Grep clean in `apps/`, `packages/`, `scripts/`
+- [x] Lock 5 pointer sentences + progress item **13** DONE line (final task)
 
 ---
 

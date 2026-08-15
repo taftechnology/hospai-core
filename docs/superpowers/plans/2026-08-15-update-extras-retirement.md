@@ -260,7 +260,7 @@ Optional — `docs/superpowers/specs/2026-08-13-exception-queue-workbench-design
 
 > ~~16. `REPLAY_DISPATCH` + `reservations.update_extras` …~~ **Moot** — id removed in [update extras retirement](./2026-08-15-update-extras-retirement-design.md).
 
-- [ ] **Step 1: Pin frozen heads**
+- [x] **Step 1: Pin frozen heads**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "covers all|night-audit HTTP routes|PLATFORM_GAPS"
@@ -269,7 +269,7 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **89**; prototype **34**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 33`; `PLATFORM_GAPS === []`.
 
-- [ ] **Step 2: Targeted test superset**
+- [x] **Step 2: Targeted test superset**
 
 ```bash
 pnpm build
@@ -283,7 +283,7 @@ rg 'reservations\.update_extras|UPDATE_RESERVATION_EXTRAS' apps/ packages/ scrip
 
 Expected: **PASS**; grep **zero** hits in code paths.
 
-- [ ] **Step 3: Full CI sequence**
+- [x] **Step 3: Full CI sequence**
 
 ```bash
 pnpm build
@@ -314,15 +314,15 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 If any shard fails with workerd 503, retry that shard once. Do not `|| true`.
 
-- [ ] **Step 4: Apply doc pointers + tick retirement spec §9 checklist**
+- [x] **Step 4: Apply doc pointers + tick retirement spec §9 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-update-extras-retirement-design.md` §9.
 
-- [ ] **Step 5: Tick Task 2 checkboxes in this plan only**
+- [x] **Step 5: Tick Task 2 checkboxes in this plan only**
 
 Do **not** tick Task 1 checkboxes retroactively unless already done during implementation.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-11-booking-wizard-design.md \

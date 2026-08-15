@@ -852,7 +852,7 @@ Names are the acceptance list, not a file-split mandate. Fixture dates from prop
 4. **Folio window close on check-out** — money-ops; window stays `OPEN` by default. Specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §4 (explicit close; optional auto-close config).
 5. **Deposits / capture on `folio.balance_due`** — payments worker. Capture seam specified in [folio money operations](./2026-08-12-folio-money-operations-design.md) §6.4 (`folio.capture_due` + live check-out `autoCapture`).
 6. ~~**Priced wizard / plan picker** — schema is ready; UI is not this chunk’s job beyond Hold/Quote.~~ **Closed** in [2026-08-15 booking plan picker](./2026-08-15-booking-plan-picker-design.md).
-7. **`reservations.update_extras`** — still a retirement candidate (booking-wizard leftover 7).
+7. **`reservations.update_extras`** — **Closed** in [update extras retirement](./2026-08-15-update-extras-retirement-design.md).
 8. **Quotes inbox** — inquiry is not on arrivals; a dedicated list is unbuilt.
 9. **Implicit confirm-and-check-in** — deliberately two commands.
 10. **Re-apply a failed provisional check-in** after the operator assigns a different room — resolve remains acknowledge-only (night-audit leftover 9).

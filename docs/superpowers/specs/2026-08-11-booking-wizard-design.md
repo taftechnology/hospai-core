@@ -138,7 +138,7 @@ Not new to the SPA. Same query retry as Board/ShiftStrip (`read_stale` ×2, `ret
 Defer both; name the asymmetry:
 
 - `reservations.update_status` — **retargeted 2026-08-12** ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)): stay front-office comment + VIP flag (`reservation.front_office_updated`), not the status machine.
-- `reservations.update_extras` — sole carrier of `UPDATE_RESERVATION_EXTRAS` in `PROTOTYPE_ACTIONS` coverage. Retirement needs a third category (“not carried forward”), not a two-line delete. Flagged as retirement candidate for a VIP/extras vertical.
+- `reservations.update_extras` — **Closed** in [update extras retirement](./2026-08-15-update-extras-retirement-design.md): catalog row and `UPDATE_RESERVATION_EXTRAS` removed; desk extras use `folio.add_item` / charge codes.
 
 No SPA affordance for either.
 
@@ -290,7 +290,7 @@ Nav/route gate only `reservations:write`. Missing inventory/guests write → cla
 | 4 | **Fingerprint field-set coupling** | Booking opId mirrors server fingerprint fields that exist only as an inline literal in `handlePostReservations`. Shared contracts export would want applying across ~10 fingerprinted routes — not this slice. |
 | 5 | **SPA date-helper gate counterpart** | Booking is a second site of property-local calendar arithmetic under `apps/web-pms`. `check:pms-core-test-dates` covers pms-core tests only. Future SPA gate possible; out of this slice. |
 | 6 | **Room-type directory (cosmetic)** | **Closed 2026-08-13** by [property setup SPA](./2026-08-13-property-setup-spa-design.md) (`GET /room-types` labels `{name} ({code)}`; FAIL_CLOSED falls back to id). |
-| 7 | **`update_status` / `update_extras`** | **`update_status` retargeted 2026-08-12** to front-office comment + VIP ([reservation lifecycle](./2026-08-12-reservations-lifecycle-completion-design.md)). `update_extras` still deferred (§2.8). |
+| 7 | **`update_status` / `update_extras`** | **`update_extras` closed in [update extras retirement](./2026-08-15-update-extras-retirement-design.md); `update_status` retargeted 2026-08-12.** |
 | 8 | **Proactive entitlement chrome** | Unchanged `/me` leftover; wizard inherits 402-reactive store only. |
 | 9 | **Multi-line gate residual** | In `pms-core-test-dates-check.mjs`. Task 0 touches `degraded-check.mjs` only → **explicitly out**; leave until that script is next touched. |
 | 10 | **Check-in “Book for guest”** | Spec once listed Check-in beside Board/Folio; plan scoped the link to rows that already expose `guestRef`. `CheckInScreen` only reads `reservationId` from the URL and never loads the reservation, so adding the link means adding a read. Deferred — optional when that screen grows a reservation fetch. |

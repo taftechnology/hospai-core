@@ -512,7 +512,7 @@ No `ARCHITECTURE.md` rewrite beyond dropping the exception-queue UX clause from 
 | 13 | PCI / real PSP | Simulate stays |
 | 14 | Reclass `get_front_desk_*` / exception GETs to `READ_STALE` | No KV projection |
 | 15 | `entitlement.changed` WebSocket | Org-scoped |
-| 16 | `REPLAY_DISPATCH` + `reservations.update_extras` (and any future `QUEUE_PROVISIONAL` not already dispatched) | Unknown-command path stays; workbench Resolves those |
+| ~~16~~ | ~~`REPLAY_DISPATCH` + `reservations.update_extras` (and any future `QUEUE_PROVISIONAL` not already dispatched)~~ **Moot** — id removed in [update extras retirement](./2026-08-15-update-extras-retirement-design.md). | ~~Unknown-command path stays; workbench Resolves those~~ |
 | 17 | `entityId` filter on `get_audit_log` | Detail GET is the exception trail; folio audit stays `folio:read` |
 | 18 | Client-side IndexedDB pending-command durability copy | `QueuedCommandsPanel` unchanged |
 | 19 | Year-end `ARCHIVE` prune of `audit_log` | Night-audit leftover 1 |

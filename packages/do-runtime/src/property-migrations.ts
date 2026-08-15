@@ -1001,6 +1001,22 @@ export const VIRTUAL_ROOM_TYPES_V27_STATEMENTS = [
 export const VIRTUAL_ROOM_TYPES_V27_SQL =
   VIRTUAL_ROOM_TYPES_V27_STATEMENTS.join(';\n\n') + ';\n';
 
+export const FOLIO_ROUTING_RULE_V28_STATEMENTS = [
+  `CREATE TABLE folio_routing_rule (
+  rule_id           TEXT PRIMARY KEY,
+  charge_code       TEXT NOT NULL REFERENCES charge_code(code),
+  dest_window_kind  TEXT NOT NULL CHECK (dest_window_kind IN ('COMPANY', 'MASTER')),
+  status            TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+  created_at        INTEGER NOT NULL
+)`,
+  `CREATE UNIQUE INDEX folio_routing_rule_active_code_uniq
+  ON folio_routing_rule (charge_code)
+  WHERE status = 'active'`,
+] as const;
+
+export const FOLIO_ROUTING_RULE_V28_SQL =
+  FOLIO_ROUTING_RULE_V28_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1136,5 +1152,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 27,
     name: 'virtual_room_types',
     statements: VIRTUAL_ROOM_TYPES_V27_STATEMENTS,
+  },
+  {
+    version: 28,
+    name: 'folio_routing_rule',
+    statements: FOLIO_ROUTING_RULE_V28_STATEMENTS,
   },
 ] as const;

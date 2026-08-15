@@ -615,7 +615,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(27);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(28);
     expect(ORG_SCHEMA_HEAD).toBe(7);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -797,5 +797,13 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(VIRTUAL_ROOM_TYPES_V27_SQL.trim());
+  });
+
+  it('property schema head is 28 after folio_routing_rule', () => {
+    const v28 = PROPERTY_MIGRATIONS.find((m) => m.version === 28);
+    expect(v28?.name).toBe('folio_routing_rule');
+    expect(v28?.statements.some((s) => s.includes('CREATE TABLE folio_routing_rule'))).toBe(true);
+    expect(v28?.statements.some((s) => s.includes('folio_routing_rule_active_code_uniq'))).toBe(true);
+    expect(v28?.statements.some((s) => s.includes("dest_window_kind  TEXT NOT NULL CHECK (dest_window_kind IN ('COMPANY', 'MASTER'))"))).toBe(true);
   });
 });

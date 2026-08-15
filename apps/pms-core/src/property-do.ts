@@ -1190,6 +1190,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'audit_log',
   'availability_day',
   'charge_code',
+  'folio_routing_rule',
   'folio_line',
   'folio_window',
   'fx_rate',
@@ -1226,6 +1227,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM audit_log) +
       (SELECT COUNT(*) FROM availability_day) +
       (SELECT COUNT(*) FROM charge_code) +
+      (SELECT COUNT(*) FROM folio_routing_rule) +
       (SELECT COUNT(*) FROM folio_line) +
       (SELECT COUNT(*) FROM folio_window) +
       (SELECT COUNT(*) FROM fx_rate) +

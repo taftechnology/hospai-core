@@ -73,6 +73,7 @@ if (process.argv.includes('--self-test')) {
   let EXCEPTION_QUEUE_WORKBENCH_V25_SQL;
   let CARD_DISPLAY_TOKEN_V26_SQL;
   let VIRTUAL_ROOM_TYPES_V27_SQL;
+  let FOLIO_ROUTING_RULE_V28_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -114,6 +115,7 @@ if (process.argv.includes('--self-test')) {
       EXCEPTION_QUEUE_WORKBENCH_V25_SQL,
       CARD_DISPLAY_TOKEN_V26_SQL,
       VIRTUAL_ROOM_TYPES_V27_SQL,
+      FOLIO_ROUTING_RULE_V28_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -397,6 +399,16 @@ const doPropertyTargets = [
 
 `,
     sql: VIRTUAL_ROOM_TYPES_V27_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0028_folio_routing_rule.sql'),
+    header: `-- PropertyDO folio routing rules — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- ORDER: CREATE folio_routing_rule → partial unique index on active charge_code.
+
+`,
+    sql: FOLIO_ROUTING_RULE_V28_SQL,
   },
 ];
 

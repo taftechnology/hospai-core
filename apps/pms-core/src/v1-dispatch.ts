@@ -1945,17 +1945,13 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPutDomainConfig']>>>({
-    env: ctx.env,
-    commandId: 'config.put_domain',
-    routeId: 'put_domain_config',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'config.put_domain',
+      routeId: 'put_domain_config',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryPutDomainConfig(actor, key, value, meta, {
         key: idempotencyKey,
@@ -6769,17 +6765,13 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryStartNightAudit']>>>({
-    env: ctx.env,
-    commandId: 'night_audit.run',
-    routeId: 'post_night_audit_run',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { propertyId, businessDate },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'night_audit.run',
+      routeId: 'post_night_audit_run',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { propertyId, businessDate },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryStartNightAudit(actor, {
         key: body.idempotencyKey!,
@@ -6850,17 +6842,13 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
   const census = { pendingOpenCount: await countPendingOpen(ctx.env.PLATFORM_DB, propertyId) };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRetryAuditStep']>>>({
-    env: ctx.env,
-    commandId: 'night_audit.retry_step',
-    routeId: 'post_night_audit_retry',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { propertyId, businessDate: body.businessDate, step },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'night_audit.retry_step',
+      routeId: 'post_night_audit_retry',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { propertyId, businessDate: body.businessDate, step },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryRetryAuditStep(
         actor,
@@ -6899,17 +6887,13 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   const census = { pendingOpenCount: await countPendingOpen(ctx.env.PLATFORM_DB, propertyId) };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryResolveHalt']>>>({
-    env: ctx.env,
-    commandId: 'night_audit.resolve_halt',
-    routeId: 'post_night_audit_resolve_halt',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { propertyId, businessDate: body.businessDate },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'night_audit.resolve_halt',
+      routeId: 'post_night_audit_resolve_halt',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { propertyId, businessDate: body.businessDate },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryResolveHalt(
         actor,
@@ -6946,17 +6930,13 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   const invoked = await invokePropertyDo<
     Awaited<ReturnType<PropertyDO['tryResolveProvisionalException']>>
   >({
-    env: ctx.env,
-    commandId: 'provisional.resolve_exception',
-    routeId: 'post_provisional_exception_resolve',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { propertyId, exceptionId },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'provisional.resolve_exception',
+      routeId: 'post_provisional_exception_resolve',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { propertyId, exceptionId },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryResolveProvisionalException(
         actor,
@@ -7030,17 +7010,13 @@ async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Prom
   const invoked = await invokePropertyDo<
     Awaited<ReturnType<PropertyDO['tryRetryProvisionalException']>>
   >({
-    env: ctx.env,
-    commandId: 'provisional.retry_exception',
-    routeId: 'post_provisional_exception_retry',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { exceptionId },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'provisional.retry_exception',
+      routeId: 'post_provisional_exception_retry',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { exceptionId },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryRetryProvisionalException(
         actor,
@@ -7079,17 +7055,13 @@ async function handlePostProvisionalExceptionAssign(ctx: V1DispatchContext): Pro
   const invoked = await invokePropertyDo<
     Awaited<ReturnType<PropertyDO['tryAssignProvisionalException']>>
   >({
-    env: ctx.env,
-    commandId: 'provisional.assign_exception',
-    routeId: 'post_provisional_exception_assign',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { exceptionId, assignedTo: body.assignedTo },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'provisional.assign_exception',
+      routeId: 'post_provisional_exception_assign',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { exceptionId, assignedTo: body.assignedTo },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryAssignProvisionalException(
         actor,
@@ -7123,17 +7095,13 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddExceptionNote']>>>({
-    env: ctx.env,
-    commandId: 'provisional.add_exception_note',
-    routeId: 'post_provisional_exception_note',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload: { exceptionId, noteId: body.noteId },
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'provisional.add_exception_note',
+      routeId: 'post_provisional_exception_note',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload: { exceptionId, noteId: body.noteId },
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryAddExceptionNote(
         actor,

@@ -28,7 +28,8 @@
     "check:pms-core-test-dates": "node scripts/pms-core-test-dates-check.mjs",
     "check:module-manifests": "pnpm --filter @hospai/kernel build && node scripts/module-manifests-check.mjs",
     "check:purge": "pnpm --filter @hospai/contracts build && node scripts/purge-check.mjs",
-    "demo:seed": "node scripts/demo-seed.mjs"
+    "demo:seed": "node scripts/demo-seed.mjs",
+    "smoke:staging": "node scripts/smoke-staging.mjs"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.0.9",

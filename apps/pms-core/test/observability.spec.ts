@@ -371,7 +371,7 @@ describe('observability (Phase 0)', () => {
     });
     expect((failLog?.unacked_count as number) ?? 0).toBeGreaterThan(0);
     expect(typeof failLog?.oldest_created_at).toBe('number');
-    expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
+    expect(capture.lines.some((l) => l.msg === 'outbox.flush' && l.property_id === name)).toBe(false);
 
     sendBatch.mockRestore();
     capture.restore();

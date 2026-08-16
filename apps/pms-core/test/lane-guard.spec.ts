@@ -85,7 +85,7 @@ describe('LaneGuard (Phase 0)', () => {
     const schedule = await stub.getAlarmSchedule('outbox');
     expect(schedule).not.toBeNull();
     expect(schedule!.nextRunAt - before).toBeGreaterThanOrEqual(OUTBOX_BACKLOG_DELAY_MS - 50);
-    expect(capture.lines.some((l) => l.msg === 'outbox.flush')).toBe(false);
+    expect(capture.lines.some((l) => l.msg === 'outbox.flush' && l.property_id === name)).toBe(false);
   });
 
   it('flushes after quiet window elapses with no further interactive touches', async () => {

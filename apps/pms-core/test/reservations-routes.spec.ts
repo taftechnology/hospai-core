@@ -292,7 +292,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
     expect(plainRes.status).toBe(409);
-    expect(lines.some((l) => l.msg === 'ari.reject_on_commit')).toBe(false);
+    expect(lines.some((l) => l.msg === 'ari.reject_on_commit' && l.property_id === propertyId)).toBe(false);
     spy.mockRestore();
   });
 

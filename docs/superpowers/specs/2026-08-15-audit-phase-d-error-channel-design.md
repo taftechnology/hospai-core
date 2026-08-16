@@ -402,7 +402,7 @@ pnpm test:local
 
 - [x] `CommandError` union closed; **36** new constants landed (+ `NIGHT_AUDIT_HALTED` relocated); count **158** in `idempotency.ts`
 - [x] Zero `\| { ok: false; error: string }` on PropertyDO / OrgDO / OrgEntitlementDO RPC signatures
-- [x] Zero bare `'org_id_unset'` / `'not_member'` / `'scope_mismatch'` literals in DO + dispatch mapper paths
+- [x] All DO RPC **error-return sites** use constants; remaining `'org_id_unset'` / `'not_member'` / `'scope_mismatch'` occurrences are confined to **closed type-union annotations** (e.g. `typeof FORBIDDEN \| 'not_member'`) and internal helper bodies — no `string` catch-all, no uncovered literal return. (The OrgDO `MembershipError` union is already closed and includes `role_escalation`, which has no constant by design.)
 - [x] `CONFIG_CLASS_NOT_DOMAIN` replaces English sentence; mapper uses constant equality
 - [x] `` `undeclared:${string}` `` typed via `configUndeclared()`; wire unchanged
 - [x] **9** `not_member` → **500** sites changed to **404**; comment documents decision

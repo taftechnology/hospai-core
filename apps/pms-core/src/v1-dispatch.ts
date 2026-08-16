@@ -9225,6 +9225,10 @@ export async function dispatchV1(
   route: V1RouteDef,
   match: RegExpMatchArray,
 ): Promise<Response> {
+  const feature = entitlementForRoute(route);
+  const killSwitchPromise =
+    feature != null ? checkKillSwitch(env, feature) : Promise.resolve(false);
+
   const actor = await resolveActor(request, env);
   if (actor instanceof Response) return actor;
   observability.userId = actor.userId;
@@ -9240,8 +9244,7 @@ export async function dispatchV1(
     return route.handler({ request, env, observability, actor, url: new URL(request.url), match });
   }
 
-  const feature = entitlementForRoute(route);
-  if (feature && (await checkKillSwitch(env, feature))) {
+  if (feature && (await killSwitchPromise)) {
     return new Response(null, { status: 503 });
   }
 
@@ -9250,18 +9253,24 @@ export async function dispatchV1(
   observability.orgId = tenant.orgId;
   if (tenant.propertyId) observability.propertyId = tenant.propertyId;
 
-  const denied = await requirePermission(
+  const permissionPromise = requirePermission(
     env,
     tenant.orgId,
     tenant.propertyId,
     actor.userId,
     route.permission,
   );
-  if (denied) return denied;
 
   if (feature) {
-    const gated = await gateEntitlement(env, tenant.orgId, feature);
+    const [denied, gated] = await Promise.all([
+      permissionPromise,
+      gateEntitlement(env, tenant.orgId, feature),
+    ]);
+    if (denied) return denied;
     if (gated) return gated;
+  } else {
+    const denied = await permissionPromise;
+    if (denied) return denied;
   }
 
   return route.handler({

@@ -558,6 +558,45 @@ describe('FolioScreen wiring', () => {
     confirm.mockRestore();
   });
 
+  it('negative balance skips confirm and checks out without overrideBalance', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: -5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+
+    const confirm = vi.spyOn(window, 'confirm');
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
+    screen.getByTestId('check-out').click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+    expect(confirm).not.toHaveBeenCalled();
+    expect(checkOut.mock.calls[0]![3]).toBeUndefined();
+    confirm.mockRestore();
+  });
+
+  it('shows credit notice without override wording when balance is negative', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: -5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-credit-notice')).toBeTruthy());
+    const notice = screen.getByTestId('folio-credit-notice').textContent ?? '';
+    expect(notice).toMatch(/Guest credit 50\.00/);
+    expect(notice).not.toMatch(/override/i);
+    expect(notice).not.toMatch(/open balance/i);
+  });
+
   it('52: closed chip; close disabled on non-zero window balance', async () => {
     getMe.mockResolvedValue(ownerMe);
     getFolio.mockResolvedValue({
@@ -1298,8 +1337,8 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/COMPANY/);
     expect(screen.getByTestId('folio-message').textContent).toMatch(/Open company folio failed/i);
 
-    expect(advanced().textContent).toMatch(/Queued action · 2026-08-14/);
-    expect(advanced().textContent).toMatch(/Queued action · 2026-08-13/);
+    expect(advanced().textContent).toMatch(/Folio charge · 2026-08-14/);
+    expect(advanced().textContent).toMatch(/Folio charge · 2026-08-13/);
     expect(advanced().textContent).not.toMatch(/res_other/);
     expect(advanced().textContent).not.toMatch(/untagged/);
   });

@@ -24,6 +24,7 @@
     "check:web-pms-colors": "node scripts/web-pms-colors-check.mjs",
     "check:class-resolution": "node scripts/class-resolution-check.mjs",
     "check:ui-kit-adoption": "node scripts/ui-kit-adoption-check.mjs",
+    "check:spa-page-chrome": "node scripts/spa-page-chrome-check.mjs",
     "check:web-pms-me-gating": "node scripts/web-pms-me-gating-check.mjs",
     "check:pms-core-test-dates": "node scripts/pms-core-test-dates-check.mjs",
     "check:module-manifests": "pnpm --filter @hospai/kernel build && node scripts/module-manifests-check.mjs",

@@ -2138,6 +2138,8 @@ Visual divergence from the prototype is no longer expected: controls, tables, an
 
 Enforcement: `hospai/no-raw-controls-in-web-pms` (error), `check:ui-kit-adoption` ratchet (floor 0), dev-only `/dev/ui` gallery outside `AppShell`. Storybook deferred.
 
+> **Page shell (2026-08-16).** Every operational SPA screen renders `PageHeader` (page `<h1>`) and at least one `Card` from `@hospai/ui-kit`; section titles use `CardTitle` (`<h2>`). Merge-blocking gate: `pnpm check:spa-page-chrome`. Does not reopen palette, Tailwind, or ui-kit package decisions.
+
 Spec: `docs/superpowers/specs/2026-08-13-ui-system-convergence-design.md`.
 
 ### 16.5 Prototype coverage audit (2026-08-12)

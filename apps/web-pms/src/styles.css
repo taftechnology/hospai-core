@@ -310,6 +310,7 @@ a {
   overflow: auto;
   touch-action: manipulation;
   overscroll-behavior: contain;
+  max-block-size: min(70vh, calc(100dvh - 18rem));
 }
 
 .tape-row {
@@ -356,6 +357,16 @@ a {
   grid-column: var(--tape-col);
   grid-row: 1;
   border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
+/* Header corner cell (empty .tape-room in date row) sticks on vertical scroll too */
+.tape-row:first-child .tape-room {
+  top: 0;
+  z-index: 3;
 }
 
 .tape-type {

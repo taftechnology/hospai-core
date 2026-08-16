@@ -119,6 +119,30 @@ describe('ui-kit behaviour', () => {
     expect(document.querySelector('.ui-table-scroll')).toBeTruthy();
   });
 
+  it('CardTitle renders heading level 2', () => {
+    render(
+      <Card>
+        <CardHeader>
+          <CardTitle>Section</CardTitle>
+        </CardHeader>
+      </Card>,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Section' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+  });
+
+  it('CardContent flush applies ui-card__content--flush', () => {
+    render(
+      <Card>
+        <CardContent flush>
+          <p>Flush body</p>
+        </CardContent>
+      </Card>,
+    );
+    const content = screen.getByText('Flush body').parentElement;
+    expect(content?.className).toMatch(/ui-card__content--flush/);
+  });
+
   it('Badge with rung exception emits status-exception', () => {
     render(<Badge rung="exception">Late</Badge>);
     expect(screen.getByText('Late').className).toMatch(/status-exception/);

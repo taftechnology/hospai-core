@@ -28,15 +28,20 @@ export type CardTitleProps = {
 };
 
 export function CardTitle({ children }: CardTitleProps) {
-  return <h1 className="ui-card__title">{children}</h1>;
+  return <h2 className="ui-card__title">{children}</h2>;
 }
 
 export type CardContentProps = {
   children?: ReactNode;
+  flush?: boolean;
 };
 
-export function CardContent({ children }: CardContentProps) {
-  return <div className="ui-card__content">{children}</div>;
+export function CardContent({ children, flush }: CardContentProps) {
+  return (
+    <div className={clsx('ui-card__content', flush && 'ui-card__content--flush')}>
+      {children}
+    </div>
+  );
 }
 
 export type CardFooterProps = {

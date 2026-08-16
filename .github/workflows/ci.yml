@@ -39,6 +39,7 @@ jobs:
       - run: node scripts/web-pms-colors-check.mjs --self-test
       - run: node scripts/class-resolution-check.mjs --self-test
       - run: node scripts/ui-kit-adoption-check.mjs --self-test
+      - run: node scripts/spa-page-chrome-check.mjs --self-test
       - run: node scripts/property-ddl.mjs --self-test
       - run: pnpm typecheck
       # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).

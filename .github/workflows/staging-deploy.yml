@@ -19,7 +19,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install
-      - run: pnpm build
+      - name: Build (staging SPA with Clerk)
+        env:
+          VITE_USE_DEV_ACTOR: '0'
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: pnpm build
       - name: Configure wrangler secrets
         working-directory: apps/pms-core
         env:

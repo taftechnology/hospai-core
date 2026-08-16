@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
+  Card,
   Field,
   Input,
   NativeSelect,
@@ -278,7 +279,7 @@ export function StaffScreen() {
   const orgDirectoryUnavailable = orgMembersQ.data?.directory === 'unavailable';
 
   return (
-    <section data-testid="staff-screen" className="panel">
+    <Card data-testid="staff-screen">
       <header className="board-header">
         <h1 className="board-title">Staff</h1>
       </header>
@@ -510,6 +511,6 @@ export function StaffScreen() {
           </>
         )}
       </section>
-    </section>
+    </Card>
   );
 }

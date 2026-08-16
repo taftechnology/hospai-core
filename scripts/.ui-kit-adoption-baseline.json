@@ -12,6 +12,8 @@
     "th": 0,
     "td": 0
   },
-  "generatedAt": "2026-08-14",
-  "note": "Batch 7 floor — lint rule is error; structural option/form/dialog sites remain legal without counting as raw controls."
+  "panelClassName": 0,
+  "badgeClassName": 0,
+  "generatedAt": "2026-08-16",
+  "note": "Phase G G5 — panel/badge literals migrated to ui-kit Card/Badge; floor 0/0."
 }

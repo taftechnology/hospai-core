@@ -6,6 +6,7 @@ import {
   Alert,
   Badge,
   Button,
+  Card,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -248,7 +249,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
   }
 
   return (
-    <div className="panel" data-testid="inventory-screen">
+    <Card data-testid="inventory-screen">
       {unsavedGuard}
       <h1>Inventory</h1>
       <nav className="nav">
@@ -674,6 +675,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           </Button>
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }

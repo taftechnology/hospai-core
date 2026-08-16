@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   Button,
+  Card,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -125,7 +126,7 @@ export function RosterScreen() {
   }
 
   return (
-    <section data-testid="roster-screen" className="panel">
+    <Card data-testid="roster-screen">
       <h1>Roster</h1>
       {staff.length === 0 && listQuery.isSuccess && <p>Add someone to the roster</p>}
 
@@ -242,6 +243,6 @@ export function RosterScreen() {
           })}
         </DataTableBody>
       </DataTable>
-    </section>
+    </Card>
   );
 }

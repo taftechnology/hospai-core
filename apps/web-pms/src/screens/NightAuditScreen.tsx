@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
   Button,
+  Card,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -146,7 +147,7 @@ export function NightAuditScreen() {
   });
 
   return (
-    <section data-testid="night-audit-screen" className="panel">
+    <Card data-testid="night-audit-screen">
       <h1>Night audit</h1>
       {statusQuery.isLoading ? <p className="muted">Loading…</p> : null}
       {status ? (
@@ -237,6 +238,6 @@ export function NightAuditScreen() {
           ) : null}
         </>
       ) : null}
-    </section>
+    </Card>
   );
 }

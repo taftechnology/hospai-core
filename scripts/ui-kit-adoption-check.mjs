@@ -2,7 +2,8 @@
 /**
  * ui-kit adoption ratchet (spec §9.1):
  * Counts raw JSX intrinsics in scope for the lint rule across web-pms and module UI.
- * Fails when the count rises, or falls without a baseline update in the same commit.
+ * Also counts className="panel" / className="badge" literals (Phase G G5).
+ * Fails when any count rises, or falls without a baseline update in the same commit.
  *
  *   node scripts/ui-kit-adoption-check.mjs
  *   node scripts/ui-kit-adoption-check.mjs --self-test
@@ -28,6 +29,8 @@ const FORBIDDEN = [
 ];
 
 const TAG_RE = new RegExp(`<(${FORBIDDEN.join('|')})(\\s|>|/)`, 'g');
+const PANEL_RE = /className="panel"/g;
+const BADGE_RE = /className="badge"/g;
 
 const SCAN_ROOTS = [
   join(root, 'apps/web-pms/src'),
@@ -45,9 +48,18 @@ function walkTsx(dir, out = []) {
   return out;
 }
 
+function countMatches(re, text) {
+  let count = 0;
+  re.lastIndex = 0;
+  while (re.exec(text) !== null) count += 1;
+  return count;
+}
+
 export function countRawControls() {
   const byTag = Object.fromEntries(FORBIDDEN.map((t) => [t, 0]));
   let total = 0;
+  let panelClassName = 0;
+  let badgeClassName = 0;
   for (const scanRoot of SCAN_ROOTS) {
     for (const file of walkTsx(scanRoot)) {
       const text = readFileSync(file, 'utf8');
@@ -57,13 +69,31 @@ export function countRawControls() {
         byTag[m[1]] += 1;
         total += 1;
       }
+      panelClassName += countMatches(PANEL_RE, text);
+      badgeClassName += countMatches(BADGE_RE, text);
     }
   }
-  return { total, byTag };
+  return { total, byTag, panelClassName, badgeClassName };
 }
 
 function loadBaseline() {
   return JSON.parse(readFileSync(baselinePath, 'utf8'));
+}
+
+function checkRatchet(name, live, baseline) {
+  if (live > baseline) {
+    console.error(
+      `ui-kit adoption ratchet FAILED: ${name} count ${live} exceeds baseline ${baseline}`,
+    );
+    return false;
+  }
+  if (live < baseline) {
+    console.error(
+      `ui-kit adoption ratchet FAILED: ${name} count ${live} is below baseline ${baseline} — update scripts/.ui-kit-adoption-baseline.json in this commit`,
+    );
+    return false;
+  }
+  return true;
 }
 
 function selfTest() {
@@ -76,8 +106,23 @@ function selfTest() {
   }
   TAG_RE.lastIndex = 0;
 
+  if (countMatches(PANEL_RE, '<div className="panel">') !== 1) {
+    console.error('self-test FAILED: PANEL_RE must match className="panel"');
+    failed = true;
+  }
+
+  if (countMatches(BADGE_RE, '<span className="badge">') !== 1) {
+    console.error('self-test FAILED: BADGE_RE must match className="badge"');
+    failed = true;
+  }
+
   const baseline = loadBaseline();
-  if (typeof baseline.total !== 'number' || !baseline.byTag) {
+  if (
+    typeof baseline.total !== 'number' ||
+    !baseline.byTag ||
+    typeof baseline.panelClassName !== 'number' ||
+    typeof baseline.badgeClassName !== 'number'
+  ) {
     console.error('self-test FAILED: baseline shape invalid', baseline);
     failed = true;
   }
@@ -85,6 +130,14 @@ function selfTest() {
   const live = countRawControls();
   if (live.total > baseline.total) {
     console.error('self-test FAILED: live count exceeds baseline — update baseline or revert raw controls');
+    failed = true;
+  }
+  if (live.panelClassName > baseline.panelClassName) {
+    console.error('self-test FAILED: live panelClassName exceeds baseline');
+    failed = true;
+  }
+  if (live.badgeClassName > baseline.badgeClassName) {
+    console.error('self-test FAILED: live badgeClassName exceeds baseline');
     failed = true;
   }
 
@@ -98,23 +151,18 @@ if (process.argv.includes('--self-test')) {
   const baseline = loadBaseline();
   const live = countRawControls();
 
-  if (live.total > baseline.total) {
-    console.error(
-      `ui-kit adoption ratchet FAILED: raw control count ${live.total} exceeds baseline ${baseline.total}`,
-    );
+  let ok = true;
+  ok = checkRatchet('raw control', live.total, baseline.total) && ok;
+  ok = checkRatchet('panelClassName', live.panelClassName, baseline.panelClassName) && ok;
+  ok = checkRatchet('badgeClassName', live.badgeClassName, baseline.badgeClassName) && ok;
+
+  if (!ok) {
     console.error('byTag live:', live.byTag);
     console.error('byTag baseline:', baseline.byTag);
     process.exit(1);
   }
 
-  if (live.total < baseline.total) {
-    console.error(
-      `ui-kit adoption ratchet FAILED: raw control count ${live.total} is below baseline ${baseline.total} — update scripts/.ui-kit-adoption-baseline.json in this commit`,
-    );
-    process.exit(1);
-  }
-
   console.log(
-    `OK ui-kit-adoption: ${live.total} raw controls (baseline ${baseline.total}, at floor until batches 2–7 land)`,
+    `OK ui-kit-adoption: ${live.total} raw controls, ${live.panelClassName} panel, ${live.badgeClassName} badge (baseline ${baseline.total}/${baseline.panelClassName}/${baseline.badgeClassName})`,
   );
 }

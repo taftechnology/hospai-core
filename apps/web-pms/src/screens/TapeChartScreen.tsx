@@ -13,7 +13,7 @@ import {
   RESERVATION_STATUSES,
   type ReservationStatus,
 } from '@hospai/contracts/reservation-status';
-import { Field, Input } from '@hospai/ui-kit';
+import { Badge, Card, Field, Input, type StatusRung } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -83,6 +83,20 @@ type RoomTypeLabel = { roomTypeId: string; name?: string; code?: string };
 function typeLabel(id: string, types: RoomTypeLabel[]): string {
   const hit = types.find((t) => t.roomTypeId === id);
   return hit?.name || hit?.code || 'Room type unavailable';
+}
+
+function roomStatusRung(status: string): StatusRung {
+  switch (status) {
+    case 'clean':
+    case 'inspected':
+      return 'settled';
+    case 'dirty':
+      return 'attention';
+    case 'out_of_order':
+      return 'exception';
+    default:
+      return 'neutral';
+  }
 }
 
 function StayBlock({
@@ -277,7 +291,7 @@ export function TapeChartScreen() {
               <ul>
                 {g.rooms.map((r) => (
                   <li key={r.roomId}>
-                    {r.code} <span className="badge">{r.status}</span>
+                    {r.code} <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
                   </li>
                 ))}
               </ul>
@@ -340,7 +354,7 @@ export function TapeChartScreen() {
               >
                 <div className="tape-room min-w-0 truncate">
                   {room.code}{' '}
-                  <span className="badge">{room.status}</span>
+                  <Badge rung={roomStatusRung(room.status)}>{room.status}</Badge>
                 </div>
                 {dates.map((d, i) => (
                   <div
@@ -400,7 +414,7 @@ export function TapeChartScreen() {
   return (
     <div>
       <div className="visually-hidden" aria-live="polite" />
-      <div className="panel">
+      <Card>
         <header className="board-header">
           <h1 className="board-title">Room Plan</h1>
           <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
@@ -442,7 +456,7 @@ export function TapeChartScreen() {
           />
         </header>
         {body}
-      </div>
+      </Card>
     </div>
   );
 }

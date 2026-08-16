@@ -1,11 +1,18 @@
+import clsx from 'clsx';
 import type { ReactNode } from 'react';
+import type { TestIdProps } from './types.js';
 
-export type CardProps = {
-  children?: ReactNode;
-};
+export type CardProps = TestIdProps &
+  React.ComponentPropsWithoutRef<'div'> & {
+    children?: ReactNode;
+  };
 
-export function Card({ children }: CardProps) {
-  return <div className="ui-card">{children}</div>;
+export function Card({ children, className, ...rest }: CardProps) {
+  return (
+    <div className={clsx('ui-card', className)} {...rest}>
+      {children}
+    </div>
+  );
 }
 
 export type CardHeaderProps = {

@@ -388,7 +388,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
   }
 
   return (
-    <div className="panel" data-testid="settings-screen">
+    <Card data-testid="settings-screen">
       {unsavedGuard}
       <h1>Settings</h1>
       <nav className="nav">
@@ -616,18 +616,16 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             {...common}
           />
 
-          <section className="panel">
-            <Card>
-              <CardContent>
-                <h2>FX Rates</h2>
-                <p className="muted">
-                  Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
-                  stay’s folio → FX rates.
-                </p>
-                <Link to="/in-house">Open in-house board</Link>
-              </CardContent>
-            </Card>
-          </section>
+          <Card>
+            <CardContent>
+              <h2>FX Rates</h2>
+              <p className="muted">
+                Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
+                stay’s folio → FX rates.
+              </p>
+              <Link to="/in-house">Open in-house board</Link>
+            </CardContent>
+          </Card>
         </>
         )
       ) : null}
@@ -957,7 +955,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
       ) : null}
 
       {archiveCode ? (
-        <div role="dialog" aria-modal="true" className="panel">
+        <Card role="dialog" aria-modal="true">
           <p>Archive {archiveCode}?</p>
           <Button type="button" onClick={() => setArchiveCode(null)}>
             Cancel
@@ -965,8 +963,8 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           <Button type="button" intent="destructive" onClick={() => archiveCharge.mutate(archiveCode)}>
             Archive
           </Button>
-        </div>
+        </Card>
       ) : null}
-    </div>
+    </Card>
   );
 }

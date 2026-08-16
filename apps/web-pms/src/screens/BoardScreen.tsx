@@ -297,9 +297,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   return (
     <div>
       {createdBanner ? (
-        <p className="panel" role="status" data-testid="created-banner">
+        <Card role="status" data-testid="created-banner">
           Reservation {createdBanner} created
-        </p>
+        </Card>
       ) : null}
 
       <Card>

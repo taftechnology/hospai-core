@@ -4,6 +4,7 @@ import {
   Alert,
   Badge,
   Button,
+  Card,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -223,9 +224,9 @@ export function CityLedgerScreen() {
 
   if (!canRead && meQ.isSuccess) {
     return (
-      <section className="panel" data-testid="city-ledger-screen">
+      <Card data-testid="city-ledger-screen">
         <Alert>You do not have permission to view city ledger accounts.</Alert>
-      </section>
+      </Card>
     );
   }
 
@@ -237,7 +238,7 @@ export function CityLedgerScreen() {
         detailQ.error instanceof ClassifiedError);
 
     return (
-      <section className="panel" data-testid="city-ledger-detail">
+      <Card data-testid="city-ledger-detail">
         <header className="board-header">
           <h1>
             <Link to="/city-ledger">City ledger</Link>
@@ -436,7 +437,7 @@ export function CityLedgerScreen() {
             </Button>
           </div>
         ) : null}
-      </section>
+      </Card>
     );
   }
 
@@ -446,7 +447,7 @@ export function CityLedgerScreen() {
     (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
 
   return (
-    <section className="panel" data-testid="city-ledger-list">
+    <Card data-testid="city-ledger-list">
       <header className="board-header">
         <h1>City ledger</h1>
         {canAdjust ? (
@@ -569,6 +570,6 @@ export function CityLedgerScreen() {
           </form>
         </div>
       ) : null}
-    </section>
+    </Card>
   );
 }

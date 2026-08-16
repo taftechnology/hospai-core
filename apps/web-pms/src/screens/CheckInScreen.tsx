@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Field, NativeSelect, Alert } from '@hospai/ui-kit';
+import { Alert, Button, Card, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
@@ -146,7 +146,7 @@ export function CheckInScreen() {
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
 
   return (
-    <div className="panel">
+    <Card>
       <p>
         <Link to="/arrivals">← Arrivals</Link>
       </p>
@@ -223,6 +223,6 @@ export function CheckInScreen() {
         roomLabel={selectedCode ?? null}
         roomTypeLabel={roomTypeLabel}
       />
-    </div>
+    </Card>
   );
 }

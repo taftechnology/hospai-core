@@ -11,7 +11,7 @@ import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Button, Field, Input, NativeSelect } from '@hospai/ui-kit';
+import { Alert, Button, Card, Field, Input, NativeSelect } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor } from '../money.js';
@@ -498,7 +498,7 @@ export function BookingScreen() {
   });
 
   return (
-    <div className="panel" data-testid="booking-screen">
+    <Card data-testid="booking-screen">
       <p>
         <Link to="/arrivals">← Arrivals</Link>
       </p>
@@ -773,6 +773,6 @@ export function BookingScreen() {
         Quote
       </Button>
       {message ? <Alert data-testid="book-message">{message}</Alert> : null}
-    </div>
+    </Card>
   );
 }

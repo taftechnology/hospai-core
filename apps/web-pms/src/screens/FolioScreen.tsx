@@ -7,7 +7,7 @@ import {
   type FolioPaymentRow,
   type FolioReadState,
 } from '@hospai/client-core';
-import { Alert, Badge, Button, Input, NativeSelect } from '@hospai/ui-kit';
+import { Alert, Badge, Button, Card, Input, NativeSelect } from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useMemo, useState, useEffect } from 'react';
@@ -1038,7 +1038,7 @@ export function FolioScreen() {
   const folioDegraded = readState(folioQ) === 'fail_closed' || readState(reservationQ) === 'fail_closed';
 
   return (
-    <div className="panel">
+    <Card>
       <p>
         <Link to="/in-house">← In house</Link>
       </p>
@@ -1851,6 +1851,6 @@ export function FolioScreen() {
           <p className="muted">Indicative — captured at the rate in force at capture.</p>
         ) : null}
       </details>
-    </div>
+    </Card>
   );
 }

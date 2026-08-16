@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 import {
   Alert,
   Button,
+  Card,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -353,7 +354,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   }
 
   return (
-    <div className="panel" data-testid="rates-screen">
+    <Card data-testid="rates-screen">
       {unsavedGuard}
       <h1>Rates</h1>
       <nav className="nav">
@@ -1007,7 +1008,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       ) : null}
 
       {archivePlan ? (
-        <div role="dialog" aria-modal="true" className="panel">
+        <Card role="dialog" aria-modal="true">
           <p>Archive {archivePlan.code}? It will stop being sellable.</p>
           <Button type="button" onClick={() => setArchivePlan(null)}>
             Cancel
@@ -1015,8 +1016,8 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
           <Button type="button" intent="destructive" onClick={() => doArchivePlan.mutate(archivePlan.ratePlanId)}>
             Archive
           </Button>
-        </div>
+        </Card>
       ) : null}
-    </div>
+    </Card>
   );
 }

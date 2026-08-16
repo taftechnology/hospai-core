@@ -3,6 +3,7 @@ import {
   Alert,
   Badge,
   Button,
+  Card,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -297,7 +298,7 @@ export function ExceptionsScreen() {
   const selectedIds = rows.filter((r) => selected.has(r.exceptionId)).map((r) => r.exceptionId);
 
   return (
-    <section className="panel" data-testid="exceptions-workbench">
+    <Card data-testid="exceptions-workbench">
       {unsavedGuard}
       <h1 className="text-wrap-balance">Exceptions</h1>
       <div className="exceptions-filters">
@@ -659,6 +660,6 @@ export function ExceptionsScreen() {
           </Button>
         </dialog>
       ) : null}
-    </section>
+    </Card>
   );
 }

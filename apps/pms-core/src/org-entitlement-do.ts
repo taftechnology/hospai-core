@@ -1,5 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { EntitlementSnapshot, FeatureKey, FeatureValue } from '@hospai/contracts';
+import {
+  LIMIT_EXCEEDED,
+  type EntitlementSnapshot,
+  type FeatureKey,
+  type FeatureValue,
+} from '@hospai/contracts';
 import { ORG_ENTITLEMENT_MIGRATIONS, migrateSql } from '@hospai/do-runtime';
 import { parseFeatureValue } from '@hospai/entitlement-client';
 import type { PmsEnv } from './env.js';
@@ -30,9 +35,7 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
     return Number(rows[0]?.v ?? 0);
   }
 
-  async purgeStorageForTenant(): Promise<
-    { ok: true; deletedApprox: number } | { ok: false; error: string }
-  > {
+  async purgeStorageForTenant(): Promise<{ ok: true; deletedApprox: number }> {
     const deletedApprox = await this.countNonBookkeepingRows();
     await this.ctx.storage.deleteAll();
     return { ok: true, deletedApprox };
@@ -140,10 +143,10 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
     orgId: string,
     meterKey: string,
     delta: number,
-  ): Promise<{ ok: true; used: number } | { ok: false; error: 'limit_exceeded' }> {
+  ): Promise<{ ok: true; used: number } | { ok: false; error: typeof LIMIT_EXCEEDED }> {
     const snap = await this.resolveEntitlements(orgId);
     const meter = snap.limits[meterKey];
-    if (!meter) return { ok: false, error: 'limit_exceeded' };
+    if (!meter) return { ok: false, error: LIMIT_EXCEEDED };
 
     const period = currentPeriod();
     try {
@@ -176,7 +179,7 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
       });
       return { ok: true, used };
     } catch (e) {
-      if (e instanceof LimitExceededError) return { ok: false, error: 'limit_exceeded' };
+      if (e instanceof LimitExceededError) return { ok: false, error: LIMIT_EXCEEDED };
       throw e;
     }
   }

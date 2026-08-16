@@ -160,7 +160,6 @@ async function runOrgPlan(
       params.orgId,
     ) as DurableObjectStub<OrgEntitlementDO>;
     const entResult = await entStub.purgeStorageForTenant();
-    if (!entResult.ok) throw new HaltError(entResult.error);
 
     replaceStore(stores, {
       store: 'org_do',

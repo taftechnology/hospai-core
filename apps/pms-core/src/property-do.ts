@@ -148,6 +148,7 @@ import {
   INVOICE_COUNTER_RACE,
   ORG_UNREACHABLE,
   INTERNAL_ERROR,
+  DOMAIN_ERROR,
   configUndeclared,
   isCommandError,
   type CommandError,
@@ -4633,7 +4634,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               ? BUSINESS_DATE_CLOSED
               : inner.error && isCommandError(inner.error)
                 ? inner.error
-                : ((inner.error ?? 'domain_error') as CommandError);
+                : DOMAIN_ERROR;
           this.ctx.storage.sql.exec(
             `UPDATE provisional_exception
              SET reason = ?, detail = ?, open_retry_key = NULL

@@ -2,7 +2,7 @@ import type {
   PendingCommandMessage,
   ProvisionalContext,
 } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED, fingerprintPayload } from '@hospai/contracts';
+import { BUSINESS_DATE_CLOSED, DOMAIN_ERROR, fingerprintPayload } from '@hospai/contracts';
 import { LaneGuard } from '@hospai/do-runtime';
 import { logInfo, logWarn } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
@@ -124,7 +124,7 @@ export async function handlePendingCommandsBatch(
       }
 
       const reason =
-        result.error === BUSINESS_DATE_CLOSED ? 'business_date_closed' : (result.error ?? 'domain_error');
+        result.error === BUSINESS_DATE_CLOSED ? 'business_date_closed' : (result.error ?? DOMAIN_ERROR);
 
       await resolved.stub.recordProvisionalException(provisional, reason, result);
       logWarn(ctx, {

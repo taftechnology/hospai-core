@@ -166,6 +166,7 @@ Add to `packages/contracts/src/idempotency.ts` (grouped by domain). **Every** li
 | 34 | `PAYMENT_INSERT_FAILED` | `payment_insert_failed` | throw `property-do.ts:16322` |
 | 35 | `KEY_SHRED_FAILED` | `key_shred_failed` | throw `org-do.ts:1602` |
 | 36 | `TENANT_NOT_ACTIVE` | `tenant_not_active` | `registry.ts:66` (surfaced via org/property resolution in DO-adjacent paths) |
+| 37 | `DOMAIN_ERROR` | `domain_error` | `property-do.ts` provisional retry-failure fallback + `pending-commands-consumer.ts:127` — persisted as `provisional_exception.reason`; **added during implementation** (spec inventory miss) |
 
 **Deferred (do NOT add in D1):** `CLOSE_FAILED` / `REOPEN_FAILED` (`purge-certificate.ts:157`, `:180`) — **locked: defer.** Purge-certificate is not a DO `try*` RPC, so it is outside the 78-signature command channel D1 closes. Typing it is a registry follow-up. The const count below is therefore **+36 new + 1 relocation = 157**, not 159.
 
@@ -188,7 +189,7 @@ Replace `` `undeclared:${key}` `` returns with `configUndeclared(key)`.
 
 | Metric | Before | After |
 |---|---|---|
-| `idempotency.ts` `export const` | **120** | **157** (**+36** new + `NIGHT_AUDIT_HALTED` relocated; purge codes deferred) |
+| `idempotency.ts` `export const` | **120** | **158** (**+36** new + `NIGHT_AUDIT_HALTED` relocated + `DOMAIN_ERROR` added during implementation §2.1c #37; purge codes deferred) |
 | `CommandError` union members | — | **~176** (120 idempotency + 8 money + 4 permission/entitlement + 36 new + `NIGHT_AUDIT_HALTED` + template `` `undeclared:${string}` ``) |
 
 ---

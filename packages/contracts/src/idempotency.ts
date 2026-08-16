@@ -38,6 +38,7 @@ export const ORG_UNREACHABLE = 'org_unreachable' as const;
 export const BULK_NOT_ADMITTED = 'bulk_not_admitted' as const;
 export const UNKNOWN_COMMAND = 'unknown_command' as const;
 export const INTERNAL_ERROR = 'internal_error' as const;
+export const DOMAIN_ERROR = 'domain_error' as const;
 export const TENANT_NOT_ACTIVE = 'tenant_not_active' as const;
 
 /** Night-audit PRE_CHECK wire codes */

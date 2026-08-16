@@ -281,10 +281,10 @@ describe('fingerprintPayload', () => {
     expect(INTERNAL_ERROR).toBe('internal_error');
   });
 
-  it('pins idempotency export const count at 157', async () => {
+  it('pins idempotency export const count at 158', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(157);
+    expect(count).toBe(158);
   });
 });

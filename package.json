@@ -9,6 +9,7 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:local": "pnpm exec turbo run test --filter=!@hospai/pms-core && node scripts/test-pms-core-shards.mjs",
     "lint": "eslint . && turbo run lint",
     "typecheck": "turbo run typecheck",
     "generate:ddl": "pnpm --filter @hospai/do-runtime build && node scripts/property-ddl.mjs --write",

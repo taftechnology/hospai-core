@@ -55,12 +55,20 @@ export type TenantActiveDenial = 'not_found' | 'tenant_not_active';
  */
 export async function assertTenantActive(
   env: PmsEnv,
-  opts: { orgId?: string; propertyId?: string; allowedOrgStatuses?: readonly string[] },
+  opts: {
+    orgId?: string;
+    propertyId?: string;
+    allowedOrgStatuses?: readonly string[];
+    prefetchedProperty?: PropertyRecord;
+  },
 ): Promise<{ ok: true } | { ok: false; error: TenantActiveDenial; status?: string }> {
   const allowedOrgStatuses = opts.allowedOrgStatuses ?? ['active'];
   await ensurePlatformSchema(env.PLATFORM_DB);
   if (opts.propertyId) {
-    const property = await getProperty(env, opts.propertyId);
+    const property =
+      opts.prefetchedProperty?.propertyId === opts.propertyId
+        ? opts.prefetchedProperty
+        : await getProperty(env, opts.propertyId);
     if (!property) return { ok: false, error: 'not_found' };
     if (property.status !== 'active') {
       return { ok: false, error: 'tenant_not_active', status: property.status };

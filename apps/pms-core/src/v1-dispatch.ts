@@ -1,4 +1,4 @@
-import type { CommandError, FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import type { CommandError, FeatureKey, Jurisdiction, PropertyRecord, ProvisionPropertyInput } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
   ALREADY_CANCELLED,
@@ -1234,11 +1234,18 @@ function logAriRejectOnCommit(
 async function resolvePropertyContext(
   ctx: V1DispatchContext,
   propertyId: string,
-): Promise<{ property: NonNullable<Awaited<ReturnType<typeof getProperty>>>; resolved: NonNullable<Awaited<ReturnType<typeof resolvePropertyFromRegistry>>> } | Response> {
-  const property = await getProperty(ctx.env, propertyId);
+  prefetched?: PropertyRecord,
+): Promise<{ property: PropertyRecord; resolved: NonNullable<Awaited<ReturnType<typeof resolvePropertyFromRegistry>>> } | Response> {
+  const validatedPrefetch =
+    prefetched?.propertyId === propertyId ? prefetched : undefined;
+  const property = validatedPrefetch ?? (await getProperty(ctx.env, propertyId));
   if (!property) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = property.orgId;
-  const gate = await assertTenantActive(ctx.env, { propertyId, orgId: property.orgId });
+  const gate = await assertTenantActive(ctx.env, {
+    propertyId,
+    orgId: property.orgId,
+    prefetchedProperty: validatedPrefetch,
+  });
   if (!gate.ok) {
     if (gate.error === 'tenant_not_active') {
       logWarn(ctx.observability, {
@@ -1250,7 +1257,7 @@ async function resolvePropertyContext(
     }
     return json({ error: 'not_found' }, 404);
   }
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId, validatedPrefetch);
   if (!resolved) return json({ error: 'not_found' }, 404);
   return { property, resolved };
 }
@@ -1278,6 +1285,7 @@ export type V1DispatchContext = {
   actor: Actor;
   url: URL;
   match: RegExpMatchArray;
+  tenantProperty?: PropertyRecord;
 };
 
 type V1RouteBase = {
@@ -1297,7 +1305,9 @@ export type V1RouteDef =
   | (V1RouteBase & { scope: 'org' } & { permission: Permission } & CommandLink)
   | (V1RouteBase & { scope: 'property' } & { permission: Permission } & CommandLink);
 
-type ResolvedTenant = { orgId: string; propertyId: string | null };
+type ResolvedTenant =
+  | { orgId: string; propertyId: null }
+  | { orgId: string; propertyId: string; property: PropertyRecord };
 
 async function resolveTenant(
   env: PmsEnv,
@@ -1321,7 +1331,7 @@ async function resolveTenant(
     const propertyId = decodeURIComponent(match[1]!);
     const property = await getProperty(env, propertyId);
     if (!property) return json({ error: 'not_found' }, 404);
-    return { orgId: property.orgId, propertyId };
+    return { orgId: property.orgId, propertyId, property };
   }
 
   throw new Error(`resolveTenant called for scope ${(route as V1RouteDef).scope}`);
@@ -3673,7 +3683,7 @@ async function handleGetPropertyMe(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, {
@@ -9261,6 +9271,7 @@ export async function dispatchV1(
     actor,
     url: new URL(request.url),
     match,
+    ...(tenant.propertyId ? { tenantProperty: tenant.property } : {}),
   });
 }
 

@@ -136,8 +136,10 @@ async function syncOrgAndPropertyDo(
 export async function resolvePropertyFromRegistry(
   env: PmsEnv,
   propertyId: string,
+  prefetched?: PropertyRecord,
 ): Promise<{ stub: DurableObjectStub<PropertyDO>; property: PropertyRecord; locationHint: string } | null> {
-  const property = await getProperty(env, propertyId);
+  const property =
+    prefetched?.propertyId === propertyId ? prefetched : await getProperty(env, propertyId);
   if (!property) return null;
   const locationHint = locationHintFromTimeZone(property.timeZone);
   const stub = resolvePropertyStub(

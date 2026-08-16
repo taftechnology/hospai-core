@@ -3895,17 +3895,13 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddFolioLine']>>>({
-    env: ctx.env,
-    commandId: 'folio.add_item',
-    routeId: 'post_folio_lines',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.add_item',
+      routeId: 'post_folio_lines',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryAddFolioLine(actor, commandPayload, idem),
   });
 
@@ -4564,17 +4560,13 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateChargeCode']>>>({
-    env: ctx.env,
-    commandId: 'folio.create_charge_code',
-    routeId: 'post_charge_codes',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.create_charge_code',
+      routeId: 'post_charge_codes',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreateChargeCode(actor, commandPayload, idem),
   });
 
@@ -4616,17 +4608,13 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateChargeCode']>>>({
-    env: ctx.env,
-    commandId: 'folio.update_charge_code',
-    routeId: 'patch_charge_code',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.update_charge_code',
+      routeId: 'patch_charge_code',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdateChargeCode(actor, commandPayload, idem),
   });
 
@@ -4663,17 +4651,13 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetChargeCodeStatus']>>>({
-    env: ctx.env,
-    commandId: 'folio.set_charge_code_status',
-    routeId: 'put_charge_code_status',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.set_charge_code_status',
+      routeId: 'put_charge_code_status',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.trySetChargeCodeStatus(actor, commandPayload, idem),
   });
 
@@ -4765,17 +4749,13 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRoutingRule']>>>({
-    env: ctx.env,
-    commandId: 'folio.upsert_routing_rule',
-    routeId: 'put_folio_routing_rule',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.upsert_routing_rule',
+      routeId: 'put_folio_routing_rule',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpsertRoutingRule(actor, commandPayload, idem),
   });
 
@@ -4809,17 +4789,13 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchiveRoutingRule']>>>({
-    env: ctx.env,
-    commandId: 'folio.archive_routing_rule',
-    routeId: 'post_folio_routing_rule_archive',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.archive_routing_rule',
+      routeId: 'post_folio_routing_rule_archive',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryArchiveRoutingRule(actor, commandPayload, idem),
   });
 
@@ -4883,17 +4859,13 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateTaxRule']>>>({
-    env: ctx.env,
-    commandId: 'folio.create_tax_rule',
-    routeId: 'post_tax_rules',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.create_tax_rule',
+      routeId: 'post_tax_rules',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreateTaxRule(actor, commandPayload, idem),
   });
 
@@ -4956,17 +4928,13 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySupersedeTaxRule']>>>({
-    env: ctx.env,
-    commandId: 'folio.supersede_tax_rule',
-    routeId: 'put_tax_rule_supersede',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.supersede_tax_rule',
+      routeId: 'put_tax_rule_supersede',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.trySupersedeTaxRule(actor, commandPayload, idem),
   });
 
@@ -5025,17 +4993,13 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOpenShift']>>>({
-    env: ctx.env,
-    commandId: 'folio.open_shift',
-    routeId: 'post_shifts',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.open_shift',
+      routeId: 'post_shifts',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryOpenShift(actor, commandPayload, idem),
   });
 
@@ -5072,17 +5036,13 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCloseShift']>>>({
-    env: ctx.env,
-    commandId: 'folio.close_shift',
-    routeId: 'put_shift_close',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.close_shift',
+      routeId: 'put_shift_close',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCloseShift(actor, commandPayload, idem),
   });
 
@@ -5132,17 +5092,13 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordCashPayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.record_cash_payment',
-    routeId: 'post_cash_payment',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.record_cash_payment',
+      routeId: 'post_cash_payment',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryRecordCashPayment(actor, commandPayload),
   });
 
@@ -7497,17 +7453,13 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateFxRate']>>>({
-    env: ctx.env,
-    commandId: 'folio.create_fx_rate',
-    routeId: 'post_fx_rates',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.create_fx_rate',
+      routeId: 'post_fx_rates',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryCreateFxRate(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -7549,17 +7501,13 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySupersedeFxRate']>>>({
-    env: ctx.env,
-    commandId: 'folio.supersede_fx_rate',
-    routeId: 'post_fx_rate_supersede',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.supersede_fx_rate',
+      routeId: 'post_fx_rate_supersede',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.trySupersedeFxRate(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -7619,17 +7567,13 @@ async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Respon
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordChargeback']>>>({
-    env: ctx.env,
-    commandId: 'folio.record_chargeback',
-    routeId: 'post_folio_chargeback',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.record_chargeback',
+      routeId: 'post_folio_chargeback',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryRecordChargeback(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -7675,17 +7619,13 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
   const fingerprint = await fingerprintPayload(commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostFxAdjustment']>>>({
-    env: ctx.env,
-    commandId: 'folio.post_fx_adjustment',
-    routeId: 'post_folio_fx_adjustment',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.post_fx_adjustment',
+      routeId: 'post_folio_fx_adjustment',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryPostFxAdjustment(actor, commandPayload, {
         key: body.idempotencyKey,

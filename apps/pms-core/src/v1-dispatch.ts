@@ -2556,17 +2556,13 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateReservation']>>>({
-    env: ctx.env,
-    commandId: 'reservations.create',
-    routeId: 'post_reservations',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.create',
+      routeId: 'post_reservations',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryCreateReservation(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -2693,17 +2689,13 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryModifyReservation']>>>({
-    env: ctx.env,
-    commandId: 'reservations.modify',
-    routeId: 'patch_reservation',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.modify',
+      routeId: 'patch_reservation',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryModifyReservation(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -2766,17 +2758,13 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   const commandPayload = { reservationId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCancelReservation']>>>({
-    env: ctx.env,
-    commandId: 'reservations.cancel',
-    routeId: 'post_reservation_cancel',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.cancel',
+      routeId: 'post_reservation_cancel',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryCancelReservation(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -2818,17 +2806,13 @@ async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Res
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryConfirm']>>>({
-    env: ctx.env,
-    commandId: 'reservations.confirm',
-    routeId: 'post_reservation_confirm',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.confirm',
+      routeId: 'post_reservation_confirm',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryConfirm(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -2874,17 +2858,13 @@ async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Respon
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryHold']>>>({
-    env: ctx.env,
-    commandId: 'reservations.hold',
-    routeId: 'post_reservation_hold',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.hold',
+      routeId: 'post_reservation_hold',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryHold(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -2934,17 +2914,13 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateFrontOffice']>>>({
-    env: ctx.env,
-    commandId: 'reservations.update_status',
-    routeId: 'post_reservation_front_office',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.update_status',
+      routeId: 'post_reservation_front_office',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryUpdateFrontOffice(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -3062,17 +3038,13 @@ async function handlePostReservationStatusAction(
   const commandPayload = { reservationId };
 
   const invoked = await invokePropertyDo({
-    env: ctx.env,
-    commandId,
-    routeId,
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId,
+      routeId,
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => action(resolvedCtx.resolved.stub, actor, idem),
   });
 
@@ -3112,17 +3084,13 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
   const idem = { key: idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCheckIn']>>>({
-    env: ctx.env,
-    commandId: 'reservations.check_in',
-    routeId: 'post_reservation_check_in',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.check_in',
+      routeId: 'post_reservation_check_in',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCheckIn(actor, commandPayload, idem),
   });
 
@@ -3157,17 +3125,13 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   const idem = { key: idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCheckOut']>>>({
-    env: ctx.env,
-    commandId: 'reservations.check_out',
-    routeId: 'post_reservation_check_out',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.check_out',
+      routeId: 'post_reservation_check_out',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCheckOut(actor, commandPayload, idem),
   });
 
@@ -4279,17 +4243,13 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAssignRoom']>>>({
-    env: ctx.env,
-    commandId: 'reservations.assign_room',
-    routeId: 'post_reservation_assign_room',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.assign_room',
+      routeId: 'post_reservation_assign_room',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryAssignRoom(actor, commandPayload, idem),
   });
 
@@ -4331,17 +4291,13 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAssignHousekeeping']>>>({
-    env: ctx.env,
-    commandId: 'housekeeping.assign',
-    routeId: 'post_housekeeping_assign',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.assign',
+      routeId: 'post_housekeeping_assign',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryAssignHousekeeping(actor, commandPayload, idem),
   });
 

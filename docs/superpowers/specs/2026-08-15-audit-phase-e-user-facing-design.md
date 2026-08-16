@@ -342,7 +342,7 @@ Add one test per locked code in `classified-user-message.test.ts` (table-driven 
 | Code | Assert |
 |---|---|
 | Each Lock 2b code | Message matches locked template; `/try again/i` absent; wire code absent |
-| `balance_due` with `{ balanceMinor: 2500 }` | Contains `$25.00` (via `formatMinor`) |
+| `balance_due` with `{ balanceMinor: 2500 }` | Contains `25.00` (via `formatMinor` — bare major units, no currency symbol) |
 | `balance_due` without `balanceMinor` | Fallback sentence without amount |
 | `no_availability` with `{ date: '2026-08-11' }` | Contains date |
 

@@ -8714,6 +8714,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const nextChildren = input.children ?? reservation.children;
           this.assertOccupancySync(input.roomTypeId, nextAdults, nextChildren);
 
+          this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
+
           const nextNoPost =
             input.noPost !== undefined ? input.noPost : reservation.no_post === 1;
 
@@ -8791,6 +8793,61 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               entityId: input.reservationId,
               beforeJson: { ratePlanId: reservation.rate_plan_id },
               afterJson: { ratePlanId: nextRatePlanId },
+              reservationId: input.reservationId,
+            });
+            return {
+              ok: true as const,
+              reservationId: input.reservationId,
+              ariVersion: this.readAriVersionSync(),
+              fromDate: nights[0]!,
+              toDate: nights[nights.length - 1]!,
+            };
+          }
+
+          if (
+            reservation.room_type_id === input.roomTypeId &&
+            reservation.arrival_date === input.arrivalDate &&
+            reservation.departure_date === input.departureDate &&
+            nextAdults === reservation.adults &&
+            nextChildren === reservation.children &&
+            nextRatePlanId === reservation.rate_plan_id &&
+            input.noPost !== undefined &&
+            nextNoPost !== (reservation.no_post === 1)
+          ) {
+            const nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'reservation.modified',
+              payload: {
+                propertyId,
+                reservationId: input.reservationId,
+                guestRef: reservation.guest_ref,
+                piiKeyId: reservation.pii_key_id,
+                from: {
+                  roomTypeId: reservation.room_type_id,
+                  arrivalDate: reservation.arrival_date,
+                  departureDate: reservation.departure_date,
+                  adults: reservation.adults,
+                  children: reservation.children,
+                  noPost: reservation.no_post === 1,
+                },
+                to: {
+                  roomTypeId: input.roomTypeId,
+                  arrivalDate: input.arrivalDate,
+                  departureDate: input.departureDate,
+                  adults: nextAdults,
+                  children: nextChildren,
+                  noPost: nextNoPost,
+                },
+              },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'reservations.modify',
+              entityType: 'reservation',
+              entityId: input.reservationId,
+              beforeJson: { noPost: reservation.no_post === 1 },
+              afterJson: { noPost: nextNoPost },
               reservationId: input.reservationId,
             });
             return {
@@ -9014,7 +9071,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               input.reservationId,
             );
           }
-          this.applyNoPostIfPresentSync(input.reservationId, input.noPost);
 
           if (commitsInventory) {
             this.syncReservationRateNightsOnModifySync(

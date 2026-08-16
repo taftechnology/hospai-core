@@ -1124,3 +1124,50 @@ describe('modify rate plan (B2)', () => {
     ]);
   });
 });
+
+describe('modify noPost (B3)', () => {
+  it('noPost-only modify sets no_post and emits reservation.modified', async () => {
+    const name = `mod-nopost-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+    const reservationId = 'res_mod_np';
+
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'pending' as const,
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c-mod-np', create)),
+    ).toMatchObject({ ok: true });
+    expect(
+      await stub.tryConfirm(
+        TEST_OWNER_ACTOR,
+        { reservationId },
+        await idemFor('confirm-mod-np', { reservationId }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      noPost: true,
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m-mod-np', modify)),
+    ).toMatchObject({ ok: true });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok && folio.noPost).toBe(true);
+    expect(await stub.listOutboxEventTypes()).toContain('reservation.modified');
+    const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
+    expect(audit.ok && audit.rows.some((r) => r.commandId === 'reservations.modify')).toBe(true);
+  });
+});

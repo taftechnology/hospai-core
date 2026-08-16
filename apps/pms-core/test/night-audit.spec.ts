@@ -9,6 +9,7 @@ import { NightAuditWorkflow } from '../src/night-audit-workflow';
 import { provisionProperty, resolvePropertyFromRegistry } from '../src/provision';
 import { ensurePlatformSchema } from '../src/registry';
 import type { NightAuditWorkflowParams, PmsEnv } from '../src/env';
+import { addCalendarDays } from './date-helpers';
 import { idemFor, provisionedPropertyStub, propertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
 
@@ -75,6 +76,84 @@ describe('PropertyDO night audit', () => {
 
     const result = await stub.reconcileHorizonForTest(businessDate);
     expect(result.insertedCount).toBe(20 * HORIZON_DAYS);
+  });
+
+  it('F4: reconcileHorizon blockedBorn matches per-date OOO count when ranges overlap', async () => {
+    const name = `na-ooo-blocked-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+
+    const roomTypes = [
+      { roomTypeId: 'rt_a', code: 'A', roomCount: 3, rooms: ['rm_a1', 'rm_a2', 'rm_a3'] as const },
+      { roomTypeId: 'rt_b', code: 'B', roomCount: 2, rooms: ['rm_b1', 'rm_b2'] as const },
+    ] as const;
+
+    for (const rt of roomTypes) {
+      const addInput = {
+        roomTypeId: rt.roomTypeId,
+        code: rt.code,
+        name: `Type ${rt.code}`,
+        roomCount: rt.roomCount,
+        maxOccupancy: 2,
+        maxAdults: 2,
+      };
+      const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor(`ooo-${rt.roomTypeId}`, addInput));
+      expect(added.ok).toBe(true);
+      for (const roomId of rt.rooms) {
+        const room = { roomId, roomTypeId: rt.roomTypeId, code: roomId.slice(-2) };
+        expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({
+          ok: true,
+        });
+      }
+    }
+
+    const oooByRoomType: Record<string, Array<{ roomId: string; startDate: string; endDate: string }>> = {
+      rt_a: [
+        { roomId: 'rm_a1', startDate: addCalendarDays(businessDate, 1), endDate: addCalendarDays(businessDate, 4) },
+        { roomId: 'rm_a2', startDate: addCalendarDays(businessDate, 2), endDate: addCalendarDays(businessDate, 3) },
+      ],
+      rt_b: [{ roomId: 'rm_b1', startDate: businessDate, endDate: addCalendarDays(businessDate, 2) }],
+    };
+
+    for (const assignments of Object.values(oooByRoomType)) {
+      for (const ooo of assignments) {
+        expect(await stub.trySetOooRange(TEST_OWNER_ACTOR, ooo, await idemFor(`ooo-${ooo.roomId}`, ooo))).toMatchObject({
+          ok: true,
+        });
+      }
+    }
+
+    for (const rt of roomTypes) {
+      await stub.deleteAvailabilityDaysFrom(rt.roomTypeId, businessDate);
+      expect(await stub.countAvailabilityDays(rt.roomTypeId)).toBe(0);
+    }
+
+    const result = await stub.reconcileHorizonForTest(businessDate);
+    expect(result.insertedCount).toBe(roomTypes.length * HORIZON_DAYS);
+
+    const horizonDates = enumerateFromDate(businessDate, HORIZON_DAYS);
+    const probeDates = [
+      businessDate,
+      addCalendarDays(businessDate, 1),
+      addCalendarDays(businessDate, 2),
+      addCalendarDays(businessDate, 3),
+      addCalendarDays(businessDate, 4),
+    ];
+
+    for (const rt of roomTypes) {
+      const ranges = oooByRoomType[rt.roomTypeId]!.map(({ startDate, endDate }) => ({ startDate, endDate }));
+      for (const stayDate of horizonDates) {
+        const row = await stub.readAvailabilityDay(rt.roomTypeId, stayDate);
+        expect(row).not.toBeNull();
+        const expectedBlocked = perDateOooBlockedCount(ranges, stayDate);
+        expect(row!.blocked).toBe(expectedBlocked);
+      }
+      for (const stayDate of probeDates) {
+        expect(perDateOooBlockedCount(ranges, stayDate)).toBe(
+          (await stub.readAvailabilityDay(rt.roomTypeId, stayDate))!.blocked,
+        );
+      }
+    }
   });
 
   it('3. catch-up set-reconcile fills gaps with physical = room_count; idempotent re-run inserts nothing', async () => {
@@ -524,6 +603,13 @@ describe('PropertyDO night audit', () => {
     expect(afterSecond!.nextRunAt).toBe(after!.nextRunAt);
   });
 });
+
+type OooStayRange = { startDate: string; endDate: string };
+
+/** Per-date blocked count: rooms with ooo.start_date <= stayDate AND ooo.end_date > stayDate. */
+function perDateOooBlockedCount(ranges: OooStayRange[], stayDate: string): number {
+  return ranges.filter((r) => r.startDate <= stayDate && r.endDate > stayDate).length;
+}
 
 /** Subtract `n` calendar days from a YYYY-MM-DD string, purely via UTC arithmetic (no TZ). */
 function subtractDays(dateStr: string, n: number): string {

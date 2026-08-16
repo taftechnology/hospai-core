@@ -25,8 +25,10 @@ Integration behaviour is proven in `apps/pms-core/test/`. For a local HTTP + bro
 | `pnpm check:class-denylist` | Every `export class` in the repo is listed for boundary lint |
 | `pnpm check:module-manifests` | Module registry membership, ui/server `moduleId` pairing, write-set ⊇ actual |
 | `pnpm typecheck` | Project references / types |
-| `pnpm test` | Behaviour (~800+ tests across packages; pms-core sharded in CI) |
+| `pnpm test:local` | Behaviour (~800+ tests across packages; pms-core sharded 8 ways locally) |
 | `pnpm lint` | ESLint including `eslint-plugin-hospai` |
+
+`pnpm test` unsharded segfaults workerd locally; `test:local` shards pms-core 8 ways to match CI. The sold-ledger property spec runs in a separate CI job but is included in local shards.
 
 ## PR invariants (merge-blocking)
 

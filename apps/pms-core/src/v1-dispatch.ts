@@ -204,6 +204,7 @@ import {
   degradedReadStaleResponse,
   invokePropertyDo,
 } from './invoke-property-do.js';
+import { commandEnvelope } from './command-envelope.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
@@ -1658,17 +1659,13 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
         };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddRoomType']>>>({
-    env: ctx.env,
-    commandId: 'inventory.add_room_type',
-    routeId: 'post_room_types',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'inventory.add_room_type',
+      routeId: 'post_room_types',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryAddRoomType(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -1733,17 +1730,13 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomType']>>>({
-    env: ctx.env,
-    commandId: 'inventory.update_room_type',
-    routeId: 'put_room_type',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'inventory.update_room_type',
+      routeId: 'put_room_type',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryUpdateRoomType(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -1787,17 +1780,13 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   const commandPayload = { roomTypeId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRoomType']>>>({
-    env: ctx.env,
-    commandId: 'inventory.delete_room_type',
-    routeId: 'delete_room_type',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'inventory.delete_room_type',
+      routeId: 'delete_room_type',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryDeleteRoomType(actor, commandPayload, {
         key: idempotencyKey,
@@ -1841,17 +1830,13 @@ async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
   const commandPayload = { roomId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRoom']>>>({
-    env: ctx.env,
-    commandId: 'rooms.delete',
-    routeId: 'delete_room',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.delete',
+      routeId: 'delete_room',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryDeleteRoom(actor, commandPayload, {
         key: idempotencyKey,
@@ -4029,17 +4014,13 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateRoom']>>>({
-    env: ctx.env,
-    commandId: 'rooms.create',
-    routeId: 'post_rooms',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.create',
+      routeId: 'post_rooms',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreateRoom(actor, commandPayload, idem),
   });
 
@@ -4086,17 +4067,13 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoom']>>>({
-    env: ctx.env,
-    commandId: 'rooms.update',
-    routeId: 'patch_room',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.update',
+      routeId: 'patch_room',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRoom(actor, commandPayload, idem),
   });
 
@@ -4152,17 +4129,13 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomStatus']>>>({
-    env: ctx.env,
-    commandId: 'rooms.update_status',
-    routeId: 'post_room_status',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.update_status',
+      routeId: 'post_room_status',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRoomStatus(actor, commandPayload, idem),
   });
 
@@ -4219,17 +4192,13 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetOooRange']>>>({
-    env: ctx.env,
-    commandId: 'rooms.set_ooo_range',
-    routeId: 'post_room_ooo_range',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.set_ooo_range',
+      routeId: 'post_room_ooo_range',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.trySetOooRange(actor, commandPayload, idem),
   });
 
@@ -4270,17 +4239,13 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryBulkUpdateRoomStatus']>>>({
-    env: ctx.env,
-    commandId: 'rooms.bulk_update_status',
-    routeId: 'post_rooms_bulk_status',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rooms.bulk_update_status',
+      routeId: 'post_rooms_bulk_status',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRoomStatus(actor, commandPayload, idem),
   });
 

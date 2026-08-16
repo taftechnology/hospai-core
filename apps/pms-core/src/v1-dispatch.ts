@@ -3762,17 +3762,13 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   const commandPayload = { ...cell, auditCommandId: 'rates.upsert_day' as const };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
-    env: ctx.env,
-    commandId: 'rates.upsert_day',
-    routeId: 'put_rate_days',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.upsert_day',
+      routeId: 'put_rate_days',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryUpsertRateDay(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -3839,17 +3835,13 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRestrictionDay']>>>({
-    env: ctx.env,
-    commandId: 'restrictions.upsert_day',
-    routeId: 'put_restriction_days',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'restrictions.upsert_day',
+      routeId: 'put_restriction_days',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryUpsertRestrictionDay(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -4388,17 +4380,13 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateRatePlan']>>>({
-    env: ctx.env,
-    commandId: 'rates.create_plan',
-    routeId: 'post_rate_plans',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.create_plan',
+      routeId: 'post_rate_plans',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreateRatePlan(actor, commandPayload, idem),
   });
 
@@ -4465,17 +4453,13 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRatePlan']>>>({
-    env: ctx.env,
-    commandId: 'rates.update_plan',
-    routeId: 'patch_rate_plan',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.update_plan',
+      routeId: 'patch_rate_plan',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRatePlan(actor, commandPayload, idem),
   });
 
@@ -4510,17 +4494,13 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryDeleteRatePlan']>>>({
-    env: ctx.env,
-    commandId: 'rates.delete_plan',
-    routeId: 'delete_rate_plan',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.delete_plan',
+      routeId: 'delete_rate_plan',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryDeleteRatePlan(actor, commandPayload, idem),
   });
 
@@ -5246,17 +5226,13 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreatePromo']>>>({
-    env: ctx.env,
-    commandId: 'rates.create_promo',
-    routeId: 'post_rate_promos',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.create_promo',
+      routeId: 'post_rate_promos',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreatePromo(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -5322,17 +5298,13 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdatePromo']>>>({
-    env: ctx.env,
-    commandId: 'rates.update_promo',
-    routeId: 'patch_rate_promo',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.update_promo',
+      routeId: 'patch_rate_promo',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdatePromo(actor, commandPayload, idem),
   });
 
@@ -5367,17 +5339,13 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
   const idem = { key: idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchivePromo']>>>({
-    env: ctx.env,
-    commandId: 'rates.archive_promo',
-    routeId: 'delete_rate_promo',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.archive_promo',
+      routeId: 'delete_rate_promo',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryArchivePromo(actor, commandPayload, idem),
   });
 
@@ -6084,17 +6052,13 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
   const commandPayload = { ...cell, auditCommandId: 'rates.update_room_type_rate' as const };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
-    env: ctx.env,
-    commandId: 'rates.update_room_type_rate',
-    routeId: 'put_room_type_rate',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.update_room_type_rate',
+      routeId: 'put_room_type_rate',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () =>
       resolvedCtx.resolved.stub.tryUpsertRateDay(actor, commandPayload, {
         key: body.idempotencyKey,
@@ -6150,17 +6114,13 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryBulkUpdateRates']>>>({
-    env: ctx.env,
-    commandId: 'rates.bulk_update',
-    routeId: 'post_rates_bulk',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.bulk_update',
+      routeId: 'post_rates_bulk',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRates(actor, commandPayload, idem),
   });
 

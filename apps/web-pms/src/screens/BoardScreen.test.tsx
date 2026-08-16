@@ -230,6 +230,52 @@ describe('BoardScreen folio links', () => {
     expect(getArrivals).not.toHaveBeenCalled();
   });
 
+  it('shows Front Desk page title and Title Case section heading', async () => {
+    getArrivals.mockResolvedValue({ ok: true, items: [item], nextCursor: null });
+    postGuestsBatch.mockResolvedValue({ states: { g1: { kind: 'named', displayName: 'Ada' } } });
+    listRooms.mockResolvedValue({ rooms: [] });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 3 },
+    });
+    renderBoard('arrivals', '/arrivals?date=2026-08-13');
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Front Desk' })).toBeTruthy());
+    expect(screen.getByRole('heading', { name: 'Arrivals' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Arrivals' }).textContent).toBe('Arrivals');
+  });
+
+  it('separates row action links with RowActions', async () => {
+    getArrivals.mockResolvedValue({
+      ok: true,
+      items: [{ ...item, status: 'confirmed' }],
+      nextCursor: null,
+    });
+    postGuestsBatch.mockResolvedValue({ states: { g1: { kind: 'named', displayName: 'Ada' } } });
+    listRooms.mockResolvedValue({ rooms: [{ roomId: 'rm_1', code: '101' }] });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 3 },
+    });
+    renderBoard('arrivals', '/arrivals?date=2026-08-13');
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Check in' })).toBeTruthy());
+    expect(document.querySelector('.ui-row-actions')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Check in Folio Book for guest' })).toBeNull();
+  });
+
   it('guest name leads; room code; In house copy', async () => {
     getInHouse.mockResolvedValue({
       ok: true,

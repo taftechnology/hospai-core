@@ -25,8 +25,16 @@ import {
   DataTableRow,
   Field,
   Input,
+  PageHeader,
+  RowActions,
 } from '@hospai/ui-kit';
 import type { BoardMode } from '../status/board-mode.js';
+
+const BOARD_SECTION_TITLE: Record<BoardMode, string> = {
+  arrivals: 'Arrivals',
+  departures: 'Due out',
+  'in-house': 'In-house',
+};
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -136,15 +144,31 @@ function BoardTable({
               <DataTableCell>{reservationStatusLabel(row.status)}</DataTableCell>
               <DataTableCell>
                 {mode === 'arrivals' && status === 'pending' ? (
-                  <ConfirmPendingButton reservationId={row.reservationId} />
-                ) : null}
-                {mode === 'arrivals' && status !== 'pending' ? (
-                  <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                ) : null}{' '}
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>{' '}
-                <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
-                  Book for guest
-                </Link>
+                  <>
+                    <ConfirmPendingButton reservationId={row.reservationId} />
+                    <RowActions>
+                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
+                      <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                        Book for guest
+                      </Link>
+                    </RowActions>
+                  </>
+                ) : mode === 'arrivals' && status !== 'pending' ? (
+                  <RowActions>
+                    <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
+                    <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
+                    <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                      Book for guest
+                    </Link>
+                  </RowActions>
+                ) : (
+                  <RowActions>
+                    <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
+                    <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                      Book for guest
+                    </Link>
+                  </RowActions>
+                )}
               </DataTableCell>
             </DataTableRow>
           );
@@ -294,6 +318,8 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     );
   }
 
+  const summaryDate = date ?? (timeZone ? propertyLocalToday(timeZone) : null);
+
   return (
     <div>
       {createdBanner ? (
@@ -302,12 +328,16 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         </Card>
       ) : null}
 
+      <PageHeader title="Front Desk" />
+      <BoardSummary date={summaryDate} />
+
       <Card>
         <CardHeader>
           <header className="board-header">
-            <CardTitle>{mode.replace('-', ' ')}</CardTitle>
+            <CardTitle>{BOARD_SECTION_TITLE[mode]}</CardTitle>
             {mode !== 'in-house' ? (
               <Field
+                size="xs"
                 label="Date"
                 control={
                   <Input
@@ -322,7 +352,6 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
                 }
               />
             ) : null}
-            <BoardSummary date={date ?? (timeZone ? propertyLocalToday(timeZone) : null)} />
           </header>
         </CardHeader>
         <CardContent>

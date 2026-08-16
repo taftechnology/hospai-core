@@ -42,7 +42,7 @@ jobs:
       - run: node scripts/property-ddl.mjs --self-test
       - run: pnpm typecheck
       # Package/unit tests only — pms-core is sharded separately (singleWorker + shared D1).
-      - run: pnpm exec turbo run test --filter=!@hospai/pms-core
+      - run: pnpm test:coverage
       - run: pnpm lint
 
   test-pms-core:

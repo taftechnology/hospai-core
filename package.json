@@ -9,6 +9,7 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:coverage": "pnpm exec turbo run test:coverage --filter=!@hospai/pms-core",
     "test:local": "pnpm exec turbo run test --filter=!@hospai/pms-core && node scripts/test-pms-core-shards.mjs",
     "lint": "eslint . && turbo run lint",
     "typecheck": "turbo run typecheck",
@@ -30,6 +31,7 @@
     "demo:seed": "node scripts/demo-seed.mjs"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.0.9",
     "@typescript-eslint/parser": "^8.26.0",
     "eslint": "^9.22.0",
     "eslint-plugin-hospai": "workspace:*",

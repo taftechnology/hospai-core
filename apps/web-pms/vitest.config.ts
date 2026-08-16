@@ -12,5 +12,11 @@ export default defineConfig({
       ['src/providers/**/*.test.tsx', 'jsdom'],
       ['src/dev/**/*.test.tsx', 'jsdom'],
     ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      include: ['src/**/*.ts'],
+      exclude: ['**/*.test.ts', '**/dist/**'],
+    },
   },
 });

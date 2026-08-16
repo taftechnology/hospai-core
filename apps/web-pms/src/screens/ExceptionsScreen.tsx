@@ -14,6 +14,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
   Textarea,
 } from '@hospai/ui-kit';
 import { useMemo, useState, type FormEvent } from 'react';
@@ -298,9 +299,10 @@ export function ExceptionsScreen() {
   const selectedIds = rows.filter((r) => selected.has(r.exceptionId)).map((r) => r.exceptionId);
 
   return (
-    <Card data-testid="exceptions-workbench">
+    <>
+      <PageHeader title="Exceptions" />
+      <Card data-testid="exceptions-workbench">
       {unsavedGuard}
-      <h1 className="text-wrap-balance">Exceptions</h1>
       <div className="exceptions-filters">
         <Field
           label="Command type"
@@ -661,5 +663,6 @@ export function ExceptionsScreen() {
         </dialog>
       ) : null}
     </Card>
+    </>
   );
 }

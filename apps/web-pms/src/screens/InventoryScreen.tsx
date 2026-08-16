@@ -17,6 +17,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
@@ -249,9 +250,10 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
   }
 
   return (
-    <Card data-testid="inventory-screen">
+    <>
+      <PageHeader title="Inventory" />
+      <Card data-testid="inventory-screen">
       {unsavedGuard}
-      <h1>Inventory</h1>
       <nav className="nav">
         <Link to="/inventory">Room Types</Link>
         <Link to="/inventory/rooms">Rooms</Link>
@@ -676,5 +678,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         </Card>
       ) : null}
     </Card>
+    </>
   );
 }

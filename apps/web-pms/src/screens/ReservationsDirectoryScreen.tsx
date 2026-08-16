@@ -13,7 +13,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -22,6 +21,7 @@ import {
   DataTableRow,
   Field,
   Input,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -287,10 +287,10 @@ export function ReservationsDirectoryScreen() {
 
   return (
     <div>
+      <PageHeader title="Reservations" />
       <Card>
         <CardHeader>
           <header className="board-header">
-            <CardTitle>Reservations</CardTitle>
             <nav className="stack-row">
               <Link to={tabSearch('today', date)}>Today</Link>
               <Link to={tabSearch('tomorrow', date)}>Tomorrow</Link>

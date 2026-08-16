@@ -8,7 +8,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -17,6 +16,7 @@ import {
   DataTableRow,
   Field,
   Input,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 
@@ -138,11 +138,11 @@ export function GuestsDirectoryScreen() {
 
   return (
     <div>
+      <PageHeader title="Guests" />
       <div aria-live="polite">
       <Card>
         <CardHeader>
           <header className="board-header">
-            <CardTitle>Guests</CardTitle>
             <Field
               label="Name, email, or phone"
               control={

@@ -8,6 +8,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
 } from '@hospai/ui-kit';
 import {
   hasOrgPermission,
@@ -279,10 +280,9 @@ export function StaffScreen() {
   const orgDirectoryUnavailable = orgMembersQ.data?.directory === 'unavailable';
 
   return (
-    <Card data-testid="staff-screen">
-      <header className="board-header">
-        <h1 className="board-title">Staff</h1>
-      </header>
+    <>
+      <PageHeader title="Staff" />
+      <Card data-testid="staff-screen">
 
       {message ? (
         <Alert data-testid="staff-message">{message}</Alert>
@@ -512,5 +512,6 @@ export function StaffScreen() {
         )}
       </section>
     </Card>
+    </>
   );
 }

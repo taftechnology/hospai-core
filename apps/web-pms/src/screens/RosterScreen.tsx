@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
 } from '@hospai/ui-kit';
 import {
   hasPropertyPermission,
@@ -126,8 +127,9 @@ export function RosterScreen() {
   }
 
   return (
-    <Card data-testid="roster-screen">
-      <h1>Roster</h1>
+    <>
+      <PageHeader title="Roster" />
+      <Card data-testid="roster-screen">
       {staff.length === 0 && listQuery.isSuccess && <p>Add someone to the roster</p>}
 
       <form
@@ -244,5 +246,6 @@ export function RosterScreen() {
         </DataTableBody>
       </DataTable>
     </Card>
+    </>
   );
 }

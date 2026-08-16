@@ -7,8 +7,8 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   Field,
+  PageHeader,
   Input,
 } from '@hospai/ui-kit';
 import {
@@ -22,6 +22,7 @@ const DEMO_UNLOCK_KEY = 'hospai.demo-unlock';
 function SignInChrome({ children }: { children?: ReactNode }) {
   return (
     <div className="sign-in" data-testid="sign-in">
+      <PageHeader title="Sign in" />
       <Card>
         <CardHeader>
           <div className="app-sidebar-brand">
@@ -30,7 +31,6 @@ function SignInChrome({ children }: { children?: ReactNode }) {
               HospAI <span>PMS</span>
             </p>
           </div>
-          <CardTitle>Sign in</CardTitle>
           <p className="muted">Front desk</p>
         </CardHeader>
         <CardContent>{children}</CardContent>

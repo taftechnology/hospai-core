@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
+import { Alert, Button, Card, Checkbox, Field, NativeSelect, PageHeader } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
@@ -146,11 +146,12 @@ export function CheckInScreen() {
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
 
   return (
-    <Card>
-      <p>
-        <Link to="/arrivals">← Arrivals</Link>
-      </p>
-      <h1>Check in {displayName ?? 'guest'}</h1>
+    <>
+      <PageHeader
+        title={`Check in ${displayName ?? 'guest'}`}
+        back={<Link to="/arrivals">← Arrivals</Link>}
+      />
+      <Card>
       <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
       {reservationQ.isSuccess ? (
         <p>
@@ -224,5 +225,6 @@ export function CheckInScreen() {
         roomTypeLabel={roomTypeLabel}
       />
     </Card>
+    </>
   );
 }

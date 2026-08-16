@@ -28,6 +28,7 @@ jobs:
       - run: pnpm check:web-pms-colors
       - run: pnpm check:class-resolution
       - run: pnpm check:ui-kit-adoption
+      - run: pnpm check:spa-page-chrome
       - run: pnpm check:web-pms-me-gating
       - run: pnpm check:pms-core-test-dates
       - run: pnpm check:module-manifests

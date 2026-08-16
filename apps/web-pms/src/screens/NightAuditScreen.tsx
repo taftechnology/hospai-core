@@ -9,6 +9,7 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -147,8 +148,9 @@ export function NightAuditScreen() {
   });
 
   return (
-    <Card data-testid="night-audit-screen">
-      <h1>Night audit</h1>
+    <>
+      <PageHeader title="Night audit" />
+      <Card data-testid="night-audit-screen">
       {statusQuery.isLoading ? <p className="muted">Loading…</p> : null}
       {status ? (
         <>
@@ -239,5 +241,6 @@ export function NightAuditScreen() {
         </>
       ) : null}
     </Card>
+    </>
   );
 }

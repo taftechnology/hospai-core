@@ -14,6 +14,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -238,16 +239,16 @@ export function CityLedgerScreen() {
         detailQ.error instanceof ClassifiedError);
 
     return (
-      <Card data-testid="city-ledger-detail">
-        <header className="board-header">
-          <h1>
-            <Link to="/city-ledger">City ledger</Link>
-            {detail ? ` · ${detail.name}` : ''}
-          </h1>
-          {detail ? (
-            <Badge rung={statusRung(detail.status)}>{detail.status}</Badge>
-          ) : null}
-        </header>
+      <>
+        <PageHeader
+          title="City ledger"
+          subtitle={detail?.name}
+          back={<Link to="/city-ledger">← City ledger</Link>}
+          actions={
+            detail ? <Badge rung={statusRung(detail.status)}>{detail.status}</Badge> : undefined
+          }
+        />
+        <Card data-testid="city-ledger-detail">
 
         {message ? (
           <p role="status" data-testid="city-ledger-message">
@@ -438,6 +439,7 @@ export function CityLedgerScreen() {
           </Card>
         ) : null}
       </Card>
+      </>
     );
   }
 
@@ -447,15 +449,18 @@ export function CityLedgerScreen() {
     (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
 
   return (
-    <Card data-testid="city-ledger-list">
-      <header className="board-header">
-        <h1>City ledger</h1>
-        {canAdjust ? (
-          <Button type="button" onClick={() => setShowCreate(true)}>
-            Create account
-          </Button>
-        ) : null}
-      </header>
+    <>
+      <PageHeader
+        title="City ledger"
+        actions={
+          canAdjust ? (
+            <Button type="button" onClick={() => setShowCreate(true)}>
+              Create account
+            </Button>
+          ) : undefined
+        }
+      />
+      <Card data-testid="city-ledger-list">
 
       {message ? (
         <p role="status" data-testid="city-ledger-message">
@@ -571,5 +576,6 @@ export function CityLedgerScreen() {
         </Card>
       ) : null}
     </Card>
+    </>
   );
 }

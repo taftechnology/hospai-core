@@ -15,6 +15,7 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
   Textarea,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
@@ -354,9 +355,10 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   }
 
   return (
-    <Card data-testid="rates-screen">
+    <>
+      <PageHeader title="Rates" />
+      <Card data-testid="rates-screen">
       {unsavedGuard}
-      <h1>Rates</h1>
       <nav className="nav">
         <Link to="/rates/plans">Plans</Link>
         <Link to="/rates/matrix">Matrix</Link>
@@ -1019,5 +1021,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
         </Card>
       ) : null}
     </Card>
+    </>
   );
 }

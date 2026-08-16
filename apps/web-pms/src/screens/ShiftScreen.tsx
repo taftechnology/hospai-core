@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Alert, Badge, Button, Card, Field, Input } from '@hospai/ui-kit';
+import { Alert, Badge, Button, Card, Field, Input, PageHeader } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
@@ -102,14 +102,16 @@ function ShiftCloseForm() {
     | undefined;
   if (!open?.shift) {
     return (
-      <Card className="stack">
-        <h1>Close shift</h1>
+      <>
+        <PageHeader title="Close shift" />
+        <Card className="stack">
         <p className="muted">
           No open shift. Open one from the strip above, or review a recent shift from the force-close
           callout when shown.
         </p>
         <Link to="/arrivals">Back to board</Link>
       </Card>
+      </>
     );
   }
 
@@ -117,8 +119,9 @@ function ShiftCloseForm() {
   const { businessDate, openingFloat } = open.shift;
 
   return (
-    <Card className="stack">
-      <h1>Close shift</h1>
+    <>
+      <PageHeader title="Close shift" />
+      <Card className="stack">
       <p>
         {businessDate ? (
           <>
@@ -158,6 +161,7 @@ function ShiftCloseForm() {
       </form>
       {message ? <p className="muted">{message}</p> : null}
     </Card>
+    </>
   );
 }
 
@@ -201,8 +205,9 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         : formatVarianceMinor(shift.variance);
 
   return (
-    <Card className="stack" data-testid="shift-receipt">
-      <h1>Shift receipt</h1>
+    <>
+      <PageHeader title="Shift receipt" />
+      <Card className="stack" data-testid="shift-receipt">
       <Badge rung={sev} data-testid="receipt-status">
         {shift.status}
       </Badge>
@@ -233,5 +238,6 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
       ) : null}
       <Link to="/arrivals">Back to board</Link>
     </Card>
+    </>
   );
 }

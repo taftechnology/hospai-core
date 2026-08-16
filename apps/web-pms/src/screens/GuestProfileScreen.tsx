@@ -8,7 +8,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -17,6 +16,7 @@ import {
   DataTableRow,
   Field,
   Input,
+  PageHeader,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -181,6 +181,7 @@ export function GuestProfileScreen() {
   return (
     <div data-testid="guest-profile">
       {unsavedGuard}
+      <PageHeader title={heading} />
       {contactFailClosed ? (
         <Alert>Guest profile unavailable — organization unreachable.</Alert>
       ) : guestQ.isLoading ? (
@@ -189,7 +190,6 @@ export function GuestProfileScreen() {
         <Card>
           <CardHeader>
             <header className="board-header">
-              <CardTitle>{heading}</CardTitle>
               {canBook ? (
                 <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
                   Book for guest

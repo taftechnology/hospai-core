@@ -1,7 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { shouldRetry, retryDelay } from '@hospai/client-core';
-import { asClassified } from './client.js';
+import { createQueryClient } from './query-client.js';
 import { BookRoute } from './screens/BookRoute.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
@@ -28,15 +27,7 @@ import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 import { UiGallery } from './dev/UiGallery.js';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (count, err) => shouldRetry(asClassified(err)) && count < 3,
-      retryDelay: (count, err) => retryDelay(asClassified(err), count),
-    },
-    mutations: { retry: false },
-  },
-});
+const queryClient = createQueryClient();
 
 export function App() {
   return (

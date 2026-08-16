@@ -129,7 +129,6 @@ export function StaffScreen() {
     queryKey: ['property-members', propertyId],
     queryFn: () => api.listPropertyMembers(propertyId),
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
     enabled: Boolean(me),
   });
 
@@ -137,7 +136,6 @@ export function StaffScreen() {
     queryKey: ['org-members', orgId],
     queryFn: () => api.listOrgMembers(orgId),
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
     enabled: Boolean(me) && canManageOrg,
   });
 

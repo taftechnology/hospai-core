@@ -563,15 +563,17 @@ function mapReservationConcreteCommandErrorStatus(error: ConcreteCommandError): 
 /** Lock 4: `not_member` → 404 — actor lacks effective org/property role (see spec §2.4). */
 function mapGuestCommandErrorStatus(error: CommandError): number {
   if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
-  return mapGuestConcreteCommandErrorStatus(error as ConcreteCommandError);
+  return mapPersonEntityCommandErrorStatus(error as ConcreteCommandError);
 }
 
-function mapGuestConcreteCommandErrorStatus(error: ConcreteCommandError): number {
+function mapPersonEntityCommandErrorStatus(error: ConcreteCommandError): number {
   switch (error) {
     case GUEST_NOT_FOUND:
+    case STAFF_NOT_FOUND:
       return 404;
     case GUEST_ALREADY_ERASED:
     case GUEST_EXISTS:
+    case STAFF_EXITED:
     case IDEM_KEY_REUSED:
       return 409;
     case FORBIDDEN:
@@ -721,8 +723,6 @@ function mapGuestConcreteCommandErrorStatus(error: ConcreteCommandError): number
     case SHIFT_NOT_FOUND:
     case SHIFT_ALREADY_OPEN:
     case SHIFT_NOT_OPEN:
-    case STAFF_NOT_FOUND:
-    case STAFF_EXITED:
     case STAFF_NOT_ASSIGNABLE:
     case INVALID_KINDS:
     case EMPTY_KINDS:
@@ -753,192 +753,19 @@ function mapGuestConcreteCommandErrorStatus(error: ConcreteCommandError): number
 
 function mapRosterCommandErrorStatus(error: CommandError): number {
   if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
-  return mapRosterConcreteCommandErrorStatus(error as ConcreteCommandError);
+  return mapPersonEntityCommandErrorStatus(error as ConcreteCommandError);
 }
 
-function mapRosterConcreteCommandErrorStatus(error: ConcreteCommandError): number {
-  switch (error) {
-    case STAFF_NOT_FOUND:
-      return 404;
-    case STAFF_EXITED:
-    case IDEM_KEY_REUSED:
-      return 409;
-    case FORBIDDEN:
-    case SCOPE_MISMATCH:
-      return 403;
-    case NOT_MEMBER:
-      return 404;
-    case BUSINESS_DATE_UNSET:
-    case ORG_ID_UNSET:
-    case PROPERTY_ID_UNSET:
-    case TIMEZONE_UNSET:
-    case INTERNAL_ERROR:
-    case UNKNOWN_COMMAND:
-      return 500;
-    case ROOM_TYPE_EXISTS:
-    case ROOM_TYPE_CODE_EXISTS:
-    case OVERSELL:
-    case ARCHIVE_BLOCKED:
-    case VIRTUAL_CONSTITUENTS_REQUIRED:
-    case VIRTUAL_CONSTITUENTS_MIN_TWO:
-    case VIRTUAL_CONSTITUENTS_DUPLICATE:
-    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
-    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
-    case VIRTUAL_NESTED_FORBIDDEN:
-    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
-    case ROOM_TYPE_KIND_IMMUTABLE:
-    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
-    case CONSTITUENT_IN_USE:
-    case VIRTUAL_TYPE_NO_ROOMS:
-    case NOT_FOUND:
-    case BUSINESS_DATE_CLOSED:
-    case ORG_UNREACHABLE:
-    case BULK_NOT_ADMITTED:
-    case DOMAIN_ERROR:
-    case TENANT_NOT_ACTIVE:
-    case PENDING_COMMANDS_UNDRAINED:
-    case PROVISIONAL_EXCEPTIONS_OPEN:
-    case PENDING_CENSUS_REQUIRED:
-    case ALREADY_RESOLVED:
-    case NOTE_TOO_LONG:
-    case NOTE_LIMIT:
-    case NIGHT_AUDIT_HALTED:
-    case NIGHT_AUDIT_STEP_NOT_FAILED:
-    case NIGHT_AUDIT_NOT_DUE:
-    case NIGHT_AUDIT_WORKFLOW_EXISTS:
-    case NO_AVAILABILITY:
-    case UNBOOKABLE:
-    case ALREADY_CANCELLED:
-    case LEDGER_INCONSISTENT:
-    case NOT_MODIFIABLE:
-    case INVALID_STATUS_TRANSITION:
-    case NO_SHOW_BEFORE_ARRIVAL:
-    case RESTRICTION_VIOLATED:
-    case RATE_MISSING:
-    case SPLIT_AMOUNT_MISMATCH:
-    case HOLD_EXPIRED:
-    case INQUIRY_EXPIRED:
-    case ROOM_REQUIRED:
-    case ROOM_NOT_READY:
-    case ROOM_OUT_OF_ORDER:
-    case BALANCE_DUE:
-    case OCCUPANCY_EXCEEDED:
-    case FRONT_OFFICE_COMMENT_TOO_LONG:
-    case INVALID_STATUS:
-    case INVALID_BUSINESS_DATE:
-    case INVALID_ASSIGNEE_REF:
-    case INVALID_DATE:
-    case GUEST_REF_REQUIRED:
-    case INVALID_STAY_RANGE:
-    case INVALID_WINDOW:
-    case INVALID_DATE_RANGE:
-    case VALIDATION_ERROR:
-    case WINDOW_CLOSED:
-    case WINDOW_NOT_CLOSABLE:
-    case WINDOW_BALANCE_DUE:
-    case WINDOW_NOT_REOPENABLE:
-    case WINDOW_NOT_OPENABLE:
-    case GUEST_WINDOW_NOT_OPENABLE:
-    case TRANSFER_CROSS_RESERVATION:
-    case TRANSFER_SAME_WINDOW:
-    case LINE_NOT_TRANSFERABLE:
-    case LINE_NOT_DISCOUNTABLE:
-    case PAYMENT_NOT_VOIDABLE:
-    case PAYMENT_NOT_REFUNDABLE:
-    case DISCOUNT_REASON_REQUIRED:
-    case FX_REASON_REQUIRED:
-    case PAYMENT_NOT_CHARGEBACKABLE:
-    case REFUND_EXCEEDS_REMAINING:
-    case PSP_UNAVAILABLE:
-    case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_RECONCILABLE:
-    case LINE_NOT_SPLITTABLE:
-    case INVALID_VOID_REASON:
-    case PSP_ADAPTER_FAILED:
-    case PAYMENT_INSERT_FAILED:
-    case ROOM_CODE_EXISTS:
-    case ROOM_COUNT_EXCEEDED:
-    case ROOM_UNITS_EXCEED_COUNT:
-    case ROOM_TYPE_MISMATCH:
-    case ROOM_ALREADY_ASSIGNED:
-    case ROOM_NOT_ASSIGNABLE:
-    case OOO_VIA_RANGE:
-    case OOO_ROOM_ASSIGNED:
-    case OOO_RANGE_OVERLAP:
-    case OOO_INVALID_RANGE:
-    case RATE_PLAN_NOT_FOUND:
-    case RATE_PLAN_CODE_EXISTS:
-    case RATE_PLAN_ID_EXISTS:
-    case DEFAULT_RATE_PLAN_PROTECTED:
-    case DERIVED_RATE_PLAN_INVALID:
-    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
-    case INVALID_CANCEL_POLICY:
-    case PROMO_NOT_FOUND:
-    case PROMO_NOT_APPLICABLE:
-    case PROMO_CODE_EXISTS:
-    case INVALID_PROMO_CODE:
-    case INVALID_PROMO_WINDOW:
-    case INVALID_PROMO_KIND_FIELD:
-    case PROMO_ID_EXISTS:
-    case INVOICE_ALREADY_EXISTS:
-    case INVOICE_NOT_FOUND:
-    case INVOICE_VOIDED:
-    case INVOICE_R2_UNBOUND:
-    case INVOICE_COUNTER_RACE:
-    case REPORTS_R2_UNBOUND:
-    case INVOICE_REQUIRED:
-    case FOLIO_BALANCE_DUE:
-    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
-    case CITY_LEDGER_ACCOUNT_EXISTS:
-    case CITY_LEDGER_ACCOUNT_ARCHIVED:
-    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
-    case CITY_LEDGER_BILLED_PARTY_INVALID:
-    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
-    case CITY_LEDGER_STATEMENT_NOT_FOUND:
-    case CITY_LEDGER_R2_UNBOUND:
-    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
-    case CHARGE_CODE_NOT_FOUND:
-    case CHARGE_CODE_EXISTS:
-    case ROUTING_RULE_CONFLICT:
-    case SYSTEM_CHARGE_CODE_PROTECTED:
-    case CONFIG_CLASS_NOT_DOMAIN:
-    case TAX_RULE_NOT_FOUND:
-    case TAX_RULE_KEY_EXISTS:
-    case TAX_RULE_KEY_OVERLAP:
-    case TAX_RULE_TYPE_UNSUPPORTED:
-    case TAX_OUTPUT_CODE_TAXABLE:
-    case SHIFT_NOT_FOUND:
-    case SHIFT_ALREADY_OPEN:
-    case SHIFT_NOT_OPEN:
-    case GUEST_NOT_FOUND:
-    case GUEST_ALREADY_ERASED:
-    case GUEST_EXISTS:
-    case STAFF_NOT_ASSIGNABLE:
-    case INVALID_KINDS:
-    case EMPTY_KINDS:
-    case INVALID_ROLE:
-    case ALREADY_MEMBER:
-    case LAST_OWNER:
-    case PROPERTY_REF_NOT_FOUND:
-    case DECRYPT_UNRESOLVED:
-    case KEY_SHRED_FAILED:
-    case ENTITLEMENT_REQUIRED:
-    case ENTITLEMENT_UNAVAILABLE:
-    case LIMIT_EXCEEDED:
-    case MONEY_INVALID:
-    case FX_RATE_INVALID:
-    case LEDGER_AMOUNT_MISMATCH:
-    case CURRENCY_UNSET:
-    case CROSS_CURRENCY_UNSUPPORTED:
-    case FX_RATE_MISSING:
-    case FX_RATE_NOT_LEDGER:
-    case FX_RATE_OPEN_EXISTS:
-      return 422;
-    default: {
-      const _exhaustive: never = error;
-      return _exhaustive;
-    }
+function mapCommandErrorStatus(error: CommandError): number {
+  return mapGuestCommandErrorStatus(error);
+}
+
+function commandErrorResponse(err: CommandError, permission: Permission): Response {
+  if (err === NOT_MEMBER) return json({ error: 'not_found' }, 404);
+  if (err === FORBIDDEN || err === SCOPE_MISMATCH) {
+    return json({ error: 'forbidden', permission }, 403);
   }
+  return json({ ok: false, error: err }, mapCommandErrorStatus(err));
 }
 
 function mapConfigErrorStatus(error: CommandError): number {
@@ -2010,12 +1837,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      const err = result.error;
-      if (err === 'not_member') return json({ error: 'not_found' }, 404);
-      if (err === FORBIDDEN || err === 'scope_mismatch') {
-        return json({ error: 'forbidden', permission: 'guests:write' }, 403);
-      }
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+      return commandErrorResponse(result.error, 'guests:write');
     }
     return json(result, 200);
   } catch (e) {
@@ -2064,12 +1886,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      const err = result.error;
-      if (err === 'not_member') return json({ error: 'not_found' }, 404);
-      if (err === FORBIDDEN || err === 'scope_mismatch') {
-        return json({ error: 'forbidden', permission: 'guests:write' }, 403);
-      }
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+      return commandErrorResponse(result.error, 'guests:write');
     }
     return json(result, 200);
   } catch (e) {
@@ -2110,12 +1927,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      const err = result.error;
-      if (err === 'not_member') return json({ error: 'not_found' }, 404);
-      if (err === FORBIDDEN || err === 'scope_mismatch') {
-        return json({ error: 'forbidden', permission: 'guests:erase' }, 403);
-      }
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+      return commandErrorResponse(result.error, 'guests:erase');
     }
     return json(
       {
@@ -2154,12 +1966,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.readGuest(actor, propertyId, guestId);
     if (!result.ok) {
-      const err = result.error;
-      if (err === 'not_member') return json({ error: 'not_found' }, 404);
-      if (err === FORBIDDEN || err === 'scope_mismatch') {
-        return json({ error: 'forbidden', permission: 'guests:read' }, 403);
-      }
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+      return commandErrorResponse(result.error, 'guests:read');
     }
     return json(result, 200);
   } catch (e) {
@@ -2201,14 +2008,6 @@ function rosterGetDegraded(): Response {
   const headers = new Headers(degraded.headers);
   headers.set('Cache-Control', 'private, no-store');
   return new Response(degraded.body, { status: degraded.status, headers });
-}
-
-function rosterWriteErrorResponse(err: string, permission: Permission): Response {
-  if (err === 'not_member') return json({ error: 'not_found' }, 404);
-  if (err === FORBIDDEN || err === 'scope_mismatch') {
-    return json({ error: 'forbidden', permission }, 403);
-  }
-  return json({ ok: false, error: err }, mapRosterCommandErrorStatus(coerceCommandError(err)));
 }
 
 async function rosterGrants(
@@ -2329,7 +2128,7 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      return rosterWriteErrorResponse(result.error, 'roster:write');
+      return commandErrorResponse(result.error, 'roster:write');
     }
     return json(result, 200);
   } catch (e) {
@@ -2386,7 +2185,7 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      return rosterWriteErrorResponse(result.error, 'roster:write');
+      return commandErrorResponse(result.error, 'roster:write');
     }
     return json(result, 200);
   } catch (e) {
@@ -2427,7 +2226,7 @@ async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response>
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      return rosterWriteErrorResponse(result.error, 'roster:write');
+      return commandErrorResponse(result.error, 'roster:write');
     }
     return json(result, 200);
   } catch (e) {
@@ -2468,7 +2267,7 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
-      return rosterWriteErrorResponse(result.error, 'roster:write');
+      return commandErrorResponse(result.error, 'roster:write');
     }
     return json(result, 200);
   } catch (e) {

@@ -966,7 +966,12 @@ EOF
 
 **Forbidden this commit:** new features; scope-out items.
 
-- [ ] **Step 1: Targeted Phase G specs**
+**Verification notes (2026-08-16):**
+- **G2-6:** verify-only — guests/roster use Org DO transport; no `invokePropertyDo` sites; no product commit for that batch.
+- **G3:** consolidated 8 sites (4 `rosterWriteErrorResponse` + 4 guest ladders); reservation/folio/rates mappers left local to preserve Phase D HTTP statuses.
+- **G5 follow-up (`805368b`):** migrated 9 compound `className="panel …"` sites to `<Card>` and widened ui-kit ratchet regex — resolved the `check:class-resolution` blocker from the first Task 13 run.
+
+- [x] **Step 1: Targeted Phase G specs**
 
 ```bash
 pnpm check:permissions
@@ -984,7 +989,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: **PASS**.
 
-- [ ] **Step 2: typecheck / build / lint**
+- [x] **Step 2: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -994,7 +999,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 3: All 14 `check:*` gates**
+- [x] **Step 3: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -1015,7 +1020,7 @@ pnpm check:purge
 
 Expected: all **PASS** (`check:ddl` confirm-only — no migration).
 
-- [ ] **Step 4: Full local test loop — long pole**
+- [x] **Step 4: Full local test loop — long pole**
 
 ```bash
 pnpm test:local
@@ -1023,7 +1028,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 5: Pin frozen heads — counts unchanged + G4 shape present**
+- [x] **Step 5: Pin frozen heads — counts unchanged + G4 shape present**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -1035,7 +1040,7 @@ rg "id: '" apps/pms-core/src/v1-dispatch.ts | wc -l
 
 Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_statement`; schema **34**; steps **8** `[3] AUTO_TRANSFER`; idempotency consts **158**; `RouteId` exported; **144** route ids in dispatch.
 
-- [ ] **Step 6: Scope-out grep — must be clean**
+- [x] **Step 6: Scope-out grep — must be clean**
 
 ```bash
 ! rg "authority\.kind === 'unknown'" apps/web-pms/src/auth/PermissionRoute.tsx | rg -v "Outlet|fail.open|DO NOT"
@@ -1046,15 +1051,15 @@ Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_st
 
 Expected: fail-open preserved; no panel/badge literals; `rosterWriteErrorResponse` deleted.
 
-- [ ] **Step 7: Tick spec §8 reviewer checklist**
+- [x] **Step 7: Tick spec §8 reviewer checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-16-audit-phase-g-structural-design.md` §8.
 
-- [ ] **Step 8: Tick Task 13 checkboxes in this plan only**
+- [x] **Step 8: Tick Task 13 checkboxes in this plan only**
 
 Do **not** retroactively tick Tasks 1–12 unless already done during implementation.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-16-audit-phase-g-structural-design.md \

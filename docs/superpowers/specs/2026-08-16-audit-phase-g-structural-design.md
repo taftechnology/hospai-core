@@ -640,15 +640,15 @@ pnpm test:local
 
 ## 8. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1 (G1): `PermissionRoute` with `permission`, `fallback`, `<Outlet/>` only; 4 routes nested; housekeeping `housekeeping:read`; fail-open preserved
-- [ ] Lock 2 (G2): `commandEnvelope` in `command-envelope.ts`; 8 domain batches committed separately
-- [ ] Lock 3 (G3): `commandErrorResponse(err: CommandError, permission)`; merged `mapPersonEntityCommandErrorStatus`; statuses unchanged
-- [ ] Lock 4 (G4): `id` on all `V1_ROUTES`; `RouteId` export; id-keyed `check:permissions`; `invokePropertyDo.routeId: RouteId`
-- [ ] Lock 5 (G5): ratchet counts `panel`/`badge`; 13 + 2 replacements; CSS deleted/merged; baseline 0/0
-- [ ] Frozen head **counts** unchanged (§1.7); **G4 shape change only** — `RouteId` additive export, 144 routes
-- [ ] Scope-out respected — no DO/schema/catalog, no Phase H, no fail-open fix, no status changes
-- [ ] `pnpm test:local` green (or sharded equivalent)
-- [ ] All **14** `check:*` gates green
+- [x] Lock 1 (G1): `PermissionRoute` with `permission`, `fallback`, `<Outlet/>` only; 4 routes nested; housekeeping `housekeeping:read`; fail-open preserved
+- [x] Lock 2 (G2): `commandEnvelope` in `command-envelope.ts`; 8 domain batches committed separately
+- [x] Lock 3 (G3): `commandErrorResponse(err: CommandError, permission)`; merged `mapPersonEntityCommandErrorStatus`; statuses unchanged
+- [x] Lock 4 (G4): `id` on all `V1_ROUTES`; `RouteId` export; id-keyed `check:permissions`; `invokePropertyDo.routeId: RouteId`
+- [x] Lock 5 (G5): ratchet counts `panel`/`badge`; 13 + 2 replacements; CSS deleted/merged; baseline 0/0
+- [x] Frozen head **counts** unchanged (§1.7); **G4 shape change only** — `RouteId` additive export, 144 routes
+- [x] Scope-out respected — no DO/schema/catalog, no Phase H, no fail-open fix, no status changes
+- [x] `pnpm test:local` green (or sharded equivalent)
+- [x] All **14** `check:*` gates green
 
 ---
 

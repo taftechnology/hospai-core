@@ -132,6 +132,16 @@ import {
   INVALID_STATUS,
   INVALID_BUSINESS_DATE,
   INVALID_ASSIGNEE_REF,
+  INVALID_DATE,
+  GUEST_REF_REQUIRED,
+  INVALID_STAY_RANGE,
+  INVALID_WINDOW,
+  INVALID_DATE_RANGE,
+  INVALID_PROMO_CODE,
+  INVALID_PROMO_WINDOW,
+  INVALID_PROMO_KIND_FIELD,
+  PROMO_ID_EXISTS,
+  INVOICE_COUNTER_RACE,
   ORG_UNREACHABLE,
   INTERNAL_ERROR,
   configUndeclared,
@@ -8057,14 +8067,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof UNBOOKABLE; date: string }
     | { ok: false; error: typeof RESTRICTION_VIOLATED; rule: string; date: string; required?: number }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
-    | { ok: false; error: 'org_unreachable' }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_UNREACHABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -8077,20 +8087,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(input.arrivalDate) || !dateRe.test(input.departureDate)) {
-      return { ok: false, error: 'invalid_date' };
+      return { ok: false, error: INVALID_DATE };
     }
     if (!input.guestRef) {
-      return { ok: false, error: 'guest_ref_required' };
+      return { ok: false, error: GUEST_REF_REQUIRED };
     }
     if (input.arrivalDate >= input.departureDate) {
-      return { ok: false, error: 'invalid_stay_range' };
+      return { ok: false, error: INVALID_STAY_RANGE };
     }
 
     let nights: string[];
     try {
       nights = enumerateStayDates(input.arrivalDate, input.departureDate);
     } catch {
-      return { ok: false, error: 'invalid_stay_range' };
+      return { ok: false, error: INVALID_STAY_RANGE };
     }
 
     const guestGate = await this.gateGuestRef(orgId, input.guestRef);
@@ -8102,7 +8112,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const status = input.status ?? 'confirmed';
           if (status !== 'inquiry' && status !== 'pending' && status !== 'confirmed') {
-            throw new Error('invalid_status');
+            throw new Error(INVALID_STATUS);
           }
           const adults = input.adults ?? 1;
           const children = input.children ?? 0;
@@ -8265,9 +8275,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           ariVersion: this.readAriVersionSync(),
         };
       }
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -8278,12 +8288,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: typeof NOT_FOUND | typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED | typeof INVALID_STATUS_TRANSITION | typeof NO_AVAILABILITY; date?: string; ariVersion?: number }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -8413,9 +8423,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof NoAvailabilityError) {
         return { ok: false, error: NO_AVAILABILITY, date: e.date, ariVersion: this.readAriVersionSync() };
       }
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -8426,12 +8436,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: typeof NOT_FOUND | typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED | typeof INVALID_STATUS_TRANSITION | typeof NO_AVAILABILITY; date?: string; ariVersion?: number }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -8551,9 +8561,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof NoAvailabilityError) {
         return { ok: false, error: NO_AVAILABILITY, date: e.date, ariVersion: this.readAriVersionSync() };
       }
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -8569,12 +8579,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; reservationId: string; ariVersion: number; fromDate: string; toDate: string }
     | { ok: false; error: typeof ALREADY_CANCELLED }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -8715,9 +8725,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -8749,12 +8759,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
     | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -8767,17 +8777,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(input.arrivalDate) || !dateRe.test(input.departureDate)) {
-      return { ok: false, error: 'invalid_date' };
+      return { ok: false, error: INVALID_DATE };
     }
     if (input.arrivalDate >= input.departureDate) {
-      return { ok: false, error: 'invalid_stay_range' };
+      return { ok: false, error: INVALID_STAY_RANGE };
     }
 
     let newNights: string[];
     try {
       newNights = enumerateStayDates(input.arrivalDate, input.departureDate);
     } catch {
-      return { ok: false, error: 'invalid_stay_range' };
+      return { ok: false, error: INVALID_STAY_RANGE };
     }
 
     try {
@@ -9306,9 +9316,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           ariVersion: this.readAriVersionSync(),
         };
       }
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -9386,13 +9396,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
     | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
@@ -9562,9 +9572,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -9583,13 +9593,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
     | { ok: false; error: typeof BALANCE_DUE }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
@@ -9737,9 +9747,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ...result, autoCapture };
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -9802,13 +9812,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
@@ -9861,9 +9871,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -9882,12 +9892,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NO_SHOW_BEFORE_ARRIVAL }
     | { ok: false; error: typeof BUSINESS_DATE_UNSET }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -10005,9 +10015,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -10032,8 +10042,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_MODIFIABLE }
     | { ok: false; error: typeof FRONT_OFFICE_COMMENT_TOO_LONG }
     | { ok: false; error: typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
@@ -10131,9 +10141,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -10292,7 +10302,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }>;
         nextCursor: { reservationId: string } | null;
       }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     const limit = this.clampFrontDeskLimit(opts?.limit);
@@ -10362,7 +10372,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }>;
         nextCursor: { status: string; reservationId: string } | null;
       }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     const limit = this.clampFrontDeskLimit(opts?.limit);
@@ -10433,7 +10443,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }>;
         nextCursor: { departureDate: string; reservationId: string } | null;
       }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     const limit = this.clampFrontDeskLimit(opts?.limit);
@@ -10706,15 +10716,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         items: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
         nextCursor: { arrivalDate: string; reservationId: string } | null;
       }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     const win = q.window;
     if (win !== 'today' && win !== 'tomorrow' && win !== 'week' && win !== 'all') {
-      return { ok: false, error: 'invalid_window' };
+      return { ok: false, error: INVALID_WINDOW };
     }
     if (win !== 'all' && (!q.date || !/^\d{4}-\d{2}-\d{2}$/.test(q.date))) {
-      return { ok: false, error: 'invalid_date' };
+      return { ok: false, error: INVALID_DATE };
     }
     const limit = this.clampFrontDeskLimit(q.limit);
     const where: string[] = [];
@@ -11322,11 +11332,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       stopSell: boolean;
     },
     idem: IdempotencyKey,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
+  ): Promise<{ ok: true } | NonNullable<ReturnType<typeof mapPropertyCommandError>>> {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -11388,7 +11398,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -11625,7 +11635,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   private assertPromoCodeCharsetSync(code: string): void {
     if (!PropertyDO.PROMO_CODE_CHARSET.test(code)) {
-      throw new Error('invalid_promo_code');
+      throw new Error(INVALID_PROMO_CODE);
     }
   }
 
@@ -11728,15 +11738,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof PROMO_CODE_EXISTS }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -11748,13 +11758,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       this.assertPromoCodeCharsetSync(code);
     } catch {
-      return { ok: false, error: 'invalid_promo_code' };
+      return { ok: false, error: INVALID_PROMO_CODE };
     }
 
     const validFrom = input.validFrom ?? null;
     const validTo = input.validTo ?? null;
     if ((validFrom == null) !== (validTo == null)) {
-      return { ok: false, error: 'invalid_promo_window' };
+      return { ok: false, error: INVALID_PROMO_WINDOW };
     }
 
     try {
@@ -11763,7 +11773,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const existingId = this.ctx.storage.sql
             .exec(`SELECT promo_id FROM promo WHERE promo_id = ?`, input.promoId)
             .toArray();
-          if (existingId.length > 0) throw new Error('promo_id_exists');
+          if (existingId.length > 0) throw new Error(PROMO_ID_EXISTS);
 
           const codeTaken = this.ctx.storage.sql
             .exec(`SELECT promo_id FROM promo WHERE code = ? AND status = 'active'`, code)
@@ -11813,7 +11823,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof PromoCodeExistsError) return { ok: false, error: PROMO_CODE_EXISTS };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -11838,15 +11848,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof PROMO_NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -11875,7 +11885,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const validFrom = input.validFrom !== undefined ? input.validFrom : row.valid_from;
           const validTo = input.validTo !== undefined ? input.validTo : row.valid_to;
           if ((validFrom == null) !== (validTo == null)) {
-            throw new Error('invalid_promo_window');
+            throw new Error(INVALID_PROMO_WINDOW);
           }
 
           const nextRatePlanId =
@@ -11883,10 +11893,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           let nextBps = row.bps;
           let nextAmountMinor = row.amount_minor;
           if (row.kind === 'percent') {
-            if (input.amountMinor !== undefined) throw new Error('invalid_promo_kind_field');
+            if (input.amountMinor !== undefined) throw new Error(INVALID_PROMO_KIND_FIELD);
             nextBps = input.bps ?? row.bps;
           } else {
-            if (input.bps !== undefined) throw new Error('invalid_promo_kind_field');
+            if (input.bps !== undefined) throw new Error(INVALID_PROMO_KIND_FIELD);
             nextAmountMinor = input.amountMinor ?? row.amount_minor;
           }
 
@@ -11926,7 +11936,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -11942,15 +11952,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof PROMO_NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -11992,7 +12002,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12067,15 +12077,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
@@ -12171,7 +12181,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
       }
       if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12202,15 +12212,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
@@ -12366,7 +12376,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
       }
       if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12385,15 +12395,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ARCHIVE_BLOCKED }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'rates:write');
     if (permDenied) return permDenied;
@@ -12464,7 +12474,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { ok: false, error: DEFAULT_RATE_PLAN_PROTECTED };
       }
       if (e instanceof ArchiveBlockedError) return { ok: false, error: ARCHIVE_BLOCKED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12699,15 +12709,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CHARGE_CODE_EXISTS }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -12762,7 +12772,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeExistsError) return { ok: false, error: CHARGE_CODE_EXISTS };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12779,15 +12789,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -12853,7 +12863,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -12871,15 +12881,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof SYSTEM_CHARGE_CODE_PROTECTED }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -12943,7 +12953,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof SystemChargeCodeProtectedError) {
         return { ok: false, error: SYSTEM_CHARGE_CODE_PROTECTED };
       }
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13032,15 +13042,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROUTING_RULE_CONFLICT }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13125,7 +13135,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
       if (e instanceof RoutingRuleConflictError) return { ok: false, error: ROUTING_RULE_CONFLICT };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13142,15 +13152,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13217,7 +13227,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13248,13 +13258,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           createdAt: number;
         }>;
       }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: 'org_id_unset' }
+    | { ok: false; error: typeof ORG_ID_UNSET }
   > {
     this.assertRpcAvailable();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const permDenied = await this.gatePermission(actor, 'folio:read');
@@ -13354,15 +13364,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13444,7 +13454,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof TaxRuleKeyExistsError) return { ok: false, error: TAX_RULE_KEY_EXISTS };
       if (e instanceof TaxOutputCodeTaxableError) return { ok: false, error: TAX_OUTPUT_CODE_TAXABLE };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13474,15 +13484,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13595,7 +13605,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof TaxRuleKeyOverlapError) return { ok: false, error: TAX_RULE_KEY_OVERLAP };
       if (e instanceof TaxOutputCodeTaxableError) return { ok: false, error: TAX_OUTPUT_CODE_TAXABLE };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13757,15 +13767,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CURRENCY_UNSET }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13851,7 +13861,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof InvalidFxRateError || e instanceof InvalidMoneyError) {
         return { ok: false, error: FX_RATE_INVALID };
       }
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13873,15 +13883,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof CURRENCY_UNSET }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, 'settings:configure');
     if (permDenied) return permDenied;
@@ -13973,7 +13983,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { ok: false, error: FX_RATE_INVALID };
       }
       if (e instanceof Error && e.message === NOT_FOUND) return { ok: false, error: NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -13997,17 +14007,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true }
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
     | { ok: false; error: typeof DERIVED_RATE_PLAN_WRITE_FORBIDDEN }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
@@ -14092,7 +14102,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DerivedRatePlanWriteForbiddenError) {
         return { ok: false, error: DERIVED_RATE_PLAN_WRITE_FORBIDDEN };
       }
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -14117,17 +14127,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; count: number }
     | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
     | { ok: false; error: typeof DERIVED_RATE_PLAN_WRITE_FORBIDDEN }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
-    | { ok: false; error: 'org_id_unset' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
@@ -14228,7 +14238,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DerivedRatePlanWriteForbiddenError) {
         return { ok: false, error: DERIVED_RATE_PLAN_WRITE_FORBIDDEN };
       }
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -14241,13 +14251,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }): Promise<
     | { ok: true; totalMinor: number; currency: string }
     | { ok: false; error: typeof RATE_MISSING; date: string }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     let nights: string[];
     try {
       nights = enumerateStayDates(input.arrivalDate, input.departureDate);
     } catch {
-      return { ok: false, error: 'invalid_stay_range' };
+      return { ok: false, error: INVALID_STAY_RANGE };
     }
     const ratePlanId = input.ratePlanId ?? DEFAULT_RATE_PLAN_ID;
     const amounts = new Map<string, number>();
@@ -14407,15 +14417,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof GUEST_WINDOW_NOT_OPENABLE }
     | { ok: false; error: typeof WINDOW_NOT_OPENABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
@@ -14479,7 +14489,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -14492,15 +14502,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof WINDOW_NOT_CLOSABLE }
     | { ok: false; error: typeof WINDOW_BALANCE_DUE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
@@ -14553,9 +14563,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -14567,15 +14577,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; alreadyOpen?: true }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof WINDOW_NOT_REOPENABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
@@ -14615,7 +14625,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -14989,17 +14999,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FX_RATE_MISSING }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof CHARGE_CODE_NOT_FOUND }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof WINDOW_CLOSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -15073,12 +15083,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      const mapped = mapReservationPreconditionError(e);
+      const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -15101,15 +15111,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LINE_NOT_DISCOUNTABLE }
     | { ok: false; error: typeof WINDOW_CLOSED }
     | { ok: false; error: typeof MONEY_INVALID }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
@@ -15321,7 +15331,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -15339,15 +15349,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof LINE_NOT_SPLITTABLE }
     | { ok: false; error: typeof WINDOW_CLOSED }
     | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
@@ -15413,7 +15423,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -15597,15 +15607,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
     | { ok: false; error: typeof TRANSFER_SAME_WINDOW }
     | { ok: false; error: typeof LINE_NOT_TRANSFERABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
@@ -15670,7 +15680,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
       if (e instanceof FolioWindowError) return { ok: false, error: e.code };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 

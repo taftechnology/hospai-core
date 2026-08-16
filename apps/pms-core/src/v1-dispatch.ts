@@ -1,4 +1,4 @@
-import type { FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
+import type { CommandError, FeatureKey, Jurisdiction, ProvisionPropertyInput } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
   ALREADY_CANCELLED,
@@ -118,6 +118,68 @@ import {
   validateTenantId,
   type Permission,
   type IdempotencyKey,
+  ALREADY_MEMBER,
+  ALREADY_RESOLVED,
+  BULK_NOT_ADMITTED,
+  BUSINESS_DATE_CLOSED,
+  CONFIG_CLASS_NOT_DOMAIN,
+  CONSTITUENT_IN_USE,
+  DECRYPT_UNRESOLVED,
+  DOMAIN_ERROR,
+  EMPTY_KINDS,
+  GUEST_REF_REQUIRED,
+  INTERNAL_ERROR,
+  INVALID_ASSIGNEE_REF,
+  INVALID_BUSINESS_DATE,
+  INVALID_DATE,
+  INVALID_DATE_RANGE,
+  INVALID_KINDS,
+  INVALID_PROMO_CODE,
+  INVALID_PROMO_KIND_FIELD,
+  INVALID_PROMO_WINDOW,
+  INVALID_ROLE,
+  INVALID_STATUS,
+  INVALID_STAY_RANGE,
+  INVALID_VOID_REASON,
+  INVALID_WINDOW,
+  INVOICE_COUNTER_RACE,
+  KEY_SHRED_FAILED,
+  LAST_OWNER,
+  LIMIT_EXCEEDED,
+  NIGHT_AUDIT_NOT_DUE,
+  NIGHT_AUDIT_STEP_NOT_FAILED,
+  NIGHT_AUDIT_WORKFLOW_EXISTS,
+  NOTE_LIMIT,
+  NOTE_TOO_LONG,
+  NOT_MEMBER,
+  ORG_ID_UNSET,
+  ORG_UNREACHABLE,
+  PAYMENT_INSERT_FAILED,
+  PENDING_CENSUS_REQUIRED,
+  PENDING_COMMANDS_UNDRAINED,
+  PROMO_ID_EXISTS,
+  PROPERTY_ID_UNSET,
+  PROPERTY_REF_NOT_FOUND,
+  PROVISIONAL_EXCEPTIONS_OPEN,
+  PSP_ADAPTER_FAILED,
+  REPORTS_R2_UNBOUND,
+  ROOM_TYPE_KIND_IMMUTABLE,
+  ROUTING_RULE_CONFLICT,
+  SCOPE_MISMATCH,
+  TENANT_NOT_ACTIVE,
+  TIMEZONE_UNSET,
+  isCommandError,
+  UNDECLARED_CONFIG_PREFIX,
+  UNKNOWN_COMMAND,
+  VALIDATION_ERROR,
+  VIRTUAL_CONSTITUENTS_DUPLICATE,
+  VIRTUAL_CONSTITUENTS_MIN_TWO,
+  VIRTUAL_CONSTITUENTS_ON_PHYSICAL,
+  VIRTUAL_CONSTITUENTS_REQUIRED,
+  VIRTUAL_CONSTITUENT_NOT_PHYSICAL,
+  VIRTUAL_NESTED_FORBIDDEN,
+  VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS,
+  VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
 } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import {
@@ -289,118 +351,815 @@ function parseGuestDirectoryLimitValue(raw: unknown): number | 'invalid' {
   return 'invalid';
 }
 
-function mapAddRoomTypeErrorStatus(error: string): number {
-  if (error === IDEM_KEY_REUSED || error === ROOM_TYPE_EXISTS || error === ROOM_TYPE_CODE_EXISTS) {
-    return 409;
-  }
-  return 422;
+function coerceCommandError(error: string | undefined): CommandError {
+  return error !== undefined && isCommandError(error) ? error : INTERNAL_ERROR;
 }
 
-function mapReservationCommandErrorStatus(error: string): number {
-  if (
-    error === IDEM_KEY_REUSED ||
-    error === ALREADY_CANCELLED ||
-    error === LEDGER_INCONSISTENT ||
-    error === PROMO_CODE_EXISTS ||
-    error === INVOICE_ALREADY_EXISTS ||
-    error === INVOICE_VOIDED ||
-    error === CITY_LEDGER_ACCOUNT_EXISTS ||
-    error === CITY_LEDGER_ACCOUNT_ARCHIVED ||
-    error === CITY_LEDGER_CHARGE_ALREADY_POSTED
-  ) {
-    return 409;
+type ConcreteCommandError = Exclude<CommandError, `undeclared:${string}`>;
+
+function mapAddRoomTypeErrorStatus(
+  error: typeof IDEM_KEY_REUSED | typeof ROOM_TYPE_EXISTS | typeof ROOM_TYPE_CODE_EXISTS,
+): number {
+  switch (error) {
+    case IDEM_KEY_REUSED:
+    case ROOM_TYPE_EXISTS:
+    case ROOM_TYPE_CODE_EXISTS:
+      return 409;
   }
-  if (error === NO_AVAILABILITY) return 409;
-  if (
-    error === UNBOOKABLE ||
-    error === RESTRICTION_VIOLATED ||
-    error === NOT_MODIFIABLE ||
-    error === INVALID_STATUS_TRANSITION ||
-    error === NO_SHOW_BEFORE_ARRIVAL ||
-    error === CURRENCY_UNSET ||
-    error === FX_RATE_INVALID ||
-    error === LEDGER_AMOUNT_MISMATCH ||
-    error === MONEY_INVALID ||
-    error === CROSS_CURRENCY_UNSUPPORTED ||
-    error === FX_RATE_MISSING ||
-    error === FX_RATE_NOT_LEDGER ||
-    error === FX_RATE_OPEN_EXISTS ||
-    error === FX_REASON_REQUIRED ||
-    error === PAYMENT_NOT_CHARGEBACKABLE ||
-    error === SPLIT_AMOUNT_MISMATCH ||
-    error === LINE_NOT_SPLITTABLE ||
-    error === ROOM_CODE_EXISTS ||
-    error === ROOM_COUNT_EXCEEDED ||
-    error === ROOM_UNITS_EXCEED_COUNT ||
-    error === ROOM_TYPE_MISMATCH ||
-    error === ROOM_ALREADY_ASSIGNED ||
-    error === ROOM_NOT_ASSIGNABLE ||
-    error === BALANCE_DUE ||
-    error === INVOICE_REQUIRED ||
-    error === FOLIO_BALANCE_DUE ||
-    error === HOLD_EXPIRED ||
-    error === INQUIRY_EXPIRED ||
-    error === ROOM_REQUIRED ||
-    error === ROOM_NOT_READY ||
-    error === ROOM_OUT_OF_ORDER ||
-    error === OOO_VIA_RANGE ||
-    error === OOO_ROOM_ASSIGNED ||
-    error === OOO_RANGE_OVERLAP ||
-    error === OOO_INVALID_RANGE ||
-    error === OCCUPANCY_EXCEEDED ||
-    error === VIRTUAL_TYPE_NO_ROOMS ||
-    error === FRONT_OFFICE_COMMENT_TOO_LONG ||
-    error === RATE_PLAN_CODE_EXISTS ||
-    error === RATE_PLAN_ID_EXISTS ||
-    error === DEFAULT_RATE_PLAN_PROTECTED ||
-    error === RATE_MISSING ||
-    error === INVALID_CANCEL_POLICY ||
-    error === DERIVED_RATE_PLAN_INVALID ||
-    error === DERIVED_RATE_PLAN_WRITE_FORBIDDEN ||
-    error === CHARGE_CODE_EXISTS ||
-    error === SYSTEM_CHARGE_CODE_PROTECTED ||
-    error === TAX_RULE_KEY_EXISTS ||
-    error === TAX_RULE_KEY_OVERLAP ||
-    error === TAX_RULE_TYPE_UNSUPPORTED ||
-    error === TAX_OUTPUT_CODE_TAXABLE ||
-    error === SHIFT_ALREADY_OPEN ||
-    error === SHIFT_NOT_OPEN ||
-    error === WINDOW_CLOSED ||
-    error === WINDOW_NOT_CLOSABLE ||
-    error === WINDOW_BALANCE_DUE ||
-    error === WINDOW_NOT_REOPENABLE ||
-    error === WINDOW_NOT_OPENABLE ||
-    error === GUEST_WINDOW_NOT_OPENABLE ||
-    error === TRANSFER_CROSS_RESERVATION ||
-    error === TRANSFER_SAME_WINDOW ||
-    error === LINE_NOT_TRANSFERABLE ||
-    error === PAYMENT_NOT_VOIDABLE ||
-    error === PAYMENT_NOT_REFUNDABLE ||
-    error === LINE_NOT_DISCOUNTABLE ||
-    error === DISCOUNT_REASON_REQUIRED ||
-    error === PROMO_NOT_APPLICABLE ||
-    error === CITY_LEDGER_CREDIT_LIMIT_EXCEEDED ||
-    error === CITY_LEDGER_BILLED_PARTY_INVALID ||
-    error === CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE
-  ) {
-    return 422;
+}
+
+function mapReservationCommandErrorStatus(error: CommandError): number {
+  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
+  return mapReservationConcreteCommandErrorStatus(error as ConcreteCommandError);
+}
+
+function mapReservationConcreteCommandErrorStatus(error: ConcreteCommandError): number {
+  switch (error) {
+    case ALREADY_CANCELLED:
+    case LEDGER_INCONSISTENT:
+    case PROMO_CODE_EXISTS:
+    case INVOICE_ALREADY_EXISTS:
+    case INVOICE_VOIDED:
+    case CITY_LEDGER_ACCOUNT_EXISTS:
+    case CITY_LEDGER_ACCOUNT_ARCHIVED:
+    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
+    case NO_AVAILABILITY:
+      return 409;
+    case RATE_PLAN_NOT_FOUND:
+    case PROMO_NOT_FOUND:
+    case INVOICE_NOT_FOUND:
+    case CHARGE_CODE_NOT_FOUND:
+    case TAX_RULE_NOT_FOUND:
+    case SHIFT_NOT_FOUND:
+    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
+    case CITY_LEDGER_STATEMENT_NOT_FOUND:
+    case NOT_FOUND:
+      return 404;
+    case BUSINESS_DATE_UNSET:
+    case ORG_ID_UNSET:
+    case PROPERTY_ID_UNSET:
+    case TIMEZONE_UNSET:
+    case INTERNAL_ERROR:
+    case UNKNOWN_COMMAND:
+      return 500;
+    case INVOICE_R2_UNBOUND:
+    case CITY_LEDGER_R2_UNBOUND:
+    case REPORTS_R2_UNBOUND:
+      return 503;
+    case UNBOOKABLE:
+    case RESTRICTION_VIOLATED:
+    case NOT_MODIFIABLE:
+    case INVALID_STATUS_TRANSITION:
+    case NO_SHOW_BEFORE_ARRIVAL:
+    case CURRENCY_UNSET:
+    case FX_RATE_INVALID:
+    case LEDGER_AMOUNT_MISMATCH:
+    case MONEY_INVALID:
+    case CROSS_CURRENCY_UNSUPPORTED:
+    case FX_RATE_MISSING:
+    case FX_RATE_NOT_LEDGER:
+    case FX_RATE_OPEN_EXISTS:
+    case FX_REASON_REQUIRED:
+    case PAYMENT_NOT_CHARGEBACKABLE:
+    case SPLIT_AMOUNT_MISMATCH:
+    case LINE_NOT_SPLITTABLE:
+    case ROOM_CODE_EXISTS:
+    case ROOM_COUNT_EXCEEDED:
+    case ROOM_UNITS_EXCEED_COUNT:
+    case ROOM_TYPE_MISMATCH:
+    case ROOM_ALREADY_ASSIGNED:
+    case ROOM_NOT_ASSIGNABLE:
+    case BALANCE_DUE:
+    case INVOICE_REQUIRED:
+    case FOLIO_BALANCE_DUE:
+    case HOLD_EXPIRED:
+    case INQUIRY_EXPIRED:
+    case ROOM_REQUIRED:
+    case ROOM_NOT_READY:
+    case ROOM_OUT_OF_ORDER:
+    case OOO_VIA_RANGE:
+    case OOO_ROOM_ASSIGNED:
+    case OOO_RANGE_OVERLAP:
+    case OOO_INVALID_RANGE:
+    case OCCUPANCY_EXCEEDED:
+    case VIRTUAL_TYPE_NO_ROOMS:
+    case FRONT_OFFICE_COMMENT_TOO_LONG:
+    case RATE_PLAN_CODE_EXISTS:
+    case RATE_PLAN_ID_EXISTS:
+    case DEFAULT_RATE_PLAN_PROTECTED:
+    case RATE_MISSING:
+    case INVALID_CANCEL_POLICY:
+    case DERIVED_RATE_PLAN_INVALID:
+    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
+    case CHARGE_CODE_EXISTS:
+    case SYSTEM_CHARGE_CODE_PROTECTED:
+    case TAX_RULE_KEY_EXISTS:
+    case TAX_RULE_KEY_OVERLAP:
+    case TAX_RULE_TYPE_UNSUPPORTED:
+    case TAX_OUTPUT_CODE_TAXABLE:
+    case SHIFT_ALREADY_OPEN:
+    case SHIFT_NOT_OPEN:
+    case WINDOW_CLOSED:
+    case WINDOW_NOT_CLOSABLE:
+    case WINDOW_BALANCE_DUE:
+    case WINDOW_NOT_REOPENABLE:
+    case WINDOW_NOT_OPENABLE:
+    case GUEST_WINDOW_NOT_OPENABLE:
+    case TRANSFER_CROSS_RESERVATION:
+    case TRANSFER_SAME_WINDOW:
+    case LINE_NOT_TRANSFERABLE:
+    case PAYMENT_NOT_VOIDABLE:
+    case PAYMENT_NOT_REFUNDABLE:
+    case LINE_NOT_DISCOUNTABLE:
+    case DISCOUNT_REASON_REQUIRED:
+    case PROMO_NOT_APPLICABLE:
+    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
+    case CITY_LEDGER_BILLED_PARTY_INVALID:
+    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
+    case PAYMENT_NOT_CAPTURABLE:
+    case PAYMENT_NOT_RECONCILABLE:
+    case REFUND_EXCEEDS_REMAINING:
+    case OVERSELL:
+    case ARCHIVE_BLOCKED:
+    case VIRTUAL_CONSTITUENTS_REQUIRED:
+    case VIRTUAL_CONSTITUENTS_MIN_TWO:
+    case VIRTUAL_CONSTITUENTS_DUPLICATE:
+    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
+    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
+    case VIRTUAL_NESTED_FORBIDDEN:
+    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
+    case ROOM_TYPE_KIND_IMMUTABLE:
+    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
+    case CONSTITUENT_IN_USE:
+    case BUSINESS_DATE_CLOSED:
+    case NOT_MEMBER:
+    case SCOPE_MISMATCH:
+    case ORG_UNREACHABLE:
+    case BULK_NOT_ADMITTED:
+    case DOMAIN_ERROR:
+    case TENANT_NOT_ACTIVE:
+    case PENDING_COMMANDS_UNDRAINED:
+    case PROVISIONAL_EXCEPTIONS_OPEN:
+    case PENDING_CENSUS_REQUIRED:
+    case ALREADY_RESOLVED:
+    case NOTE_TOO_LONG:
+    case NOTE_LIMIT:
+    case NIGHT_AUDIT_HALTED:
+    case NIGHT_AUDIT_STEP_NOT_FAILED:
+    case NIGHT_AUDIT_NOT_DUE:
+    case NIGHT_AUDIT_WORKFLOW_EXISTS:
+    case INVALID_STATUS:
+    case INVALID_BUSINESS_DATE:
+    case INVALID_ASSIGNEE_REF:
+    case INVALID_DATE:
+    case GUEST_REF_REQUIRED:
+    case INVALID_STAY_RANGE:
+    case INVALID_WINDOW:
+    case INVALID_DATE_RANGE:
+    case VALIDATION_ERROR:
+    case PSP_UNAVAILABLE:
+    case INVALID_VOID_REASON:
+    case PSP_ADAPTER_FAILED:
+    case PAYMENT_INSERT_FAILED:
+    case INVALID_PROMO_CODE:
+    case INVALID_PROMO_WINDOW:
+    case INVALID_PROMO_KIND_FIELD:
+    case PROMO_ID_EXISTS:
+    case INVOICE_COUNTER_RACE:
+    case ROUTING_RULE_CONFLICT:
+    case CONFIG_CLASS_NOT_DOMAIN:
+    case GUEST_NOT_FOUND:
+    case GUEST_ALREADY_ERASED:
+    case GUEST_EXISTS:
+    case STAFF_NOT_FOUND:
+    case STAFF_EXITED:
+    case STAFF_NOT_ASSIGNABLE:
+    case INVALID_KINDS:
+    case EMPTY_KINDS:
+    case INVALID_ROLE:
+    case ALREADY_MEMBER:
+    case LAST_OWNER:
+    case PROPERTY_REF_NOT_FOUND:
+    case DECRYPT_UNRESOLVED:
+    case KEY_SHRED_FAILED:
+    case FORBIDDEN:
+    case ENTITLEMENT_REQUIRED:
+    case ENTITLEMENT_UNAVAILABLE:
+    case LIMIT_EXCEEDED:
+      return 422;
+    case IDEM_KEY_REUSED:
+    case ROOM_TYPE_EXISTS:
+    case ROOM_TYPE_CODE_EXISTS:
+      return mapAddRoomTypeErrorStatus(error);
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
   }
-  if (
-    error === RATE_PLAN_NOT_FOUND ||
-    error === PROMO_NOT_FOUND ||
-    error === INVOICE_NOT_FOUND ||
-    error === CHARGE_CODE_NOT_FOUND ||
-    error === TAX_RULE_NOT_FOUND ||
-    error === SHIFT_NOT_FOUND ||
-    error === CITY_LEDGER_ACCOUNT_NOT_FOUND ||
-    error === CITY_LEDGER_STATEMENT_NOT_FOUND
-  ) {
-    return 404;
+}
+
+/** Lock 4: `not_member` → 404 — actor lacks effective org/property role (see spec §2.4). */
+function mapGuestCommandErrorStatus(error: CommandError): number {
+  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
+  return mapGuestConcreteCommandErrorStatus(error as ConcreteCommandError);
+}
+
+function mapGuestConcreteCommandErrorStatus(error: ConcreteCommandError): number {
+  switch (error) {
+    case GUEST_NOT_FOUND:
+      return 404;
+    case GUEST_ALREADY_ERASED:
+    case GUEST_EXISTS:
+    case IDEM_KEY_REUSED:
+      return 409;
+    case FORBIDDEN:
+    case SCOPE_MISMATCH:
+      return 403;
+    case NOT_MEMBER:
+      return 404;
+    case BUSINESS_DATE_UNSET:
+    case ORG_ID_UNSET:
+    case PROPERTY_ID_UNSET:
+    case TIMEZONE_UNSET:
+    case INTERNAL_ERROR:
+    case UNKNOWN_COMMAND:
+      return 500;
+    case ROOM_TYPE_EXISTS:
+    case ROOM_TYPE_CODE_EXISTS:
+    case OVERSELL:
+    case ARCHIVE_BLOCKED:
+    case VIRTUAL_CONSTITUENTS_REQUIRED:
+    case VIRTUAL_CONSTITUENTS_MIN_TWO:
+    case VIRTUAL_CONSTITUENTS_DUPLICATE:
+    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
+    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
+    case VIRTUAL_NESTED_FORBIDDEN:
+    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
+    case ROOM_TYPE_KIND_IMMUTABLE:
+    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
+    case CONSTITUENT_IN_USE:
+    case VIRTUAL_TYPE_NO_ROOMS:
+    case NOT_FOUND:
+    case BUSINESS_DATE_CLOSED:
+    case ORG_UNREACHABLE:
+    case BULK_NOT_ADMITTED:
+    case DOMAIN_ERROR:
+    case TENANT_NOT_ACTIVE:
+    case PENDING_COMMANDS_UNDRAINED:
+    case PROVISIONAL_EXCEPTIONS_OPEN:
+    case PENDING_CENSUS_REQUIRED:
+    case ALREADY_RESOLVED:
+    case NOTE_TOO_LONG:
+    case NOTE_LIMIT:
+    case NIGHT_AUDIT_HALTED:
+    case NIGHT_AUDIT_STEP_NOT_FAILED:
+    case NIGHT_AUDIT_NOT_DUE:
+    case NIGHT_AUDIT_WORKFLOW_EXISTS:
+    case NO_AVAILABILITY:
+    case UNBOOKABLE:
+    case ALREADY_CANCELLED:
+    case LEDGER_INCONSISTENT:
+    case NOT_MODIFIABLE:
+    case INVALID_STATUS_TRANSITION:
+    case NO_SHOW_BEFORE_ARRIVAL:
+    case RESTRICTION_VIOLATED:
+    case RATE_MISSING:
+    case SPLIT_AMOUNT_MISMATCH:
+    case HOLD_EXPIRED:
+    case INQUIRY_EXPIRED:
+    case ROOM_REQUIRED:
+    case ROOM_NOT_READY:
+    case ROOM_OUT_OF_ORDER:
+    case BALANCE_DUE:
+    case OCCUPANCY_EXCEEDED:
+    case FRONT_OFFICE_COMMENT_TOO_LONG:
+    case INVALID_STATUS:
+    case INVALID_BUSINESS_DATE:
+    case INVALID_ASSIGNEE_REF:
+    case INVALID_DATE:
+    case GUEST_REF_REQUIRED:
+    case INVALID_STAY_RANGE:
+    case INVALID_WINDOW:
+    case INVALID_DATE_RANGE:
+    case VALIDATION_ERROR:
+    case WINDOW_CLOSED:
+    case WINDOW_NOT_CLOSABLE:
+    case WINDOW_BALANCE_DUE:
+    case WINDOW_NOT_REOPENABLE:
+    case WINDOW_NOT_OPENABLE:
+    case GUEST_WINDOW_NOT_OPENABLE:
+    case TRANSFER_CROSS_RESERVATION:
+    case TRANSFER_SAME_WINDOW:
+    case LINE_NOT_TRANSFERABLE:
+    case LINE_NOT_DISCOUNTABLE:
+    case PAYMENT_NOT_VOIDABLE:
+    case PAYMENT_NOT_REFUNDABLE:
+    case DISCOUNT_REASON_REQUIRED:
+    case FX_REASON_REQUIRED:
+    case PAYMENT_NOT_CHARGEBACKABLE:
+    case REFUND_EXCEEDS_REMAINING:
+    case PSP_UNAVAILABLE:
+    case PAYMENT_NOT_CAPTURABLE:
+    case PAYMENT_NOT_RECONCILABLE:
+    case LINE_NOT_SPLITTABLE:
+    case INVALID_VOID_REASON:
+    case PSP_ADAPTER_FAILED:
+    case PAYMENT_INSERT_FAILED:
+    case ROOM_CODE_EXISTS:
+    case ROOM_COUNT_EXCEEDED:
+    case ROOM_UNITS_EXCEED_COUNT:
+    case ROOM_TYPE_MISMATCH:
+    case ROOM_ALREADY_ASSIGNED:
+    case ROOM_NOT_ASSIGNABLE:
+    case OOO_VIA_RANGE:
+    case OOO_ROOM_ASSIGNED:
+    case OOO_RANGE_OVERLAP:
+    case OOO_INVALID_RANGE:
+    case RATE_PLAN_NOT_FOUND:
+    case RATE_PLAN_CODE_EXISTS:
+    case RATE_PLAN_ID_EXISTS:
+    case DEFAULT_RATE_PLAN_PROTECTED:
+    case DERIVED_RATE_PLAN_INVALID:
+    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
+    case INVALID_CANCEL_POLICY:
+    case PROMO_NOT_FOUND:
+    case PROMO_NOT_APPLICABLE:
+    case PROMO_CODE_EXISTS:
+    case INVALID_PROMO_CODE:
+    case INVALID_PROMO_WINDOW:
+    case INVALID_PROMO_KIND_FIELD:
+    case PROMO_ID_EXISTS:
+    case INVOICE_ALREADY_EXISTS:
+    case INVOICE_NOT_FOUND:
+    case INVOICE_VOIDED:
+    case INVOICE_R2_UNBOUND:
+    case INVOICE_COUNTER_RACE:
+    case REPORTS_R2_UNBOUND:
+    case INVOICE_REQUIRED:
+    case FOLIO_BALANCE_DUE:
+    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
+    case CITY_LEDGER_ACCOUNT_EXISTS:
+    case CITY_LEDGER_ACCOUNT_ARCHIVED:
+    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
+    case CITY_LEDGER_BILLED_PARTY_INVALID:
+    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
+    case CITY_LEDGER_STATEMENT_NOT_FOUND:
+    case CITY_LEDGER_R2_UNBOUND:
+    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
+    case CHARGE_CODE_NOT_FOUND:
+    case CHARGE_CODE_EXISTS:
+    case ROUTING_RULE_CONFLICT:
+    case SYSTEM_CHARGE_CODE_PROTECTED:
+    case CONFIG_CLASS_NOT_DOMAIN:
+    case TAX_RULE_NOT_FOUND:
+    case TAX_RULE_KEY_EXISTS:
+    case TAX_RULE_KEY_OVERLAP:
+    case TAX_RULE_TYPE_UNSUPPORTED:
+    case TAX_OUTPUT_CODE_TAXABLE:
+    case SHIFT_NOT_FOUND:
+    case SHIFT_ALREADY_OPEN:
+    case SHIFT_NOT_OPEN:
+    case STAFF_NOT_FOUND:
+    case STAFF_EXITED:
+    case STAFF_NOT_ASSIGNABLE:
+    case INVALID_KINDS:
+    case EMPTY_KINDS:
+    case INVALID_ROLE:
+    case ALREADY_MEMBER:
+    case LAST_OWNER:
+    case PROPERTY_REF_NOT_FOUND:
+    case DECRYPT_UNRESOLVED:
+    case KEY_SHRED_FAILED:
+    case ENTITLEMENT_REQUIRED:
+    case ENTITLEMENT_UNAVAILABLE:
+    case LIMIT_EXCEEDED:
+    case MONEY_INVALID:
+    case FX_RATE_INVALID:
+    case LEDGER_AMOUNT_MISMATCH:
+    case CURRENCY_UNSET:
+    case CROSS_CURRENCY_UNSUPPORTED:
+    case FX_RATE_MISSING:
+    case FX_RATE_NOT_LEDGER:
+    case FX_RATE_OPEN_EXISTS:
+      return 422;
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
   }
-  if (error === BUSINESS_DATE_UNSET) return 500;
-  if (error === INVOICE_R2_UNBOUND || error === CITY_LEDGER_R2_UNBOUND) return 503;
-  if (error === 'org_id_unset') return 500;
-  return mapAddRoomTypeErrorStatus(error);
+}
+
+function mapRosterCommandErrorStatus(error: CommandError): number {
+  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
+  return mapRosterConcreteCommandErrorStatus(error as ConcreteCommandError);
+}
+
+function mapRosterConcreteCommandErrorStatus(error: ConcreteCommandError): number {
+  switch (error) {
+    case STAFF_NOT_FOUND:
+      return 404;
+    case STAFF_EXITED:
+    case IDEM_KEY_REUSED:
+      return 409;
+    case FORBIDDEN:
+    case SCOPE_MISMATCH:
+      return 403;
+    case NOT_MEMBER:
+      return 404;
+    case BUSINESS_DATE_UNSET:
+    case ORG_ID_UNSET:
+    case PROPERTY_ID_UNSET:
+    case TIMEZONE_UNSET:
+    case INTERNAL_ERROR:
+    case UNKNOWN_COMMAND:
+      return 500;
+    case ROOM_TYPE_EXISTS:
+    case ROOM_TYPE_CODE_EXISTS:
+    case OVERSELL:
+    case ARCHIVE_BLOCKED:
+    case VIRTUAL_CONSTITUENTS_REQUIRED:
+    case VIRTUAL_CONSTITUENTS_MIN_TWO:
+    case VIRTUAL_CONSTITUENTS_DUPLICATE:
+    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
+    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
+    case VIRTUAL_NESTED_FORBIDDEN:
+    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
+    case ROOM_TYPE_KIND_IMMUTABLE:
+    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
+    case CONSTITUENT_IN_USE:
+    case VIRTUAL_TYPE_NO_ROOMS:
+    case NOT_FOUND:
+    case BUSINESS_DATE_CLOSED:
+    case ORG_UNREACHABLE:
+    case BULK_NOT_ADMITTED:
+    case DOMAIN_ERROR:
+    case TENANT_NOT_ACTIVE:
+    case PENDING_COMMANDS_UNDRAINED:
+    case PROVISIONAL_EXCEPTIONS_OPEN:
+    case PENDING_CENSUS_REQUIRED:
+    case ALREADY_RESOLVED:
+    case NOTE_TOO_LONG:
+    case NOTE_LIMIT:
+    case NIGHT_AUDIT_HALTED:
+    case NIGHT_AUDIT_STEP_NOT_FAILED:
+    case NIGHT_AUDIT_NOT_DUE:
+    case NIGHT_AUDIT_WORKFLOW_EXISTS:
+    case NO_AVAILABILITY:
+    case UNBOOKABLE:
+    case ALREADY_CANCELLED:
+    case LEDGER_INCONSISTENT:
+    case NOT_MODIFIABLE:
+    case INVALID_STATUS_TRANSITION:
+    case NO_SHOW_BEFORE_ARRIVAL:
+    case RESTRICTION_VIOLATED:
+    case RATE_MISSING:
+    case SPLIT_AMOUNT_MISMATCH:
+    case HOLD_EXPIRED:
+    case INQUIRY_EXPIRED:
+    case ROOM_REQUIRED:
+    case ROOM_NOT_READY:
+    case ROOM_OUT_OF_ORDER:
+    case BALANCE_DUE:
+    case OCCUPANCY_EXCEEDED:
+    case FRONT_OFFICE_COMMENT_TOO_LONG:
+    case INVALID_STATUS:
+    case INVALID_BUSINESS_DATE:
+    case INVALID_ASSIGNEE_REF:
+    case INVALID_DATE:
+    case GUEST_REF_REQUIRED:
+    case INVALID_STAY_RANGE:
+    case INVALID_WINDOW:
+    case INVALID_DATE_RANGE:
+    case VALIDATION_ERROR:
+    case WINDOW_CLOSED:
+    case WINDOW_NOT_CLOSABLE:
+    case WINDOW_BALANCE_DUE:
+    case WINDOW_NOT_REOPENABLE:
+    case WINDOW_NOT_OPENABLE:
+    case GUEST_WINDOW_NOT_OPENABLE:
+    case TRANSFER_CROSS_RESERVATION:
+    case TRANSFER_SAME_WINDOW:
+    case LINE_NOT_TRANSFERABLE:
+    case LINE_NOT_DISCOUNTABLE:
+    case PAYMENT_NOT_VOIDABLE:
+    case PAYMENT_NOT_REFUNDABLE:
+    case DISCOUNT_REASON_REQUIRED:
+    case FX_REASON_REQUIRED:
+    case PAYMENT_NOT_CHARGEBACKABLE:
+    case REFUND_EXCEEDS_REMAINING:
+    case PSP_UNAVAILABLE:
+    case PAYMENT_NOT_CAPTURABLE:
+    case PAYMENT_NOT_RECONCILABLE:
+    case LINE_NOT_SPLITTABLE:
+    case INVALID_VOID_REASON:
+    case PSP_ADAPTER_FAILED:
+    case PAYMENT_INSERT_FAILED:
+    case ROOM_CODE_EXISTS:
+    case ROOM_COUNT_EXCEEDED:
+    case ROOM_UNITS_EXCEED_COUNT:
+    case ROOM_TYPE_MISMATCH:
+    case ROOM_ALREADY_ASSIGNED:
+    case ROOM_NOT_ASSIGNABLE:
+    case OOO_VIA_RANGE:
+    case OOO_ROOM_ASSIGNED:
+    case OOO_RANGE_OVERLAP:
+    case OOO_INVALID_RANGE:
+    case RATE_PLAN_NOT_FOUND:
+    case RATE_PLAN_CODE_EXISTS:
+    case RATE_PLAN_ID_EXISTS:
+    case DEFAULT_RATE_PLAN_PROTECTED:
+    case DERIVED_RATE_PLAN_INVALID:
+    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
+    case INVALID_CANCEL_POLICY:
+    case PROMO_NOT_FOUND:
+    case PROMO_NOT_APPLICABLE:
+    case PROMO_CODE_EXISTS:
+    case INVALID_PROMO_CODE:
+    case INVALID_PROMO_WINDOW:
+    case INVALID_PROMO_KIND_FIELD:
+    case PROMO_ID_EXISTS:
+    case INVOICE_ALREADY_EXISTS:
+    case INVOICE_NOT_FOUND:
+    case INVOICE_VOIDED:
+    case INVOICE_R2_UNBOUND:
+    case INVOICE_COUNTER_RACE:
+    case REPORTS_R2_UNBOUND:
+    case INVOICE_REQUIRED:
+    case FOLIO_BALANCE_DUE:
+    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
+    case CITY_LEDGER_ACCOUNT_EXISTS:
+    case CITY_LEDGER_ACCOUNT_ARCHIVED:
+    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
+    case CITY_LEDGER_BILLED_PARTY_INVALID:
+    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
+    case CITY_LEDGER_STATEMENT_NOT_FOUND:
+    case CITY_LEDGER_R2_UNBOUND:
+    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
+    case CHARGE_CODE_NOT_FOUND:
+    case CHARGE_CODE_EXISTS:
+    case ROUTING_RULE_CONFLICT:
+    case SYSTEM_CHARGE_CODE_PROTECTED:
+    case CONFIG_CLASS_NOT_DOMAIN:
+    case TAX_RULE_NOT_FOUND:
+    case TAX_RULE_KEY_EXISTS:
+    case TAX_RULE_KEY_OVERLAP:
+    case TAX_RULE_TYPE_UNSUPPORTED:
+    case TAX_OUTPUT_CODE_TAXABLE:
+    case SHIFT_NOT_FOUND:
+    case SHIFT_ALREADY_OPEN:
+    case SHIFT_NOT_OPEN:
+    case GUEST_NOT_FOUND:
+    case GUEST_ALREADY_ERASED:
+    case GUEST_EXISTS:
+    case STAFF_NOT_ASSIGNABLE:
+    case INVALID_KINDS:
+    case EMPTY_KINDS:
+    case INVALID_ROLE:
+    case ALREADY_MEMBER:
+    case LAST_OWNER:
+    case PROPERTY_REF_NOT_FOUND:
+    case DECRYPT_UNRESOLVED:
+    case KEY_SHRED_FAILED:
+    case ENTITLEMENT_REQUIRED:
+    case ENTITLEMENT_UNAVAILABLE:
+    case LIMIT_EXCEEDED:
+    case MONEY_INVALID:
+    case FX_RATE_INVALID:
+    case LEDGER_AMOUNT_MISMATCH:
+    case CURRENCY_UNSET:
+    case CROSS_CURRENCY_UNSUPPORTED:
+    case FX_RATE_MISSING:
+    case FX_RATE_NOT_LEDGER:
+    case FX_RATE_OPEN_EXISTS:
+      return 422;
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
+  }
+}
+
+function mapConfigErrorStatus(error: CommandError): number {
+  if (error.startsWith(UNDECLARED_CONFIG_PREFIX) || error === CONFIG_CLASS_NOT_DOMAIN) return 400;
+  return mapConfigConcreteCommandErrorStatus(error as ConcreteCommandError);
+}
+
+function mapConfigConcreteCommandErrorStatus(error: ConcreteCommandError): number {
+  switch (error) {
+    case IDEM_KEY_REUSED:
+      return 409;
+    case FORBIDDEN:
+    case SCOPE_MISMATCH:
+      return 403;
+    case NOT_MEMBER:
+      return 404;
+    case ENTITLEMENT_REQUIRED:
+    case ENTITLEMENT_UNAVAILABLE:
+      return 503;
+    case BUSINESS_DATE_UNSET:
+    case ORG_ID_UNSET:
+    case PROPERTY_ID_UNSET:
+    case TIMEZONE_UNSET:
+    case INTERNAL_ERROR:
+    case UNKNOWN_COMMAND:
+      return 500;
+    case CONFIG_CLASS_NOT_DOMAIN:
+      return 400;
+    case ROOM_TYPE_EXISTS:
+    case ROOM_TYPE_CODE_EXISTS:
+    case OVERSELL:
+    case ARCHIVE_BLOCKED:
+    case VIRTUAL_CONSTITUENTS_REQUIRED:
+    case VIRTUAL_CONSTITUENTS_MIN_TWO:
+    case VIRTUAL_CONSTITUENTS_DUPLICATE:
+    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
+    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
+    case VIRTUAL_NESTED_FORBIDDEN:
+    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
+    case ROOM_TYPE_KIND_IMMUTABLE:
+    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
+    case CONSTITUENT_IN_USE:
+    case VIRTUAL_TYPE_NO_ROOMS:
+    case NOT_FOUND:
+    case BUSINESS_DATE_CLOSED:
+    case ORG_UNREACHABLE:
+    case BULK_NOT_ADMITTED:
+    case DOMAIN_ERROR:
+    case TENANT_NOT_ACTIVE:
+    case PENDING_COMMANDS_UNDRAINED:
+    case PROVISIONAL_EXCEPTIONS_OPEN:
+    case PENDING_CENSUS_REQUIRED:
+    case ALREADY_RESOLVED:
+    case NOTE_TOO_LONG:
+    case NOTE_LIMIT:
+    case NIGHT_AUDIT_HALTED:
+    case NIGHT_AUDIT_STEP_NOT_FAILED:
+    case NIGHT_AUDIT_NOT_DUE:
+    case NIGHT_AUDIT_WORKFLOW_EXISTS:
+    case NO_AVAILABILITY:
+    case UNBOOKABLE:
+    case ALREADY_CANCELLED:
+    case LEDGER_INCONSISTENT:
+    case NOT_MODIFIABLE:
+    case INVALID_STATUS_TRANSITION:
+    case NO_SHOW_BEFORE_ARRIVAL:
+    case RESTRICTION_VIOLATED:
+    case RATE_MISSING:
+    case SPLIT_AMOUNT_MISMATCH:
+    case HOLD_EXPIRED:
+    case INQUIRY_EXPIRED:
+    case ROOM_REQUIRED:
+    case ROOM_NOT_READY:
+    case ROOM_OUT_OF_ORDER:
+    case BALANCE_DUE:
+    case OCCUPANCY_EXCEEDED:
+    case FRONT_OFFICE_COMMENT_TOO_LONG:
+    case INVALID_STATUS:
+    case INVALID_BUSINESS_DATE:
+    case INVALID_ASSIGNEE_REF:
+    case INVALID_DATE:
+    case GUEST_REF_REQUIRED:
+    case INVALID_STAY_RANGE:
+    case INVALID_WINDOW:
+    case INVALID_DATE_RANGE:
+    case VALIDATION_ERROR:
+    case WINDOW_CLOSED:
+    case WINDOW_NOT_CLOSABLE:
+    case WINDOW_BALANCE_DUE:
+    case WINDOW_NOT_REOPENABLE:
+    case WINDOW_NOT_OPENABLE:
+    case GUEST_WINDOW_NOT_OPENABLE:
+    case TRANSFER_CROSS_RESERVATION:
+    case TRANSFER_SAME_WINDOW:
+    case LINE_NOT_TRANSFERABLE:
+    case LINE_NOT_DISCOUNTABLE:
+    case PAYMENT_NOT_VOIDABLE:
+    case PAYMENT_NOT_REFUNDABLE:
+    case DISCOUNT_REASON_REQUIRED:
+    case FX_REASON_REQUIRED:
+    case PAYMENT_NOT_CHARGEBACKABLE:
+    case REFUND_EXCEEDS_REMAINING:
+    case PSP_UNAVAILABLE:
+    case PAYMENT_NOT_CAPTURABLE:
+    case PAYMENT_NOT_RECONCILABLE:
+    case LINE_NOT_SPLITTABLE:
+    case INVALID_VOID_REASON:
+    case PSP_ADAPTER_FAILED:
+    case PAYMENT_INSERT_FAILED:
+    case ROOM_CODE_EXISTS:
+    case ROOM_COUNT_EXCEEDED:
+    case ROOM_UNITS_EXCEED_COUNT:
+    case ROOM_TYPE_MISMATCH:
+    case ROOM_ALREADY_ASSIGNED:
+    case ROOM_NOT_ASSIGNABLE:
+    case OOO_VIA_RANGE:
+    case OOO_ROOM_ASSIGNED:
+    case OOO_RANGE_OVERLAP:
+    case OOO_INVALID_RANGE:
+    case RATE_PLAN_NOT_FOUND:
+    case RATE_PLAN_CODE_EXISTS:
+    case RATE_PLAN_ID_EXISTS:
+    case DEFAULT_RATE_PLAN_PROTECTED:
+    case DERIVED_RATE_PLAN_INVALID:
+    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
+    case INVALID_CANCEL_POLICY:
+    case PROMO_NOT_FOUND:
+    case PROMO_NOT_APPLICABLE:
+    case PROMO_CODE_EXISTS:
+    case INVALID_PROMO_CODE:
+    case INVALID_PROMO_WINDOW:
+    case INVALID_PROMO_KIND_FIELD:
+    case PROMO_ID_EXISTS:
+    case INVOICE_ALREADY_EXISTS:
+    case INVOICE_NOT_FOUND:
+    case INVOICE_VOIDED:
+    case INVOICE_R2_UNBOUND:
+    case INVOICE_COUNTER_RACE:
+    case REPORTS_R2_UNBOUND:
+    case INVOICE_REQUIRED:
+    case FOLIO_BALANCE_DUE:
+    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
+    case CITY_LEDGER_ACCOUNT_EXISTS:
+    case CITY_LEDGER_ACCOUNT_ARCHIVED:
+    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
+    case CITY_LEDGER_BILLED_PARTY_INVALID:
+    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
+    case CITY_LEDGER_STATEMENT_NOT_FOUND:
+    case CITY_LEDGER_R2_UNBOUND:
+    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
+    case CHARGE_CODE_NOT_FOUND:
+    case CHARGE_CODE_EXISTS:
+    case ROUTING_RULE_CONFLICT:
+    case SYSTEM_CHARGE_CODE_PROTECTED:
+    case TAX_RULE_NOT_FOUND:
+    case TAX_RULE_KEY_EXISTS:
+    case TAX_RULE_KEY_OVERLAP:
+    case TAX_RULE_TYPE_UNSUPPORTED:
+    case TAX_OUTPUT_CODE_TAXABLE:
+    case SHIFT_NOT_FOUND:
+    case SHIFT_ALREADY_OPEN:
+    case SHIFT_NOT_OPEN:
+    case GUEST_NOT_FOUND:
+    case GUEST_ALREADY_ERASED:
+    case GUEST_EXISTS:
+    case STAFF_NOT_FOUND:
+    case STAFF_EXITED:
+    case STAFF_NOT_ASSIGNABLE:
+    case INVALID_KINDS:
+    case EMPTY_KINDS:
+    case INVALID_ROLE:
+    case ALREADY_MEMBER:
+    case LAST_OWNER:
+    case PROPERTY_REF_NOT_FOUND:
+    case DECRYPT_UNRESOLVED:
+    case KEY_SHRED_FAILED:
+    case LIMIT_EXCEEDED:
+    case MONEY_INVALID:
+    case FX_RATE_INVALID:
+    case LEDGER_AMOUNT_MISMATCH:
+    case CURRENCY_UNSET:
+    case CROSS_CURRENCY_UNSUPPORTED:
+    case FX_RATE_MISSING:
+    case FX_RATE_NOT_LEDGER:
+    case FX_RATE_OPEN_EXISTS:
+      return 422;
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
+  }
+}
+
+function mapPaymentCommandErrorStatus(error: CommandError): number {
+  switch (error) {
+    case PSP_UNAVAILABLE:
+      return 501;
+    case IDEM_KEY_REUSED:
+    case PAYMENT_NOT_RECONCILABLE:
+      return 409;
+    case NOT_FOUND:
+      return 404;
+    case PAYMENT_NOT_CAPTURABLE:
+    case PAYMENT_NOT_VOIDABLE:
+    case PAYMENT_NOT_REFUNDABLE:
+    case LINE_NOT_SPLITTABLE:
+    case SPLIT_AMOUNT_MISMATCH:
+    case MONEY_INVALID:
+    case CURRENCY_UNSET:
+    case FX_RATE_MISSING:
+    case FX_RATE_NOT_LEDGER:
+    case FX_RATE_OPEN_EXISTS:
+    case FX_REASON_REQUIRED:
+    case PAYMENT_NOT_CHARGEBACKABLE:
+    case REFUND_EXCEEDS_REMAINING:
+      return 422;
+    case ENTITLEMENT_REQUIRED:
+      return 402;
+    case ENTITLEMENT_UNAVAILABLE:
+      return 503;
+    default:
+      return mapReservationCommandErrorStatus(error);
+  }
 }
 
 const PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
@@ -411,37 +1170,6 @@ function normalizePromoCode(raw: string): string {
 
 function promoCodeCharsetOk(code: string): boolean {
   return PROMO_CODE_CHARSET.test(code);
-}
-
-/** Shared by the four guest handlers + `POST /reservations` guestRef lookup. */
-function mapGuestCommandErrorStatus(error: string): number {
-  if (error === GUEST_NOT_FOUND) return 404;
-  if (error === GUEST_ALREADY_ERASED) return 409;
-  if (error === GUEST_EXISTS) return 409;
-  if (error === IDEM_KEY_REUSED) return 409;
-  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
-  if (error === 'not_member') return 404;
-  if (error === 'org_id_unset') return 500;
-  return 422;
-}
-
-function mapRosterCommandErrorStatus(error: string): number {
-  if (error === STAFF_NOT_FOUND) return 404;
-  if (error === STAFF_EXITED) return 409;
-  if (error === IDEM_KEY_REUSED) return 409;
-  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
-  if (error === 'not_member') return 404;
-  if (error === 'org_id_unset') return 500;
-  return 422;
-}
-
-function mapConfigErrorStatus(error: string): number {
-  if (error.startsWith('undeclared:') || error.startsWith('Only DOMAIN config')) return 400;
-  if (error === IDEM_KEY_REUSED) return 409;
-  if (error === FORBIDDEN || error === 'scope_mismatch') return 403;
-  if (error === 'not_member') return 404;
-  if (error === ENTITLEMENT_REQUIRED || error === ENTITLEMENT_UNAVAILABLE) return 503;
-  return 422;
 }
 
 /** Resolve optional wire ratePlanId before fingerprint + DO call (§2.5a). */
@@ -943,8 +1671,8 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     if (result.error === 'forbidden') {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
-    return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
+    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
   }
   return json(result, 201);
 }
@@ -1019,11 +1747,11 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     if (result.error === FORBIDDEN) {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     if (result.error === OVERSELL && 'dates' in result) {
       return json({ ok: false, error: result.error, dates: result.dates }, 409);
     }
-    return json({ ok: false, error: result.error }, mapAddRoomTypeErrorStatus(result.error));
+    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
   }
   return json(result, 200);
 }
@@ -1073,7 +1801,7 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
     if (result.error === FORBIDDEN) {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     if (result.error === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: result.error }, 409);
     }
@@ -1127,7 +1855,7 @@ async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
     if (result.error === FORBIDDEN) {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     if (result.error === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: result.error }, 409);
     }
@@ -1487,7 +2215,7 @@ function rosterWriteErrorResponse(err: string, permission: Permission): Response
   if (err === FORBIDDEN || err === 'scope_mismatch') {
     return json({ error: 'forbidden', permission }, 403);
   }
-  return json({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+  return json({ ok: false, error: err }, mapRosterCommandErrorStatus(coerceCommandError(err)));
 }
 
 async function rosterGrants(
@@ -2361,7 +3089,7 @@ async function handlePostReservationStatusAction(
     if (err === LEDGER_INCONSISTENT) {
       return json({ ok: false, error: err, date: result.date }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -2407,7 +3135,7 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -2452,7 +3180,7 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3232,7 +3960,7 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
       return json({ error: 'not_found' }, 404);
     }
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -3309,7 +4037,7 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -3366,7 +4094,7 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3432,7 +4160,7 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3503,7 +4231,7 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     if (err === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
       payload.reservationId = result.reservationId;
     }
-    return json(payload, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json(payload, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3550,7 +4278,7 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3594,7 +4322,7 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3659,7 +4387,7 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     if (err === 'invalid_assignee_ref' || err === 'invalid_business_date') {
       return json({ ok: false, error: err }, 400);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3751,7 +4479,7 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -3828,7 +4556,7 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3876,7 +4604,7 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     if (err === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: err }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -3923,7 +4651,7 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -3975,7 +4703,7 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4022,7 +4750,7 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4124,7 +4852,7 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4168,7 +4896,7 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4242,7 +4970,7 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -4315,7 +5043,7 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === 'not_member' || err === TAX_RULE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4384,7 +5112,7 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -4431,7 +5159,7 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     if (err === 'not_member' || err === SHIFT_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4650,7 +5378,7 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === 'invalid_promo_code') return json({ error: 'invalid_body' }, 400);
     if (err === PROMO_CODE_EXISTS) return json({ ok: false, error: err }, 409);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -4725,7 +5453,7 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4770,7 +5498,7 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -4819,7 +5547,7 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
     if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -4878,17 +5606,17 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
     if (err === 'not_member' || err === INVOICE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
 
 function mapCityLedgerCommandFailure(
-  error: string,
+  error: CommandError,
   permission: 'folio:adjust' | 'folio:read',
 ): Response {
   if (error === FORBIDDEN) return json({ error: 'forbidden', permission }, 403);
-  if (error === 'not_member' || error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+  if (error === NOT_MEMBER || error === NOT_FOUND) return json({ error: 'not_found' }, 404);
   return json({ ok: false, error }, mapReservationCommandErrorStatus(error));
 }
 
@@ -5553,7 +6281,7 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
     if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5601,7 +6329,7 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5642,7 +6370,7 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5679,7 +6407,7 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5716,7 +6444,7 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5756,7 +6484,7 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5793,7 +6521,7 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5850,7 +6578,7 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5894,7 +6622,7 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -5953,7 +6681,7 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -6012,7 +6740,7 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -6049,36 +6777,9 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
-}
-
-function mapPaymentCommandErrorStatus(error: string): number {
-  if (error === PSP_UNAVAILABLE) return 501;
-  if (error === IDEM_KEY_REUSED) return 409;
-  if (error === PAYMENT_NOT_RECONCILABLE) return 409;
-  if (error === NOT_FOUND) return 404;
-  if (
-    error === PAYMENT_NOT_CAPTURABLE ||
-    error === PAYMENT_NOT_VOIDABLE ||
-    error === PAYMENT_NOT_REFUNDABLE ||
-    error === LINE_NOT_SPLITTABLE ||
-    error === SPLIT_AMOUNT_MISMATCH ||
-    error === MONEY_INVALID ||
-    error === CURRENCY_UNSET ||
-    error === FX_RATE_MISSING ||
-    error === FX_RATE_NOT_LEDGER ||
-    error === FX_RATE_OPEN_EXISTS ||
-    error === FX_REASON_REQUIRED ||
-    error === PAYMENT_NOT_CHARGEBACKABLE ||
-    error === REFUND_EXCEEDS_REMAINING
-  ) {
-    return 422;
-  }
-  if (error === ENTITLEMENT_REQUIRED) return 402;
-  if (error === ENTITLEMENT_UNAVAILABLE) return 503;
-  return mapReservationCommandErrorStatus(error);
 }
 
 async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Response> {
@@ -6321,7 +7022,7 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
     if (result.error === NIGHT_AUDIT_HALTED || result.error === 'night_audit_not_due') {
       return json({ error: result.error }, 409);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     return json({ ok: false, error: result.error }, 422);
   }
 
@@ -6404,7 +7105,7 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
     if (result.error === 'night_audit_step_not_failed') {
       return json({ error: result.error }, 409);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     return json({ ok: false, error: result.error }, 422);
   }
   return json({ status: result.status, error: result.error }, 200);
@@ -6450,7 +7151,7 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
     if (result.error === 'forbidden') {
       return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
     }
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     return json({ ok: false, error: result.error }, 422);
   }
   return json({ status: result.status, error: result.error, halted: result.halted }, 200);
@@ -6497,7 +7198,7 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
       return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
     }
     if (result.error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
-    if (result.error === 'not_member') return json({ error: 'internal_error' }, 500);
+    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     return json({ ok: false, error: result.error }, 422);
   }
   if (result.alreadyResolved) {
@@ -6524,12 +7225,12 @@ async function handleGetProvisionalException(ctx: V1DispatchContext): Promise<Re
   }
 }
 
-function mapExceptionWriterError(error: string): Response {
+function mapExceptionWriterError(error: CommandError): Response {
   if (error === 'forbidden') {
     return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
   }
   if (error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
-  if (error === 'not_member') return json({ error: 'internal_error' }, 500);
+  if (error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
   if (error === 'org_unreachable') {
     return json(
       { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'provisional.retry_exception' },
@@ -6886,7 +7587,7 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }
@@ -6938,7 +7639,7 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 200);
 }
@@ -7064,7 +7765,7 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
     const err = result.error;
     if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
     if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err ?? 'unknown'));
+    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
   }
   return json(result, 201);
 }

@@ -1462,24 +1462,36 @@ export function reconcileHorizon(
       .toArray() as Array<{ stay_date: string }>;
     const existingDates = new Set(existingRows.map((r) => r.stay_date));
 
+    const oooRanges = sql
+      .exec(
+        `SELECT ooo.start_date, ooo.end_date, COUNT(*) AS room_count
+           FROM room_ooo ooo
+           JOIN room r ON r.room_id = ooo.room_id
+          WHERE r.room_type_id = ?
+            AND ooo.end_date > ?
+            AND ooo.start_date <= ?
+          GROUP BY ooo.start_date, ooo.end_date`,
+        rt.room_type_id,
+        fromDate,
+        toDate,
+      )
+      .toArray() as Array<{ start_date: string; end_date: string; room_count: number }>;
+
+    const oooCountByDate = new Map<string, number>();
+    for (const range of oooRanges) {
+      const rangeStart = range.start_date > fromDate ? range.start_date : fromDate;
+      const lastBlocked = cityLedgerAddCalendarDays(range.end_date, -1);
+      const rangeEnd = lastBlocked < toDate ? lastBlocked : toDate;
+      if (rangeStart > rangeEnd) continue;
+      const dayCount = cityLedgerCalendarDaysBetween(rangeStart, rangeEnd) + 1;
+      for (const stayDate of enumerateFromDate(rangeStart, dayCount)) {
+        oooCountByDate.set(stayDate, (oooCountByDate.get(stayDate) ?? 0) + Number(range.room_count));
+      }
+    }
+
     for (const stayDate of required) {
       if (existingDates.has(stayDate)) continue;
-      const blockedBorn = Number(
-        (
-          sql
-            .exec(
-              `SELECT COUNT(*) AS c FROM room_ooo ooo
-                 JOIN room r ON r.room_id = ooo.room_id
-                WHERE r.room_type_id = ?
-                  AND ooo.start_date <= ?
-                  AND ooo.end_date > ?`,
-              rt.room_type_id,
-              stayDate,
-              stayDate,
-            )
-            .toArray() as Array<{ c: number }>
-        )[0]?.c ?? 0,
-      );
+      const blockedBorn = oooCountByDate.get(stayDate) ?? 0;
       sql.exec(
         `INSERT INTO availability_day (room_type_id, stay_date, physical, blocked, held, sold, oversell, version)
          VALUES (?, ?, ?, ?, 0, 0, ?, 1)`,

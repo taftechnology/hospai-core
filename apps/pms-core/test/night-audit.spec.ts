@@ -52,6 +52,31 @@ function runNightAuditWorkflow(propertyId: string): Promise<void> {
 }
 
 describe('PropertyDO night audit', () => {
+  it('F4: cold-path reconcile inserts 20 room types × HORIZON_DAYS without timeout', async () => {
+    const name = `na-cold-${crypto.randomUUID()}`;
+    const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+
+    for (let i = 0; i < 20; i++) {
+      const roomTypeId = `rt_cold_${i}`;
+      const addInput = {
+        roomTypeId,
+        code: `C${i}`,
+        name: `Cold Type ${i}`,
+        roomCount: 5 + (i % 3),
+        maxOccupancy: 2,
+        maxAdults: 2,
+      };
+      const added = await stub.tryAddRoomType(TEST_OWNER_ACTOR, addInput, await idemFor(`cold-${i}`, addInput));
+      expect(added.ok).toBe(true);
+      await stub.deleteAvailabilityDaysFrom(roomTypeId, businessDate);
+      expect(await stub.countAvailabilityDays(roomTypeId)).toBe(0);
+    }
+
+    const result = await stub.reconcileHorizonForTest(businessDate);
+    expect(result.insertedCount).toBe(20 * HORIZON_DAYS);
+  });
+
   it('3. catch-up set-reconcile fills gaps with physical = room_count; idempotent re-run inserts nothing', async () => {
     const name = `na-catchup-${crypto.randomUUID()}`;
     const { stub } = await provisionedPropertyStub(name, 'Europe/Berlin', 'EUR');

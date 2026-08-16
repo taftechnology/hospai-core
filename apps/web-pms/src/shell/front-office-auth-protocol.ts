@@ -3,7 +3,7 @@ export function frontOfficeAuthProtocol(opts: {
   devActor: string;
   clerkToken: string | null;
 }): string[] | undefined {
-  if (opts.useDevActor) return [`hospai.dev-actor.${opts.devActor}`];
-  if (opts.clerkToken) return [`hospai.clerk.${opts.clerkToken}`];
+  if (opts.useDevActor) return [`hospai.dev-actor.${opts.devActor}`, 'front-office'];
+  if (opts.clerkToken) return [`hospai.clerk.${opts.clerkToken}`, 'front-office'];
   return undefined;
 }

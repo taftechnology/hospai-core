@@ -10817,8 +10817,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
 
     const headers = new Headers();
-    const protocol = request.headers.get('Sec-WebSocket-Protocol');
-    if (protocol) headers.set('Sec-WebSocket-Protocol', protocol);
+    const offered = request.headers.get('Sec-WebSocket-Protocol');
+    if (offered?.split(',').map((s) => s.trim()).includes('front-office')) {
+      headers.set('Sec-WebSocket-Protocol', 'front-office');
+    }
     return new Response(null, { status: 101, webSocket: client, headers });
   }
 

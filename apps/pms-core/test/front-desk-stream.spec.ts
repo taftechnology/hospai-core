@@ -328,13 +328,16 @@ describe('front-desk hibernating stream HTTP [119]', () => {
     ws.close(1000, 'done');
   });
 
-  it('dev-actor via Sec-WebSocket-Protocol; flags off and ?actor= are 401', async () => {
+  it('dev-actor via Sec-WebSocket-Protocol selects front-office; no JWT echo', async () => {
     const actor = 'user_stream_6';
     const { propertyId } = await provisionHotel(actor);
-    const proto = `hospai.dev-actor.${actor}`;
+    const proto = `hospai.dev-actor.${actor}, front-office`;
     const viaProto = await upgradeStream(propertyId, { 'Sec-WebSocket-Protocol': proto });
     expect(viaProto.status).toBe(101);
-    expect(viaProto.headers.get('Sec-WebSocket-Protocol')).toBe(proto);
+    const selected = viaProto.headers.get('Sec-WebSocket-Protocol');
+    expect(selected).toBe('front-office');
+    expect(selected).not.toMatch(/hospai\.clerk\./);
+    expect(selected).not.toMatch(/hospai\.dev-actor\./);
     viaProto.webSocket?.accept();
     viaProto.webSocket?.close(1000, 'done');
 

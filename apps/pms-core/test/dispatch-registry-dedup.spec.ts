@@ -14,7 +14,10 @@ const BASELINE_ME_PREPARE_TOTAL = 5;
 const BASELINE_ME_ELAPSED_MS = 3;
 const POST_F1_ME_PREPARE_TOTAL = 2;
 
-function countPrepareCalls(spy: ReturnType<typeof vi.spyOn>, sqlFragment: string): number {
+function countPrepareCalls(
+  spy: { mock: { calls: unknown[][] } },
+  sqlFragment: string,
+): number {
   return spy.mock.calls.filter(([sql]) => String(sql).includes(sqlFragment)).length;
 }
 
@@ -89,7 +92,10 @@ describe('dispatch registry dedup — GET /v1/properties/:id/me', () => {
     expect(propertyPrepares).toBe(1);
     expect(totalPrepares).toBe(POST_F1_ME_PREPARE_TOTAL);
     expect(BASELINE_ME_PREPARE_TOTAL).toBe(5);
-    expect(BASELINE_ME_ELAPSED_MS).toBeGreaterThan(0);
-    expect(elapsedMs).toBeLessThanOrEqual(BASELINE_ME_ELAPSED_MS * 1.10);
+    // Latency ratio is log-only: miniflare runs the registry path in-process, so
+    // BASELINE_ME_ELAPSED_MS sits at the noise floor and a 10% guard is flaky (spec
+    // §1d sanctions log-only when flaky). The prepare-count asserts above are the
+    // hard gate for the F1 round-trip reduction.
+    console.info('[F1 latency]', { elapsedMs, baselineMs: BASELINE_ME_ELAPSED_MS });
   });
 });

@@ -48,3 +48,39 @@ describe('classifiedUserMessage', () => {
     expect(msg).toMatch(/Requires permission folio:post/i);
   });
 });
+
+function classifiedWithCode(code: string, bodyExtra: Record<string, unknown> = {}) {
+  return classified({
+    class: 'client_error',
+    status: 422,
+    body: { error: code, ...bodyExtra },
+  });
+}
+
+describe('domain code messages', () => {
+  it.each([
+    ['balance_due', { balanceMinor: 2500 }, /Guest owes 25\.00 — settle on the folio before checkout/],
+    ['balance_due', {}, /Guest balance is due — settle on the folio before checkout/],
+    ['folio_balance_due', { balanceMinor: 100 }, /before generating the invoice/],
+    ['room_already_assigned', {}, /already assigned — pick another room/],
+    ['room_out_of_order', {}, /out of order — pick another room/],
+    ['room_type_mismatch', {}, /does not match the booked room type/],
+    ['hold_expired', {}, /hold has expired/],
+    ['inquiry_expired', {}, /inquiry has expired/],
+    ['invoice_required', {}, /Generate an invoice before checkout/],
+    ['not_modifiable', {}, /cannot be changed in its current status/],
+    ['no_availability', { date: '2026-08-11' }, /No availability on 2026-08-11/],
+    ['no_availability', {}, /No availability — pick another room type or date/],
+  ] as const)('%s', (code, extra, pattern) => {
+    const msg = classifiedUserMessage(classifiedWithCode(code, extra), { fallback: 'X' });
+    expect(msg).toMatch(pattern);
+    expect(msg).not.toMatch(/try again/i);
+    expect(msg).not.toMatch(new RegExp(code, 'i'));
+  });
+
+  it('domain message beats class-mapped client_error fallback', () => {
+    const msg = classifiedUserMessage(classifiedWithCode('balance_due'), { fallback: 'Checkout failed' });
+    expect(msg).toMatch(/balance is due|Guest owes/);
+    expect(msg).not.toBe('Checkout failed');
+  });
+});

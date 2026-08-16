@@ -373,10 +373,10 @@ export function CityLedgerScreen() {
         ) : null}
 
         {showPayment ? (
-          <div
+          <Card
             role="dialog"
             aria-modal="true"
-            className="panel overscroll-contain"
+            className="overscroll-contain"
             data-testid="city-ledger-payment"
           >
             <h2>Receive payment</h2>
@@ -420,14 +420,14 @@ export function CityLedgerScreen() {
                 </Button>
               </p>
             </form>
-          </div>
+          </Card>
         ) : null}
 
         {statementJson ? (
-          <div
+          <Card
             role="dialog"
             aria-modal="true"
-            className="panel overscroll-contain"
+            className="overscroll-contain"
             data-testid="city-ledger-statement-view"
           >
             <h2>Statement snapshot</h2>
@@ -435,7 +435,7 @@ export function CityLedgerScreen() {
             <Button type="button" onClick={() => setStatementJson(null)}>
               Close
             </Button>
-          </div>
+          </Card>
         ) : null}
       </Card>
     );
@@ -511,10 +511,10 @@ export function CityLedgerScreen() {
       ) : null}
 
       {showCreate ? (
-        <div
+        <Card
           role="dialog"
           aria-modal="true"
-          className="panel overscroll-contain"
+          className="overscroll-contain"
           data-testid="city-ledger-create"
         >
           <h2>Create account</h2>
@@ -568,7 +568,7 @@ export function CityLedgerScreen() {
               </Button>
             </p>
           </form>
-        </div>
+        </Card>
       ) : null}
     </Card>
   );

@@ -25,7 +25,7 @@ import {
 
 export function UiGallery() {
   return (
-    <main className="stack panel">
+    <Card className="stack">
       <h1>UI kit gallery</h1>
 
       <Card>
@@ -124,6 +124,6 @@ export function UiGallery() {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </Card>
   );
 }

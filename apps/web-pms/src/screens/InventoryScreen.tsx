@@ -642,7 +642,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
       )}
 
       {archiveTarget ? (
-        <div role="dialog" aria-modal="true" className="panel overscroll-contain">
+        <Card role="dialog" aria-modal="true" className="overscroll-contain">
           <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
           <Button type="button" onClick={() => setArchiveTarget(null)}>
             Cancel
@@ -655,10 +655,10 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           >
             {archiveType.isPending ? 'Archiving…' : 'Archive'}
           </Button>
-        </div>
+        </Card>
       ) : null}
       {roomArchiveTarget ? (
-        <div role="dialog" aria-modal="true" className="panel overscroll-contain">
+        <Card role="dialog" aria-modal="true" className="overscroll-contain">
           <p>
             Archive {roomArchiveTarget.code}? It will free a unit slot. History stays.
           </p>
@@ -673,7 +673,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           >
             {archiveRoomUnit.isPending ? 'Archiving…' : 'Archive'}
           </Button>
-        </div>
+        </Card>
       ) : null}
     </Card>
   );

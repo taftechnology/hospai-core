@@ -2,7 +2,7 @@
 /**
  * ui-kit adoption ratchet (spec §9.1):
  * Counts raw JSX intrinsics in scope for the lint rule across web-pms and module UI.
- * Also counts className="panel" / className="badge" literals (Phase G G5).
+ * Also counts className tokens panel / badge (Phase G G5; compound classNames included).
  * Fails when any count rises, or falls without a baseline update in the same commit.
  *
  *   node scripts/ui-kit-adoption-check.mjs
@@ -29,8 +29,9 @@ const FORBIDDEN = [
 ];
 
 const TAG_RE = new RegExp(`<(${FORBIDDEN.join('|')})(\\s|>|/)`, 'g');
-const PANEL_RE = /className="panel"/g;
-const BADGE_RE = /className="badge"/g;
+/** panel / badge as whitespace-delimited tokens inside className="..." (not side-panel etc.) */
+const PANEL_RE = /className="(?:[^"\s]+\s+)*panel(?:\s+[^"\s]+)*"/g;
+const BADGE_RE = /className="(?:[^"\s]+\s+)*badge(?:\s+[^"\s]+)*"/g;
 
 const SCAN_ROOTS = [
   join(root, 'apps/web-pms/src'),
@@ -108,6 +109,16 @@ function selfTest() {
 
   if (countMatches(PANEL_RE, '<div className="panel">') !== 1) {
     console.error('self-test FAILED: PANEL_RE must match className="panel"');
+    failed = true;
+  }
+
+  if (countMatches(PANEL_RE, '<div className="panel overscroll-contain">') !== 1) {
+    console.error('self-test FAILED: PANEL_RE must match compound panel className');
+    failed = true;
+  }
+
+  if (countMatches(PANEL_RE, '<div className="side-panel">') !== 0) {
+    console.error('self-test FAILED: PANEL_RE must not match side-panel');
     failed = true;
   }
 

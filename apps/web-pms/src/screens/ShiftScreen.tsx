@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Alert, Badge, Button, Field, Input } from '@hospai/ui-kit';
+import { Alert, Badge, Button, Card, Field, Input } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
@@ -102,14 +102,14 @@ function ShiftCloseForm() {
     | undefined;
   if (!open?.shift) {
     return (
-      <div className="panel stack">
+      <Card className="stack">
         <h1>Close shift</h1>
         <p className="muted">
           No open shift. Open one from the strip above, or review a recent shift from the force-close
           callout when shown.
         </p>
         <Link to="/arrivals">Back to board</Link>
-      </div>
+      </Card>
     );
   }
 
@@ -117,7 +117,7 @@ function ShiftCloseForm() {
   const { businessDate, openingFloat } = open.shift;
 
   return (
-    <div className="panel stack">
+    <Card className="stack">
       <h1>Close shift</h1>
       <p>
         {businessDate ? (
@@ -157,7 +157,7 @@ function ShiftCloseForm() {
         </Button>
       </form>
       {message ? <p className="muted">{message}</p> : null}
-    </div>
+    </Card>
   );
 }
 
@@ -201,7 +201,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         : formatVarianceMinor(shift.variance);
 
   return (
-    <div className="panel stack" data-testid="shift-receipt">
+    <Card className="stack" data-testid="shift-receipt">
       <h1>Shift receipt</h1>
       <Badge rung={sev} data-testid="receipt-status">
         {shift.status}
@@ -232,6 +232,6 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         <Badge rung="exception">Drawer never counted.</Badge>
       ) : null}
       <Link to="/arrivals">Back to board</Link>
-    </div>
+    </Card>
   );
 }

@@ -62,6 +62,12 @@ afterEach(() => {
 });
 
 describe('HousekeepingApp assign picker', () => {
+  it('renders PageHeader Housekeeping and ui-card shell', async () => {
+    renderApp(stubApi());
+    expect(screen.getByRole('heading', { name: 'Housekeeping' })).toBeTruthy();
+    expect(document.querySelector('.ui-card')).toBeTruthy();
+  });
+
   it('31: empty roster shows “No housekeepers on the roster” and no text input', async () => {
     renderApp(stubApi({ listRoster: async () => ({ ok: true, staff: [] }) }), true);
 

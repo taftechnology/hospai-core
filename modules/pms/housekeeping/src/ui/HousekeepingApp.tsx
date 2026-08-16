@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
+  Card,
+  CardContent,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -11,6 +13,8 @@ import {
   Field,
   Input,
   NativeSelect,
+  PageHeader,
+  Toolbar,
 } from '@hospai/ui-kit';
 import { useMemo, useState } from 'react';
 
@@ -264,259 +268,272 @@ export function HousekeepingApp({
 
   return (
     <div>
-      <h1>Housekeeping</h1>
-      <Field
-        label="Business date"
-        control={
-          <Input
-            type="date"
-            value={businessDate}
-            onChange={(e) => setBusinessDate(e.target.value)}
-            data-testid="hk-business-date"
-          />
-        }
-      />
-
-      <Field
-        label="Filter status"
-        control={
-          <NativeSelect
-            aria-label="Filter status"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            <option value="clean">Clean</option>
-            <option value="dirty">Dirty</option>
-            <option value="inspected">Inspected</option>
-            <option value="out_of_order">Out of order</option>
-          </NativeSelect>
-        }
-      />
-      <Field
-        label="Floor"
-        control={
-          <NativeSelect
-            aria-label="Filter floor"
-            value={floorFilter}
-            onChange={(e) => setFloorFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            {[...new Set(rooms.map((r) => r.floor).filter((f): f is string => Boolean(f)))].map(
-              (floor) => (
-                <option key={floor} value={floor}>
-                  {floor}
-                </option>
-              ),
-            )}
-          </NativeSelect>
-        }
-      />
-      <Field
-        label="Assignment"
-        control={
-          <NativeSelect
-            aria-label="Filter assignment"
-            value={assignedFilter}
-            onChange={(e) => setAssignedFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            <option value="assigned">assigned</option>
-            <option value="unassigned">unassigned</option>
-          </NativeSelect>
-        }
-      />
-
-      {(roomsQuery.isError || assignmentsQuery.isError) && (
-        <Alert>
-          Unable to load housekeeping board
-          {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
-            ? ' (property unreachable)'
-            : ''}
-          .
-        </Alert>
-      )}
-
-      {rosterQuery.isError && <Alert>Unable to load housekeepers</Alert>}
-
-      {emptyRoster && <p>No housekeepers on the roster</p>}
-
-      <div data-testid="hk-workload">
-        {workload.rows.map((row) => (
-          <div key={row.staffId}>
-            {row.label}: {row.count}
-          </div>
-        ))}
-        <div>Unassigned: {workload.unassigned}</div>
-      </div>
-
-      {canSetOoo && (
-        <form
-          data-testid="hk-ooo-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!formRoomId || !oooStart || !oooReturn) return;
-            oooMutation.mutate({
-              roomId: formRoomId,
-              startDate: oooStart,
-              endDate: oooReturn,
-              reason: oooReason.trim() || undefined,
-            });
-          }}
-        >
+      <PageHeader title="Housekeeping" />
+      <Card>
+        <Toolbar>
           <Field
-            label="Room"
+            size="xs"
+            label="Business date"
+            control={
+              <Input
+                type="date"
+                value={businessDate}
+                onChange={(e) => setBusinessDate(e.target.value)}
+                data-testid="hk-business-date"
+              />
+            }
+          />
+          <Field
+            size="xs"
+            label="Filter status"
             control={
               <NativeSelect
-                aria-label="OOO room"
-                value={formRoomId}
-                onChange={(e) => setOooRoomId(e.target.value)}
+                aria-label="Filter status"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
               >
-                {rooms.map((room) => (
-                  <option key={room.roomId} value={room.roomId}>
-                    {room.code}
-                  </option>
-                ))}
+                <option value="">All</option>
+                <option value="clean">Clean</option>
+                <option value="dirty">Dirty</option>
+                <option value="inspected">Inspected</option>
+                <option value="out_of_order">Out of order</option>
               </NativeSelect>
             }
           />
           <Field
-            label="Start"
+            size="xs"
+            label="Floor"
             control={
-              <Input
-                type="date"
-                aria-label="Start"
-                value={oooStart}
-                onChange={(e) => setOooStart(e.target.value)}
-              />
+              <NativeSelect
+                aria-label="Filter floor"
+                value={floorFilter}
+                onChange={(e) => setFloorFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                {[...new Set(rooms.map((r) => r.floor).filter((f): f is string => Boolean(f)))].map(
+                  (floor) => (
+                    <option key={floor} value={floor}>
+                      {floor}
+                    </option>
+                  ),
+                )}
+              </NativeSelect>
             }
           />
           <Field
-            label="Return"
+            size="xs"
+            label="Assignment"
             control={
-              <Input
-                type="date"
-                aria-label="Return"
-                value={oooReturn}
-                onChange={(e) => setOooReturn(e.target.value)}
-              />
+              <NativeSelect
+                aria-label="Filter assignment"
+                value={assignedFilter}
+                onChange={(e) => setAssignedFilter(e.target.value)}
+              >
+                <option value="">All</option>
+                <option value="assigned">assigned</option>
+                <option value="unassigned">unassigned</option>
+              </NativeSelect>
             }
           />
-          <Field
-            label="Reason"
-            control={
-              <Input
-                aria-label="OOO reason"
-                value={oooReason}
-                onChange={(e) => setOooReason(e.target.value)}
-              />
-            }
-          />
-          <Button type="submit" intent="primary">
-            Set OOO
-          </Button>
-        </form>
-      )}
+        </Toolbar>
 
-      <DataTable data-testid="hk-board">
-        <DataTableHead>
-          <DataTableRow>
-            <DataTableHeaderCell>Room</DataTableHeaderCell>
-            <DataTableHeaderCell>Status</DataTableHeaderCell>
-            <DataTableHeaderCell>Assignee</DataTableHeaderCell>
-            <DataTableHeaderCell />
-          </DataTableRow>
-        </DataTableHead>
-        <DataTableBody>
-          {filteredRooms.map((room) => {
-            const assigneeRef = byRoom.get(room.roomId);
-            const assigneeLabel = assigneeRef
-              ? (displayNameByStaffId.get(assigneeRef) ?? assigneeRef)
-              : '—';
-            return (
-              <DataTableRow key={room.roomId}>
-                <DataTableCell>{room.code}</DataTableCell>
-                <DataTableCell>
-                  {room.status === 'out_of_order' ? (
-                    <span>Out of order</span>
-                  ) : (
-                    <NativeSelect
-                      aria-label={`Status for ${room.code}`}
-                      defaultValue={room.status}
-                      onChange={(e) => {
-                        const status = e.target.value;
-                        if (status !== room.status) {
-                          statusMutation.mutate({ roomId: room.roomId, status });
-                        }
-                      }}
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {statusLabel(s)}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  )}
-                  {(room.oooRanges ?? []).map((range) => (
-                    <div key={range.oooId}>
-                      {range.startDate}–{range.endDate}
-                      {range.reason ? ` ${range.reason}` : ''}
-                      {canSetOoo ? (
-                        <Button
-                          type="button"
-                          intent="ghost"
-                          onClick={() => {
-                            if (!window.confirm('Release this OOO range early?')) return;
-                            const defaultReturn =
-                              businessDate > range.startDate
-                                ? businessDate
-                                : addOneDay(range.startDate);
-                            oooMutation.mutate({
-                              roomId: room.roomId,
-                              oooId: range.oooId,
-                              startDate: range.startDate,
-                              endDate: defaultReturn,
-                            });
+        <CardContent>
+          {(roomsQuery.isError || assignmentsQuery.isError) && (
+            <Alert>
+              Unable to load housekeeping board
+              {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
+                ? ' (property unreachable)'
+                : ''}
+              .
+            </Alert>
+          )}
+
+          {rosterQuery.isError && <Alert>Unable to load housekeepers</Alert>}
+
+          {emptyRoster && <p>No housekeepers on the roster</p>}
+
+          <div data-testid="hk-workload">
+            {workload.rows.map((row) => (
+              <div key={row.staffId}>
+                {row.label}: {row.count}
+              </div>
+            ))}
+            <div>Unassigned: {workload.unassigned}</div>
+          </div>
+
+          <DataTable data-testid="hk-board">
+            <DataTableHead>
+              <DataTableRow>
+                <DataTableHeaderCell>Room</DataTableHeaderCell>
+                <DataTableHeaderCell>Status</DataTableHeaderCell>
+                <DataTableHeaderCell>Assignee</DataTableHeaderCell>
+                <DataTableHeaderCell />
+              </DataTableRow>
+            </DataTableHead>
+            <DataTableBody>
+              {filteredRooms.map((room) => {
+                const assigneeRef = byRoom.get(room.roomId);
+                const assigneeLabel = assigneeRef
+                  ? (displayNameByStaffId.get(assigneeRef) ?? assigneeRef)
+                  : '—';
+                return (
+                  <DataTableRow key={room.roomId}>
+                    <DataTableCell>{room.code}</DataTableCell>
+                    <DataTableCell>
+                      {room.status === 'out_of_order' ? (
+                        <span>Out of order</span>
+                      ) : (
+                        <NativeSelect
+                          aria-label={`Status for ${room.code}`}
+                          defaultValue={room.status}
+                          onChange={(e) => {
+                            const status = e.target.value;
+                            if (status !== room.status) {
+                              statusMutation.mutate({ roomId: room.roomId, status });
+                            }
                           }}
                         >
-                          Release early
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))}
-                </DataTableCell>
-                <DataTableCell>{assigneeLabel}</DataTableCell>
-                <DataTableCell>
-                  {showPicker ? (
-                    <NativeSelect
-                      aria-label={`Assign ${room.code}`}
-                      defaultValue=""
-                      onChange={(e) => {
-                        const assignee = e.target.value;
-                        if (assignee) {
-                          assignMutation.mutate({
-                            roomId: room.roomId,
-                            assigneeRef: assignee,
-                          });
-                        }
-                      }}
-                    >
-                      <option value="" disabled>
-                        Assign
-                      </option>
-                      {assignable.map((person) => (
-                        <option key={person.staffId} value={person.staffId}>
-                          {person.displayName ?? person.staffId}
-                        </option>
+                          {STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {statusLabel(s)}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      )}
+                      {(room.oooRanges ?? []).map((range) => (
+                        <div key={range.oooId}>
+                          {range.startDate}–{range.endDate}
+                          {range.reason ? ` ${range.reason}` : ''}
+                          {canSetOoo ? (
+                            <Button
+                              type="button"
+                              intent="ghost"
+                              onClick={() => {
+                                if (!window.confirm('Release this OOO range early?')) return;
+                                const defaultReturn =
+                                  businessDate > range.startDate
+                                    ? businessDate
+                                    : addOneDay(range.startDate);
+                                oooMutation.mutate({
+                                  roomId: room.roomId,
+                                  oooId: range.oooId,
+                                  startDate: range.startDate,
+                                  endDate: defaultReturn,
+                                });
+                              }}
+                            >
+                              Release early
+                            </Button>
+                          ) : null}
+                        </div>
                       ))}
-                    </NativeSelect>
-                  ) : null}
-                </DataTableCell>
-              </DataTableRow>
-            );
-          })}
-        </DataTableBody>
-      </DataTable>
+                    </DataTableCell>
+                    <DataTableCell>{assigneeLabel}</DataTableCell>
+                    <DataTableCell>
+                      {showPicker ? (
+                        <NativeSelect
+                          aria-label={`Assign ${room.code}`}
+                          defaultValue=""
+                          onChange={(e) => {
+                            const assignee = e.target.value;
+                            if (assignee) {
+                              assignMutation.mutate({
+                                roomId: room.roomId,
+                                assigneeRef: assignee,
+                              });
+                            }
+                          }}
+                        >
+                          <option value="" disabled>
+                            Assign
+                          </option>
+                          {assignable.map((person) => (
+                            <option key={person.staffId} value={person.staffId}>
+                              {person.displayName ?? person.staffId}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      ) : null}
+                    </DataTableCell>
+                  </DataTableRow>
+                );
+              })}
+            </DataTableBody>
+          </DataTable>
+        </CardContent>
+      </Card>
+
+      {canSetOoo ? (
+        <Card>
+          <CardContent>
+            <form
+              data-testid="hk-ooo-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!formRoomId || !oooStart || !oooReturn) return;
+                oooMutation.mutate({
+                  roomId: formRoomId,
+                  startDate: oooStart,
+                  endDate: oooReturn,
+                  reason: oooReason.trim() || undefined,
+                });
+              }}
+            >
+              <Field
+                label="Room"
+                control={
+                  <NativeSelect
+                    aria-label="OOO room"
+                    value={formRoomId}
+                    onChange={(e) => setOooRoomId(e.target.value)}
+                  >
+                    {rooms.map((room) => (
+                      <option key={room.roomId} value={room.roomId}>
+                        {room.code}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Field
+                label="Start"
+                control={
+                  <Input
+                    type="date"
+                    aria-label="Start"
+                    value={oooStart}
+                    onChange={(e) => setOooStart(e.target.value)}
+                  />
+                }
+              />
+              <Field
+                label="Return"
+                control={
+                  <Input
+                    type="date"
+                    aria-label="Return"
+                    value={oooReturn}
+                    onChange={(e) => setOooReturn(e.target.value)}
+                  />
+                }
+              />
+              <Field
+                label="Reason"
+                control={
+                  <Input
+                    aria-label="OOO reason"
+                    value={oooReason}
+                    onChange={(e) => setOooReason(e.target.value)}
+                  />
+                }
+              />
+              <Button type="submit" intent="primary">
+                Set OOO
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

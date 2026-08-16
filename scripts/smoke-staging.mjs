@@ -207,7 +207,20 @@ async function main() {
   if (checkInRes.status !== 200) fail(9, checkInRes.status, snippet(checkInBody));
   console.log('✓ step 9: POST …/reservations/{id}/check-in');
 
-  // Step 10: POST …/reservations/{id}/check-out
+  // Step 10: POST /v1/properties/{id}/invoices — invoice.generate gates check-out
+  const invoiceRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/invoices`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ reservationId, idempotencyKey: `idem-inv-${suffix}` }),
+    },
+  );
+  const invoiceBody = await readJson(invoiceRes);
+  if (invoiceRes.status !== 201) fail(10, invoiceRes.status, snippet(invoiceBody));
+  console.log('✓ step 10: POST …/invoices (invoice.generate)');
+
+  // Step 11: POST …/reservations/{id}/check-out
   const checkOutRes = await fetch(
     `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/check-out`,
     {
@@ -219,20 +232,20 @@ async function main() {
     },
   );
   const checkOutBody = await readJson(checkOutRes);
-  if (checkOutRes.status !== 200) fail(10, checkOutRes.status, snippet(checkOutBody));
-  console.log('✓ step 10: POST …/reservations/{id}/check-out');
+  if (checkOutRes.status !== 200) fail(11, checkOutRes.status, snippet(checkOutBody));
+  console.log('✓ step 11: POST …/reservations/{id}/check-out');
 
-  // Step 11: GET …/reservations/{id}
+  // Step 12: GET …/reservations/{id}
   const getRes = await fetch(
     `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
     { headers: bearerOnly },
   );
   const getBody = await readJson(getRes);
-  if (getRes.status !== 200) fail(11, getRes.status, snippet(getBody));
+  if (getRes.status !== 200) fail(12, getRes.status, snippet(getBody));
   if (getBody?.status !== 'checked_out') {
-    fail(11, getRes.status, `expected status checked_out, got ${JSON.stringify(getBody?.status)}`);
+    fail(12, getRes.status, `expected status checked_out, got ${JSON.stringify(getBody?.status)}`);
   }
-  console.log('✓ step 11: GET …/reservations/{id} (checked_out)');
+  console.log('✓ step 12: GET …/reservations/{id} (checked_out)');
 }
 
 main().catch((err) => {

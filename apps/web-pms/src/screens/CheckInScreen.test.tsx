@@ -235,6 +235,23 @@ describe('CheckInScreen', () => {
     expect(screen.getByText(/Allocated: King Room/i)).toBeTruthy();
   });
 
+  it('surfaces check-in feedback in an alert region', async () => {
+    checkIn.mockRejectedValueOnce(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'room_out_of_order' },
+        retryAfterMs: null,
+      }),
+    );
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
+    fireEvent.click(screen.getByTestId('check-in'));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByRole('alert').textContent).toMatch(/out of order/i);
+  });
+
   it('13: print disabled when guest name_pending; window.print not called', async () => {
     const print = vi.fn();
     vi.stubGlobal('print', print);

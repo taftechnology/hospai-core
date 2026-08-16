@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Button, Field, Input } from '@hospai/ui-kit';
+import { Button, Field, Input, Alert } from '@hospai/ui-kit';
 import { useEffect, useRef, useState } from 'react';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -143,7 +143,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
             </Button>
           </form>
         ) : null}
-        {message ? <p className="muted">{message}</p> : null}
+        {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
         {callout}
       </div>
     );
@@ -162,7 +162,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
         Open shift · float {formatMinor(shift.openingFloat)} · cash posts {shift.attributedCashCount}
       </span>
       <Link to="/shift">Close</Link>
-      {message ? <p className="muted">{message}</p> : null}
+      {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
       {callout}
     </div>
   );

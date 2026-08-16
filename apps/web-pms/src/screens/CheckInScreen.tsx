@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Field, NativeSelect } from '@hospai/ui-kit';
+import { Button, Checkbox, Field, NativeSelect, Alert } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
@@ -202,7 +202,7 @@ export function CheckInScreen() {
           }
         />
       ) : null}
-      {message ? <p>{message}</p> : null}
+      {message ? <Alert data-testid="check-in-message">{message}</Alert> : null}
       {reservationQ.isSuccess ? (
         <FrontOfficeEditor
           reservationId={reservationId}

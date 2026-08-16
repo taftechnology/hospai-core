@@ -146,6 +146,7 @@ describe('ShiftStrip', () => {
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy();
     expect(screen.getByText(/Open shift failed/i)).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/Open shift failed/i);
     expect(screen.queryByText(/client_error/i)).toBeNull();
   });
 

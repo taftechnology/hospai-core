@@ -1289,7 +1289,8 @@ describe('degraded replay attribution (C1)', () => {
 
     const audit = await stub.listAuditLog({ kind: 'user', userId: actor }, { reservationId: 'res_c1_ok' });
     expect(audit.ok).toBe(true);
-    const checkInRow = audit.rows.find((r) => r.commandId === 'reservations.check_in');
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string; actor: string }> }).rows;
+    const checkInRow = rows.find((r) => r.commandId === 'reservations.check_in');
     expect(checkInRow?.actor).toBe('user_alice');
     expect(checkInRow?.actor).not.toBe('system:queue_replay');
   });

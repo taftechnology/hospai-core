@@ -1168,6 +1168,8 @@ describe('modify noPost (B3)', () => {
     expect(folio.ok && folio.noPost).toBe(true);
     expect(await stub.listOutboxEventTypes()).toContain('reservation.modified');
     const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId });
-    expect(audit.ok && audit.rows.some((r) => r.commandId === 'reservations.modify')).toBe(true);
+    expect(audit.ok).toBe(true);
+    const rows = (audit as unknown as { ok: true; rows: Array<{ commandId: string }> }).rows;
+    expect(rows.some((r) => r.commandId === 'reservations.modify')).toBe(true);
   });
 });

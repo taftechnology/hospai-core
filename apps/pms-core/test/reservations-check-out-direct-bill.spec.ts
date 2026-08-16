@@ -90,6 +90,7 @@ describe('check-out with company direct-bill (B1)', () => {
       await idemFor('open-co-db1', openFp),
     );
     expect(opened).toMatchObject({ ok: true });
+    if (!opened.ok) throw new Error('open company folio failed');
     const businessDate = (await stub.readBusinessDate())!;
     const receivableMinor = 12_000;
     await stub.insertFolioLineRawForTest({
@@ -142,6 +143,7 @@ describe('check-out with company direct-bill (B1)', () => {
       await idemFor('open-co-reg', openFp),
     );
     expect(opened).toMatchObject({ ok: true });
+    if (!opened.ok) throw new Error('open company folio failed');
     const receivableMinor = 8_500;
     await stub.insertFolioLineRawForTest({
       folioLineId: crypto.randomUUID(),

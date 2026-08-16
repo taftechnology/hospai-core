@@ -480,14 +480,14 @@ All **14** `check:*` gates remain green (audit ground rules §4).
 
 ## 8. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1 (F1): `ResolvedTenant.property`; thread-through; prepare **5 → 2**; baseline constants committed
-- [ ] Lock 2 (F2): kill-switch ∥ actor; permission ∥ entitlement; precedence spec **403** over **402**
-- [ ] Lock 3 (F3): `staleTime: 60_000` + `refetchOnWindowFocus: false` global; focus spec green
-- [ ] Lock 4 (F4): grouped OOO map; cold-path **20 × HORIZON_DAYS**; **no** BULK/cursor
-- [ ] No frozen head moves (§1.6)
-- [ ] Scope-out respected — no KV projection, no catalog/route/schema changes, no Phase D status changes
-- [ ] `pnpm test:local` green (or sharded equivalent)
-- [ ] All **14** `check:*` gates green
+- [x] Lock 1 (F1): `ResolvedTenant.property`; thread-through; prepare **5 → 2**; baseline constants committed
+- [x] Lock 2 (F2): kill-switch ∥ actor; permission ∥ entitlement; precedence spec **403** over **402**
+- [x] Lock 3 (F3): `staleTime: 60_000` + `refetchOnWindowFocus: false` global; focus spec green
+- [x] Lock 4 (F4): grouped OOO map; cold-path **20 × HORIZON_DAYS**; **no** BULK/cursor
+- [x] No frozen head moves (§1.6)
+- [x] Scope-out respected — no KV projection, no catalog/route/schema changes, no Phase D status changes
+- [x] `pnpm test:local` green (or sharded equivalent)
+- [x] All **14** `check:*` gates green
 
 ---
 

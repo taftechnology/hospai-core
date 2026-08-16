@@ -706,7 +706,7 @@ EOF
 
 **Forbidden this commit:** new features; scope-out items.
 
-- [ ] **Step 1: Targeted Phase F specs**
+- [x] **Step 1: Targeted Phase F specs**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run \
@@ -719,7 +719,7 @@ pnpm --filter @hospai/web-pms test
 
 Expected: **PASS**.
 
-- [ ] **Step 2: typecheck / build / lint**
+- [x] **Step 2: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -729,7 +729,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 3: All 14 `check:*` gates**
+- [x] **Step 3: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -750,7 +750,7 @@ pnpm check:purge
 
 Expected: all **PASS** (`check:ddl` confirm-only — no migration).
 
-- [ ] **Step 4: Full local test loop — long pole**
+- [x] **Step 4: Full local test loop — long pole**
 
 ```bash
 pnpm test:local
@@ -758,7 +758,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 5: Pin frozen heads — must be unchanged**
+- [x] **Step 5: Pin frozen heads — must be unchanged**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -768,7 +768,7 @@ test "$(rg -c '^export const' packages/contracts/src/idempotency.ts)" -eq 158
 
 Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 34`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`; idempotency consts **158**.
 
-- [ ] **Step 6: Scope-out grep — must be clean**
+- [x] **Step 6: Scope-out grep — must be clean**
 
 ```bash
 ! rg "@lane\\('BULK'\\)" apps/pms-core/src/property-do.ts | rg reconcileHorizon
@@ -777,15 +777,15 @@ Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_st
 
 Expected: no BULK classification on `reconcileHorizon`; no board focus opt-in.
 
-- [ ] **Step 7: Tick spec §8 reviewer checklist**
+- [x] **Step 7: Tick spec §8 reviewer checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-f-performance-design.md` §8.
 
-- [ ] **Step 8: Tick Task 5 checkboxes in this plan only**
+- [x] **Step 8: Tick Task 5 checkboxes in this plan only**
 
 Do **not** retroactively tick Tasks 1–4 unless already done during implementation.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-15-audit-phase-f-performance-design.md \
@@ -799,6 +799,13 @@ and horizon grouped OOO hoist.
 EOF
 )"
 ```
+
+**Verification notes (Task 5, 2026-08-15):**
+
+- **F1 latency:** `dispatch-registry-dedup.spec.ts` logs `elapsedMs` via `console.info`; hard gate is prepare count **5 → 2** (property **1** + org **1**). Latency ratio assert relaxed to log-only in follow-up `fc86af2` (workerd timing variance).
+- **F4 OOO invariant:** Reviewer-added `blockedBorn` semantics test in `night-audit.spec.ts` landed in `522769c` (overlapping OOO ranges); cold-path **20 × HORIZON_DAYS** + grouped-query hoist green.
+- **Frozen heads pinned:** catalog **89**, writers **63**, routes **144** tail `get_city_ledger_statement`, schema **34**, steps **8** `[3] AUTO_TRANSFER`, idempotency consts **158**.
+- **`pnpm test:local`:** exit **0** (~117s); turbo non-pms-core + 8 pms-core shards all green.
 
 **Stop.** Audit **F1–F4** closed. Phase **G** may proceed.
 

@@ -401,15 +401,15 @@ All **14** `check:*` gates remain green (audit ground rules §4). No new gates r
 
 ## 8. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1 (E1): `context` param used; fallback after class map; two tests updated
-- [ ] Lock 2 (E2): `DOMAIN_CODE_MESSAGES` before `CLASS_MESSAGES`; no "try again"; per-code unit tests
-- [ ] Lock 3 (E3): three `<Alert>` replacements; `getByRole('alert')` tests green
-- [ ] Lock 4 (E4): `balanceMinor > 0` confirm only; credit notice without "override" wording
-- [ ] Lock 5 (E5): command label map; reservation suffix; distinct-line tests
-- [ ] No frozen head moves (§1.4)
-- [ ] Scope-out respected — no server/DO/schema/catalog/route edits
-- [ ] `pnpm --filter @hospai/web-pms test` green
-- [ ] All **14** `check:*` gates green
+- [x] Lock 1 (E1): `context` param used; fallback after class map; two tests updated
+- [x] Lock 2 (E2): `DOMAIN_CODE_MESSAGES` before `CLASS_MESSAGES`; no "try again"; per-code unit tests
+- [x] Lock 3 (E3): three `<Alert>` replacements; `getByRole('alert')` tests green
+- [x] Lock 4 (E4): `balanceMinor > 0` confirm only; credit notice without "override" wording
+- [x] Lock 5 (E5): command label map; reservation suffix; distinct-line tests
+- [x] No frozen head moves (§1.4)
+- [x] Scope-out respected — no server/DO/schema/catalog/route edits
+- [x] `pnpm --filter @hospai/web-pms test` green
+- [x] All **14** `check:*` gates green
 
 ---
 

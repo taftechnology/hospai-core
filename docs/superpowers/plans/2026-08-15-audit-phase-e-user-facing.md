@@ -743,7 +743,9 @@ EOF
 
 **Forbidden this commit:** new features; scope-out items.
 
-- [ ] **Step 1: web-pms test suite**
+**Commit history note (E4/E5 split):** Task 4 production landed in `486aaf2`; its two FolioScreen E4 tests landed in Task 5 commit `a7b8a59` due to parallel-implementer staging collision. Functionally correct — tests and production both on `main`.
+
+- [x] **Step 1: web-pms test suite**
 
 ```bash
 pnpm --filter @hospai/web-pms test
@@ -751,7 +753,7 @@ pnpm --filter @hospai/web-pms test
 
 Expected: **PASS**.
 
-- [ ] **Step 2: typecheck / build / lint**
+- [x] **Step 2: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -761,7 +763,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 3: All 14 `check:*` gates**
+- [x] **Step 3: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -782,7 +784,7 @@ pnpm check:purge
 
 Expected: all **PASS** (`check:ddl` confirm-only — no migration).
 
-- [ ] **Step 4: Full local test loop — long pole**
+- [x] **Step 4: Full local test loop — long pole**
 
 ```bash
 pnpm test:local
@@ -790,7 +792,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 5: Pin frozen heads — must be unchanged**
+- [x] **Step 5: Pin frozen heads — must be unchanged**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -800,7 +802,7 @@ test "$(rg -c '^export const' packages/contracts/src/idempotency.ts)" -eq 158
 
 Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 34`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`; idempotency consts **158**.
 
-- [ ] **Step 6: Scope-out grep — must be clean**
+- [x] **Step 6: Scope-out grep — must be clean**
 
 ```bash
 ! rg "DOMAIN_CODE_MESSAGES|bodyErrorCode" apps/web-pms/src/screens/BookingScreen.tsx
@@ -809,15 +811,15 @@ Expect: catalog **89**; writers **63**; routes **144**, tail `get_city_ledger_st
 
 Expected: no matches (BookingScreen stays local-first; Folio uses `> 0`).
 
-- [ ] **Step 7: Tick spec §8 reviewer checklist**
+- [x] **Step 7: Tick spec §8 reviewer checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-e-user-facing-design.md` §8.
 
-- [ ] **Step 8: Tick Task 6 checkboxes in this plan only**
+- [x] **Step 8: Tick Task 6 checkboxes in this plan only**
 
 Do **not** retroactively tick Tasks 1–5 unless already done during implementation.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-15-audit-phase-e-user-facing-design.md \

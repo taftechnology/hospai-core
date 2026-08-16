@@ -79,6 +79,10 @@ describe('PropertyDO freeze gate', () => {
       await configIdem('pms.ui.date_format', 'ISO', meta),
     );
     expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.error).toBe('config_class_not_domain');
+      expect('gotClass' in rejected && rejected.gotClass).toBeTruthy();
+    }
   });
 
   it('replay same idempotency key does not double-write or double-emit', async () => {

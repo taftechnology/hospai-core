@@ -126,6 +126,12 @@ import {
   SHIFT_ALREADY_OPEN,
   SHIFT_NOT_OPEN,
   FORBIDDEN,
+  CONFIG_CLASS_NOT_DOMAIN,
+  ORG_ID_UNSET,
+  INTERNAL_ERROR,
+  configUndeclared,
+  isCommandError,
+  type CommandError,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
   STAFF_EXITED,
@@ -1191,6 +1197,30 @@ function mapReservationPreconditionError(e: unknown):
   return null;
 }
 
+function mapPropertyCommandError(
+  e: unknown,
+): NonNullable<ReturnType<typeof mapReservationPreconditionError>> | { ok: false; error: CommandError } | null {
+  const precondition = mapReservationPreconditionError(e);
+  if (precondition) return precondition;
+
+  if (!(e instanceof Error)) return null;
+  const msg = e.message;
+
+  if (
+    msg === 'simulated_internal_bug' ||
+    msg === 'audit_append_fault_for_test' ||
+    msg === 'simulated_post_room_charges_failure'
+  ) {
+    return { ok: false, error: INTERNAL_ERROR };
+  }
+
+  if (isCommandError(msg)) {
+    return { ok: false, error: msg };
+  }
+
+  return null;
+}
+
 export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
 export const NIGHT_AUDIT_RETRY_STEP_COMMAND = 'night_audit.retry_step' as const;
 export const NIGHT_AUDIT_RESOLVE_HALT_COMMAND = 'night_audit.resolve_halt' as const;
@@ -1896,7 +1926,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async ensureCurrencyIfAbsent(
     currency: string,
     idem: IdempotencyKey,
-  ): Promise<{ ok: true; version: number } | { ok: false; error: string } | { ok: true; skipped: true }> {
+  ): Promise<
+    | { ok: true; version: number }
+    | { ok: true; skipped: true }
+    | Exclude<Awaited<ReturnType<PropertyDO['tryPutDomainConfig']>>, { ok: true }>
+  > {
     if (this.readStoredLedgerCurrencySync() !== null) {
       return { ok: true, skipped: true };
     }
@@ -1916,7 +1950,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async ensureTimeZoneIfAbsent(
     timeZone: string,
     idem: IdempotencyKey,
-  ): Promise<{ ok: true; version: number } | { ok: false; error: string } | { ok: true; skipped: true }> {
+  ): Promise<
+    | { ok: true; version: number }
+    | { ok: true; skipped: true }
+    | Exclude<Awaited<ReturnType<PropertyDO['tryPutDomainConfig']>>, { ok: true }>
+  > {
     if ((await this.readStoredTimeZone()) !== null) {
       return { ok: true, skipped: true };
     }
@@ -5107,17 +5145,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; key: string; version: number; events: string[] }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: `undeclared:${string}` }
+    | { ok: false; error: typeof CONFIG_CLASS_NOT_DOMAIN; gotClass: string }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const entry = getConfigEntry(key);
-    if (!entry) return { ok: false, error: `undeclared:${key}` };
+    if (!entry) return { ok: false, error: configUndeclared(key) };
     if (entry.class !== 'DOMAIN') {
-      return { ok: false, error: `Only DOMAIN config may be stored in PropertyDO (got ${entry.class})` };
+      return { ok: false, error: CONFIG_CLASS_NOT_DOMAIN, gotClass: entry.class };
     }
 
     const permDenied = await this.gatePermission(actor, requiredPermissionForKey(key));
@@ -5190,10 +5233,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }
       return result;
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) {
-        return { ok: false, error: IDEM_KEY_REUSED };
-      }
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 

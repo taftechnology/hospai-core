@@ -5385,17 +5385,13 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryGenerateInvoice']>>>({
-    env: ctx.env,
-    commandId: 'invoice.generate',
-    routeId: 'post_invoices',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'invoice.generate',
+      routeId: 'post_invoices',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryGenerateInvoice(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -5444,17 +5440,13 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidInvoice']>>>({
-    env: ctx.env,
-    commandId: 'invoice.void',
-    routeId: 'post_invoice_void',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'invoice.void',
+      routeId: 'post_invoice_void',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryVoidInvoice(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -5501,17 +5493,13 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateCityLedgerAccount']>>>({
-    env: ctx.env,
-    commandId: 'city_ledger.create_account',
-    routeId: 'post_city_ledger_accounts',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'city_ledger.create_account',
+      routeId: 'post_city_ledger_accounts',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCreateCityLedgerAccount(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -5576,17 +5564,13 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
     const fingerprint = await fingerprintPayload({ accountId });
     const idem = { key: body.idempotencyKey, fingerprint };
     const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchiveCityLedgerAccount']>>>({
-      env: ctx.env,
-      commandId: 'city_ledger.archive_account',
-      routeId: 'patch_city_ledger_account',
-      orgId: resolvedCtx.property.orgId,
-      propertyId,
-      timeZone: resolvedCtx.property.timeZone,
-      actorUserId: ctx.actor.userId,
-      idempotencyKey: body.idempotencyKey,
-      requestFingerprint: fingerprint,
-      commandPayload,
-      observability: ctx.observability,
+      ...commandEnvelope(ctx, resolvedCtx, {
+        commandId: 'city_ledger.archive_account',
+        routeId: 'patch_city_ledger_account',
+        idempotencyKey: body.idempotencyKey,
+        requestFingerprint: fingerprint,
+        commandPayload,
+      }),
       invoke: () => resolvedCtx.resolved.stub.tryArchiveCityLedgerAccount(actor, commandPayload, idem),
     });
     if (invoked.kind === 'response') return invoked.response;
@@ -5616,17 +5600,13 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
   );
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateCityLedgerAccount']>>>({
-    env: ctx.env,
-    commandId: 'city_ledger.update_account',
-    routeId: 'patch_city_ledger_account',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'city_ledger.update_account',
+      routeId: 'patch_city_ledger_account',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryUpdateCityLedgerAccount(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -5667,17 +5647,13 @@ async function handlePostCityLedgerAccountPayment(ctx: V1DispatchContext): Promi
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReceiveCityLedgerPayment']>>>({
-    env: ctx.env,
-    commandId: 'city_ledger.receive_payment',
-    routeId: 'post_city_ledger_account_payment',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'city_ledger.receive_payment',
+      routeId: 'post_city_ledger_account_payment',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryReceiveCityLedgerPayment(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;

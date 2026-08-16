@@ -331,11 +331,15 @@ export class PropertyDO extends DurableObject<Env> {
 ```
 
 **Sizing:** A 200-room property generating ~30k reservations/year with folio detail sits in
-the low hundreds of MB/year. The 10GB ceiling is years away.
+the low hundreds of MB/year. The 10GB ceiling is years away. The 10 GB cap sizing assumes
+the folio/reservation working set; **idempotency**, **outbox**, and **audit_log** grow until
+retention (§10.1) and archival land.
 
-**Archival rule:** After a fiscal year closes and night-audit confirms, project closed folios
-and checked-out reservations to R2/Iceberg. The PropertyDO holds only the current year + open
-stays. This keeps the DO fast and the warehouse queryable.
+**Archival rule (planned, not implemented in Phase 1):** After a fiscal year closes and
+night-audit confirms, closed folios and checked-out reservations are intended to project to
+R2/Iceberg; the PropertyDO would hold only the current year + open stays. Shares the deferred
+purge track with idempotency/outbox retention (§10.1). This keeps the DO fast and the warehouse
+queryable once implemented.
 
 ### 4.2 Priority lanes — *the cost of single-threading*
 
@@ -1712,10 +1716,13 @@ state, no leased-key protocol — this is one of the concrete payoffs of §4.1.
 The idempotency key does not make delivery exactly-once and is not a substitute for consumer
 dedupe. It guarantees the event is *produced* once; the bus may still *deliver* it twice.
 
-**Scope and retention.** Keys are scoped `(property_id, key)`. Retention is 7 days — long
-enough to cover OTA connectors that retry for days, and swept in the `BULK` lane (§4.2).
-Provisional commands replayed out of degraded mode (§4.6) use this same store, which is what
-makes replay and live retry converge on one dedupe path rather than two.
+**Scope and retention.** Keys are scoped `(property_id, key)`. The **target** retention
+policy is 7 days — long enough to cover OTA connectors that retry for days. The sweep is
+**not yet implemented** ([queues consumer design](docs/superpowers/specs/2026-07-28-queues-consumer-design.md));
+records currently persist for the life of the DO. Consumer dedupe already honours
+`DEDUPE_TTL_SEC ≥ retention`. Provisional commands replayed out of degraded mode (§4.6) use
+this same store, which is what makes replay and live retry converge on one dedupe path rather
+than two.
 
 **Third-party code execution (Phase 3+):** partners deploy sandboxed code that runs inside the
 platform. Evaluate **Workers for Platforms** (dispatch namespaces, outbound controls, per-app
@@ -2126,6 +2133,8 @@ to a rule already stated in this document.
 | `ui-kit` | **Yes — `packages/ui-kit`.** Hand-authored Tier A components (`Button`, `Field`, `Input`, `NativeSelect`, `DataTable`, …), one global `ui-kit.css`, closed API (no `className` / `style` / blanket `...rest`). Consumed by `apps/web-pms` and `modules/pms/housekeeping`. |
 
 Visual divergence from the prototype is no longer expected: controls, tables, and panels share one system. Interaction design remains specification (§16.3); appearance is now platform-owned via tokens + ui-kit, not per-screen CSS.
+
+**Viewport (2026-08-16, Audit Phase H).** Operator SPA targets **desktop terminals** (≥1280px effective width): fixed 16rem sidebar, no collapse, no width breakpoints. **Tablet support is deferred** — the housekeeping board (attendants in corridors) is the most likely surface to force a revisit; track as an unscheduled Phase 2+ UX decision.
 
 Enforcement: `hospai/no-raw-controls-in-web-pms` (error), `check:ui-kit-adoption` ratchet (floor 0), dev-only `/dev/ui` gallery outside `AppShell`. Storybook deferred.
 

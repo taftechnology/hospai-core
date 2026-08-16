@@ -100,6 +100,7 @@ export const RATE_PLAN_ID_EXISTS = 'rate_plan_id_exists' as const;
 export const DEFAULT_RATE_PLAN_PROTECTED = 'default_rate_plan_protected' as const;
 export const DERIVED_RATE_PLAN_INVALID = 'derived_rate_plan_invalid' as const;
 export const DERIVED_RATE_PLAN_WRITE_FORBIDDEN = 'derived_rate_plan_write_forbidden' as const;
+export const INVALID_CANCEL_POLICY = 'invalid_cancel_policy' as const;
 
 export const PROMO_NOT_FOUND = 'promo_not_found' as const;
 export const PROMO_NOT_APPLICABLE = 'promo_not_applicable' as const;

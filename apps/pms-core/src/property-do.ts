@@ -43,6 +43,7 @@ import {
   NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
   RATE_MISSING,
+  INVALID_CANCEL_POLICY,
   ROOM_OUT_OF_ORDER,
   OOO_VIA_RANGE,
   OOO_ROOM_ASSIGNED,
@@ -1100,6 +1101,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof PROMO_NOT_FOUND }
   | { ok: false; error: typeof PROMO_NOT_APPLICABLE }
   | { ok: false; error: typeof RATE_MISSING; date: string }
+  | { ok: false; error: typeof INVALID_CANCEL_POLICY }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
   | { ok: false; error: typeof OOO_INVALID_RANGE }
   | { ok: false; error: typeof OOO_RANGE_OVERLAP }
@@ -1152,6 +1154,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof PromoNotFoundError) return { ok: false, error: PROMO_NOT_FOUND };
   if (e instanceof PromoNotApplicableError) return { ok: false, error: PROMO_NOT_APPLICABLE };
   if (e instanceof RateMissingError) return { ok: false, error: RATE_MISSING, date: e.date };
+  if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
   if (e instanceof OooInvalidRangeError) return { ok: false, error: OOO_INVALID_RANGE };
   if (e instanceof OooRangeOverlapError) return { ok: false, error: OOO_RANGE_OVERLAP };
@@ -7548,7 +7551,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     if (row.cancel_penalty_type === 'nights') {
       const count = Math.min(row.cancel_penalty_nights ?? 0, nights.length);
-      if (count < 1) throw new RateMissingError(row.arrival_date);
+      if (count < 1) throw new InvalidCancelPolicyError();
       let total = 0;
       for (let i = 0; i < count; i++) {
         total += this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, nights[i]!);
@@ -12007,7 +12010,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DerivedRatePlanInvalidError) {
         return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
       }
-      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
+      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
@@ -12202,7 +12205,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof DerivedRatePlanInvalidError) {
         return { ok: false, error: DERIVED_RATE_PLAN_INVALID };
       }
-      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: 'invalid_cancel_policy' };
+      if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

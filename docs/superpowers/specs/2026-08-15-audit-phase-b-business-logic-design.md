@@ -466,15 +466,15 @@ Reuse helpers from `apps/pms-core/test/city-ledger.spec.ts`:
 
 ## 8. Implementation checklist
 
-- [ ] B1: scoped balance + three consumers aligned (Lock 1)
-- [ ] B1: direct-bill checkout spec (§4 #1–2)
-- [ ] B2: input type, no-op guards, rate-plan-only branch, UPDATE, re-snapshot helper (Lock 2)
-- [ ] B2: rate plan modify spec (§4 #3–4)
-- [ ] B3: `applyNoPostIfPresentSync` move + noPost-only branch (Lock 3)
-- [ ] B3: noPost-only spec (§4 #5)
-- [ ] B4: `penaltyMinor` + constant + mappers (Lock 4)
-- [ ] B4: misconfigured policy spec (§4 #6)
-- [ ] Verify §4 #7–9 green
+- [x] B1: scoped balance + three consumers aligned (Lock 1)
+- [x] B1: direct-bill checkout spec (§4 #1–2)
+- [x] B2: input type, no-op guards, rate-plan-only branch, UPDATE, re-snapshot helper (Lock 2)
+- [x] B2: rate plan modify spec (§4 #3–4)
+- [x] B3: `applyNoPostIfPresentSync` move + noPost-only branch (Lock 3)
+- [x] B3: noPost-only spec (§4 #5)
+- [x] B4: `penaltyMinor` + constant + mappers (Lock 4)
+- [x] B4: misconfigured policy spec (§4 #6)
+- [x] Verify §4 #7–9 green
 
 ---
 

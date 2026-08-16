@@ -3,10 +3,12 @@ import {
   ALREADY_CANCELLED,
   FRONT_OFFICE_COMMENT_TOO_LONG,
   HOLD_EXPIRED,
+  INVALID_CANCEL_POLICY,
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
   NOT_MODIFIABLE,
   OCCUPANCY_EXCEEDED,
+  RATE_MISSING,
   ROOM_OUT_OF_ORDER,
 } from '@hospai/contracts';
 import type { PropertyDO } from '../src/property-do';
@@ -1012,6 +1014,38 @@ describe('prototype holes occupancy remainder', () => {
     expect(
       await stub.tryModifyReservation(TEST_OWNER_ACTOR, over, await idemFor('m9over', over)),
     ).toMatchObject({ ok: false, error: OCCUPANCY_EXCEEDED });
+  });
+
+  it('misconfigured nights cancel policy returns INVALID_CANCEL_POLICY not RATE_MISSING', async () => {
+    const name = `lc-inv-pol-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    const reservationId = `res_${crypto.randomUUID()}`;
+
+    await stub.insertReservationForTest({
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      piiKeyId: 'pii',
+      arrivalDate: arrival,
+      departureDate: departure,
+      status: 'confirmed',
+      ratePlanId: 'BAR',
+      cancelPenaltyType: 'nights',
+      cancelGraceHours: 0,
+      cancelPenaltyNights: 0,
+    });
+    await stub.bumpSoldForTest('rt_king', arrival, 1);
+
+    const cancel = await stub.tryCancelReservation(
+      TEST_OWNER_ACTOR,
+      { reservationId },
+      await idemFor('cancel-inv-pol', { reservationId }),
+    );
+    expect(cancel).toMatchObject({ ok: false, error: INVALID_CANCEL_POLICY });
+    expect(cancel).not.toMatchObject({ error: RATE_MISSING });
   });
 });
 

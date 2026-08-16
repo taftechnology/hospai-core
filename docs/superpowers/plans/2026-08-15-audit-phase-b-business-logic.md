@@ -1040,7 +1040,7 @@ EOF
 - Modify: `docs/superpowers/specs/2026-08-15-audit-phase-b-business-logic-design.md` — tick §8
 - Modify: `docs/superpowers/plans/2026-08-15-audit-phase-b-business-logic.md` — Task 4 checkboxes only
 
-- [ ] **Step 1: Write failing B4 spec (red)**
+- [x] **Step 1: Write failing B4 spec (red)**
 
 Add to `apps/pms-core/test/reservations-lifecycle.spec.ts`:
 
@@ -1088,7 +1088,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: **FAIL** — returns `RATE_MISSING` pre-fix.
 
-- [ ] **Step 2: Apply Lock 4**
+- [x] **Step 2: Apply Lock 4**
 
 **`packages/contracts/src/idempotency.ts`** (~after `DERIVED_RATE_PLAN_WRITE_FORBIDDEN`):
 
@@ -1116,7 +1116,7 @@ Optional hygiene — `tryCreateRatePlan` / `tryUpdateRatePlan` catch (~11835, ~1
     error === INVALID_CANCEL_POLICY ||
 ```
 
-- [ ] **Step 3: Re-run B4 spec — must be green**
+- [x] **Step 3: Re-run B4 spec — must be green**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.ts -t "INVALID_CANCEL_POLICY"
@@ -1124,7 +1124,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/reservations-lifecycle.spec.
 
 Expected: **PASS**.
 
-- [ ] **Step 4: Re-run all Phase B test files**
+- [x] **Step 4: Re-run all Phase B test files**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run \
@@ -1136,7 +1136,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: **PASS**.
 
-- [ ] **Step 5: Full local test loop — long pole (spec §4 #7)**
+- [x] **Step 5: Full local test loop — long pole (spec §4 #7)**
 
 ```bash
 pnpm test:local
@@ -1144,7 +1144,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Run twice if feasible.
 
-- [ ] **Step 6: All 14 `check:*` gates (spec §4 #8)**
+- [x] **Step 6: All 14 `check:*` gates (spec §4 #8)**
 
 ```bash
 pnpm check:ddl
@@ -1165,7 +1165,7 @@ pnpm check:purge
 
 Expected: all **PASS**.
 
-- [ ] **Step 7: typecheck / build / lint (spec §4 #9)**
+- [x] **Step 7: typecheck / build / lint (spec §4 #9)**
 
 ```bash
 pnpm typecheck
@@ -1175,7 +1175,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 8: Pin frozen heads (sanity — catalog must stay 89)**
+- [x] **Step 8: Pin frozen heads (sanity — catalog must stay 89)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -1184,15 +1184,15 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **89**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 33`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`.
 
-- [ ] **Step 9: Tick spec §8 checklist**
+- [x] **Step 9: Tick spec §8 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-b-business-logic-design.md` §8.
 
-- [ ] **Step 10: Tick Task 4 checkboxes in this plan only**
+- [x] **Step 10: Tick Task 4 checkboxes in this plan only**
 
 Do **not** tick Task 1–3 checkboxes retroactively unless already done during implementation.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add apps/pms-core/test/reservations-lifecycle.spec.ts \

@@ -28,6 +28,7 @@ import {
   BALANCE_DUE,
   RATE_PLAN_NOT_FOUND,
   RATE_MISSING,
+  INVALID_CANCEL_POLICY,
   RATE_PLAN_CODE_EXISTS,
   RATE_PLAN_ID_EXISTS,
   DEFAULT_RATE_PLAN_PROTECTED,
@@ -353,6 +354,7 @@ function mapReservationCommandErrorStatus(error: string): number {
     error === RATE_PLAN_ID_EXISTS ||
     error === DEFAULT_RATE_PLAN_PROTECTED ||
     error === RATE_MISSING ||
+    error === INVALID_CANCEL_POLICY ||
     error === DERIVED_RATE_PLAN_INVALID ||
     error === DERIVED_RATE_PLAN_WRITE_FORBIDDEN ||
     error === CHARGE_CODE_EXISTS ||

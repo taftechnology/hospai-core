@@ -9335,13 +9335,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
           }
 
-          const balanceRow = this.ctx.storage.sql
-            .exec(
-              `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS balance FROM folio_line WHERE reservation_id = ?`,
-              input.reservationId,
-            )
-            .toArray() as Array<{ balance: number }>;
-          const balanceMinor = Number(balanceRow[0]?.balance ?? 0);
+          const guestWindowId = this.guestFolioWindowId(input.reservationId);
+          const balanceMinor = this.windowBalanceMinorSync(guestWindowId);
           const requireZero =
             this.readConfigValueSync('pms.reservations.check_out_require_zero_balance') !== false;
           const allowOverride =
@@ -9432,7 +9427,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           if (this.readConfigValueSync('pms.folio.close_window_on_check_out') === true && balanceMinor === 0) {
-            const guestWindowId = this.guestFolioWindowId(input.reservationId);
             const guestWindow = this.readFolioWindowRowSync(guestWindowId);
             if (guestWindow?.status === 'OPEN') {
               this.closeFolioWindowSync(guestWindowId, now, propertyId, input.reservationId);

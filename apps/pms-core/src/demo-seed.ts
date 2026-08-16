@@ -99,7 +99,7 @@ export async function runDemoSeed(input: {
         mutated = true;
         continue;
       }
-      if (added.error !== ROOM_TYPE_EXISTS && added.error !== 'room_type_already_exists') {
+      if (added.error !== ROOM_TYPE_EXISTS) {
         throw new Error(`demo_seed_room_type:${rt.roomTypeId}:${added.error}`);
       }
     }

@@ -206,7 +206,8 @@ import {
 } from './invoke-property-do.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
-import { NIGHT_AUDIT_HALTED, NIGHT_AUDIT_STEPS, type NightAuditStep, type PropertyDO } from './property-do.js';
+import { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
+import { NIGHT_AUDIT_STEPS, type NightAuditStep, type PropertyDO } from './property-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { countPendingOpen } from './night-audit-census.js';
 import {

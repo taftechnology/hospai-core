@@ -400,16 +400,16 @@ pnpm test:local
 
 ## 5. Verification checklist (implementer)
 
-- [ ] `CommandError` union closed; **36** new constants landed (+ `NIGHT_AUDIT_HALTED` relocated); count **157** in `idempotency.ts`
-- [ ] Zero `\| { ok: false; error: string }` on PropertyDO / OrgDO / OrgEntitlementDO RPC signatures
-- [ ] Zero bare `'org_id_unset'` / `'not_member'` / `'scope_mismatch'` literals in DO + dispatch mapper paths
-- [ ] `CONFIG_CLASS_NOT_DOMAIN` replaces English sentence; mapper uses constant equality
-- [ ] `` `undeclared:${string}` `` typed via `configUndeclared()`; wire unchanged
-- [ ] **9** `not_member` → **500** sites changed to **404**; comment documents decision
-- [ ] Six mappers exhaustive with `never` default
-- [ ] `command-error.compile-time.ts` rejects bogus code
-- [ ] `pnpm typecheck && pnpm build` clean
-- [ ] All **14** `check:*` + `pnpm test:local` green
+- [x] `CommandError` union closed; **36** new constants landed (+ `NIGHT_AUDIT_HALTED` relocated); count **158** in `idempotency.ts`
+- [x] Zero `\| { ok: false; error: string }` on PropertyDO / OrgDO / OrgEntitlementDO RPC signatures
+- [x] Zero bare `'org_id_unset'` / `'not_member'` / `'scope_mismatch'` literals in DO + dispatch mapper paths
+- [x] `CONFIG_CLASS_NOT_DOMAIN` replaces English sentence; mapper uses constant equality
+- [x] `` `undeclared:${string}` `` typed via `configUndeclared()`; wire unchanged
+- [x] **9** `not_member` → **500** sites changed to **404**; comment documents decision
+- [x] Six mappers exhaustive with `never` default
+- [x] `command-error.compile-time.ts` rejects bogus code
+- [x] `pnpm typecheck && pnpm build` clean
+- [x] All **14** `check:*` + `pnpm test:local` green
 
 ---
 
@@ -450,13 +450,13 @@ pnpm test:local
 
 ## 8. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1: `command-error.ts` + **36** new constants + `NIGHT_AUDIT_HALTED` relocation
-- [ ] Lock 2: PropertyDO **78** + OrgDO **19** + OrgEntitlementDO **1** signature updates; `e.message` mappers
-- [ ] Lock 3: `CONFIG_CLASS_NOT_DOMAIN` + `configUndeclared()` + mapper fix
-- [ ] Lock 4: **9** `not_member` sites → **404** + decision comment
-- [ ] Lock 5: Six exhaustive mappers
-- [ ] Compile-time test + behaviour specs
-- [ ] Full gate suite green
+- [x] Lock 1: `command-error.ts` + **36** new constants + `NIGHT_AUDIT_HALTED` relocation
+- [x] Lock 2: PropertyDO **78** + OrgDO **19** + OrgEntitlementDO **1** signature updates; `e.message` mappers
+- [x] Lock 3: `CONFIG_CLASS_NOT_DOMAIN` + `configUndeclared()` + mapper fix
+- [x] Lock 4: **9** `not_member` sites → **404** + decision comment
+- [x] Lock 5: Six exhaustive mappers
+- [x] Compile-time test + behaviour specs
+- [x] Full gate suite green
 
 ---
 

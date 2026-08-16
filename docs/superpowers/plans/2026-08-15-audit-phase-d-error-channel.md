@@ -709,7 +709,7 @@ EOF
 
 **Forbidden this commit:** new features; scope-out items.
 
-- [ ] **Step 1: Remove duplicate `NIGHT_AUDIT_HALTED` export from PropertyDO**
+- [x] **Step 1: Remove duplicate `NIGHT_AUDIT_HALTED` export from PropertyDO**
 
 Grep consumers:
 
@@ -719,7 +719,7 @@ rg "NIGHT_AUDIT_HALTED" apps/pms-core --glob '!property-do.ts'
 
 Update imports to `@hospai/contracts`. Delete `export const NIGHT_AUDIT_HALTED` from `property-do.ts`.
 
-- [ ] **Step 2: Repo-wide literal grep — must be clean**
+- [x] **Step 2: Repo-wide literal grep — must be clean**
 
 ```bash
 ! rg "'org_id_unset'|'not_member'|'scope_mismatch'" apps/pms-core/src/property-do.ts apps/pms-core/src/org-do.ts apps/pms-core/src/v1-dispatch.ts
@@ -729,7 +729,7 @@ Update imports to `@hospai/contracts`. Delete `export const NIGHT_AUDIT_HALTED` 
 
 Expected: no matches in DO + dispatch mapper paths (tests may still assert wire strings).
 
-- [ ] **Step 3: typecheck / build / lint**
+- [x] **Step 3: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -739,7 +739,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 4: All 14 `check:*` gates**
+- [x] **Step 4: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -760,7 +760,7 @@ pnpm check:purge
 
 Expected: all **PASS** (`check:ddl` no-op confirm — no migration).
 
-- [ ] **Step 5: Full local test loop — long pole**
+- [x] **Step 5: Full local test loop — long pole**
 
 ```bash
 pnpm test:local
@@ -768,7 +768,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 6: Pin frozen heads**
+- [x] **Step 6: Pin frozen heads**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -778,7 +778,7 @@ test "$(rg -c '^export const' packages/contracts/src/idempotency.ts)" -eq 157
 
 Expect: catalog **89**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 34`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`; idempotency consts **157**.
 
-- [ ] **Step 7: Re-run D1 behaviour + compile-time tests**
+- [x] **Step 7: Re-run D1 behaviour + compile-time tests**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/error-channel-d1.spec.ts test/property-do.spec.ts
@@ -788,15 +788,15 @@ pnpm --filter @hospai/contracts exec vitest run src/idempotency.test.ts
 
 Expected: **PASS**.
 
-- [ ] **Step 8: Tick spec §5 implementer checklist + spec §8 reviewer checklist**
+- [x] **Step 8: Tick spec §5 implementer checklist + spec §8 reviewer checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-d-error-channel-design.md` §5 and §8.
 
-- [ ] **Step 9: Tick Task 10 checkboxes in this plan only**
+- [x] **Step 9: Tick Task 10 checkboxes in this plan only**
 
 Do **not** retroactively tick Tasks 1–9 unless already done during implementation.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add apps/pms-core/src/property-do.ts \

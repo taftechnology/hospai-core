@@ -1062,3 +1062,65 @@ describe('PropertyDO front-desk status machine', () => {
     });
   });
 });
+
+describe('modify rate plan (B2)', () => {
+  it('rate-plan-only change updates reservation_rate_night amounts', async () => {
+    const name = `mod-rp-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name, 'UTC', 'USD');
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addDays(arrival, 1);
+
+    expect(
+      await stub.tryCreateRatePlan(
+        TEST_OWNER_ACTOR,
+        { ratePlanId: 'CORP', code: 'CORP', name: 'Corporate', cancelPenaltyType: 'none', cancelGraceHours: 0 },
+        await idemFor('rp-corp', { ratePlanId: 'CORP' }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    for (const planId of ['BAR', 'CORP'] as const) {
+      const amountMinor = planId === 'BAR' ? 10_000 : 7_500;
+      expect(
+        await stub.tryUpsertRateDay(
+          TEST_OWNER_ACTOR,
+          { roomTypeId: 'rt_king', ratePlanId: planId, stayDate: arrival, amountMinor, currency: 'USD' },
+          await idemFor(`rd-${planId}`, { planId, arrival }),
+        ),
+      ).toMatchObject({ ok: true });
+    }
+
+    const reservationId = 'res_mod_rp';
+    const create = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'BAR',
+    };
+    expect(
+      await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor('c-mod-rp', create)),
+    ).toMatchObject({ ok: true });
+    expect(await stub.listReservationRateNightsForTest(reservationId)).toEqual([
+      { stayDate: arrival, amountMinor: 10_000, currency: 'USD', ratePlanId: 'BAR' },
+    ]);
+
+    const modify = {
+      reservationId,
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'CORP',
+    };
+    expect(
+      await stub.tryModifyReservation(TEST_OWNER_ACTOR, modify, await idemFor('m-mod-rp', modify)),
+    ).toMatchObject({ ok: true });
+
+    const read = await stub.readReservation(reservationId);
+    expect(read.ok && read.reservation.ratePlanId).toBe('CORP');
+    expect(await stub.listReservationRateNightsForTest(reservationId)).toEqual([
+      { stayDate: arrival, amountMinor: 7_500, currency: 'USD', ratePlanId: 'CORP' },
+    ]);
+  });
+});

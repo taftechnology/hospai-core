@@ -139,6 +139,25 @@ async function postReservation(
   );
 }
 
+async function patchReservation(
+  propertyId: string,
+  actor: string,
+  reservationId: string,
+  body: Record<string, unknown>,
+) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify(body),
+      },
+    ),
+    env,
+  );
+}
+
 async function assignCleanRoom(
   propertyId: string,
   actor: string,
@@ -1159,6 +1178,44 @@ describe('reservations vertical HTTP routes', () => {
     );
     expect(folioRes.status).toBe(200);
     expect(await folioRes.json()).toMatchObject({ noPost: true });
+  });
+
+  it('PATCH modify: same idempotency key, different ratePlanId → idempotency_key_reused', async () => {
+    const actor = `user_mod_rp_idem_${crypto.randomUUID()}`;
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 1);
+    const reservationId = `res_mod_idem_${crypto.randomUUID()}`;
+    const idempotencyKey = `idem-mod-rp-${crypto.randomUUID()}`;
+
+    expect(
+      (await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        idempotencyKey: `book-${idempotencyKey}`,
+      })).status,
+    ).toBe(201);
+
+    const first = await patchReservation(propertyId, actor, reservationId, {
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'BAR',
+      idempotencyKey,
+    });
+    expect(first.status).toBe(200);
+
+    const replay = await patchReservation(propertyId, actor, reservationId, {
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      ratePlanId: 'CORP',
+      idempotencyKey,
+    });
+    expect(replay.status).toBe(409);
+    expect(await replay.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
   });
 
   it('10. create fingerprint includes adults; same key adults=2 → IDEM_KEY_REUSED', async () => {

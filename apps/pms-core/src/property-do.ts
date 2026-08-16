@@ -7605,6 +7605,41 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private resnapshotRateNightsForPlanChangeSync(
+    reservationId: string,
+    roomTypeId: string,
+    ratePlanId: string,
+    nights: string[],
+  ): void {
+    const reservable: string[] = [];
+    for (const stayDate of nights) {
+      const consumed = this.ctx.storage.sql
+        .exec(
+          `SELECT 1 AS hit FROM folio_line
+           WHERE reservation_id = ? AND business_date = ? AND charge_code IN ('ROOM', 'NO_SHOW')
+           LIMIT 1`,
+          reservationId,
+          stayDate,
+        )
+        .toArray() as Array<{ hit: number }>;
+      if (!consumed[0]) reservable.push(stayDate);
+    }
+    for (const stayDate of reservable) {
+      this.ctx.storage.sql.exec(
+        `DELETE FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
+        reservationId,
+        stayDate,
+      );
+    }
+    if (reservable.length === 0) return;
+    const promoRows = this.ctx.storage.sql
+      .exec(`SELECT promo_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ promo_id: string | null }>;
+    const promoId = promoRows[0]?.promo_id ?? null;
+    const promoRow = this.resolveStoredPromoForSnapshotSync(promoId, ratePlanId, reservable);
+    this.snapshotRateNightsSync(reservationId, roomTypeId, ratePlanId, reservable, promoRow);
+  }
+
   private postDeskPenaltySync(
     reservationId: string,
     chargeCode: 'CANCEL' | 'NO_SHOW',
@@ -8579,7 +8614,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   /**
    * Change a confirmed reservation's room type and/or stay dates by releasing sold on
    * old nights and acquiring on new nights in one atomic write. Implements catalog
-   * `reservations.modify`. Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate }`.
+   * `reservations.modify`. Fingerprint: `{ reservationId, roomTypeId, arrivalDate, departureDate, adults?, children?, ratePlanId?, noPost? }`.
    */
   async tryModifyReservation(
     actor: ActorContext,
@@ -8590,6 +8625,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       departureDate: string;
       adults?: number;
       children?: number;
+      ratePlanId?: string;
       noPost?: boolean;
     },
     idem: IdempotencyKey,
@@ -8642,7 +8678,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (expiredErr) return expiredErr;
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id, adults, children FROM reservation WHERE reservation_id = ?`,
+              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, rate_plan_id, room_id, adults, children, no_post FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
             .toArray() as Array<{
@@ -8657,6 +8693,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             room_id: string | null;
             adults: number;
             children: number;
+            no_post: number;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -8668,18 +8705,94 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: false as const, error: NOT_MODIFIABLE };
           }
 
+          const nextRatePlanId = input.ratePlanId ?? reservation.rate_plan_id;
+          if (input.ratePlanId !== undefined) {
+            this.assertActiveRatePlanSync(input.ratePlanId);
+          }
+
           const nextAdults = input.adults ?? reservation.adults;
           const nextChildren = input.children ?? reservation.children;
           this.assertOccupancySync(input.roomTypeId, nextAdults, nextChildren);
+
+          const nextNoPost =
+            input.noPost !== undefined ? input.noPost : reservation.no_post === 1;
 
           if (
             reservation.room_type_id === input.roomTypeId &&
             reservation.arrival_date === input.arrivalDate &&
             reservation.departure_date === input.departureDate &&
             nextAdults === reservation.adults &&
-            nextChildren === reservation.children
+            nextChildren === reservation.children &&
+            nextRatePlanId === reservation.rate_plan_id &&
+            nextNoPost === (reservation.no_post === 1)
           ) {
             const nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+            return {
+              ok: true as const,
+              reservationId: input.reservationId,
+              ariVersion: this.readAriVersionSync(),
+              fromDate: nights[0]!,
+              toDate: nights[nights.length - 1]!,
+            };
+          }
+
+          if (
+            reservation.room_type_id === input.roomTypeId &&
+            reservation.arrival_date === input.arrivalDate &&
+            reservation.departure_date === input.departureDate &&
+            nextAdults === reservation.adults &&
+            nextChildren === reservation.children &&
+            nextRatePlanId !== reservation.rate_plan_id
+          ) {
+            const nowPlan = Date.now();
+            this.ctx.storage.sql.exec(
+              `UPDATE reservation SET rate_plan_id = ?, updated_at = ? WHERE reservation_id = ?`,
+              nextRatePlanId,
+              nowPlan,
+              input.reservationId,
+            );
+            const nights = enumerateStayDates(input.arrivalDate, input.departureDate);
+            this.resnapshotRateNightsForPlanChangeSync(
+              input.reservationId,
+              input.roomTypeId,
+              nextRatePlanId,
+              nights,
+            );
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'reservation.modified',
+              payload: {
+                propertyId,
+                reservationId: input.reservationId,
+                guestRef: reservation.guest_ref,
+                piiKeyId: reservation.pii_key_id,
+                from: {
+                  roomTypeId: reservation.room_type_id,
+                  arrivalDate: reservation.arrival_date,
+                  departureDate: reservation.departure_date,
+                  adults: reservation.adults,
+                  children: reservation.children,
+                  ratePlanId: reservation.rate_plan_id,
+                },
+                to: {
+                  roomTypeId: input.roomTypeId,
+                  arrivalDate: input.arrivalDate,
+                  departureDate: input.departureDate,
+                  adults: nextAdults,
+                  children: nextChildren,
+                  ratePlanId: nextRatePlanId,
+                },
+              },
+            });
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'reservations.modify',
+              entityType: 'reservation',
+              entityId: input.reservationId,
+              beforeJson: { ratePlanId: reservation.rate_plan_id },
+              afterJson: { ratePlanId: nextRatePlanId },
+              reservationId: input.reservationId,
+            });
             return {
               ok: true as const,
               reservationId: input.reservationId,
@@ -8872,7 +8985,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (soldSkuChanged) {
             this.ctx.storage.sql.exec(
               `UPDATE reservation SET room_type_id = ?, allocated_room_type_id = ?, arrival_date = ?, departure_date = ?,
-               adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
+               adults = COALESCE(?, adults), children = COALESCE(?, children),
+               rate_plan_id = COALESCE(?, rate_plan_id), updated_at = ?
                WHERE reservation_id = ?`,
               input.roomTypeId,
               nextAllocatedRoomTypeId,
@@ -8880,19 +8994,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               input.departureDate,
               input.adults ?? null,
               input.children ?? null,
+              input.ratePlanId ?? null,
               now,
               input.reservationId,
             );
           } else {
             this.ctx.storage.sql.exec(
               `UPDATE reservation SET room_type_id = ?, arrival_date = ?, departure_date = ?,
-               adults = COALESCE(?, adults), children = COALESCE(?, children), updated_at = ?
+               adults = COALESCE(?, adults), children = COALESCE(?, children),
+               rate_plan_id = COALESCE(?, rate_plan_id), updated_at = ?
                WHERE reservation_id = ?`,
               input.roomTypeId,
               input.arrivalDate,
               input.departureDate,
               input.adults ?? null,
               input.children ?? null,
+              input.ratePlanId ?? null,
               now,
               input.reservationId,
             );
@@ -8903,10 +9020,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.syncReservationRateNightsOnModifySync(
               input.reservationId,
               input.roomTypeId,
-              reservation.rate_plan_id,
+              nextRatePlanId,
               oldNights,
               newNights,
             );
+            if (nextRatePlanId !== reservation.rate_plan_id) {
+              this.resnapshotRateNightsForPlanChangeSync(
+                input.reservationId,
+                input.roomTypeId,
+                nextRatePlanId,
+                newNights,
+              );
+            }
           }
 
           const ariVersion = commitsInventory ? this.bumpAriVersionSync() : this.readAriVersionSync();

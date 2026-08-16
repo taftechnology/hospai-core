@@ -13,9 +13,19 @@ import {
   STAFF_EXITED,
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
+  ORG_ID_UNSET,
+  NOT_MEMBER,
+  SCOPE_MISMATCH,
+  BULK_NOT_ADMITTED,
+  INTERNAL_ERROR,
+  PROPERTY_REF_NOT_FOUND,
+  DECRYPT_UNRESOLVED,
+  KEY_SHRED_FAILED,
+  isCommandError,
   isOrgScopedPermission,
   isPropertyScopedPermission,
   type ActorContext,
+  type CommandError,
   type EventSource,
   type IdempotencyKey,
   type OrgRole,
@@ -45,7 +55,6 @@ import {
   blindIndexRows,
   importBlindIndexKeyHex,
   importMasterKeyHex,
-  KeyShreddedError,
   normalizeBlindIndexValue,
   PiiVault,
   type BlindIndexKind,
@@ -200,8 +209,27 @@ type RosterRow = {
 type RosterWriteOk = { ok: true; staffId: string; piiKeyId: string };
 type RosterGateError =
   | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-  | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-  | { ok: false; error: string };
+  | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+  | { ok: false; error: typeof ORG_ID_UNSET }
+  | NonNullable<ReturnType<typeof mapOrgCommandError>>;
+
+function mapOrgCommandError(e: unknown): { ok: false; error: CommandError } | null {
+  if (!(e instanceof Error)) return null;
+  const msg = e.message;
+
+  if (msg === 'key_shred_failed') {
+    return { ok: false, error: KEY_SHRED_FAILED };
+  }
+  if (msg === 'org_id_unset') {
+    return { ok: false, error: ORG_ID_UNSET };
+  }
+
+  if (isCommandError(msg)) {
+    return { ok: false, error: msg };
+  }
+
+  return null;
+}
 
 /**
  * Pre-probe for the hybrid idempotency contract (see `runIdempotent` in `@hospai/do-runtime`).
@@ -419,7 +447,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; erased: false; profile: GuestProfile }
     | { ok: true; guestId: string; erased: true; profile: null }
     | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
-    | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+    | { ok: false; guestId: string; error: typeof DECRYPT_UNRESOLVED }
   > {
     const rows = this.ctx.storage.sql
       .exec(`SELECT pii_key_id, profile_cipher, profile_iv, erased_at FROM guest WHERE guest_id = ?`, guestId)
@@ -441,7 +469,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
       return { ok: true, guestId, erased: false, profile };
     } catch {
-      return { ok: false, guestId, error: 'decrypt_unresolved' };
+      return { ok: false, guestId, error: DECRYPT_UNRESOLVED };
     }
   }
 
@@ -516,13 +544,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
   async verifyGuestKeyShredded(
     guestId: string,
-  ): Promise<{ ok: true; shredded: boolean } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; shredded: boolean } | { ok: false; error: typeof GUEST_NOT_FOUND }> {
     this.assertRpcAvailable();
     const guests = this.ctx.storage.sql
       .exec(`SELECT pii_key_id FROM guest WHERE guest_id = ?`, guestId)
       .toArray() as Array<{ pii_key_id: string }>;
     const guest = guests[0];
-    if (!guest) return { ok: false, error: 'guest_not_found' };
+    if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
     const keys = this.ctx.storage.sql
       .exec(
         `SELECT shredded_at, length(wrapped_key) AS key_len FROM data_key WHERE pii_key_id = ?`,
@@ -536,11 +564,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   async shredRemainingGuestKeys(): Promise<
-    { ok: true; shredded: number } | { ok: false; error: string }
+    { ok: true; shredded: number } | { ok: false; error: typeof BULK_NOT_ADMITTED }
   > {
     this.assertRpcAvailable();
     if (!this.lanes.admitBackground()) {
-      return { ok: false, error: 'bulk_not_admitted' };
+      return { ok: false, error: BULK_NOT_ADMITTED };
     }
     const keyStore = new SqlKeyStore(this.ctx.storage.sql);
     const rows = this.ctx.storage.sql
@@ -555,10 +583,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
   async clearGuestProfileBlobs(
     guestId: string,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
+  ): Promise<{ ok: true } | { ok: false; error: typeof BULK_NOT_ADMITTED }> {
     this.assertRpcAvailable();
     if (!this.lanes.admitBackground()) {
-      return { ok: false, error: 'bulk_not_admitted' };
+      return { ok: false, error: BULK_NOT_ADMITTED };
     }
     const now = Date.now();
     this.ctx.storage.transactionSync(() => {
@@ -573,11 +601,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   async purgeStorageForTenant(): Promise<
-    { ok: true; deletedApprox: number } | { ok: false; error: string }
+    { ok: true; deletedApprox: number } | { ok: false; error: typeof BULK_NOT_ADMITTED }
   > {
     this.assertRpcAvailable();
     if (!this.lanes.admitBackground()) {
-      return { ok: false, error: 'bulk_not_admitted' };
+      return { ok: false, error: BULK_NOT_ADMITTED };
     }
     const deletedApprox = await this.countNonBookkeepingRows();
     await this.ctx.storage.deleteAll();
@@ -685,7 +713,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     propertyId: string,
     permission: Permission,
-  ): Promise<{ ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' } | null> {
+  ): Promise<{ ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH } | null> {
     if (actor.kind === 'system') return null;
 
     const result = await this.assertPermission({ userId: actor.userId, propertyId, permission });
@@ -732,14 +760,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: false; error: 'not_member' | 'forbidden' | 'scope_mismatch' }
   > {
     if (isOrgScopedPermission(input.permission) && input.propertyId !== null) {
-      return { ok: false, error: 'scope_mismatch' };
+      return { ok: false, error: SCOPE_MISMATCH };
     }
     if (isPropertyScopedPermission(input.permission) && input.propertyId === null) {
-      return { ok: false, error: 'scope_mismatch' };
+      return { ok: false, error: SCOPE_MISMATCH };
     }
 
     const role = await this.getEffectiveRole(input.userId, input.propertyId);
-    if (!role) return { ok: false, error: 'not_member' };
+    if (!role) return { ok: false, error: NOT_MEMBER };
     if (!ROLE_GRANTS[role].includes(input.permission)) {
       return { ok: false, error: 'forbidden' };
     }
@@ -1332,13 +1360,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; propertyId: string; name: string }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' | typeof IDEM_KEY_REUSED }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof PROPERTY_REF_NOT_FOUND }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'config:write');
     if (permDenied) return permDenied;
@@ -1353,7 +1382,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             )
             .toArray() as Array<{ jurisdiction: string | null; time_zone: string; status: string }>;
           if (!existing[0]) {
-            return { ok: false as const, error: 'property_ref_not_found' };
+            return { ok: false as const, error: PROPERTY_REF_NOT_FOUND };
           }
           this.ctx.storage.sql.exec(
             `UPDATE property_ref SET name = ? WHERE property_id = ?`,
@@ -1370,7 +1399,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1418,13 +1449,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_EXISTS | typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:write');
     if (permDenied) return permDenied;
@@ -1434,7 +1466,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     try {
       const replay = readIdempotentReplay<
-        { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: string }
+        { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
       >(this.ctx.storage.sql, idem);
       if (replay) return replay;
 
@@ -1490,7 +1522,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       // Both erased and live existing rows collapse to GUEST_EXISTS on create — never un-erase.
       if (e instanceof GuestErasedError) return { ok: false, error: GUEST_EXISTS };
       if (e instanceof GuestExistsError) return { ok: false, error: GUEST_EXISTS };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1503,13 +1537,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:write');
     if (permDenied) return permDenied;
@@ -1519,7 +1554,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     try {
       const replay = readIdempotentReplay<
-        { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: string }
+        { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
       >(this.ctx.storage.sql, idem);
       if (replay) return replay;
 
@@ -1557,7 +1592,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1570,13 +1607,14 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; piiKeyId: string }
     | { ok: false; error: typeof GUEST_NOT_FOUND | typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof KEY_SHRED_FAILED }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:erase');
     if (permDenied) return permDenied;
@@ -1599,7 +1637,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
           const keyStore = new SqlKeyStore(this.ctx.storage.sql);
           if (!keyStore.shred(guest.pii_key_id)) {
-            throw new Error('key_shred_failed');
+            throw new Error(KEY_SHRED_FAILED);
           }
 
           const now = Date.now();
@@ -1622,7 +1660,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof GuestNotFoundError) return { ok: false, error: GUEST_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1683,7 +1723,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
     if (permDenied) return permDenied;
@@ -1699,7 +1739,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (kindsErr) return { ok: false, error: kindsErr };
 
     try {
-      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
       );
@@ -1743,7 +1783,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1768,7 +1810,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
     if (permDenied) return permDenied;
@@ -1781,7 +1823,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (denied) return denied;
 
     try {
-      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
       );
@@ -1844,7 +1886,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
       if (e instanceof StaffExitedError) return { ok: false, error: STAFF_EXITED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1861,7 +1905,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
     if (permDenied) return permDenied;
@@ -1870,7 +1914,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (denied) return denied;
 
     try {
-      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
       );
@@ -1907,7 +1951,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
       if (e instanceof StaffExitedError) return { ok: false, error: STAFF_EXITED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1924,7 +1970,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:write');
     if (permDenied) return permDenied;
@@ -1933,7 +1979,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (denied) return denied;
 
     try {
-      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: string }>(
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
       );
@@ -1985,7 +2031,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof StaffNotFoundError) return { ok: false, error: STAFF_NOT_FOUND };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -2026,7 +2074,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     this.assertRpcAvailable();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:read');
     if (permDenied) return permDenied;
@@ -2070,7 +2118,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   > {
     this.assertRpcAvailable();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'roster:read');
     if (permDenied) return permDenied;
@@ -2111,13 +2159,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; erased: true; profile: null }
     | { ok: false; error: typeof GUEST_NOT_FOUND }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
   > {
     this.assertRpcAvailable();
     this.guestReadRpcCountForTest += 1;
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
     if (permDenied) return permDenied;
@@ -2129,7 +2177,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     if (entry.ok === false && entry.error === GUEST_NOT_FOUND) {
       return { ok: false, error: GUEST_NOT_FOUND };
     }
-    if (entry.ok === false && entry.error === 'decrypt_unresolved') {
+    if (entry.ok === false && entry.error === DECRYPT_UNRESOLVED) {
       throw new Error('guests.read.decrypt_incident');
     }
     return entry;
@@ -2147,17 +2195,17 @@ export class OrgDO extends DurableObject<PmsEnv> {
           | { ok: true; guestId: string; erased: false; profile: GuestProfile }
           | { ok: true; guestId: string; erased: true; profile: null }
           | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
-          | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+          | { ok: false; guestId: string; error: typeof DECRYPT_UNRESOLVED }
         >;
       }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
   > {
     this.assertRpcAvailable();
     this.guestReadRpcCountForTest += 1;
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
     if (permDenied) return permDenied;
@@ -2170,7 +2218,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       | { ok: true; guestId: string; erased: false; profile: GuestProfile }
       | { ok: true; guestId: string; erased: true; profile: null }
       | { ok: false; guestId: string; error: typeof GUEST_NOT_FOUND }
-      | { ok: false; guestId: string; error: 'decrypt_unresolved' }
+      | { ok: false; guestId: string; error: typeof DECRYPT_UNRESOLVED }
     > = {};
     for (const guestId of [...new Set(guestIds)]) {
       guests[guestId] = await this.readGuestEntry(guestId);
@@ -2189,13 +2237,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
         nextCursor: { createdAt: number; guestId: string } | null;
       }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
     if (permDenied) return permDenied;
@@ -2261,13 +2309,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
         nextCursor: { guestId: string } | null;
       }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
-    | { ok: false; error: typeof FORBIDDEN | 'not_member' | 'scope_mismatch' }
-    | { ok: false; error: string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
     const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
     if (permDenied) return permDenied;

@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { HousekeepingApp as HousekeepingBoard } from '@hospai/pms-housekeeping/ui';
-import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
+import {
+  hasPropertyPermission,
+  meShellStateFromQuery,
+  type PropertyMe,
+} from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -19,10 +23,20 @@ export function HousekeepingScreen() {
     retry: false,
   });
 
-  const me = meQuery.data as PropertyMe | undefined;
-  const canAssign = Boolean(me && hasPropertyPermission(me, 'housekeeping:write'));
-  const canReadRoster = Boolean(me && hasPropertyPermission(me, 'roster:read'));
-  const canSetOoo = Boolean(me && hasPropertyPermission(me, 'inventory:write'));
+  const shell = meShellStateFromQuery({
+    status: meQuery.status,
+    data: meQuery.data as PropertyMe | undefined,
+    classified: meQuery.isError ? asClassified(meQuery.error) : undefined,
+  });
+
+  const liveMe =
+    shell.kind === 'authority' && shell.authority.kind === 'live'
+      ? shell.authority.me
+      : undefined;
+
+  const canAssign = liveMe ? hasPropertyPermission(liveMe, 'housekeeping:write') : false;
+  const canReadRoster = liveMe ? hasPropertyPermission(liveMe, 'roster:read') : false;
+  const canSetOoo = liveMe ? hasPropertyPermission(liveMe, 'inventory:write') : false;
 
   return (
     <HousekeepingBoard

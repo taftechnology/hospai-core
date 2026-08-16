@@ -1,17 +1,27 @@
+import type { PropertyScopedPermission } from '@hospai/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, Outlet } from 'react-router';
 import {
   hasPropertyPermission,
   meShellStateFromQuery,
   type PropertyMe,
-} from '../auth/me.js';
+} from './me.js';
 import { api, asClassified, tenant } from '../client.js';
 
+export type PermissionRouteProps = {
+  permission: PropertyScopedPermission;
+  /** Redirect target when live authority lacks permission. Default `/arrivals`. */
+  fallback?: string;
+};
+
 /**
- * Permission gate before InventoryScreen so deep-links without inventory:write
- * never mount the screen (and thus never fire list queries).
+ * Shared permission gate for property-scoped routes. Renders nested routes via
+ * `<Outlet/>` on pass — never mounts a screen directly.
  */
-export function InventoryRoute() {
+export function PermissionRoute({
+  permission,
+  fallback = '/arrivals',
+}: PermissionRouteProps) {
   const propertyId = tenant.propertyId;
   const meQuery = useQuery({
     queryKey: ['me', propertyId],
@@ -35,11 +45,12 @@ export function InventoryRoute() {
   }
 
   if (shell.authority.kind === 'live') {
-    if (!hasPropertyPermission(shell.authority.me, 'inventory:write')) {
-      return <Navigate to="/arrivals" replace />;
+    if (!hasPropertyPermission(shell.authority.me, permission)) {
+      return <Navigate to={fallback} replace />;
     }
     return <Outlet />;
   }
 
+  // unknown → fail open (audit Do-not-fix — deliberate)
   return <Outlet />;
 }

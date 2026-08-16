@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     environmentMatchGlobs: [
       ['src/**/*.boot.test.tsx', 'jsdom'],
+      ['src/auth/**/*.test.tsx', 'jsdom'],
       ['src/screens/**/*.test.tsx', 'jsdom'],
       ['src/shell/**/*.test.tsx', 'jsdom'],
       ['src/providers/**/*.test.tsx', 'jsdom'],

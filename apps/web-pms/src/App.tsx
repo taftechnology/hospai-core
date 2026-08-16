@@ -1,25 +1,23 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import { PermissionRoute } from './auth/PermissionRoute.js';
 import { createQueryClient } from './query-client.js';
-import { BookRoute } from './screens/BookRoute.js';
+import { BookingScreen } from './screens/BookingScreen.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
-import { StaffRoute } from './screens/StaffRoute.js';
-import { RosterRoute } from './screens/RosterRoute.js';
-import { NightAuditRoute } from './screens/NightAuditRoute.js';
+import { StaffScreen } from './screens/StaffScreen.js';
+import { RosterScreen } from './screens/RosterScreen.js';
+import { NightAuditScreen } from './screens/NightAuditScreen.js';
 import { ExceptionsScreen } from './screens/ExceptionsScreen.js';
 import { GuestsDirectoryScreen } from './screens/GuestsDirectoryScreen.js';
 import { GuestProfileScreen } from './screens/GuestProfileScreen.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
-import { InventoryRoute } from './screens/InventoryRoute.js';
 import { InventoryScreen } from './screens/InventoryScreen.js';
-import { RatesRoute } from './screens/RatesRoute.js';
 import { RatesScreen } from './screens/RatesScreen.js';
-import { SettingsRoute } from './screens/SettingsRoute.js';
 import { SettingsScreen } from './screens/SettingsScreen.js';
 import { CityLedgerScreen } from './screens/CityLedgerScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
@@ -47,30 +45,40 @@ export function App() {
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="shift" element={<ShiftScreen />} />
             <Route path="shift/:shiftId" element={<ShiftScreen />} />
-            <Route path="book" element={<BookRoute />} />
-            <Route path="inventory" element={<InventoryRoute />}>
+            <Route path="book" element={<PermissionRoute permission="reservations:write" />}>
+              <Route index element={<BookingScreen />} />
+            </Route>
+            <Route path="inventory" element={<PermissionRoute permission="inventory:write" />}>
               <Route index element={<InventoryScreen tab="types" />} />
               <Route path="rooms" element={<InventoryScreen tab="rooms" />} />
             </Route>
-            <Route path="rates" element={<RatesRoute />}>
+            <Route path="rates" element={<PermissionRoute permission="rates:write" />}>
               <Route index element={<Navigate to="matrix" replace />} />
               <Route path="plans" element={<RatesScreen tab="plans" />} />
               <Route path="matrix" element={<RatesScreen tab="matrix" />} />
               <Route path="restrictions" element={<RatesScreen tab="restrictions" />} />
             </Route>
-            <Route path="staff" element={<StaffRoute />} />
-            <Route path="roster" element={<RosterRoute />} />
+            <Route path="staff" element={<PermissionRoute permission="staff:read" />}>
+              <Route index element={<StaffScreen />} />
+            </Route>
+            <Route path="roster" element={<PermissionRoute permission="roster:write" />}>
+              <Route index element={<RosterScreen />} />
+            </Route>
             <Route path="city-ledger" element={<CityLedgerScreen />} />
             <Route path="city-ledger/:accountId" element={<CityLedgerScreen />} />
-            <Route path="night-audit" element={<NightAuditRoute />} />
+            <Route path="night-audit" element={<PermissionRoute permission="night_audit:run" />}>
+              <Route index element={<NightAuditScreen />} />
+            </Route>
             <Route path="exceptions" element={<ExceptionsScreen />} />
-            <Route path="settings" element={<SettingsRoute />}>
+            <Route path="settings" element={<PermissionRoute permission="settings:configure" />}>
               <Route index element={<Navigate to="property" replace />} />
               <Route path="property" element={<SettingsScreen tab="property" />} />
               <Route path="charges" element={<SettingsScreen tab="charges" />} />
               <Route path="tax" element={<SettingsScreen tab="tax" />} />
             </Route>
-            <Route path="housekeeping/*" element={<HousekeepingScreen />} />
+            <Route path="housekeeping/*" element={<PermissionRoute permission="housekeeping:read" />}>
+              <Route path="*" element={<HousekeepingScreen />} />
+            </Route>
           </Route>
           <Route path="sign-in" element={<SignInScreen />} />
           {import.meta.env.DEV ? (

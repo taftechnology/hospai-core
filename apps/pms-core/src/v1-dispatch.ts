@@ -2690,7 +2690,6 @@ async function handleGetFrontDeskShift(ctx: V1DispatchContext): Promise<Response
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   try {
     const result = await resolvedCtx.resolved.stub.readCurrentOpenShift(actor);
-    if (!result.ok) return json({ ok: false, error: result.error }, 422);
     return json({ ok: true, shift: result.shift }, 200);
   } catch (e) {
     if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();

@@ -6197,17 +6197,13 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySplitFolioLine']>>>({
-    env: ctx.env,
-    commandId: 'folio.split_charge',
-    routeId: 'post_folio_split',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.split_charge',
+      routeId: 'post_folio_split',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.trySplitFolioLine(actor, commandPayload, idem),
   });
 
@@ -6240,17 +6236,13 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOpenFolioWindow']>>>({
-    env: ctx.env,
-    commandId: 'folio.open_window',
-    routeId: 'post_folio_window',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.open_window',
+      routeId: 'post_folio_window',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryOpenFolioWindow(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6277,17 +6269,13 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCloseFolioWindow']>>>({
-    env: ctx.env,
-    commandId: 'folio.close_window',
-    routeId: 'post_folio_window_close',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.close_window',
+      routeId: 'post_folio_window_close',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCloseFolioWindow(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6314,17 +6302,13 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReopenFolioWindow']>>>({
-    env: ctx.env,
-    commandId: 'folio.reopen_window',
-    routeId: 'post_folio_window_reopen',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.reopen_window',
+      routeId: 'post_folio_window_reopen',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryReopenFolioWindow(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6354,17 +6338,13 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryTransferCharge']>>>({
-    env: ctx.env,
-    commandId: 'folio.transfer_charge',
-    routeId: 'post_folio_transfer',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.transfer_charge',
+      routeId: 'post_folio_transfer',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryTransferCharge(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6391,17 +6371,13 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidPayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.void',
-    routeId: 'post_folio_void',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.void',
+      routeId: 'post_folio_void',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryVoidPayment(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6447,17 +6423,13 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
   const idem = { key: body.idempotencyKey, fingerprint };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReconcilePayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.reconcile_payment',
-    routeId: 'post_folio_reconcile_payment',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.reconcile_payment',
+      routeId: 'post_folio_reconcile_payment',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryReconcilePayment(actor, commandPayload, idem),
   });
 
@@ -6492,17 +6464,13 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRefundPayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.refund',
-    routeId: 'post_folio_refund',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.refund',
+      routeId: 'post_folio_refund',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryRefundPayment(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6551,17 +6519,13 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostDiscount']>>>({
-    env: ctx.env,
-    commandId: 'folio.post_discount',
-    routeId: 'post_folio_discount',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.post_discount',
+      routeId: 'post_folio_discount',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryPostDiscount(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6610,17 +6574,13 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostDiscount']>>>({
-    env: ctx.env,
-    commandId: 'folio.post_discount',
-    routeId: 'post_folio_stay_discount',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.post_discount',
+      routeId: 'post_folio_stay_discount',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryPostDiscount(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6647,17 +6607,13 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCaptureDueHolds']>>>({
-    env: ctx.env,
-    commandId: 'folio.capture_due',
-    routeId: 'post_folio_capture_due',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: fingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.capture_due',
+      routeId: 'post_folio_capture_due',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCaptureDueHolds(actor, commandPayload, idem),
   });
   if (invoked.kind === 'response') return invoked.response;
@@ -6706,17 +6662,13 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAuthorizePayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.authorize',
-    routeId: 'post_folio_authorize',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.authorize',
+      routeId: 'post_folio_authorize',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryAuthorizePayment(actor, commandPayload),
   });
 
@@ -6760,17 +6712,13 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
   };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCapturePayment']>>>({
-    env: ctx.env,
-    commandId: 'folio.capture',
-    routeId: 'post_folio_capture',
-    orgId: resolvedCtx.property.orgId,
-    propertyId,
-    timeZone: resolvedCtx.property.timeZone,
-    actorUserId: ctx.actor.userId,
-    idempotencyKey: body.idempotencyKey,
-    requestFingerprint: captureFingerprint,
-    commandPayload,
-    observability: ctx.observability,
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.capture',
+      routeId: 'post_folio_capture',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: captureFingerprint,
+      commandPayload,
+    }),
     invoke: () => resolvedCtx.resolved.stub.tryCapturePayment(actor, commandPayload),
   });
 

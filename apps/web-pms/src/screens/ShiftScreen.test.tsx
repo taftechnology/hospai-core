@@ -171,7 +171,7 @@ describe('ShiftScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: /close shift/i }));
     });
     await waitFor(() =>
-      expect(screen.getByText(/Something went wrong/i)).toBeTruthy(),
+      expect(screen.getByText(/Close shift failed/i)).toBeTruthy(),
     );
     expect(document.body.textContent).not.toMatch(/client_error/);
   });
@@ -187,7 +187,7 @@ describe('ShiftScreen', () => {
     );
     renderAt('/shift/shift_missing');
     await waitFor(() =>
-      expect(screen.getByText(/Something went wrong/i)).toBeTruthy(),
+      expect(screen.getByText(/Could not load shift/i)).toBeTruthy(),
     );
     expect(document.body.textContent).not.toMatch(/server_error/);
   });

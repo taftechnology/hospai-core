@@ -1296,7 +1296,7 @@ describe('FolioScreen wiring', () => {
     });
     await waitFor(() => expect(screen.getByTestId('folio-message')).toBeTruthy());
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/COMPANY/);
-    expect(screen.getByTestId('folio-message').textContent).toMatch(/Something went wrong/i);
+    expect(screen.getByTestId('folio-message').textContent).toMatch(/Open company folio failed/i);
 
     expect(advanced().textContent).toMatch(/Queued action · 2026-08-14/);
     expect(advanced().textContent).toMatch(/Queued action · 2026-08-13/);

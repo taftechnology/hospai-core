@@ -21,7 +21,7 @@ const CLASS_MESSAGES: Partial<Record<ClientResultClass, string>> = {
 
 export function classifiedUserMessage(
   classified: ClassifiedResponse,
-  _context: {
+  context: {
     fallback?: string;
     /** Screen-specific overrides already painted before calling helper */
     knownCode?: string | null;
@@ -38,5 +38,5 @@ export function classifiedUserMessage(
   const mapped = CLASS_MESSAGES[classified.class];
   if (mapped) return mapped;
 
-  return UNKNOWN_MESSAGE;
+  return context.fallback ?? UNKNOWN_MESSAGE;
 }

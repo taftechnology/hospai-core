@@ -25,7 +25,7 @@ describe('classifiedUserMessage', () => {
       fallback: 'Open shift failed',
     });
     expect(msg).not.toMatch(/client_error/);
-    expect(msg).toMatch(/Something went wrong/i);
+    expect(msg).toBe('Open shift failed');
   });
 
   it('read_stale does not paint the class token', () => {

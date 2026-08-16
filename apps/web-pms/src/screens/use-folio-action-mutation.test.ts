@@ -48,6 +48,6 @@ describe('messageForFolioMutationError', () => {
     });
     const msg = messageForFolioMutationError(err, 'Cash failed');
     expect(msg).not.toMatch(/server_error/);
-    expect(msg).toMatch(/Something went wrong/i);
+    expect(msg).toBe('Cash failed');
   });
 });

@@ -1260,3 +1260,115 @@ describe('degraded mode §4.6 fault injection', () => {
     expect(typeof body.schemaVersion).toBe('number');
   });
 });
+
+describe('degraded replay attribution (C1)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    await setKillSwitch(env, 'pms.core', false);
+    vi.restoreAllMocks();
+  });
+
+  it('successful replay writes admission operator to audit_log, not system:queue_replay', async () => {
+    const actor = 'user_alice';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_c1_ok', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_c1_ok', 'rm_c1_ok', '401');
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    expect((await postCheckIn(propertyId, actor, 'res_c1_ok', 'idem-c1-ok')).status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+    await dispatchPendingBatch(sent);
+
+    const audit = await stub.listAuditLog({ kind: 'user', userId: actor }, { reservationId: 'res_c1_ok' });
+    expect(audit.ok).toBe(true);
+    const checkInRow = audit.rows.find((r) => r.commandId === 'reservations.check_in');
+    expect(checkInRow?.actor).toBe('user_alice');
+    expect(checkInRow?.actor).not.toBe('system:queue_replay');
+  });
+
+  it('failed replay persists actor_user_id on provisional_exception row', async () => {
+    const actor = 'user_alice';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_c1_fail', arrival, departure, guestRef)).status).toBe(201);
+
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-c1-fail',
+        requestFingerprint: (await idemFor('idem-c1-fail', { reservationId: 'res_c1_fail' })).fingerprint,
+        propertyId,
+        orgId: '',
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: { type: 'reservations.check_in', payload: { reservationId: 'res_c1_fail' } },
+        routeId: 'post_reservation_check_in',
+      },
+    };
+    msg.provisional.orgId = (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId;
+
+    await dispatchPendingBatch([msg]);
+    expect(await stub.countProvisionalExceptions()).toBe(1);
+
+    const actorUserId = await stub.readProvisionalExceptionActorUserIdForTest('idem-c1-fail');
+    expect(actorUserId).toBe('user_alice');
+  });
+
+  it('degraded.replayed log includes actorUserId', async () => {
+    const actor = 'user_alice';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_c1_log', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_c1_log', 'rm_c1_log', '402');
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    expect((await postCheckIn(propertyId, actor, 'res_c1_log', 'idem-c1-log')).status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    const logSpy = vi.spyOn(await import('@hospai/observability'), 'logInfo');
+    await dispatchPendingBatch(sent);
+    expect(logSpy.mock.calls.some(([, fields]) => (fields as { actorUserId?: string }).actorUserId === 'user_alice')).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it('degraded.exception log includes actorUserId', async () => {
+    const actor = 'user_alice';
+    const { propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_c1_exc', arrival, departure, guestRef)).status).toBe(201);
+
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-c1-exc',
+        requestFingerprint: (await idemFor('idem-c1-exc', { reservationId: 'res_c1_exc' })).fingerprint,
+        propertyId,
+        orgId: '',
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: { type: 'reservations.check_in', payload: { reservationId: 'res_c1_exc' } },
+        routeId: 'post_reservation_check_in',
+      },
+    };
+    msg.provisional.orgId = (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId;
+
+    const logSpy = vi.spyOn(await import('@hospai/observability'), 'logWarn');
+    await dispatchPendingBatch([msg]);
+    expect(logSpy.mock.calls.some(([, fields]) => (fields as { actorUserId?: string }).actorUserId === 'user_alice')).toBe(true);
+    logSpy.mockRestore();
+  });
+});

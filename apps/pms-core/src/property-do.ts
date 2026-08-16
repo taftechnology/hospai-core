@@ -2544,6 +2544,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
   }
 
+  /** Permission actor may be system; audit attributes admission operator when replaying. */
+  private auditActorForCommandSync(actor: ActorContext, provisional?: ProvisionalContext): string {
+    if (provisional?.auditUserId) return provisional.auditUserId;
+    return this.auditActorSync(actor);
+  }
+
   /**
    * Sync — must be called inside the mutation's transactionSync.
    * Never silently prune audit_log; ARCHIVE owns future purge.
@@ -2697,8 +2703,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO provisional_exception (
         exception_id, idempotency_key, command_type, payload,
-        issued_at, business_date, reason, detail, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        issued_at, business_date, reason, detail, created_at, actor_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       crypto.randomUUID(),
       cmd.idempotencyKey,
       cmd.command.type,
@@ -2708,7 +2714,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       reason,
       detail === null ? null : JSON.stringify(detail),
       now,
+      cmd.actor.userId,
     );
+  }
+
+  async readProvisionalExceptionActorUserIdForTest(idempotencyKey: string): Promise<string | null> {
+    this.assertUnsafeLocal('readProvisionalExceptionActorUserIdForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT actor_user_id FROM provisional_exception WHERE idempotency_key = ? LIMIT 1`,
+        idempotencyKey,
+      )
+      .toArray() as Array<{ actor_user_id: string | null }>;
+    return rows[0]?.actor_user_id ?? null;
   }
 
   async listProvisionalExceptions(
@@ -6945,7 +6963,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const fromStatus = fromRows[0].status;
           const result = updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'rooms.update_status',
             entityType: 'room',
             entityId: input.roomId,
@@ -7025,7 +7043,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const result = bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
           for (const u of input.updates) {
             this.appendAuditLogSync({
-              actor: this.auditActorSync(actor),
+              actor: this.auditActorForCommandSync(actor, provisional),
               commandId: 'rooms.bulk_update_status',
               entityType: 'room',
               entityId: u.roomId,
@@ -7275,7 +7293,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.assertProvisionalBusinessDateOpen(provisional);
           const result = assignHousekeeping(this.moduleTxnCtx(orgId, propertyId, provisional), input);
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'housekeeping.assign',
             entityType: 'room',
             entityId: input.roomId,
@@ -9436,7 +9454,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'reservations.check_in',
             entityType: 'reservation',
             entityId: input.reservationId,
@@ -9598,7 +9616,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'reservations.check_out',
             entityType: 'reservation',
             entityId: input.reservationId,
@@ -10003,7 +10021,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'reservations.update_status',
             entityType: 'reservation',
             entityId: input.reservationId,
@@ -14894,7 +14912,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           this.appendAuditLogSync({
-            actor: this.auditActorSync(actor),
+            actor: this.auditActorForCommandSync(actor, provisional),
             commandId: 'folio.add_item',
             entityType: 'folio_line',
             entityId: input.folioLineId,

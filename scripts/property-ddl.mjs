@@ -79,6 +79,7 @@ if (process.argv.includes('--self-test')) {
   let PROMO_CODES_V31_SQL;
   let INVOICE_GENERATION_V32_SQL;
   let CITY_LEDGER_AR_V33_SQL;
+  let PROVISIONAL_EXCEPTION_ACTOR_V34_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -126,6 +127,7 @@ if (process.argv.includes('--self-test')) {
       PROMO_CODES_V31_SQL,
       INVOICE_GENERATION_V32_SQL,
       CITY_LEDGER_AR_V33_SQL,
+      PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -469,6 +471,15 @@ const doPropertyTargets = [
 
 `,
     sql: CITY_LEDGER_AR_V33_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0034_provisional_exception_actor.sql'),
+    header: `-- PropertyDO provisional exception actor — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
   },
 ];
 

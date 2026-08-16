@@ -1162,6 +1162,13 @@ END`,
 
 export const CITY_LEDGER_AR_V33_SQL = CITY_LEDGER_AR_V33_STATEMENTS.join(';\n\n') + ';\n';
 
+export const PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS = [
+  `ALTER TABLE provisional_exception ADD COLUMN actor_user_id TEXT`,
+] as const;
+
+export const PROVISIONAL_EXCEPTION_ACTOR_V34_SQL =
+  PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1327,5 +1334,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 33,
     name: 'city_ledger_ar',
     statements: CITY_LEDGER_AR_V33_STATEMENTS,
+  },
+  {
+    version: 34,
+    name: 'provisional_exception_actor',
+    statements: PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS,
   },
 ] as const;

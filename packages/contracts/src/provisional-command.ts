@@ -32,6 +32,8 @@ export type PendingCommandMessage = {
 export type ProvisionalContext = {
   issuedAt: string;
   businessDate: string;
+  /** Admission-time operator — audit rows only; permission actor stays REPLAY_ACTOR. */
+  auditUserId?: string;
 };
 
 export type ProvisionalExceptionRow = {

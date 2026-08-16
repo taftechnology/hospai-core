@@ -48,6 +48,7 @@ export async function handlePendingCommandsBatch(
           reason: 'property_not_found',
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
+          actorUserId: provisional.actor.userId,
         });
         await ackTerminal(env, msg);
         continue;
@@ -61,6 +62,7 @@ export async function handlePendingCommandsBatch(
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
           status: gate.status,
+          actorUserId: provisional.actor.userId,
         });
         await ackTerminal(env, msg);
         continue;
@@ -74,6 +76,7 @@ export async function handlePendingCommandsBatch(
           reason: 'unknown_command',
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
+          actorUserId: provisional.actor.userId,
         });
         await ackTerminal(env, msg);
         continue;
@@ -92,6 +95,7 @@ export async function handlePendingCommandsBatch(
       const provisionalCtx: ProvisionalContext = {
         issuedAt: provisional.issuedAt,
         businessDate: provisional.businessDate,
+        auditUserId: provisional.actor.userId,
       };
 
       const result = await dispatch.invoke(
@@ -108,6 +112,7 @@ export async function handlePendingCommandsBatch(
           propertyId: provisional.propertyId,
           commandId: provisional.command.type,
           idempotencyKey: provisional.idempotencyKey,
+          actorUserId: provisional.actor.userId,
         });
         await ackTerminal(env, msg);
         continue;
@@ -128,6 +133,7 @@ export async function handlePendingCommandsBatch(
         propertyId: provisional.propertyId,
         commandId: provisional.command.type,
         idempotencyKey: provisional.idempotencyKey,
+        actorUserId: provisional.actor.userId,
       });
       await ackTerminal(env, msg);
     } catch (e) {

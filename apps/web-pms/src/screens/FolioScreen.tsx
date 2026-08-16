@@ -652,7 +652,7 @@ export function FolioScreen() {
     mutationFn: async () => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
       const overrideBalance =
-        typeof balanceMinor === 'number' && balanceMinor !== 0;
+        typeof balanceMinor === 'number' && balanceMinor > 0;
       if (
         overrideBalance &&
         !window.confirm(
@@ -1286,6 +1286,12 @@ export function FolioScreen() {
               <Alert data-testid="checkout-outage-copy">
                 {policy.reasons.checkout ??
                   'Folio unavailable; checking out will not settle any balance.'}
+              </Alert>
+            ) : null}
+            {typeof balanceMinor === 'number' && balanceMinor < 0 ? (
+              <Alert data-testid="folio-credit-notice">
+                Guest credit {formatMinor(Math.abs(balanceMinor))} — issue a refund after
+                departure if needed.
               </Alert>
             ) : null}
             <Button

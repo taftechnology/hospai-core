@@ -17,6 +17,7 @@ jobs:
           cache: pnpm
       - run: pnpm install
       - run: pnpm build
+      - run: pnpm --filter @hospai/pms-core exec wrangler deploy --dry-run
       - run: pnpm check:ddl
       - run: pnpm check:entitlements
       - run: pnpm check:permissions

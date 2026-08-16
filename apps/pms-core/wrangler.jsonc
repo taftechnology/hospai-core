@@ -111,5 +111,124 @@
     "directory": "../web-pms/dist",
     "not_found_handling": "single-page-application",
     "run_worker_first": true
+  },
+  // Staging env — config scaffold only (Audit Phase H). Live deploy requires owner
+  // Cloudflare account setup + secrets; do not wire CI deploy until enabled.
+  "env": {
+    "staging": {
+      "name": "hospai-pms-core-staging",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-07-01",
+      "compatibility_flags": ["nodejs_compat"],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "PROPERTY_DO",
+            "class_name": "PropertyDO"
+          },
+          {
+            "name": "ORG_DO",
+            "class_name": "OrgDO"
+          },
+          {
+            "name": "ORG_ENTITLEMENT_DO",
+            "class_name": "OrgEntitlementDO"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["PropertyDO"]
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["OrgDO"]
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["OrgEntitlementDO"]
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "ENTITLEMENT_KV",
+          "id": "00000000-0000-0000-0000-000000000012"
+        },
+        {
+          "binding": "EVENT_DEDUPE_KV",
+          "id": "00000000-0000-0000-0000-000000000013"
+        },
+        {
+          "binding": "ARI_KV",
+          "id": "00000000-0000-0000-0000-000000000014"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "EVENT_LOG_R2",
+          "bucket_name": "hospai-event-log-staging"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENTS_QUEUE",
+            "queue": "hospai-events-staging"
+          },
+          {
+            "binding": "PENDING_COMMANDS_QUEUE",
+            "queue": "hospai-pending-commands-staging"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "hospai-events-staging",
+            "max_batch_size": 100,
+            "max_batch_timeout": 5,
+            "max_retries": 3,
+            "dead_letter_queue": "hospai-events-dlq-staging"
+          },
+          {
+            "queue": "hospai-pending-commands-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "hospai-pending-commands-dlq-staging"
+          }
+        ]
+      },
+      "workflows": [
+        {
+          "binding": "NIGHT_AUDIT_WORKFLOW",
+          "name": "hospai-night-audit-staging",
+          "class_name": "NightAuditWorkflow"
+        },
+        {
+          "binding": "MIGRATION_SWEEP_WORKFLOW",
+          "name": "hospai-migration-sweep-staging",
+          "class_name": "MigrationSweepWorkflow"
+        },
+        {
+          "binding": "PURGE_WORKFLOW",
+          "name": "hospai-purge-staging",
+          "class_name": "PurgeWorkflow"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "PLATFORM_DB",
+          "database_name": "hospai-platform",
+          "database_id": "00000000-0000-0000-0000-000000000010",
+          "migrations_dir": "../../migrations/d1-platform"
+        }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "directory": "../web-pms/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      }
+    }
   }
 }

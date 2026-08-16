@@ -92,7 +92,12 @@ describe('tenant-router', () => {
         throw new Error('should not get on default ns');
       },
     };
-    resolvePropertyStub(ns, { orgId: 'o1', propertyId: 'prop_123', jurisdiction: 'eu' });
+    const result = resolvePropertyStub(ns, {
+      orgId: 'o1',
+      propertyId: 'prop_123',
+      jurisdiction: 'eu',
+    });
+    expect(result).toEqual({ stub: { id: 'eu-prop_123' } });
     expect(opened).toEqual(['eu::prop_123']);
   });
 

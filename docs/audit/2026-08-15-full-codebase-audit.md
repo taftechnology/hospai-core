@@ -21,11 +21,12 @@ Every item states:
 
 1. **Do not batch across phases.** Finish and verify a phase before starting the next.
 2. **Do not "fix" anything in [§ Do not fix](#do-not-fix--deliberate-decisions).** Those are documented decisions; changing them contradicts a spec.
-3. **Run the local suite in shards.** `pnpm test` unsharded segfaults (see `A2`). Until `A2` lands, use:
+3. **Run the local suite in shards.** `pnpm test` unsharded segfaults (see `A2`). Use `pnpm test:local` **or** manual shards:
    ```bash
-   pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
+   pnpm test:local
+   # or: pnpm --filter @hospai/pms-core exec vitest run --shard=1/8  # … through 8/8
    ```
-   Note: **no `--` before `--shard`** — pnpm forwards a bare `--` and vitest then treats `--shard` as a file filter, silently running the full suite in every shard.
+   Local runner uses **8** shards to match CI (`test-pms-core` matrix). Note: **no `--` before `--shard`** — pnpm forwards a bare `--` and vitest then treats `--shard` as a file filter, silently running the full suite in every shard.
 4. **Every change must keep all 14 `check:*` gates green.** They were all passing at audit time.
 5. **Do not relax a gate to make a change pass.** If a gate blocks you, the gate is probably right.
 6. **Prefer adding a test that fails first**, then fixing. Several items below are latent (not user-reachable yet) — a test is the only proof they're fixed.
@@ -79,12 +80,17 @@ For `reservations-routes.spec.ts:295`, scope by whatever property identifier tha
 
 **Verify.**
 ```bash
-pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=2/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=3/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
+pnpm --filter @hospai/pms-core exec vitest run test/observability.spec.ts test/lane-guard.spec.ts test/reservations-routes.spec.ts
+pnpm --filter @hospai/pms-core exec vitest run --shard=1/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=2/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=3/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=4/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=5/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=6/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=7/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 ```
-All four green, repeated twice.
+All eight green, repeated twice.
 
 ---
 
@@ -112,9 +118,9 @@ The CI workflow comment states it plainly: *"Unsharded local runs segfault worke
    ```json
    "test:local": "pnpm exec turbo run test --filter=!@hospai/pms-core && node scripts/test-pms-core-shards.mjs"
    ```
-   The script runs `vitest run --shard=N/4` for N=1..4 in sequence, exits non-zero on the first failure. Keep the "no `--` before `--shard`" note as a comment in the script — it is a real, silent footgun.
+   The script runs `vitest run --shard=N/8` for N=1..8 in sequence (`scripts/test-pms-core-shards.mjs`), exits non-zero on the first failure. Keep the "no `--` before `--shard`" note as a comment in the script — it is a real, silent footgun.
 
-2. Update the `README.md` table: replace `pnpm test` with `pnpm test:local` in the "run them before pushing" list, and add one sentence: *"`pnpm test` unsharded segfaults workerd locally; `test:local` shards it. CI shards 8 ways."*
+2. Update the `README.md` table: replace `pnpm test` with `pnpm test:local` in the "run them before pushing" list, and add one sentence: *"`pnpm test` unsharded segfaults workerd locally; `test:local` shards pms-core 8 ways to match CI. The sold-ledger property spec runs in a separate CI job but is included in local shards."*
 
 **Verify.** `pnpm test:local` completes on a clean tree, twice in a row.
 
@@ -812,14 +818,20 @@ pnpm check:web-pms-me-gating
 pnpm check:pms-core-test-dates
 ```
 
-Tests — **sharded**, until `A2` lands (no `--` before `--shard`):
+Tests — **sharded** (no `--` before `--shard`):
 
 ```bash
+pnpm test:local
+# or manually:
 pnpm exec turbo run test --filter=!@hospai/pms-core
-pnpm --filter @hospai/pms-core exec vitest run --shard=1/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=2/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=3/4
-pnpm --filter @hospai/pms-core exec vitest run --shard=4/4
+pnpm --filter @hospai/pms-core exec vitest run --shard=1/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=2/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=3/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=4/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=5/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=6/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=7/8
+pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 ```
 
 After any change to `packages/do-runtime` migrations:

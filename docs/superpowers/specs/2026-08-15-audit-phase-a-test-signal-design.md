@@ -269,12 +269,12 @@ Matches CI shard **width** (8). Differs from CI only on ledger spec **exclusion*
 
 ## 9. Implementation checklist
 
-- [ ] A1: three one-line scoped absence fixes (Lock 1)
-- [ ] A2: `scripts/test-pms-core-shards.mjs` (8 shards, no `--exclude`, footgun comment)
-- [ ] A2: `package.json` `test:local`
-- [ ] README pre-push table + sentence (Lock 3)
-- [ ] Audit doc `N/4` → `N/8` / `test:local` (Lock 4)
-- [ ] Verify §5 commands green
+- [x] A1: three one-line scoped absence fixes (Lock 1)
+- [x] A2: `scripts/test-pms-core-shards.mjs` (8 shards, no `--exclude`, footgun comment)
+- [x] A2: `package.json` `test:local`
+- [x] README pre-push table + sentence (Lock 3)
+- [x] Audit doc `N/4` → `N/8` / `test:local` (Lock 4)
+- [x] Verify §5 commands green
 
 ---
 

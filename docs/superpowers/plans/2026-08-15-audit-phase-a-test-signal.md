@@ -357,7 +357,7 @@ EOF
 - Modify: `docs/superpowers/specs/2026-08-15-audit-phase-a-test-signal-design.md` — tick §9
 - Modify: `docs/superpowers/plans/2026-08-15-audit-phase-a-test-signal.md` — Task 4 checkboxes only
 
-- [ ] **Step 1: Ground rules §3 (~24–28)**
+- [x] **Step 1: Ground rules §3 (~24–28)**
 
 Replace:
 
@@ -380,7 +380,7 @@ With:
    Local runner uses **8** shards to match CI (`test-pms-core` matrix). Note: **no `--` before `--shard`** — pnpm forwards a bare `--` and vitest then treats `--shard` as a file filter, silently running the full suite in every shard.
 ```
 
-- [ ] **Step 2: A1 Verify block (~80–87)**
+- [x] **Step 2: A1 Verify block (~80–87)**
 
 Replace four-shard block:
 
@@ -407,7 +407,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 
 Update trailing prose: *"All eight green, repeated twice."* (was four).
 
-- [ ] **Step 3: A2 Fix bullet (~115)**
+- [x] **Step 3: A2 Fix bullet (~115)**
 
 Replace:
 
@@ -423,7 +423,7 @@ With:
 
 Also update A2 README bullet (~117) to match Lock 3 sentence (8-way + sold-ledger note) if still stale.
 
-- [ ] **Step 4: Appendix Tests block (~815–823)**
+- [x] **Step 4: Appendix Tests block (~815–823)**
 
 Replace:
 
@@ -459,7 +459,7 @@ pnpm --filter @hospai/pms-core exec vitest run --shard=8/8
 ```
 ```
 
-- [ ] **Step 5: A1 three-file vitest (spec §5 #1)**
+- [x] **Step 5: A1 three-file vitest (spec §5 #1)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/observability.spec.ts test/lane-guard.spec.ts test/reservations-routes.spec.ts
@@ -467,7 +467,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/observability.spec.ts test/l
 
 Expected: **PASS**.
 
-- [ ] **Step 6: Full local test loop — long pole (spec §5 #2)**
+- [x] **Step 6: Full local test loop — long pole (spec §5 #2)**
 
 ```bash
 pnpm test:local
@@ -485,7 +485,7 @@ done
 
 Confirm partition covers full spec set with no empty shards; `test/reservations-ledger.property.spec.ts` in exactly one shard.
 
-- [ ] **Step 7: All 14 `check:*` gates (spec §5 #3)**
+- [x] **Step 7: All 14 `check:*` gates (spec §5 #3)**
 
 ```bash
 pnpm check:ddl
@@ -506,7 +506,7 @@ pnpm check:purge
 
 Expected: all **PASS**.
 
-- [ ] **Step 8: typecheck / build / lint (spec §5 #4–#6)**
+- [x] **Step 8: typecheck / build / lint (spec §5 #4–#6)**
 
 ```bash
 pnpm typecheck
@@ -516,7 +516,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 9: Pin frozen heads (sanity — should be unchanged)**
+- [x] **Step 9: Pin frozen heads (sanity — should be unchanged)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -525,15 +525,15 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **89**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 33`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`.
 
-- [ ] **Step 10: Tick spec §9 checklist**
+- [x] **Step 10: Tick spec §9 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-a-test-signal-design.md` §9.
 
-- [ ] **Step 11: Tick Task 4 checkboxes in this plan only**
+- [x] **Step 11: Tick Task 4 checkboxes in this plan only**
 
 Do **not** tick Task 1–3 checkboxes retroactively unless already done during implementation.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add docs/audit/2026-08-15-full-codebase-audit.md \

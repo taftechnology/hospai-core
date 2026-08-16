@@ -2891,6 +2891,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async reconcileHorizonForTest(
     businessDate: string,
   ): Promise<{ insertedCount: number; fromDate: string; toDate: string }> {
+    this.assertUnsafeLocal('reconcileHorizonForTest');
     return reconcileHorizon(
       this.ctx.storage.sql,
       businessDate,

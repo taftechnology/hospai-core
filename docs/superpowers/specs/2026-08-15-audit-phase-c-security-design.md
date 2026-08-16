@@ -426,15 +426,15 @@ pnpm typecheck && pnpm build && pnpm lint
 
 ## 8. Implementation checklist
 
-- [ ] C1: migration v34 + DDL regenerate
-- [ ] C1: `recordProvisionalException` + log fields
-- [ ] C1: `ProvisionalContext.auditUserId` + `auditActorForCommandSync` + 8 `try*` audit sites
-- [ ] C2: peek helpers on entitlement-client caches
-- [ ] C2: `assertFrontOfficeStreamAuthorized` + fetch cap/gate + subscribe gate
-- [ ] C2: `broadcastFrontOffice` interval peek + close **4403**
-- [ ] C3: server select `'front-office'` + client protocol list
-- [ ] C4: `reconcileHorizonForTest` guard
-- [ ] Tests §4 + verify §3 green
+- [x] C1: migration v34 + DDL regenerate
+- [x] C1: `recordProvisionalException` + log fields
+- [x] C1: `ProvisionalContext.auditUserId` + `auditActorForCommandSync` + 8 `try*` audit sites
+- [x] C2: peek helpers on entitlement-client caches
+- [x] C2: `assertFrontOfficeStreamAuthorized` + fetch cap/gate + subscribe gate
+- [x] C2: `broadcastFrontOffice` interval peek + close **4403**
+- [x] C3: server select `'front-office'` + client protocol list
+- [x] C4: `reconcileHorizonForTest` guard
+- [x] Tests §4 + verify §3 green
 
 ---
 

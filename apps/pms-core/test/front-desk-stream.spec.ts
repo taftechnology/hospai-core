@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from 'cloudflare:test';
+import { resolveOrgStub } from '@hospai/tenant-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PropertyDO } from '../src/property-do.js';
 import worker from '../src/index.js';
@@ -418,5 +419,60 @@ describe('front-desk hibernating stream HTTP [119]', () => {
     );
     expect(res.status).toBe(503);
     expect(res.webSocket).toBeNull();
+  });
+
+  it('revoked member gets 4403 on broadcast after re-auth interval (C2)', async () => {
+    const actor = 'user_stream_revoke';
+    const { orgId, propertyId, A } = await provisionHotel(actor);
+    const toDate = addCalendarDays(A, 1);
+    const res = await upgradeStream(propertyId, { 'x-dev-actor': actor });
+    expect(res.status).toBe(101);
+    const ws = res.webSocket!;
+    ws.accept();
+    ws.send(JSON.stringify({ type: 'subscribe', fromDate: A, toDate }));
+    expect((await waitJson(ws)).type).toBe('snapshot');
+
+    const stub = (await resolvePropertyFromRegistry(env, propertyId))!.stub as DurableObjectStub<PropertyDO>;
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
+    await org.removePropertyMemberForTest(actor, propertyId);
+    await stub.clearPermissionCacheForTest();
+
+    await runInDurableObject(stub, (_instance, state) => {
+      for (const sock of state.getWebSockets('front-office')) {
+        const att = (sock.deserializeAttachment() ?? {}) as Record<string, unknown>;
+        sock.serializeAttachment({ ...att, authCheckedAt: Date.now() - 31_000 });
+      }
+    });
+
+    const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.addEventListener('close', (ev) => resolve({ code: ev.code, reason: ev.reason }), { once: true });
+    });
+
+    await runInDurableObject(stub, (instance) => {
+      type BroadcastHost = {
+        broadcastFrontOffice(delta: { blocks?: Array<{ arrivalDate: string; departureDate: string }> }): void;
+      };
+      (instance as unknown as BroadcastHost).broadcastFrontOffice({
+        blocks: [{ arrivalDate: A, departureDate: addCalendarDays(A, 1) }],
+      });
+    });
+
+    const closed = await closePromise;
+    expect(closed.code).toBe(4403);
+    expect(closed.reason).toBe('policy_violation');
+  });
+
+  it('51st concurrent front-office socket returns 503 front_office_stream_capacity (C2)', async () => {
+    const actor = 'user_stream_cap';
+    const { propertyId } = await provisionHotel(actor);
+    const headers = { 'x-dev-actor': actor };
+    for (let i = 0; i < 50; i++) {
+      const res = await upgradeStream(propertyId, headers);
+      expect(res.status).toBe(101);
+      res.webSocket?.accept();
+    }
+    const overflow = await upgradeStream(propertyId, headers);
+    expect(overflow.status).toBe(503);
+    expect(await overflow.json()).toMatchObject({ error: 'front_office_stream_capacity' });
   });
 });

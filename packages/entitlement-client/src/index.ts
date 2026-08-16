@@ -127,6 +127,21 @@ export class EntitlementDoCache {
     this.cachedAt = now;
     return this.snap;
   }
+
+  /** Read-only peek — no load; returns null when stale or missing. */
+  peekEntitled(orgId: string, featureKey: FeatureKey): boolean | null {
+    const now = Date.now();
+    if (!this.snap || this.snap.orgId !== orgId || now - this.cachedAt >= EntitlementDoCache.MAX_AGE_MS) {
+      return null;
+    }
+    try {
+      require(this.snap, featureKey);
+      return true;
+    } catch (e) {
+      if (e instanceof EntitlementRequiredError) return false;
+      return null;
+    }
+  }
 }
 
 export async function assertEntitled(

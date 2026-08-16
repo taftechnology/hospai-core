@@ -714,7 +714,7 @@ EOF
 
 **Forbidden this commit:** C5, D1, edge rate limiting, HTTP `actor_user_id` on exception APIs.
 
-- [ ] **Step 1: Write failing C2 specs (red)**
+- [x] **Step 1: Write failing C2 specs (red)**
 
 Add to `apps/pms-core/test/front-desk-stream.spec.ts`:
 
@@ -794,7 +794,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-stream.spec.ts -t
 
 Expected: **FAIL** — no cap / no re-auth close.
 
-- [ ] **Step 2: Apply peek helpers**
+- [x] **Step 2: Apply peek helpers**
 
 **`permission-cache.ts`**:
 
@@ -826,7 +826,7 @@ Expected: **FAIL** — no cap / no re-auth close.
   }
 ```
 
-- [ ] **Step 3: Apply Lock 2 on PropertyDO**
+- [x] **Step 3: Apply Lock 2 on PropertyDO**
 
 1. Add constants (D2 §2a).
 2. Extend `FrontOfficeAttachment` with `authCheckedAt` (D2 §2b).
@@ -835,7 +835,7 @@ Expected: **FAIL** — no cap / no re-auth close.
 5. **Subscribe branch** — async re-gate before window update (~10838–10853).
 6. **`broadcastFrontOffice`** — interval peek + close **4403** (~10868–10890).
 
-- [ ] **Step 4: Re-run C2 specs — must be green**
+- [x] **Step 4: Re-run C2 specs — must be green**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run test/front-desk-stream.spec.ts -t "4403|front_office_stream_capacity"
@@ -844,7 +844,7 @@ pnpm --filter @hospai/pms-core exec vitest run test/front-desk-stream.spec.ts
 
 Expected: **PASS** (including C3 test from Task 2).
 
-- [ ] **Step 5: Re-run Phase C test files**
+- [x] **Step 5: Re-run Phase C test files**
 
 ```bash
 pnpm --filter @hospai/pms-core exec vitest run \
@@ -855,7 +855,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: **PASS**.
 
-- [ ] **Step 6: Full local test loop — long pole (spec §4 #7)**
+- [x] **Step 6: Full local test loop — long pole (spec §4 #7)**
 
 ```bash
 pnpm test:local
@@ -863,7 +863,7 @@ pnpm test:local
 
 Expected: non-pms-core turbo tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 7: All 14 `check:*` gates (spec §4 #8)**
+- [x] **Step 7: All 14 `check:*` gates (spec §4 #8)**
 
 ```bash
 pnpm check:ddl
@@ -884,7 +884,7 @@ pnpm check:purge
 
 Expected: all **PASS**.
 
-- [ ] **Step 8: typecheck / build / lint (spec §3)**
+- [x] **Step 8: typecheck / build / lint (spec §3)**
 
 ```bash
 pnpm typecheck
@@ -895,7 +895,7 @@ pnpm generate:ddl && pnpm check:ddl
 
 Expected: all **PASS**.
 
-- [ ] **Step 9: Pin frozen heads (sanity — schema **34**, catalog **89**)**
+- [x] **Step 9: Pin frozen heads (sanity — schema **34**, catalog **89**)**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "night-audit HTTP routes|PLATFORM_GAPS"
@@ -904,15 +904,15 @@ pnpm --filter @hospai/do-runtime exec vitest run src/migrate.test.ts -t "schema 
 
 Expect: catalog **89**; writers **63**; `[143]=get_city_ledger_statement`; `PROPERTY_SCHEMA_HEAD === 34`; `NIGHT_AUDIT_STEPS` length **8**, `[3] AUTO_TRANSFER`.
 
-- [ ] **Step 10: Tick spec §8 checklist**
+- [x] **Step 10: Tick spec §8 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-15-audit-phase-c-security-design.md` §8.
 
-- [ ] **Step 11: Tick Task 4 checkboxes in this plan only**
+- [x] **Step 11: Tick Task 4 checkboxes in this plan only**
 
 Do **not** tick Task 1–3 checkboxes retroactively unless already done during implementation.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add packages/entitlement-client/src/permission-cache.ts \

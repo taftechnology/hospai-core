@@ -269,6 +269,10 @@ const FRONT_OFFICE_OUTBOX_TYPES = new Set([
   'room.status_changed',
   'room.ooo_changed',
 ]);
+const FRONT_OFFICE_MAX_SOCKETS = 50;
+const FRONT_OFFICE_REAUTH_INTERVAL_MS = 30_000;
+const FRONT_OFFICE_WS_CLOSE_POLICY = 4403;
+const FRONT_OFFICE_WS_CLOSE_REASON = 'policy_violation';
 const OCCUPYING_STATUSES = new Set(['pending', 'confirmed', 'checked_in']);
 
 type FrontOfficeAttachment = {
@@ -276,6 +280,7 @@ type FrontOfficeAttachment = {
   userId: string;
   fromDate: string | null;
   toDate: string | null;
+  authCheckedAt: number;
 };
 
 type FrontOfficeDelta = {
@@ -10803,6 +10808,31 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  private async assertFrontOfficeStreamAuthorized(
+    userId: string,
+  ): Promise<{ ok: true } | { ok: false }> {
+    if (!userId) return { ok: false };
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false };
+    const permDenied = await this.gatePermission({ kind: 'user', userId }, 'reservations:read');
+    if (permDenied) return { ok: false };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return { ok: false };
+    return { ok: true };
+  }
+
+  private peekFrontOfficeStreamAuthorizedSync(userId: string): boolean {
+    if (!userId) return false;
+    const orgId = this.getOrgIdSync();
+    const propertyId = this.getPropertyIdSync();
+    if (!orgId || !propertyId) return false;
+    const role = this.permissionCache.peekEffectiveRole(userId, propertyId);
+    if (!role || !ROLE_GRANTS[role].includes('reservations:read')) return false;
+    const entitled = this.entitlementCache.peekEntitled(orgId, 'pms.core');
+    if (entitled !== true) return false;
+    return true;
+  }
+
   async fetch(request: Request): Promise<Response> {
     this.assertRpcAvailable();
     const url = new URL(request.url);
@@ -10812,6 +10842,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const upgrade = request.headers.get('Upgrade');
     if (upgrade?.toLowerCase() !== 'websocket') {
       return Response.json({ error: 'expected_websocket' }, { status: 400 });
+    }
+
+    const userId = request.headers.get('x-hospai-ws-actor') ?? '';
+    if (this.ctx.getWebSockets('front-office').length >= FRONT_OFFICE_MAX_SOCKETS) {
+      return Response.json({ error: 'front_office_stream_capacity' }, { status: 503 });
+    }
+    const gate = await this.assertFrontOfficeStreamAuthorized(userId);
+    if (!gate.ok) {
+      return Response.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const pair = new WebSocketPair();
@@ -10824,9 +10863,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const valid = Boolean(fromDate && toDate && isInclusiveTapeWindow(fromDate, toDate));
     const attachment: FrontOfficeAttachment = {
       propertyId: this.getPropertyIdSync() ?? '',
-      userId: request.headers.get('x-hospai-ws-actor') ?? '',
+      userId,
       fromDate: valid ? fromDate : null,
       toDate: valid ? toDate : null,
+      authCheckedAt: Date.now(),
     };
     server.serializeAttachment(attachment);
     if (valid && fromDate && toDate) {
@@ -10864,11 +10904,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return;
     }
     const prev = (ws.deserializeAttachment() ?? {}) as FrontOfficeAttachment;
+    const userId = prev.userId ?? '';
+    const gate = await this.assertFrontOfficeStreamAuthorized(userId);
+    if (!gate.ok) {
+      ws.close(FRONT_OFFICE_WS_CLOSE_POLICY, FRONT_OFFICE_WS_CLOSE_REASON);
+      return;
+    }
     ws.serializeAttachment({
       propertyId: prev.propertyId ?? this.getPropertyIdSync() ?? '',
-      userId: prev.userId ?? '',
+      userId,
       fromDate,
       toDate,
+      authCheckedAt: Date.now(),
     });
     const tape = await this.readFrontOfficeTape(fromDate, toDate);
     ws.send(JSON.stringify({ type: 'snapshot', ...tape }));
@@ -10890,9 +10937,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const sockets = this.ctx.getWebSockets('front-office');
     if (sockets.length === 0) return;
     const frame = JSON.stringify({ type: 'delta', asOf: Date.now(), ...delta });
+    const now = Date.now();
     for (const ws of sockets) {
       const att = (ws.deserializeAttachment() ?? null) as FrontOfficeAttachment | null;
-      if (!att?.fromDate || !att.toDate) continue;
+      if (!att) continue;
+      if (now - (att.authCheckedAt ?? 0) >= FRONT_OFFICE_REAUTH_INTERVAL_MS) {
+        if (!this.peekFrontOfficeStreamAuthorizedSync(att.userId)) {
+          ws.close(FRONT_OFFICE_WS_CLOSE_POLICY, FRONT_OFFICE_WS_CLOSE_REASON);
+          continue;
+        }
+        ws.serializeAttachment({ ...att, authCheckedAt: now });
+      }
+      if (!att.fromDate || !att.toDate) continue;
       if (delta.rooms && delta.rooms.length > 0) {
         ws.send(frame);
         continue;

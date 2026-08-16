@@ -39,6 +39,15 @@ export class PermissionDoCache {
     return role;
   }
 
+  /** Read-only peek — no OrgDO round trip; returns null when stale or missing. */
+  peekEffectiveRole(userId: string, propertyId: string): OrgRole | null {
+    const key = `${userId}:${propertyId}`;
+    const now = Date.now();
+    const entry = this.cache.get(key);
+    if (!entry || now - entry.cachedAt >= PermissionDoCache.MAX_AGE_MS) return null;
+    return entry.role;
+  }
+
   /** Clears cached roles — test-only; see degraded-mode spec test 6b. */
   invalidate(): void {
     this.cache.clear();

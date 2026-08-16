@@ -355,17 +355,17 @@ flowchart LR
 
 ## 8. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1 (H1): `wrangler deploy --dry-run` in `checks` after build
-- [ ] Lock 2 (H1): `env.staging` scaffold in `wrangler.jsonc`; **no** deploy job / secrets
-- [ ] Lock 3 (H1): jurisdiction success path verified/strengthened in `tenant-router` unit test
-- [ ] Lock 4 (H2): `@vitest/coverage-v8` root; `test:coverage` turbo + CI; **no threshold**
-- [ ] Lock 5 (H3): expanded operation mix; **24 seeds**; `LEDGER_PROP_SEED` preserved
-- [ ] Lock 6 (H3): `reservations-ledger-virtual.property.spec.ts`; invariant on **physical** rows only; deliberate-break verified
-- [ ] Lock 7 (H4): §10.1 / §4.1 / §16.4 reword; README verified consistent
-- [ ] Frozen head **counts** unchanged (§1.6)
-- [ ] Scope-out respected — no product code, no live deploy, no coverage threshold, no retention sweep code
-- [ ] `pnpm test:local` green
-- [ ] All **14** `check:*` gates green
+- [x] Lock 1 (H1): `wrangler deploy --dry-run` in `checks` after build
+- [x] Lock 2 (H1): `env.staging` scaffold in `wrangler.jsonc`; **no** deploy job / secrets
+- [x] Lock 3 (H1): jurisdiction success path verified/strengthened in `tenant-router` unit test
+- [x] Lock 4 (H2): `@vitest/coverage-v8` root; `test:coverage` turbo + CI; **no threshold**
+- [x] Lock 5 (H3): expanded operation mix; **24 seeds**; `LEDGER_PROP_SEED` preserved
+- [x] Lock 6 (H3): `reservations-ledger-virtual.property.spec.ts`; invariant on **physical** rows only; deliberate-break verified
+- [x] Lock 7 (H4): §10.1 / §4.1 / §16.4 reword; README verified consistent
+- [x] Frozen head **counts** unchanged (§1.6)
+- [x] Scope-out respected — no product code, no live deploy, no coverage threshold, no retention sweep code
+- [x] `pnpm test:local` green
+- [x] All **14** `check:*` gates green
 
 ---
 

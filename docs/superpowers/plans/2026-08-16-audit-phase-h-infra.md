@@ -782,7 +782,7 @@ EOF
 
 **Forbidden this commit:** new features; scope-out items; un-reverted deliberate-break.
 
-- [ ] **Step 1: Spec §5 matrix (rows 1–5)**
+- [x] **Step 1: Spec §5 matrix (rows 1–5)**
 
 ```bash
 pnpm --filter @hospai/pms-core exec wrangler deploy --dry-run
@@ -795,7 +795,7 @@ pnpm --filter @hospai/pms-core exec vitest run \
 
 Expected: all **PASS**; coverage shows text summaries, no threshold failure; 24 + 24 seed cases.
 
-- [ ] **Step 2: typecheck / build / lint**
+- [x] **Step 2: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -805,7 +805,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 3: All 14 `check:*` gates**
+- [x] **Step 3: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -826,7 +826,7 @@ pnpm check:purge
 
 Expected: all **PASS** (`check:ddl` confirm-only).
 
-- [ ] **Step 4: Full local test loop — long pole**
+- [x] **Step 4: Full local test loop — long pole**
 
 ```bash
 pnpm test:local
@@ -834,7 +834,7 @@ pnpm test:local
 
 Expected: non-pms-core tests + all **8** pms-core shards green. Workerd 503 → retry shard once.
 
-- [ ] **Step 5: ARCHITECTURE read-back (spec §5 row 8)**
+- [x] **Step 5: ARCHITECTURE read-back (spec §5 row 8)**
 
 ```bash
 rg -n "swept in the \`BULK\`" ARCHITECTURE.md          # expect no matches
@@ -844,7 +844,7 @@ rg -n "not yet implemented|not implemented in Phase 1" ARCHITECTURE.md
 
 Expected: no imperative unimplemented sweep/archival claims; viewport subsection present.
 
-- [ ] **Step 6: Pin frozen heads — counts unchanged**
+- [x] **Step 6: Pin frozen heads — counts unchanged**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "COMMAND_CATALOG|AUDIT_WRITER"
@@ -854,7 +854,7 @@ test "$(rg -c '^export const' packages/contracts/src/idempotency.ts)" -eq 158
 
 Expect: catalog **89**; writers **63**; routes **144** tail `get_city_ledger_statement`; schema **34**; steps **8** `[3] AUTO_TRANSFER`; idempotency consts **158**.
 
-- [ ] **Step 7: Scope-out grep — must be clean**
+- [x] **Step 7: Scope-out grep — must be clean**
 
 ```bash
 ! rg "CLOUDFLARE_API_TOKEN" .github/workflows/ci.yml
@@ -864,20 +864,20 @@ rg "config scaffold only" apps/pms-core/wrangler.jsonc
 
 Expected: no deploy secrets/job; staging comment present.
 
-- [ ] **Step 8: CI workflow sanity (spec §5 row 9)**
+- [x] **Step 8: CI workflow sanity (spec §5 row 9)**
 
 Confirm in `.github/workflows/ci.yml`:
 - `checks`: dry-run after build; `pnpm test:coverage` (not plain turbo test)
 - `test-pms-core-ledger-prop`: both property spec paths
 - `test-pms-core`: both files excluded from shards
 
-- [ ] **Step 9: Tick spec §8 reviewer checklist**
+- [x] **Step 9: Tick spec §8 reviewer checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-16-audit-phase-h-infra-design.md` §8.
 
-- [ ] **Step 10: Tick Task 6 checkboxes in this plan only**
+- [x] **Step 10: Tick Task 6 checkboxes in this plan only**
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-16-audit-phase-h-infra-design.md \

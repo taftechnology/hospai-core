@@ -23,6 +23,8 @@ jobs:
         env:
           VITE_USE_DEV_ACTOR: '0'
           VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_ORG_ID: ${{ vars.VITE_ORG_ID }}
+          VITE_PROPERTY_ID: ${{ vars.VITE_PROPERTY_ID }}
         run: pnpm build
       - name: Configure wrangler secrets
         working-directory: apps/pms-core

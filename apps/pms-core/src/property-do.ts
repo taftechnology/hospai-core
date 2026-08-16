@@ -129,6 +129,10 @@ import {
   CONFIG_CLASS_NOT_DOMAIN,
   ORG_ID_UNSET,
   NOT_MEMBER,
+  NIGHT_AUDIT_HALTED,
+  NIGHT_AUDIT_STEP_NOT_FAILED,
+  NIGHT_AUDIT_NOT_DUE,
+  UNKNOWN_COMMAND,
   INVALID_STATUS,
   INVALID_BUSINESS_DATE,
   INVALID_ASSIGNEE_REF,
@@ -1236,7 +1240,7 @@ function mapPropertyCommandError(
   return null;
 }
 
-export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
+export { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
 export const NIGHT_AUDIT_RETRY_STEP_COMMAND = 'night_audit.retry_step' as const;
 export const NIGHT_AUDIT_RESOLVE_HALT_COMMAND = 'night_audit.resolve_halt' as const;
 export const PROVISIONAL_RESOLVE_EXCEPTION_COMMAND = 'provisional.resolve_exception' as const;
@@ -4349,12 +4353,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; alreadyResolved?: true }
-    | { ok: false; error: typeof NOT_FOUND | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4404,8 +4414,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -4502,16 +4513,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; retried: true }
-    | {
+    | ({
         ok: false;
-        error: typeof NOT_FOUND | typeof ALREADY_RESOLVED | 'unknown_command' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string;
         retried?: false;
-      }
+      } & (
+        | { error: typeof NOT_FOUND }
+        | { error: typeof ALREADY_RESOLVED }
+        | { error: typeof UNKNOWN_COMMAND }
+        | { error: typeof ORG_UNREACHABLE }
+        | { error: typeof FORBIDDEN | typeof NOT_MEMBER }
+        | { error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+        | { error: typeof ORG_ID_UNSET }
+        | { error: typeof PROPERTY_ID_UNSET }
+        | { error: typeof IDEM_KEY_REUSED }
+        | { error: CommandError }
+        | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+      ))
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4524,7 +4546,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (existing.resolved_at != null) return { ok: false, error: ALREADY_RESOLVED };
 
     const dispatch = REPLAY_DISPATCH[existing.command_type];
-    if (!dispatch) return { ok: false, error: 'unknown_command' };
+    if (!dispatch) return { ok: false, error: UNKNOWN_COMMAND };
 
     if (existing.open_retry_key === null) {
       const minted = `provisional-retry:${input.exceptionId}:${crypto.randomUUID()}`;
@@ -4540,7 +4562,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const keyed = this.loadProvisionalExceptionRow(input.exceptionId);
     if (!keyed || keyed.resolved_at != null) return { ok: false, error: ALREADY_RESOLVED };
     const openRetryKey = keyed.open_retry_key;
-    if (!openRetryKey) return { ok: false, error: 'internal_error' };
+    if (!openRetryKey) return { ok: false, error: INTERNAL_ERROR };
 
     const payload = JSON.parse(keyed.payload) as unknown;
     const fingerprint = await fingerprintPayload(dispatch.fingerprintInput(payload));
@@ -4554,7 +4576,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       { issuedAt: keyed.issued_at, businessDate: keyed.business_date },
     );
 
-    if (inner.error === 'org_unreachable') return { ok: false, error: 'org_unreachable' };
+    if (inner.error === ORG_UNREACHABLE) return { ok: false, error: ORG_UNREACHABLE };
 
     const resolvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
 
@@ -4606,8 +4628,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             return { ok: true as const, retried: true as const };
           }
 
-          const reason =
-            inner.error === BUSINESS_DATE_CLOSED ? 'business_date_closed' : (inner.error ?? 'domain_error');
+          const reason: CommandError =
+            inner.error === BUSINESS_DATE_CLOSED
+              ? BUSINESS_DATE_CLOSED
+              : inner.error && isCommandError(inner.error)
+                ? inner.error
+                : ((inner.error ?? 'domain_error') as CommandError);
           this.ctx.storage.sql.exec(
             `UPDATE provisional_exception
              SET reason = ?, detail = ?, open_retry_key = NULL
@@ -4628,8 +4654,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR, retried: false };
     }
   }
 
@@ -4639,15 +4666,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true }
-    | {
-        ok: false;
-        error: typeof NOT_FOUND | typeof ALREADY_RESOLVED | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string;
-      }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ALREADY_RESOLVED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4691,8 +4722,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -4702,21 +4734,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true }
-    | {
-        ok: false;
-        error:
-          | typeof NOT_FOUND
-          | typeof NOTE_TOO_LONG
-          | typeof NOTE_LIMIT
-          | typeof FORBIDDEN
-          | typeof ENTITLEMENT_REQUIRED
-          | string;
-      }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof NOTE_TOO_LONG }
+    | { ok: false; error: typeof NOTE_LIMIT }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4759,8 +4790,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -4771,12 +4803,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     census: NightAuditCensus,
   ): Promise<
     | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string }
-    | { ok: false; error: 'night_audit_step_not_failed' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+    | { ok: false; error: typeof NIGHT_AUDIT_STEP_NOT_FAILED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4800,7 +4838,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ status: string }>;
     if (existing[0]?.status !== 'FAILED') {
-      return { ok: false, error: 'night_audit_step_not_failed' };
+      return { ok: false, error: NIGHT_AUDIT_STEP_NOT_FAILED };
     }
 
     const result = await this.runAuditStep(input.businessDate, input.step, census);
@@ -4840,8 +4878,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -4852,12 +4891,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     census: NightAuditCensus,
   ): Promise<
     | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string; halted: boolean }
-    | { ok: false; error: typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -4935,8 +4979,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }),
         );
       } catch (e) {
-        if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        const mapped = mapPropertyCommandError(e);
+        if (mapped) return mapped;
+        return { ok: false, error: INTERNAL_ERROR };
       }
     }
 
@@ -5079,12 +5124,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; businessDate: string }
-    | { ok: false; error: typeof NIGHT_AUDIT_HALTED | 'night_audit_not_due' | typeof FORBIDDEN | typeof ENTITLEMENT_REQUIRED | string }
+    | { ok: false; error: typeof NIGHT_AUDIT_HALTED }
+    | { ok: false; error: typeof NIGHT_AUDIT_NOT_DUE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+    | { ok: false; error: typeof TIMEZONE_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'org_id_unset' };
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
     const permDenied = await this.gatePermission(actor, 'night_audit:run');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
@@ -5100,7 +5154,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!timeZone) return { ok: false, error: TIMEZONE_UNSET };
     const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
     if (businessDate >= today) {
-      return { ok: false, error: 'night_audit_not_due' };
+      return { ok: false, error: NIGHT_AUDIT_NOT_DUE };
     }
 
     try {
@@ -5117,8 +5171,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       );
     } catch (e) {
-      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 

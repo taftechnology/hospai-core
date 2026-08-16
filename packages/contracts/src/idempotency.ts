@@ -30,6 +30,16 @@ export const BUSINESS_DATE_UNSET = 'business_date_unset' as const;
 /** Replay rejected — operator's believed business date is before the DO open date. */
 export const BUSINESS_DATE_CLOSED = 'business_date_closed' as const;
 
+/** Org / scope / transport wire codes */
+export const ORG_ID_UNSET = 'org_id_unset' as const;
+export const NOT_MEMBER = 'not_member' as const;
+export const SCOPE_MISMATCH = 'scope_mismatch' as const;
+export const ORG_UNREACHABLE = 'org_unreachable' as const;
+export const BULK_NOT_ADMITTED = 'bulk_not_admitted' as const;
+export const UNKNOWN_COMMAND = 'unknown_command' as const;
+export const INTERNAL_ERROR = 'internal_error' as const;
+export const TENANT_NOT_ACTIVE = 'tenant_not_active' as const;
+
 /** Night-audit PRE_CHECK wire codes */
 export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;
 export const PROVISIONAL_EXCEPTIONS_OPEN = 'provisional_exceptions_open' as const;
@@ -37,6 +47,10 @@ export const PENDING_CENSUS_REQUIRED = 'pending_census_required' as const;
 export const ALREADY_RESOLVED = 'already_resolved' as const;
 export const NOTE_TOO_LONG = 'note_too_long' as const;
 export const NOTE_LIMIT = 'note_limit' as const;
+export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
+export const NIGHT_AUDIT_STEP_NOT_FAILED = 'night_audit_step_not_failed' as const;
+export const NIGHT_AUDIT_NOT_DUE = 'night_audit_not_due' as const;
+export const NIGHT_AUDIT_WORKFLOW_EXISTS = 'night_audit_workflow_exists' as const;
 
 /** Reservations wire codes */
 export const NO_AVAILABILITY = 'no_availability' as const;
@@ -57,6 +71,15 @@ export const ROOM_OUT_OF_ORDER = 'room_out_of_order' as const;
 export const BALANCE_DUE = 'balance_due' as const;
 export const OCCUPANCY_EXCEEDED = 'occupancy_exceeded' as const;
 export const FRONT_OFFICE_COMMENT_TOO_LONG = 'front_office_comment_too_long' as const;
+export const INVALID_STATUS = 'invalid_status' as const;
+export const INVALID_BUSINESS_DATE = 'invalid_business_date' as const;
+export const INVALID_ASSIGNEE_REF = 'invalid_assignee_ref' as const;
+export const INVALID_DATE = 'invalid_date' as const;
+export const GUEST_REF_REQUIRED = 'guest_ref_required' as const;
+export const INVALID_STAY_RANGE = 'invalid_stay_range' as const;
+export const INVALID_WINDOW = 'invalid_window' as const;
+export const INVALID_DATE_RANGE = 'invalid_date_range' as const;
+export const VALIDATION_ERROR = 'validation_error' as const;
 
 /** Folio money-ops wire codes */
 export const WINDOW_CLOSED = 'window_closed' as const;
@@ -81,6 +104,9 @@ export const PSP_UNAVAILABLE = 'psp_unavailable' as const;
 export const PAYMENT_NOT_CAPTURABLE = 'payment_not_capturable' as const;
 export const PAYMENT_NOT_RECONCILABLE = 'payment_not_reconcilable' as const;
 export const LINE_NOT_SPLITTABLE = 'line_not_splittable' as const;
+export const INVALID_VOID_REASON = 'invalid_void_reason' as const;
+export const PSP_ADAPTER_FAILED = 'psp_adapter_failed' as const;
+export const PAYMENT_INSERT_FAILED = 'payment_insert_failed' as const;
 
 /** Room / housekeeping wire codes */
 export const ROOM_CODE_EXISTS = 'room_code_exists' as const;
@@ -105,11 +131,17 @@ export const INVALID_CANCEL_POLICY = 'invalid_cancel_policy' as const;
 export const PROMO_NOT_FOUND = 'promo_not_found' as const;
 export const PROMO_NOT_APPLICABLE = 'promo_not_applicable' as const;
 export const PROMO_CODE_EXISTS = 'promo_code_exists' as const;
+export const INVALID_PROMO_CODE = 'invalid_promo_code' as const;
+export const INVALID_PROMO_WINDOW = 'invalid_promo_window' as const;
+export const INVALID_PROMO_KIND_FIELD = 'invalid_promo_kind_field' as const;
+export const PROMO_ID_EXISTS = 'promo_id_exists' as const;
 
 export const INVOICE_ALREADY_EXISTS = 'invoice_already_exists' as const;
 export const INVOICE_NOT_FOUND = 'invoice_not_found' as const;
 export const INVOICE_VOIDED = 'invoice_voided' as const;
 export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;
+export const INVOICE_COUNTER_RACE = 'invoice_counter_race' as const;
+export const REPORTS_R2_UNBOUND = 'reports_r2_unbound' as const;
 export const INVOICE_REQUIRED = 'invoice_required' as const;
 export const FOLIO_BALANCE_DUE = 'folio_balance_due' as const;
 
@@ -127,6 +159,9 @@ export const CHARGE_CODE_NOT_FOUND = 'charge_code_not_found' as const;
 export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
 export const ROUTING_RULE_CONFLICT = 'routing_rule_conflict' as const;
 export const SYSTEM_CHARGE_CODE_PROTECTED = 'system_charge_code_protected' as const;
+
+/** Config wire codes */
+export const CONFIG_CLASS_NOT_DOMAIN = 'config_class_not_domain' as const;
 
 /** Tax rule wire codes */
 export const TAX_RULE_NOT_FOUND = 'tax_rule_not_found' as const;
@@ -150,6 +185,12 @@ export const STAFF_EXITED = 'staff_exited' as const;
 export const STAFF_NOT_ASSIGNABLE = 'staff_not_assignable' as const;
 export const INVALID_KINDS = 'invalid_kinds' as const;
 export const EMPTY_KINDS = 'empty_kinds' as const;
+export const INVALID_ROLE = 'invalid_role' as const;
+export const ALREADY_MEMBER = 'already_member' as const;
+export const LAST_OWNER = 'last_owner' as const;
+export const PROPERTY_REF_NOT_FOUND = 'property_ref_not_found' as const;
+export const DECRYPT_UNRESOLVED = 'decrypt_unresolved' as const;
+export const KEY_SHRED_FAILED = 'key_shred_failed' as const;
 
 /** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
 function canonicalJson(value: unknown): string {

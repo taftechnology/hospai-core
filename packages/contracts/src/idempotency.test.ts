@@ -103,6 +103,11 @@ import {
   VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS,
   VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
   VIRTUAL_TYPE_NO_ROOMS,
+  ORG_ID_UNSET,
+  NOT_MEMBER,
+  NIGHT_AUDIT_HALTED,
+  CONFIG_CLASS_NOT_DOMAIN,
+  INTERNAL_ERROR,
 } from './idempotency.js';
 
 describe('fingerprintPayload', () => {
@@ -266,5 +271,20 @@ describe('fingerprintPayload', () => {
     const a = await fingerprintPayload({ a: 1, b: undefined });
     const b = await fingerprintPayload({ a: 1 });
     expect(a).toBe(b);
+  });
+
+  it('exports D1 wire codes (Phase D smoke)', () => {
+    expect(ORG_ID_UNSET).toBe('org_id_unset');
+    expect(NOT_MEMBER).toBe('not_member');
+    expect(NIGHT_AUDIT_HALTED).toBe('night_audit_halted');
+    expect(CONFIG_CLASS_NOT_DOMAIN).toBe('config_class_not_domain');
+    expect(INTERNAL_ERROR).toBe('internal_error');
+  });
+
+  it('pins idempotency export const count at 157', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
+    const count = (src.match(/^export const /gm) ?? []).length;
+    expect(count).toBe(157);
   });
 });

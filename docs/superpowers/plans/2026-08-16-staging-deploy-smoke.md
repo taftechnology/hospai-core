@@ -592,7 +592,7 @@ If Task 3 smoke step hardcodes wrong `BASE`, fix `.github/workflows/staging-depl
 
 **Forbidden this commit:** product code; secrets; push.
 
-- [ ] **Step 1: Default-env dry-run still green**
+- [x] **Step 1: Default-env dry-run still green**
 
 ```bash
 pnpm --filter @hospai/pms-core exec wrangler deploy --dry-run
@@ -601,7 +601,7 @@ pnpm --filter @hospai/pms-core exec wrangler deploy --dry-run --env staging
 
 Expected: both **exit 0**.
 
-- [ ] **Step 2: typecheck / build / lint**
+- [x] **Step 2: typecheck / build / lint**
 
 ```bash
 pnpm typecheck
@@ -611,7 +611,7 @@ pnpm lint
 
 Expected: all **PASS**.
 
-- [ ] **Step 3: All 14 `check:*` gates**
+- [x] **Step 3: All 14 `check:*` gates**
 
 ```bash
 pnpm check:ddl
@@ -640,7 +640,7 @@ pnpm test:local
 
 Expected: green (no product code changed).
 
-- [ ] **Step 5: Pin frozen heads**
+- [x] **Step 5: Pin frozen heads**
 
 ```bash
 pnpm --filter @hospai/contracts exec vitest run src/register.test.ts -t "COMMAND_CATALOG|AUDIT_WRITER"
@@ -650,7 +650,7 @@ test "$(rg -c '^export const' packages/contracts/src/idempotency.ts)" -eq 158
 
 Expected: catalog **89**; writers **63**; routes **144**; schema **34**; idempotency **158**.
 
-- [ ] **Step 6: Scope-out grep**
+- [x] **Step 6: Scope-out grep**
 
 ```bash
 ! rg "CLERK_SECRET_KEY|HOSPAI_ORG_MASTER_KEY" apps/pms-core/wrangler.jsonc scripts/
@@ -662,7 +662,7 @@ rg "workflow_dispatch" .github/workflows/staging-deploy.yml
 
 Expected: clean.
 
-- [ ] **Step 7: Live staging assertions (from Task 4)**
+- [x] **Step 7: Live staging assertions (from Task 4)**
 
 Confirm recorded:
 - Smoke **exit 0**
@@ -676,13 +676,13 @@ After GitHub secrets configured, run workflow with `clerk_session_jwt` input.
 
 Expected: deploy succeeds; smoke green (JWT must be fresh).
 
-- [ ] **Step 9: Tick spec §10 checklist**
+- [x] **Step 9: Tick spec §10 checklist**
 
 Tick every item in `docs/superpowers/specs/2026-08-16-staging-deploy-smoke-design.md` §10.
 
-- [ ] **Step 10: Tick Task 5 checkboxes in this plan only**
+- [x] **Step 10: Tick Task 5 checkboxes in this plan only**
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-16-staging-deploy-smoke-design.md \

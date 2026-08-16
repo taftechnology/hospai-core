@@ -334,17 +334,17 @@ flowchart TD
 
 ## 10. Implementation checklist (reviewer §8)
 
-- [ ] Lock 1: Real resources created; placeholder IDs replaced in `env.staging`
-- [ ] Lock 2: Clerk vars committed; secrets **not** committed; dev-actor flags **absent**
-- [ ] Lock 3: D1 name `hospai-platform-staging`; remote migrations applied
-- [ ] Lock 4: Deploy sequence followed; `CLERK_AUTHORIZED_PARTIES` matches live origin
-- [ ] Lock 5: `scripts/smoke-staging.mjs` committed; `pnpm smoke:staging` works with `BASE` + `CLERK_SESSION_JWT`
-- [ ] Lock 6: `.github/workflows/staging-deploy.yml` is **`workflow_dispatch` only**; four GitHub secrets documented
-- [ ] Lock 7: Teardown steps documented (§2 Lock 7)
-- [ ] Smoke: 10-step sequence; body vs header idempotency correct
-- [ ] Frozen head **counts** unchanged (§1.4)
-- [ ] Scope-out respected — no product code, no production, no push, no auto CI on PR
-- [ ] `pnpm test:local` + all **14** `check:*` gates green
+- [x] Lock 1: Real resources created; placeholder IDs replaced in `env.staging`
+- [x] Lock 2: Clerk vars committed; secrets **not** committed; dev-actor flags **absent**
+- [x] Lock 3: D1 name `hospai-platform-staging`; remote migrations applied
+- [x] Lock 4: Deploy sequence followed; `CLERK_AUTHORIZED_PARTIES` matches live origin
+- [x] Lock 5: `scripts/smoke-staging.mjs` committed; `pnpm smoke:staging` works with `BASE` + `CLERK_SESSION_JWT`
+- [x] Lock 6: `.github/workflows/staging-deploy.yml` is **`workflow_dispatch` only**; four GitHub secrets documented
+- [x] Lock 7: Teardown steps documented (§2 Lock 7)
+- [x] Smoke: 10-step sequence; body vs header idempotency correct
+- [x] Frozen head **counts** unchanged (§1.4)
+- [x] Scope-out respected — no product code, no production, no push, no auto CI on PR
+- [x] `pnpm test:local` + all **14** `check:*` gates green
 
 ---
 

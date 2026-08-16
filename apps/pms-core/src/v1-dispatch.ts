@@ -1,4 +1,4 @@
-import type { CommandError, FeatureKey, Jurisdiction, PropertyRecord, ProvisionPropertyInput } from '@hospai/contracts';
+import type { CommandError, FeatureKey, Jurisdiction, PropertyRecord, ProvisionPropertyInput, RouteId } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
   ALREADY_CANCELLED,
@@ -1289,6 +1289,7 @@ export type V1DispatchContext = {
 };
 
 type V1RouteBase = {
+  id: RouteId;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   pattern: RegExp;
   handler: (ctx: V1DispatchContext) => Promise<Response>;
@@ -3054,7 +3055,7 @@ async function handlePostReservationStatusAction(
   ctx: V1DispatchContext,
   reservationId: string,
   commandId: string,
-  routeId: string,
+  routeId: RouteId,
   action: (
     stub: DurableObjectStub<PropertyDO>,
     actor: { kind: 'user'; userId: string },
@@ -7783,18 +7784,21 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
 
 export const V1_ROUTES: V1RouteDef[] = [
   {
+    id: 'post_orgs',
     scope: 'bootstrap',
     method: 'POST',
     pattern: /^\/v1\/orgs$/,
     handler: handlePostOrgs,
   },
   {
+    id: 'post_migration_sweep',
     scope: 'dev',
     method: 'POST',
     pattern: /^\/v1\/admin\/migration-sweep$/,
     handler: handlePostMigrationSweep,
   },
   {
+    id: 'post_org_properties',
     scope: 'org',
     method: 'POST',
     pattern: /^\/v1\/orgs\/([^/]+)\/properties$/,
@@ -7803,6 +7807,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostOrgProperties,
   },
   {
+    id: 'get_org_properties',
     scope: 'org',
     method: 'GET',
     pattern: /^\/v1\/orgs\/([^/]+)\/properties$/,
@@ -7810,6 +7815,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetOrgProperties,
   },
   {
+    id: 'get_property',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)$/,
@@ -7817,6 +7823,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetProperty,
   },
   {
+    id: 'get_registry_property',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/registry\/properties\/([^/]+)$/,
@@ -7824,6 +7831,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRegistryProperty,
   },
   {
+    id: 'post_room_types',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/room-types$/,
@@ -7832,6 +7840,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRoomTypes,
   },
   {
+    id: 'put_room_type',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)$/,
@@ -7840,6 +7849,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutRoomType,
   },
   {
+    id: 'delete_room_type',
     scope: 'property',
     method: 'DELETE',
     pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)$/,
@@ -7848,6 +7858,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeleteRoomType,
   },
   {
+    id: 'get_property_availability',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/availability$/,
@@ -7856,6 +7867,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetAvailability,
   },
   {
+    id: 'post_reservations',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations$/,
@@ -7864,6 +7876,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservations,
   },
   {
+    id: 'get_reservation',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)$/,
@@ -7872,6 +7885,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetReservation,
   },
   {
+    id: 'patch_reservation',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)$/,
@@ -7880,6 +7894,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchReservation,
   },
   {
+    id: 'post_reservation_cancel',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/cancel$/,
@@ -7888,6 +7903,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationCancel,
   },
   {
+    id: 'post_reservation_check_in',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/check-in$/,
@@ -7896,6 +7912,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationCheckIn,
   },
   {
+    id: 'post_reservation_check_out',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/check-out$/,
@@ -7904,6 +7921,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationCheckOut,
   },
   {
+    id: 'post_reservation_no_show',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/no-show$/,
@@ -7912,6 +7930,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationNoShow,
   },
   {
+    id: 'post_reservation_cancel_check_in',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/cancel-check-in$/,
@@ -7920,6 +7939,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationCancelCheckIn,
   },
   {
+    id: 'get_provisional_exceptions',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exception-count$/,
@@ -7927,6 +7947,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetProvisionalExceptionCount,
   },
   {
+    id: 'get_provisional_exception_count',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions$/,
@@ -7934,6 +7955,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetProvisionalExceptions,
   },
   {
+    id: 'put_rate_days',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-days$/,
@@ -7942,6 +7964,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutRateDays,
   },
   {
+    id: 'put_restriction_days',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/restriction-days$/,
@@ -7950,6 +7973,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutRestrictionDays,
   },
   {
+    id: 'post_folio_lines',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/lines$/,
@@ -7958,6 +7982,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioLines,
   },
   {
+    id: 'get_folio',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio$/,
@@ -7966,6 +7991,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFolio,
   },
   {
+    id: 'post_folio_split',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/split$/,
@@ -7975,6 +8001,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioSplit,
   },
   {
+    id: 'post_rooms',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms$/,
@@ -7983,6 +8010,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRooms,
   },
   {
+    id: 'patch_room',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)$/,
@@ -7991,6 +8019,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchRoom,
   },
   {
+    id: 'get_rooms',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms$/,
@@ -7999,6 +8028,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRooms,
   },
   {
+    id: 'post_room_status',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/status$/,
@@ -8007,6 +8037,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRoomStatus,
   },
   {
+    id: 'post_rooms_bulk_status',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms\/bulk-status$/,
@@ -8015,6 +8046,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRoomsBulkStatus,
   },
   {
+    id: 'post_reservation_assign_room',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/assign-room$/,
@@ -8023,6 +8055,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationAssignRoom,
   },
   {
+    id: 'post_housekeeping_assign',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/assignments$/,
@@ -8031,6 +8064,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostHousekeepingAssign,
   },
   {
+    id: 'get_housekeeping_assignments',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/assignments$/,
@@ -8039,6 +8073,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetHousekeepingAssignments,
   },
   {
+    id: 'post_rate_plans',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-plans$/,
@@ -8047,6 +8082,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRatePlans,
   },
   {
+    id: 'patch_rate_plan',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-plans\/([^/]+)$/,
@@ -8055,6 +8091,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchRatePlan,
   },
   {
+    id: 'delete_rate_plan',
     scope: 'property',
     method: 'DELETE',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-plans\/([^/]+)$/,
@@ -8063,6 +8100,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeleteRatePlan,
   },
   {
+    id: 'get_rate_plans',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-plans$/,
@@ -8071,6 +8109,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRatePlans,
   },
   {
+    id: 'put_room_type_rate',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/room-types\/([^/]+)\/rates$/,
@@ -8079,6 +8118,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutRoomTypeRate,
   },
   {
+    id: 'post_rates_bulk',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rates\/bulk$/,
@@ -8087,6 +8127,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRatesBulk,
   },
   {
+    id: 'post_guests',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests$/,
@@ -8095,6 +8136,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostGuests,
   },
   {
+    id: 'patch_guest',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)$/,
@@ -8103,6 +8145,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchGuest,
   },
   {
+    id: 'post_guest_erase',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/erase$/,
@@ -8111,6 +8154,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostGuestErase,
   },
   {
+    id: 'get_guest',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)$/,
@@ -8119,6 +8163,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetGuest,
   },
   {
+    id: 'patch_property_details',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)$/,
@@ -8127,6 +8172,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchPropertyDetails,
   },
   {
+    id: 'put_domain_config',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/config\/domain$/,
@@ -8135,6 +8181,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutDomainConfig,
   },
   {
+    id: 'post_folio_authorize',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/authorize$/,
@@ -8143,6 +8190,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioAuthorize,
   },
   {
+    id: 'post_folio_capture',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/capture$/,
@@ -8151,6 +8199,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioCapture,
   },
   {
+    id: 'get_folio_payment',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)$/,
@@ -8159,6 +8208,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFolioPayment,
   },
   {
+    id: 'get_folio_payments',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments$/,
@@ -8167,6 +8217,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFolioPayments,
   },
   {
+    id: 'post_charge_codes',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/charge-codes$/,
@@ -8175,6 +8226,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostChargeCodes,
   },
   {
+    id: 'patch_charge_code',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/charge-codes\/([^/]+)$/,
@@ -8183,6 +8235,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchChargeCode,
   },
   {
+    id: 'put_charge_code_status',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/charge-codes\/([^/]+)\/status$/,
@@ -8191,6 +8244,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutChargeCodeStatus,
   },
   {
+    id: 'get_charge_codes',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/charge-codes$/,
@@ -8199,6 +8253,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetChargeCodes,
   },
   {
+    id: 'post_tax_rules',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/tax-rules$/,
@@ -8207,6 +8262,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostTaxRules,
   },
   {
+    id: 'put_tax_rule_supersede',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/tax-rules\/([^/]+)\/supersede$/,
@@ -8215,6 +8271,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutTaxRuleSupersede,
   },
   {
+    id: 'get_tax_rules',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/tax-rules$/,
@@ -8223,6 +8280,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetTaxRules,
   },
   {
+    id: 'post_shifts',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/shifts$/,
@@ -8231,6 +8289,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostShifts,
   },
   {
+    id: 'put_shift_close',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/shifts\/([^/]+)\/close$/,
@@ -8239,6 +8298,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutShiftClose,
   },
   {
+    id: 'post_cash_payment',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/cash$/,
@@ -8247,6 +8307,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostCashPayment,
   },
   {
+    id: 'get_shift',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/shifts\/([^/]+)$/,
@@ -8255,6 +8316,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetShift,
   },
   {
+    id: 'get_audit_log',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/audit-log$/,
@@ -8263,6 +8325,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetAuditLog,
   },
   {
+    id: 'get_front_desk_arrivals',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/arrivals$/,
@@ -8271,6 +8334,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskArrivals,
   },
   {
+    id: 'get_front_desk_departures',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/departures$/,
@@ -8279,6 +8343,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskDepartures,
   },
   {
+    id: 'get_front_desk_in_house',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/in-house$/,
@@ -8287,6 +8352,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskInHouse,
   },
   {
+    id: 'post_guests_batch',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/batch$/,
@@ -8295,6 +8361,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostGuestsBatch,
   },
   {
+    id: 'get_org_entitlements',
     scope: 'org',
     method: 'GET',
     pattern: /^\/v1\/orgs\/([^/]+)\/entitlements$/,
@@ -8302,6 +8369,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetOrgEntitlements,
   },
   {
+    id: 'get_front_desk_shift',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/shift$/,
@@ -8310,6 +8378,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskShift,
   },
   {
+    id: 'get_front_desk_recent_shifts',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/shifts\/recent$/,
@@ -8318,6 +8387,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskRecentShifts,
   },
   {
+    id: 'get_property_me',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/me$/,
@@ -8326,6 +8396,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetPropertyMe,
   },
   {
+    id: 'list_org_members',
     scope: 'org',
     method: 'GET',
     pattern: /^\/v1\/orgs\/([^/]+)\/members$/,
@@ -8333,6 +8404,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleListOrgMembers,
   },
   {
+    id: 'create_org_member',
     scope: 'org',
     method: 'POST',
     pattern: /^\/v1\/orgs\/([^/]+)\/members$/,
@@ -8340,6 +8412,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleCreateOrgMember,
   },
   {
+    id: 'update_org_member',
     scope: 'org',
     method: 'PATCH',
     pattern: /^\/v1\/orgs\/([^/]+)\/members\/([^/]+)$/,
@@ -8347,6 +8420,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleUpdateOrgMember,
   },
   {
+    id: 'delete_org_member',
     scope: 'org',
     method: 'DELETE',
     pattern: /^\/v1\/orgs\/([^/]+)\/members\/([^/]+)$/,
@@ -8354,6 +8428,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeleteOrgMember,
   },
   {
+    id: 'list_property_members',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/members$/,
@@ -8361,6 +8436,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleListPropertyMembers,
   },
   {
+    id: 'create_property_member',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/members$/,
@@ -8368,6 +8444,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleCreatePropertyMember,
   },
   {
+    id: 'update_property_member',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/members\/([^/]+)$/,
@@ -8375,6 +8452,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleUpdatePropertyMember,
   },
   {
+    id: 'delete_property_member',
     scope: 'property',
     method: 'DELETE',
     pattern: /^\/v1\/properties\/([^/]+)\/members\/([^/]+)$/,
@@ -8382,6 +8460,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeletePropertyMember,
   },
   {
+    id: 'post_org_cancel',
     scope: 'org',
     method: 'POST',
     pattern: /^\/v1\/orgs\/([^/]+)\/cancel$/,
@@ -8389,6 +8468,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostOrgCancel,
   },
   {
+    id: 'post_org_purge',
     scope: 'org',
     method: 'POST',
     pattern: /^\/v1\/orgs\/([^/]+)\/purge$/,
@@ -8396,6 +8476,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostOrgPurge,
   },
   {
+    id: 'get_roster',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/roster$/,
@@ -8404,6 +8485,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRoster,
   },
   {
+    id: 'get_roster_one',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)$/,
@@ -8412,6 +8494,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRosterOne,
   },
   {
+    id: 'post_roster',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/roster$/,
@@ -8421,6 +8504,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRoster,
   },
   {
+    id: 'patch_roster',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)$/,
@@ -8430,6 +8514,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchRoster,
   },
   {
+    id: 'post_roster_status',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)\/status$/,
@@ -8439,6 +8524,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRosterStatus,
   },
   {
+    id: 'post_roster_exit',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)\/exit$/,
@@ -8448,6 +8534,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRosterExit,
   },
   {
+    id: 'get_night_audit',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/night-audit$/,
@@ -8456,6 +8543,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetNightAudit,
   },
   {
+    id: 'get_night_audit_report',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/reports\/([^/]+)\/([^/]+)$/,
@@ -8464,6 +8552,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetNightAuditReport,
   },
   {
+    id: 'post_night_audit_run',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/run$/,
@@ -8473,6 +8562,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostNightAuditRun,
   },
   {
+    id: 'post_night_audit_retry',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/retry$/,
@@ -8482,6 +8572,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostNightAuditRetry,
   },
   {
+    id: 'post_night_audit_resolve_halt',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/resolve-halt$/,
@@ -8491,6 +8582,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostNightAuditResolveHalt,
   },
   {
+    id: 'post_provisional_exception_resolve',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/resolve$/,
@@ -8500,6 +8592,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostProvisionalExceptionResolve,
   },
   {
+    id: 'post_reservation_confirm',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/confirm$/,
@@ -8509,6 +8602,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationConfirm,
   },
   {
+    id: 'post_reservation_hold',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/hold$/,
@@ -8518,6 +8612,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationHold,
   },
   {
+    id: 'post_reservation_front_office',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/front-office$/,
@@ -8526,6 +8621,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationFrontOffice,
   },
   {
+    id: 'post_folio_window',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/windows$/,
@@ -8535,6 +8631,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioWindow,
   },
   {
+    id: 'post_folio_window_close',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/windows\/([^/]+)\/close$/,
@@ -8544,6 +8641,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioWindowClose,
   },
   {
+    id: 'post_folio_window_reopen',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/windows\/([^/]+)\/reopen$/,
@@ -8553,6 +8651,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioWindowReopen,
   },
   {
+    id: 'post_folio_transfer',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/transfer$/,
@@ -8562,6 +8661,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioTransfer,
   },
   {
+    id: 'post_folio_void',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/void$/,
@@ -8571,6 +8671,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioVoid,
   },
   {
+    id: 'post_folio_refund',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/refund$/,
@@ -8580,6 +8681,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioRefund,
   },
   {
+    id: 'post_folio_discount',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/lines\/([^/]+)\/discount$/,
@@ -8589,6 +8691,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioDiscount,
   },
   {
+    id: 'post_folio_capture_due',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/capture-due$/,
@@ -8598,6 +8701,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioCaptureDue,
   },
   {
+    id: 'post_room_ooo_range',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/ooo$/,
@@ -8607,6 +8711,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRoomOooRange,
   },
   {
+    id: 'get_reservation_search',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations-search$/,
@@ -8615,6 +8720,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetReservationSearch,
   },
   {
+    id: 'post_fx_rates',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/fx-rates$/,
@@ -8624,6 +8730,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFxRates,
   },
   {
+    id: 'post_fx_rate_supersede',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/fx-rates\/([^/]+)\/supersede$/,
@@ -8633,6 +8740,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFxRateSupersede,
   },
   {
+    id: 'get_fx_rates',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/fx-rates$/,
@@ -8641,6 +8749,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFxRates,
   },
   {
+    id: 'post_folio_chargeback',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/payments\/([^/]+)\/chargeback$/,
@@ -8650,6 +8759,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioChargeback,
   },
   {
+    id: 'post_folio_fx_adjustment',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/fx-adjustment$/,
@@ -8659,6 +8769,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioFxAdjustment,
   },
   {
+    id: 'get_room_types',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/room-types$/,
@@ -8667,6 +8778,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRoomTypes,
   },
   {
+    id: 'get_rate_days',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-days$/,
@@ -8675,6 +8787,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRateDays,
   },
   {
+    id: 'get_restriction_days',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/restriction-days$/,
@@ -8683,6 +8796,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRestrictionDays,
   },
   {
+    id: 'get_domain_config',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/config\/domain$/,
@@ -8691,6 +8805,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetDomainConfig,
   },
   {
+    id: 'get_front_desk_tape',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/tape$/,
@@ -8699,6 +8814,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskTape,
   },
   {
+    id: 'get_front_desk_directory',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/directory$/,
@@ -8707,6 +8823,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskDirectory,
   },
   {
+    id: 'get_front_desk_available_rooms',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/available-rooms$/,
@@ -8715,6 +8832,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskAvailableRooms,
   },
   {
+    id: 'get_front_desk_summary',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/summary$/,
@@ -8723,6 +8841,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontDeskSummary,
   },
   {
+    id: 'get_front_desk_stream',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/front-desk\/stream$/,
@@ -8731,6 +8850,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFrontOfficeStream,
   },
   {
+    id: 'get_provisional_exception',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)$/,
@@ -8739,6 +8859,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetProvisionalException,
   },
   {
+    id: 'post_provisional_exception_retry',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/retry$/,
@@ -8748,6 +8869,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostProvisionalExceptionRetry,
   },
   {
+    id: 'post_provisional_exception_assign',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/assign$/,
@@ -8757,6 +8879,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostProvisionalExceptionAssign,
   },
   {
+    id: 'post_provisional_exception_note',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/provisional-exceptions\/([^/]+)\/notes$/,
@@ -8766,6 +8889,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostProvisionalExceptionNote,
   },
   {
+    id: 'get_guests',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/guests$/,
@@ -8774,6 +8898,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetGuests,
   },
   {
+    id: 'post_guests_search',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests-search$/,
@@ -8782,6 +8907,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostGuestsSearch,
   },
   {
+    id: 'get_guest_stays',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/stays$/,
@@ -8790,12 +8916,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetGuestStays,
   },
   {
+    id: 'post_demo_seed',
     scope: 'dev',
     method: 'POST',
     pattern: /^\/v1\/admin\/demo-seed$/,
     handler: handlePostDemoSeed,
   },
   {
+    id: 'post_folio_stay_discount',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/discount$/,
@@ -8805,6 +8933,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioStayDiscount,
   },
   {
+    id: 'get_folio_routing_rules',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules$/,
@@ -8813,6 +8942,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetFolioRoutingRules,
   },
   {
+    id: 'put_folio_routing_rule',
     scope: 'property',
     method: 'PUT',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules\/([^/]+)$/,
@@ -8822,6 +8952,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePutFolioRoutingRule,
   },
   {
+    id: 'post_folio_routing_rule_archive',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/folio\/routing-rules\/([^/]+)\/archive$/,
@@ -8831,6 +8962,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioRoutingRuleArchive,
   },
   {
+    id: 'delete_room',
     scope: 'property',
     method: 'DELETE',
     pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)$/,
@@ -8840,6 +8972,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeleteRoom,
   },
   {
+    id: 'post_folio_reconcile_payment',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/payments\/([^/]+)\/reconcile$/,
@@ -8849,6 +8982,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostFolioReconcilePayment,
   },
   {
+    id: 'get_rate_promos',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-promos$/,
@@ -8857,6 +8991,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetRatePromos,
   },
   {
+    id: 'post_rate_promos',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-promos$/,
@@ -8866,6 +9001,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostRatePromos,
   },
   {
+    id: 'patch_rate_promo',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-promos\/([^/]+)$/,
@@ -8875,6 +9011,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchRatePromo,
   },
   {
+    id: 'delete_rate_promo',
     scope: 'property',
     method: 'DELETE',
     pattern: /^\/v1\/properties\/([^/]+)\/rate-promos\/([^/]+)$/,
@@ -8884,6 +9021,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleDeleteRatePromo,
   },
   {
+    id: 'post_invoices',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/invoices$/,
@@ -8893,6 +9031,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostInvoices,
   },
   {
+    id: 'get_invoice',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)$/,
@@ -8901,6 +9040,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetInvoice,
   },
   {
+    id: 'post_invoice_void',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)\/void$/,
@@ -8910,6 +9050,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostInvoiceVoid,
   },
   {
+    id: 'post_city_ledger_accounts',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts$/,
@@ -8919,6 +9060,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostCityLedgerAccounts,
   },
   {
+    id: 'get_city_ledger_accounts',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts$/,
@@ -8927,6 +9069,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handleGetCityLedgerAccounts,
   },
   {
+    id: 'patch_city_ledger_account',
     scope: 'property',
     method: 'PATCH',
     pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)$/,
@@ -8936,6 +9079,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePatchCityLedgerAccount,
   },
   {
+    id: 'post_city_ledger_account_payment',
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)\/payments$/,
@@ -8945,6 +9089,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostCityLedgerAccountPayment,
   },
   {
+    id: 'get_city_ledger_statement',
     scope: 'property',
     method: 'GET',
     pattern: /^\/v1\/properties\/([^/]+)\/city-ledger\/accounts\/([^/]+)\/statements\/([^/]+)$/,

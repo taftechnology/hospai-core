@@ -58,12 +58,14 @@ const routeBlocks = routesSrc.match(/\{[^{}]+\}/gs) || [];
 
 
 const parsedRoutes = routeBlocks.map((block) => {
+  const idMatch = block.match(/id:\s*'([^']+)'/);
   const scopeMatch = block.match(/scope:\s*'([^']+)'/);
   const permissionMatch = block.match(/permission:\s*'([^']+)'/);
   const commandIdMatch = block.match(/commandId:\s*'([^']+)'/);
   const entitlementMatch = block.match(/entitlement:\s*'([^']+)'/);
 
   const res = {
+    id: idMatch ? idMatch[1] : undefined,
     scope: scopeMatch ? scopeMatch[1] : undefined,
   };
   if (permissionMatch) res.permission = permissionMatch[1];
@@ -72,19 +74,45 @@ const parsedRoutes = routeBlocks.map((block) => {
   return res;
 });
 
+const parsedById = new Map();
+for (const parsed of parsedRoutes) {
+  if (!parsed.id) {
+    console.error('Drift detected: V1_ROUTES entry missing id field');
+    failed = true;
+    continue;
+  }
+  if (parsedById.has(parsed.id)) {
+    console.error(`Drift detected: duplicate id '${parsed.id}' in V1_ROUTES`);
+    failed = true;
+    continue;
+  }
+  parsedById.set(parsed.id, parsed);
+}
+
 if (parsedRoutes.length !== V1_HTTP_ROUTE_AUDIT.length) {
   console.error(`Drift detected: V1_ROUTES in v1-dispatch.ts has ${parsedRoutes.length} entries, but V1_HTTP_ROUTE_AUDIT has ${V1_HTTP_ROUTE_AUDIT.length} entries.`);
   failed = true;
 } else {
-  for (let i = 0; i < parsedRoutes.length; i++) {
-    const parsed = parsedRoutes[i];
-    const audit = V1_HTTP_ROUTE_AUDIT[i];
+  for (const audit of V1_HTTP_ROUTE_AUDIT) {
+    const parsed = parsedById.get(audit.id);
+    if (!parsed) {
+      console.error(`Drift detected: V1_ROUTES missing id '${audit.id}' referenced in V1_HTTP_ROUTE_AUDIT`);
+      failed = true;
+      continue;
+    }
     const keys = ['scope', 'permission', 'commandId', 'entitlement'];
     for (const key of keys) {
       if (parsed[key] !== audit[key]) {
-        console.error(`Drift detected at route index ${i} (audit id: '${audit.id}'): field '${key}' mismatch. Dispatch: '${parsed[key]}', Audit: '${audit[key]}'`);
+        console.error(`Drift detected for route id '${audit.id}': field '${key}' mismatch. Dispatch: '${parsed[key]}', Audit: '${audit[key]}'`);
         failed = true;
       }
+    }
+  }
+
+  for (const [id] of parsedById) {
+    if (!V1_HTTP_ROUTE_AUDIT.some((entry) => entry.id === id)) {
+      console.error(`Drift detected: V1_ROUTES id '${id}' not found in V1_HTTP_ROUTE_AUDIT`);
+      failed = true;
     }
   }
 }

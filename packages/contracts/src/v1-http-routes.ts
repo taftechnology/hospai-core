@@ -862,3 +862,5 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     degradedRead: 'FAIL_CLOSED',
   },
 ];
+
+export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

@@ -1,4 +1,4 @@
-import { requireCatalogEntry, type ProvisionalCommand } from '@hospai/contracts';
+import { requireCatalogEntry, type ProvisionalCommand, type RouteId } from '@hospai/contracts';
 import { businessDateForInstant } from '@hospai/pms-inventory';
 import { logError, type ObservabilityContext } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
@@ -14,7 +14,7 @@ function json(data: unknown, status: number, headers?: HeadersInit): Response {
 export async function invokePropertyDo<T extends { ok: boolean }>(opts: {
   env: PmsEnv;
   commandId: string;
-  routeId: string;
+  routeId: RouteId;
   orgId: string;
   propertyId: string;
   timeZone: string;

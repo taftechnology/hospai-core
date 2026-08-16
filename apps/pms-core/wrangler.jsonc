@@ -112,10 +112,11 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  // Staging env — config scaffold only (Audit Phase H). Live deploy requires owner
-  // Cloudflare account setup + secrets; do not wire CI deploy until enabled.
+  // Staging env — live deploy (Audit H1 follow-up). Resource IDs + Clerk vars committed;
+  // CLERK_SECRET_KEY + HOSPAI_ORG_MASTER_KEY via wrangler secrets only.
   "env": {
     "staging": {
+      "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
       "name": "hospai-pms-core-staging",
       "main": "src/index.ts",
       "compatibility_date": "2025-07-01",
@@ -153,15 +154,15 @@
       "kv_namespaces": [
         {
           "binding": "ENTITLEMENT_KV",
-          "id": "00000000-0000-0000-0000-000000000012"
+          "id": "e327a82f09ce459184b09840a4504ce2"
         },
         {
           "binding": "EVENT_DEDUPE_KV",
-          "id": "00000000-0000-0000-0000-000000000013"
+          "id": "9d1c0e6163324cd0b39e86f9253c4c18"
         },
         {
           "binding": "ARI_KV",
-          "id": "00000000-0000-0000-0000-000000000014"
+          "id": "9c0844c3f39d404ea060e705b42a19b2"
         }
       ],
       "r2_buckets": [
@@ -218,8 +219,8 @@
       "d1_databases": [
         {
           "binding": "PLATFORM_DB",
-          "database_name": "hospai-platform",
-          "database_id": "00000000-0000-0000-0000-000000000010",
+          "database_name": "hospai-platform-staging",
+          "database_id": "d15a6a68-05e8-458b-abfd-ed714d4c5c06",
           "migrations_dir": "../../migrations/d1-platform"
         }
       ],
@@ -228,6 +229,11 @@
         "directory": "../web-pms/dist",
         "not_found_handling": "single-page-application",
         "run_worker_first": true
+      },
+      "vars": {
+        "CLERK_PUBLISHABLE_KEY": "pk_test_Y2FyaW5nLWRyYWtlLTgzMTcuY2xlcmsuYWNjb3VudHMuZGV2JA",
+        "CLERK_JWT_KEY": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz0WNHC+JnWi1vOlQ7gKY\nWVlUX42VEEOW8qoE4moMrNfs/F1VZOPtb3lelmGVIe56IeGteCjsG8kpws12NdDg\n39xJu3YEwKsMZFea4dtfJNslR0Km5I/6Kb/mFfioaL+3/ZLWipWTZmJZP8mdpeZ/\nTwKCzfzERYFdt2YaPyrQXY6R5qIYjeDy/n4w9sW1yIwWLk3Fl7pYW6VPtxUrL7Oi\nKGFJTpmmDr0Gh9M527UanIGBF/EV+QTJZVFJpbeirAWGYaAEkB0TGBMbpA48bwle\nYYgeRo3DGuOzJAX9fe7H8HE0AmhAkJQz6d/xmIFRsy7AjHUkAJ9t+e2U7FtrWHt2\nWQIDAQAB\n-----END PUBLIC KEY-----",
+        "CLERK_AUTHORIZED_PARTIES": "https://hospai-pms-core-staging.hospai.workers.dev"
       }
     }
   }

@@ -281,7 +281,7 @@ describe('observability (Phase 0)', () => {
     await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest();
 
-    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
+    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush' && l.property_id === name);
     expect(flushLog).toMatchObject({
       level: 'info',
       module_id: 'pms.core',
@@ -316,7 +316,7 @@ describe('observability (Phase 0)', () => {
     await stub.resetLaneGuardForTest();
     await stub.runOutboxAlarmForTest({ maxMessages: 1 });
 
-    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush');
+    const flushLog = capture.lines.find((l) => l.msg === 'outbox.flush' && l.property_id === name);
     expect(flushLog).toMatchObject({
       msg: 'outbox.flush',
       property_id: name,
@@ -362,7 +362,7 @@ describe('observability (Phase 0)', () => {
     await stub.resetLaneGuardForTest();
     await expect(stub.runOutboxAlarmForTest()).rejects.toThrow('send failed');
 
-    const failLog = capture.lines.find((l) => l.msg === 'outbox.flush_failed');
+    const failLog = capture.lines.find((l) => l.msg === 'outbox.flush_failed' && l.property_id === name);
     expect(failLog).toMatchObject({
       level: 'error',
       module_id: 'pms.core',

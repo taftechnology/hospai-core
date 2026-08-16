@@ -72,7 +72,7 @@ describe('LaneGuard (Phase 0)', () => {
     expect(result).toBeNull();
     expect(await stub.outboxUnackedCount()).toBe(unackedBefore);
 
-    const deferLog = capture.lines.find((l) => l.msg === 'outbox.deferred');
+    const deferLog = capture.lines.find((l) => l.msg === 'outbox.deferred' && l.property_id === name);
     expect(deferLog).toMatchObject({
       level: 'info',
       module_id: 'pms.core',

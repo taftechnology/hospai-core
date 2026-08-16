@@ -270,7 +270,7 @@ describe('reservations vertical HTTP routes', () => {
     expect(staleRes.status).toBe(409);
     const staleBody = (await staleRes.json()) as { error: string; ariVersion: number };
     expect(staleBody.error).toBe(NO_AVAILABILITY);
-    const staleLog = lines.find((l) => l.msg === 'ari.reject_on_commit');
+    const staleLog = lines.find((l) => l.msg === 'ari.reject_on_commit' && l.property_id === propertyId);
     expect(staleLog?.classification).toBe('stale_projection');
 
     lines.length = 0;
@@ -291,7 +291,7 @@ describe('reservations vertical HTTP routes', () => {
       env,
     );
     expect(raceRes.status).toBe(409);
-    const raceLog = lines.find((l) => l.msg === 'ari.reject_on_commit');
+    const raceLog = lines.find((l) => l.msg === 'ari.reject_on_commit' && l.property_id === propertyId);
     expect(raceLog?.classification).toBe('genuine_race');
 
     lines.length = 0;

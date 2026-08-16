@@ -212,6 +212,20 @@ describe('BookingScreen', () => {
     vi.useRealTimers();
   });
 
+  it('renders Book PageHeader and ui-choice room type labels', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Book' })).toBeTruthy());
+    expect(screen.getByTestId('booking-screen')).toBeTruthy();
+    expect(screen.getByTestId('room-type-list')).toBeTruthy();
+    const choice = document.querySelector('li.ui-choice-row label.ui-choice');
+    expect(choice).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    expect((screen.getByRole('radio', { name: /King Deluxe/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+
   it('defaults arrival/departure from property-local today', async () => {
     renderBook();
     await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-08-11'));

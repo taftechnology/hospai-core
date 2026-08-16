@@ -11,7 +11,7 @@ import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Button, Card, Field, Input, NativeSelect } from '@hospai/ui-kit';
+import { Alert, Button, Card, Field, Input, NativeSelect, PageHeader } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor } from '../money.js';
@@ -498,12 +498,9 @@ export function BookingScreen() {
   });
 
   return (
-    <Card data-testid="booking-screen">
-      <p>
-        <Link to="/arrivals">← Arrivals</Link>
-      </p>
-      <h1>Book</h1>
-
+    <div>
+      <PageHeader title="Book" back={<Link to="/arrivals">← Arrivals</Link>} />
+      <Card data-testid="booking-screen">
       <section className="stack">
         <h2>Dates</h2>
         {!timeZone ? <p className="muted">Waiting for property timezone…</p> : null}
@@ -604,15 +601,15 @@ export function BookingScreen() {
         ) : null}
         <ul data-testid="room-type-list">
           {selectable.map((id) => (
-            <li key={id}>
-              <label>
+            <li key={id} className="ui-choice-row">
+              <label className="ui-choice">
                 <Input
                   type="radio"
                   name="roomType"
                   value={id}
                   checked={roomTypeId === id}
                   onChange={() => setRoomTypeId(id)}
-                />{' '}
+                />
                 {(() => {
                   const t = typeDir.get(id);
                   if (!t) return 'Room type unavailable';
@@ -773,6 +770,7 @@ export function BookingScreen() {
         Quote
       </Button>
       {message ? <Alert data-testid="book-message">{message}</Alert> : null}
-    </Card>
+      </Card>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
+import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { readFileSync } from 'node:fs';
@@ -331,5 +332,50 @@ describe('TapeChartScreen', () => {
   it('tape header mounts board-summary', async () => {
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
     await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
+  });
+
+  it('renders PageHeader Room Plan and ui-tab view links', async () => {
+    getFrontOfficeTape.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-13',
+      toDate: '2026-08-15',
+      asOf: 1,
+      rooms: [room],
+      blocks: [occupying],
+      ooo: [],
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'named', displayName: 'Ada' } },
+    });
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [{ roomTypeId: 'rt_king', name: 'King', code: 'KNG' }],
+    });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 1,
+      overstay: 0,
+      occupancy: { occupiedRooms: 1, sellableRooms: 3 },
+    });
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-15' });
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /room plan/i })).toBeInTheDocument(),
+    );
+    const tape = screen.getByRole('link', { name: 'Tape' });
+    const available = screen.getByRole('link', { name: 'Available' });
+    expect(tape.className).toMatch(/ui-tab/);
+    expect(available.className).toMatch(/ui-tab/);
+    expect(tape).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
+    expect(screen.getByTestId('tape-from')).toBeTruthy();
+    expect(screen.getByTestId('tape-to')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.tape-scroller')).toBeTruthy());
   });
 });

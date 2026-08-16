@@ -63,6 +63,28 @@ describe('BoardSummary', () => {
     expect(arrivals.getAttribute('href')).toBe('/arrivals?date=2026-08-13');
   });
 
+  it('nav links use ui-metric not chip', async () => {
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 3,
+      departuresDue: 1,
+      departed: 0,
+      inHouse: 2,
+      overstay: 0,
+      occupancy: { occupiedRooms: 2, sellableRooms: 3 },
+    });
+    renderSummary();
+    await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
+    const arrivals = screen.getByRole('link', { name: /Arrivals/i });
+    expect(arrivals.className).toMatch(/ui-metric/);
+    expect(arrivals.className).not.toMatch(/chip/);
+    expect(arrivals.getAttribute('href')).toBe('/arrivals?date=2026-08-13');
+    expect(screen.getByRole('link', { name: /Due out/i }).className).toMatch(/ui-metric/);
+    expect(screen.getByRole('link', { name: /In-house/i }).className).toMatch(/ui-metric/);
+  });
+
   it('hides overstay when zero', async () => {
     getFrontOfficeSummary.mockResolvedValue({
       ok: true,

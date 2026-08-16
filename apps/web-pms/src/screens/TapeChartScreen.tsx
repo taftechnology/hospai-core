@@ -13,7 +13,17 @@ import {
   RESERVATION_STATUSES,
   type ReservationStatus,
 } from '@hospai/contracts/reservation-status';
-import { Badge, Card, Field, Input, type StatusRung } from '@hospai/ui-kit';
+import {
+  Badge,
+  Card,
+  CardContent,
+  Field,
+  Input,
+  PageHeader,
+  Tabs,
+  Toolbar,
+  type StatusRung,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -411,18 +421,35 @@ export function TapeChartScreen() {
     );
   }
 
+  const tapeHref = from && to ? windowSearch(from, to, 'tape') : '/board';
+  const availableHref =
+    from && to ? windowSearch(from, to, 'available') : '/board?view=available';
+
   return (
     <div>
       <div className="visually-hidden" aria-live="polite" />
+      <PageHeader title="Room Plan" />
+      <Tabs label="Room Plan views">
+        <Link
+          className="ui-tab"
+          to={tapeHref}
+          aria-current={view === 'tape' ? 'page' : undefined}
+        >
+          Tape
+        </Link>
+        <Link
+          className="ui-tab"
+          to={availableHref}
+          aria-current={view === 'available' ? 'page' : undefined}
+        >
+          Available
+        </Link>
+      </Tabs>
+      <BoardSummary date={today} />
       <Card>
-        <header className="board-header">
-          <h1 className="board-title">Room Plan</h1>
-          <Link to={from && to ? windowSearch(from, to, 'tape') : '/board'}>Tape</Link>
-          <Link to={from && to ? windowSearch(from, to, 'available') : '/board?view=available'}>
-            Available
-          </Link>
-          <BoardSummary date={today} />
+        <Toolbar>
           <Field
+            size="xs"
             label="From"
             control={
               <Input
@@ -439,6 +466,7 @@ export function TapeChartScreen() {
             }
           />
           <Field
+            size="xs"
             label="To"
             control={
               <Input
@@ -454,8 +482,8 @@ export function TapeChartScreen() {
               />
             }
           />
-        </header>
-        {body}
+        </Toolbar>
+        <CardContent flush>{body}</CardContent>
       </Card>
     </div>
   );

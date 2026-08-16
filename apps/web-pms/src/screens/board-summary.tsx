@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
-import { Badge } from '@hospai/ui-kit';
+import { Badge, Metrics } from '@hospai/ui-kit';
 
 export function BoardSummary({ date }: { date: string | null }) {
   const summaryQ = useQuery({
@@ -17,24 +17,29 @@ export function BoardSummary({ date }: { date: string | null }) {
   const s = summaryQ.data;
 
   return (
-    <div data-testid="board-summary" className="board-summary tabular-nums">
-      <Link className="chip" to={`/arrivals?date=${encodeURIComponent(date)}`}>
-        Arrivals {s.arrivals}
-      </Link>
-      <Link className="chip" to={`/departures?date=${encodeURIComponent(date)}`}>
-        Due out {s.departuresDue}
-      </Link>
-      <Link className="chip" to="/in-house">
-        In-house {s.inHouse}
-      </Link>
-      {s.overstay > 0 ? (
-        <Badge rung="exception" data-testid="board-summary-overstay">
-          Overstay {s.overstay}
-        </Badge>
-      ) : null}
-      <span className="chip">
-        Occupancy {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}
-      </span>
+    <div data-testid="board-summary" className="tabular-nums">
+      <Metrics>
+        <Link className="ui-metric" to={`/arrivals?date=${encodeURIComponent(date)}`}>
+          Arrivals <span className="ui-metric__value">{s.arrivals}</span>
+        </Link>
+        <Link className="ui-metric" to={`/departures?date=${encodeURIComponent(date)}`}>
+          Due out <span className="ui-metric__value">{s.departuresDue}</span>
+        </Link>
+        <Link className="ui-metric" to="/in-house">
+          In-house <span className="ui-metric__value">{s.inHouse}</span>
+        </Link>
+        {s.overstay > 0 ? (
+          <Badge rung="exception" data-testid="board-summary-overstay">
+            Overstay {s.overstay}
+          </Badge>
+        ) : null}
+        <span className="ui-metric">
+          Occupancy{' '}
+          <span className="ui-metric__value">
+            {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}
+          </span>
+        </span>
+      </Metrics>
     </div>
   );
 }

@@ -8,10 +8,10 @@ Multi-tenant property management on Cloudflare: one **Durable Object per propert
 
 ```bash
 pnpm install
-pnpm test          # primary loop
+pnpm test:local    # primary loop
 ```
 
-`pnpm test` uses `vitest-pool-workers` with **shared** DO/D1 storage across the run (`isolatedStorage: false`), so tests must scope assertions to fixtures they create rather than to global state.
+`pnpm test:local` runs `vitest-pool-workers` with **shared** DO/D1 storage across each package (`isolatedStorage: false`), so tests must scope assertions to fixtures they create rather than to global state; it shards `pms-core` 8 ways (unsharded `pnpm test` segfaults workerd locally).
 
 Integration behaviour is proven in `apps/pms-core/test/`. For a local HTTP + browser loop, see **[Run locally](#run-locally)** below.
 

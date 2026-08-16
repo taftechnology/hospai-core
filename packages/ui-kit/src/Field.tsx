@@ -1,16 +1,27 @@
 import { cloneElement, useId, type ReactElement, type ReactNode } from 'react';
 import clsx from 'clsx';
+import type { FieldSize } from './types.js';
 
 export type FieldProps = {
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
   htmlFor?: string;
+  /** Width cap. Defaults to `md`; the field still shrinks in narrow containers. */
+  size?: FieldSize;
   /** The single control slot — Input, NativeSelect, Textarea, or Checkbox. */
   control: ReactElement<{ id?: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>;
 };
 
-export function Field({ label, hint, error, htmlFor, control }: FieldProps) {
+const FIELD_SIZE: Record<FieldSize, string> = {
+  xs: 'ui-field--xs',
+  sm: 'ui-field--sm',
+  md: '',
+  lg: 'ui-field--lg',
+  full: 'ui-field--full',
+};
+
+export function Field({ label, hint, error, htmlFor, size = 'md', control }: FieldProps) {
   const autoId = useId();
   const controlId = htmlFor ?? control.props.id ?? autoId;
   const hintId = hint ? `${controlId}-hint` : undefined;
@@ -26,7 +37,7 @@ export function Field({ label, hint, error, htmlFor, control }: FieldProps) {
   });
 
   return (
-    <div className={clsx('ui-field', error && 'ui-field--error')}>
+    <div className={clsx('ui-field', FIELD_SIZE[size], error && 'ui-field--error')}>
       <label className="ui-field__label" htmlFor={controlId}>
         {label}
       </label>

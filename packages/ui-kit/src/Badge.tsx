@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { statusRungClass } from './variant-map.js';
-import type { StatusRung, TestIdProps } from './types.js';
+import type { AlertIntent, StatusRung, TestIdProps } from './types.js';
 
 export type BadgeProps = TestIdProps & {
   rung: StatusRung;
@@ -16,16 +16,33 @@ export function Badge({ rung, children, 'data-testid': dataTestId }: BadgeProps)
   );
 }
 
+const ALERT_INTENT: Record<AlertIntent, string> = {
+  exception: 'ui-alert--exception',
+  attention: 'ui-alert--attention',
+  settled: 'ui-alert--settled',
+  informational: 'ui-alert--informational',
+};
+
 export type AlertProps = TestIdProps & {
+  /** Defaults to `exception`, which is what every call site rendered before. */
+  intent?: AlertIntent;
   children?: ReactNode;
 };
 
-export function Alert({ children, 'data-testid': dataTestId }: AlertProps) {
+export function Alert({ intent = 'exception', children, 'data-testid': dataTestId }: AlertProps) {
   return (
-    <div className="ui-alert" role="alert" data-testid={dataTestId}>
+    <div className={clsx('ui-alert', ALERT_INTENT[intent])} role="alert" data-testid={dataTestId}>
       {children}
     </div>
   );
+}
+
+export type AlertTitleProps = {
+  children?: ReactNode;
+};
+
+export function AlertTitle({ children }: AlertTitleProps) {
+  return <span className="ui-alert__title">{children}</span>;
 }
 
 export function Separator() {

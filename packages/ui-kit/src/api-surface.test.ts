@@ -1,5 +1,14 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { ButtonProps, InputProps, LinkButtonProps } from './index.js';
+import type {
+  AlertProps,
+  ButtonProps,
+  EmptyStateProps,
+  FieldProps,
+  InputProps,
+  LinkButtonProps,
+  PageHeaderProps,
+  TotalProps,
+} from './index.js';
 
 describe('ui-kit API surface', () => {
   it('ButtonProps rejects className and style at compile time', () => {
@@ -24,6 +33,41 @@ describe('ui-kit API surface', () => {
     // @ts-expect-error className is forbidden on ui-kit components
     const bad: LinkButtonProps = { href: '/', className: 'x' };
     void bad;
+  });
+
+  it('new layout components reject className and style at compile time', () => {
+    expectTypeOf<PageHeaderProps>().not.toHaveProperty('className');
+    expectTypeOf<PageHeaderProps>().not.toHaveProperty('style');
+    expectTypeOf<EmptyStateProps>().not.toHaveProperty('className');
+    expectTypeOf<TotalProps>().not.toHaveProperty('className');
+    // @ts-expect-error className is forbidden on ui-kit components
+    const badHeader: PageHeaderProps = { title: 'x', className: 'y' };
+    void badHeader;
+    // @ts-expect-error style is forbidden on ui-kit components
+    const badEmpty: EmptyStateProps = { title: 'x', style: { margin: 0 } };
+    void badEmpty;
+  });
+
+  it('Field size is a closed union', () => {
+    expectTypeOf<FieldProps['size']>().toEqualTypeOf<
+      'xs' | 'sm' | 'md' | 'lg' | 'full' | undefined
+    >();
+    // @ts-expect-error invalid field size
+    const bad: Pick<FieldProps, 'size'> = { size: 'huge' };
+    void bad;
+  });
+
+  it('Alert intent is a closed union of rungs that carry a surface', () => {
+    expectTypeOf<AlertProps['intent']>().toEqualTypeOf<
+      'exception' | 'attention' | 'settled' | 'informational' | undefined
+    >();
+    // @ts-expect-error neutral has no alert surface
+    const bad: AlertProps = { intent: 'neutral' };
+    void bad;
+  });
+
+  it('Total tone is a closed union', () => {
+    expectTypeOf<TotalProps['tone']>().toEqualTypeOf<'neutral' | 'credit' | 'due' | undefined>();
   });
 
   it('Button intent and size are closed unions', () => {

@@ -3,6 +3,15 @@ import type { AriaAttributes, ButtonHTMLAttributes, InputHTMLAttributes } from '
 export type ButtonIntent = 'default' | 'primary' | 'destructive' | 'ghost';
 export type ControlSize = 'sm' | 'md';
 
+/** Field width caps. Fields still shrink below these in narrow containers. */
+export type FieldSize = 'xs' | 'sm' | 'md' | 'lg' | 'full';
+
+/** Alert colouring. Mirrors the status rungs that carry a surface. */
+export type AlertIntent = 'exception' | 'attention' | 'settled' | 'informational';
+
+/** Emphasis for a Total's value. */
+export type TotalTone = 'neutral' | 'credit' | 'due';
+
 export type StatusRung =
   | 'settled'
   | 'neutral'

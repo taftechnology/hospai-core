@@ -1646,9 +1646,11 @@ export function FolioScreen() {
             vipFlag={reservationQ.data.vipFlag}
             dndFlag={reservationQ.data.dndFlag}
             disabled={editorDisabled}
+            actions={<PrintRegCardControl canPrint={canPrint} />}
           />
-        ) : null}
-        <PrintRegCardControl canPrint={canPrint} />
+        ) : (
+          <PrintRegCardControl canPrint={canPrint} />
+        )}
         <RegistrationCard
           propertyName={propertyQ.data?.property?.name ?? null}
           reservation={reservationQ.data}
@@ -2054,18 +2056,20 @@ export function FolioScreen() {
                   </li>
                 ))}
             </ul>
-            <Input
-              aria-label="fx-from"
-              value={fxFrom}
-              onChange={(e) => setFxFrom(e.target.value)}
-              disabled={!folioLive}
-            />
-            <Input
-              aria-label="fx-rate"
-              value={fxRate}
-              onChange={(e) => setFxRate(e.target.value)}
-              disabled={!folioLive}
-            />
+            <div className="ui-row">
+              <Input
+                aria-label="fx-from"
+                value={fxFrom}
+                onChange={(e) => setFxFrom(e.target.value)}
+                disabled={!folioLive}
+              />
+              <Input
+                aria-label="fx-rate"
+                value={fxRate}
+                onChange={(e) => setFxRate(e.target.value)}
+                disabled={!folioLive}
+              />
+            </div>
             <Button
               type="button"
               data-testid="create-fx-rate"

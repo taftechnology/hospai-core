@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Button, Checkbox, Field, Textarea } from '@hospai/ui-kit';
 import { api, tenant } from '../client.js';
 
@@ -11,12 +11,14 @@ export function FrontOfficeEditor({
   vipFlag,
   dndFlag,
   disabled,
+  actions,
 }: {
   reservationId: string;
   frontOfficeComment?: string | null;
   vipFlag?: boolean;
   dndFlag?: boolean;
   disabled?: boolean;
+  actions?: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const propertyId = tenant.propertyId;
@@ -94,15 +96,18 @@ export function FrontOfficeEditor({
           }
         />
       </div>
-      <Button
-        type="button"
-        intent="primary"
-        data-testid="front-office-save"
-        disabled={saveDisabled}
-        onClick={() => save.mutate()}
-      >
-        Save
-      </Button>
+      <div className="ui-row">
+        <Button
+          type="button"
+          intent="primary"
+          data-testid="front-office-save"
+          disabled={saveDisabled}
+          onClick={() => save.mutate()}
+        >
+          Save
+        </Button>
+        {actions}
+      </div>
       {tooLong ? <Alert>Comment must be 2000 characters or fewer.</Alert> : null}
       {message ? <p className="muted">{message}</p> : null}
     </section>

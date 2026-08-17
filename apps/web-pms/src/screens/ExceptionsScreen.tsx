@@ -4,6 +4,9 @@ import {
   Badge,
   Button,
   Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -299,12 +302,16 @@ export function ExceptionsScreen() {
   const selectedIds = rows.filter((r) => selected.has(r.exceptionId)).map((r) => r.exceptionId);
 
   return (
-    <>
-      <PageHeader title="Exceptions" />
-      <Card data-testid="exceptions-workbench">
+    <div className="ui-page-stack exceptions-screen">
+      <PageHeader title="Exceptions" subtitle="Open operational exceptions · The Meridian Seattle" />
       {unsavedGuard}
+      <Card data-testid="exceptions-workbench" className="exceptions-screen__shell">
+      <Card>
+      <CardContent>
       <div className="exceptions-filters">
+      <div className="exceptions-filters__row">
         <Field
+          size="xs"
           label="Command type"
           control={
             <NativeSelect
@@ -321,33 +328,23 @@ export function ExceptionsScreen() {
             </NativeSelect>
           }
         />
+        <div className="exceptions__reason">
         <Field
+          size="xs"
           label="Reason"
           control={
             <Input
               aria-label="Reason"
+              placeholder="e.g. room_already_assigned"
               autoComplete="off"
               value={reason}
               onChange={(e) => patchParams({ reason: e.target.value || null })}
             />
           }
         />
-        <fieldset>
-          <legend>Resolution</legend>
-          {(['open', 'resolved', 'all'] as const).map((value) => (
-            <label key={value}>
-              <Input
-                type="radio"
-                name="resolution"
-                value={value}
-                checked={resolution === value}
-                onChange={() => patchParams({ resolution: value })}
-              />{' '}
-              {value === 'open' ? 'Open' : value === 'resolved' ? 'Resolved' : 'All'}
-            </label>
-          ))}
-        </fieldset>
+        </div>
         <Field
+          size="xs"
           label="Business Date From"
           control={
             <Input
@@ -359,6 +356,7 @@ export function ExceptionsScreen() {
           }
         />
         <Field
+          size="xs"
           label="Business Date To"
           control={
             <Input
@@ -369,23 +367,45 @@ export function ExceptionsScreen() {
             />
           }
         />
-        <fieldset>
-          <legend>Assigned</legend>
-          {(['all', 'unassigned', 'assigned'] as const).map((value) => (
-            <label key={value}>
-              <Input
-                type="radio"
-                name="assigned"
-                value={value}
-                checked={assigned === value}
-                onChange={() => patchParams({ assigned: value })}
-              />{' '}
-              {value === 'all' ? 'All' : value === 'unassigned' ? 'Unassigned' : 'Assigned'}
-            </label>
-          ))}
+        </div>
+        <div className="exceptions-filters__row">
+        <fieldset className="ui-field-group exceptions-filters__fixed">
+          <legend className="ui-field-group__legend">Resolution</legend>
+          <div className="ui-choice-row">
+            {(['open', 'resolved', 'all'] as const).map((value) => (
+              <label key={value} className="ui-choice">
+                <Input
+                  type="radio"
+                  name="resolution"
+                  value={value}
+                  checked={resolution === value}
+                  onChange={() => patchParams({ resolution: value })}
+                />
+                {value === 'open' ? 'Open' : value === 'resolved' ? 'Resolved' : 'All'}
+              </label>
+            ))}
+          </div>
+</fieldset>
+        <fieldset className="ui-field-group exceptions-filters__spaced">
+          <legend className="ui-field-group__legend">Assigned</legend>
+          <div className="ui-choice-row">
+            {(['all', 'unassigned', 'assigned'] as const).map((value) => (
+              <label key={value} className="ui-choice">
+                <Input
+                  type="radio"
+                  name="assigned"
+                  value={value}
+                  checked={assigned === value}
+                  onChange={() => patchParams({ assigned: value })}
+                />
+                {value === 'all' ? 'All' : value === 'unassigned' ? 'Unassigned' : 'Assigned'}
+              </label>
+            ))}
+          </div>
         </fieldset>
         {canListMembers && members.length > 0 ? (
           <Field
+            size="sm"
             label="Assignee"
             control={
               <NativeSelect
@@ -404,32 +424,46 @@ export function ExceptionsScreen() {
           />
         ) : null}
       </div>
-      {canWrite ? (
-        <p>
-          <Button
-            type="button"
-            disabled={selectedIds.length === 0 || inFlight}
-            onClick={() => requestRetry(selectedIds)}
-          >
-            {retryMut.isPending ? 'Retrying…' : 'Retry Selected'}
-          </Button>{' '}
-          <Button
-            type="button"
-            disabled={selectedIds.length === 0 || inFlight}
-            onClick={() => requestResolve(selectedIds)}
-          >
-            {resolveMut.isPending ? 'Resolving…' : 'Resolve Selected'}
-          </Button>
-        </p>
-      ) : null}
-      <p aria-live="polite">{outcome}</p>
-      {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ? (
-        <Alert>Exceptions unavailable — property unreachable</Alert>
-      ) : listQ.isLoading ? (
-        <p className="muted">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="muted">No exceptions match these filters.</p>
+      </div>
+      <div className="exceptions-actions">
+        {canWrite ? (
+          <div className="ui-row">
+            <Button
+              type="button"
+              disabled={selectedIds.length === 0 || inFlight}
+              onClick={() => requestRetry(selectedIds)}
+            >
+              {retryMut.isPending ? 'Retrying…' : 'Retry Selected'}
+            </Button>
+            <Button
+              type="button"
+              disabled={selectedIds.length === 0 || inFlight}
+              onClick={() => requestResolve(selectedIds)}
+            >
+              {resolveMut.isPending ? 'Resolving…' : 'Resolve Selected'}
+            </Button>
+          </div>
+        ) : null}
+        <p aria-live="polite">{outcome}</p>
+      </div>
+      </CardContent>
+      </Card>
+      <Card>
+      <CardContent flush>
+      {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ||
+      listQ.isLoading ||
+      rows.length === 0 ? (
+        <div className="exceptions__state">
+          {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ? (
+            <Alert>Exceptions unavailable — property unreachable</Alert>
+          ) : listQ.isLoading ? (
+            <p className="muted">Loading…</p>
+          ) : (
+            <p className="muted">No exceptions match these filters.</p>
+          )}
+        </div>
       ) : (
+        <div className="exceptions__table">
         <DataTable>
           <DataTableHead>
             <DataTableRow>
@@ -545,14 +579,17 @@ export function ExceptionsScreen() {
             })}
           </DataTableBody>
         </DataTable>
+        </div>
       )}
       {nextCursor ? (
-        <p>
+        <div className="exceptions__pager">
           <Button type="button" onClick={() => patchParams({ cursor: nextCursor })}>
             Next
           </Button>
-        </p>
+        </div>
       ) : null}
+      </CardContent>
+      </Card>
       {detailId ? (
         <aside className="exceptions-drawer overscroll-contain">
           <h2>Detail</h2>
@@ -662,7 +699,7 @@ export function ExceptionsScreen() {
           </Button>
         </dialog>
       ) : null}
-    </Card>
-    </>
+      </Card>
+    </div>
   );
 }

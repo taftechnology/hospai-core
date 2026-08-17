@@ -3,6 +3,9 @@ import { useState } from 'react';
 import {
   Button,
   Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -127,125 +130,170 @@ export function RosterScreen() {
   }
 
   return (
-    <>
-      <PageHeader title="Roster" />
-      <Card data-testid="roster-screen">
-      {staff.length === 0 && listQuery.isSuccess && <p>Add someone to the roster</p>}
+    <div className="ui-page-stack roster-screen">
+      <PageHeader title="Roster" subtitle="Scheduled staff · The Meridian Seattle" />
+      <Card data-testid="roster-screen" className="roster-screen__shell">
+        <Card>
+          <CardHeader>
+            <CardTitle>Add staff</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="roster__form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (displayName.trim()) addMutation.mutate();
+              }}
+            >
+              <Field
+                label="Name"
+                control={
+                  <Input
+                    placeholder="Maya Chen"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    required
+                    autoComplete="off"
+                  />
+                }
+              />
+              <Field
+                label="Email"
+                control={
+                  <Input
+                    placeholder="maya.chen@meridian.example"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              <Field
+                label="Phone"
+                control={
+                  <Input
+                    placeholder="+1 206 555 0100"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              {canCompensation && (
+                <>
+                  <Field
+                    label="Hourly rate"
+                    control={
+                      <Input
+                        type="number"
+                        placeholder="2000"
+                        value={hourlyRateMinor}
+                        onChange={(e) => setHourlyRateMinor(e.target.value)}
+                      />
+                    }
+                  />
+                  <Field
+                    label="Currency"
+                    control={
+                      <Input
+                        placeholder="USD"
+                        value={hourlyRateCurrency}
+                        onChange={(e) => setHourlyRateCurrency(e.target.value)}
+                      />
+                    }
+                  />
+                  <Field
+                    label="Rating"
+                    control={
+                      <Input
+                        type="number"
+                        placeholder="4"
+                        value={rating}
+                        onChange={(e) => setRating(e.target.value)}
+                      />
+                    }
+                  />
+                  <Field
+                    label="Skills"
+                    control={
+                      <Input
+                        placeholder="beds, bathrooms"
+                        value={skills}
+                        onChange={(e) => setSkills(e.target.value)}
+                      />
+                    }
+                  />
+                </>
+              )}
+              <Button type="submit" intent="primary">
+                Add
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (displayName.trim()) addMutation.mutate();
-        }}
-      >
-        <Field
-          label="Name"
-          control={
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              required
-              autoComplete="off"
-            />
-          }
-        />
-        <Field
-          label="Email"
-          control={
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
-          }
-        />
-        <Field
-          label="Phone"
-          control={
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="off" />
-          }
-        />
-        {canCompensation && (
-          <>
-            <Field
-              label="Hourly rate"
-              control={
-                <Input
-                  type="number"
-                  value={hourlyRateMinor}
-                  onChange={(e) => setHourlyRateMinor(e.target.value)}
-                />
-              }
-            />
-            <Field
-              label="Currency"
-              control={
-                <Input
-                  value={hourlyRateCurrency}
-                  onChange={(e) => setHourlyRateCurrency(e.target.value)}
-                />
-              }
-            />
-            <Field
-              label="Rating"
-              control={
-                <Input type="number" value={rating} onChange={(e) => setRating(e.target.value)} />
-              }
-            />
-            <Field
-              label="Skills"
-              control={<Input value={skills} onChange={(e) => setSkills(e.target.value)} />}
-            />
-          </>
-        )}
-        <Button type="submit" intent="primary">
-          Add
-        </Button>
-      </form>
-
-      <DataTable>
-        <DataTableHead>
-          <DataTableRow>
-            <DataTableHeaderCell>Name</DataTableHeaderCell>
-            <DataTableHeaderCell>Status</DataTableHeaderCell>
-            <DataTableHeaderCell />
-          </DataTableRow>
-        </DataTableHead>
-        <DataTableBody>
-          {staff.map((row) => {
-            const label = row.displayName ?? row.staffId;
-            const exited = row.exitedAt != null;
-            return (
-              <DataTableRow key={row.staffId}>
-                <DataTableCell>{label}</DataTableCell>
-                <DataTableCell>
-                  {exited ? (
-                    'exited'
-                  ) : (
-                    <NativeSelect
-                      aria-label={`Status for ${label}`}
-                      value={row.status}
-                      onChange={(e) => {
-                        const status = e.target.value as 'active' | 'inactive';
-                        if (status !== row.status) {
-                          statusMutation.mutate({ staffId: row.staffId, status });
-                        }
-                      }}
-                    >
-                      <option value="active">active</option>
-                      <option value="inactive">inactive</option>
-                    </NativeSelect>
-                  )}
-                </DataTableCell>
-                <DataTableCell>
-                  {exited ? null : (
-                    <Button type="button" intent="destructive" onClick={() => onExit(row)}>
-                      Exit {label}
-                    </Button>
-                  )}
-                </DataTableCell>
-              </DataTableRow>
-            );
-          })}
-        </DataTableBody>
-      </DataTable>
-    </Card>
-    </>
+        <Card>
+          <CardHeader>
+            <CardTitle>Roster</CardTitle>
+          </CardHeader>
+          {staff.length === 0 && listQuery.isSuccess ? (
+            <CardContent>
+              <p>Add someone to the roster</p>
+            </CardContent>
+          ) : (
+            <CardContent flush>
+              <div className="roster__table">
+                <DataTable>
+                  <DataTableHead>
+                    <DataTableRow>
+                      <DataTableHeaderCell>Name</DataTableHeaderCell>
+                      <DataTableHeaderCell>Status</DataTableHeaderCell>
+                      <DataTableHeaderCell />
+                    </DataTableRow>
+                  </DataTableHead>
+                  <DataTableBody>
+                    {staff.map((row) => {
+                      const label = row.displayName ?? row.staffId;
+                      const exited = row.exitedAt != null;
+                      return (
+                        <DataTableRow key={row.staffId}>
+                          <DataTableCell>{label}</DataTableCell>
+                          <DataTableCell>
+                            {exited ? (
+                              'exited'
+                            ) : (
+                              <NativeSelect
+                                aria-label={`Status for ${label}`}
+                                value={row.status}
+                                onChange={(e) => {
+                                  const status = e.target.value as 'active' | 'inactive';
+                                  if (status !== row.status) {
+                                    statusMutation.mutate({ staffId: row.staffId, status });
+                                  }
+                                }}
+                              >
+                                <option value="active">active</option>
+                                <option value="inactive">inactive</option>
+                              </NativeSelect>
+                            )}
+                          </DataTableCell>
+                          <DataTableCell>
+                            {exited ? null : (
+                              <Button type="button" intent="destructive" onClick={() => onExit(row)}>
+                                Exit {label}
+                              </Button>
+                            )}
+                          </DataTableCell>
+                        </DataTableRow>
+                      );
+                    })}
+                  </DataTableBody>
+                </DataTable>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      </Card>
+    </div>
   );
 }

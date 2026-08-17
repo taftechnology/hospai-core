@@ -333,10 +333,65 @@ a {
 
 .exceptions-filters {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.exceptions-filters__row {
+  display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
   align-items: end;
+}
+
+.exceptions-filters__fixed {
+  width: 14rem;
+}
+
+.exceptions-filters__spaced {
+  margin-inline-start: 3.8rem;
+}
+
+.exceptions__reason {
+  max-inline-size: calc(var(--field-xs) * 1.1);
+}
+
+.exceptions__reason .ui-field {
+  max-inline-size: none;
+}
+
+.exceptions__state {
+  padding: var(--space-4);
+}
+
+.exceptions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
   margin: 0.75rem 0;
+}
+
+.exceptions-screen__shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.exceptions__table .ui-table {
+  min-inline-size: 68rem;
+}
+
+.exceptions__table {
+  padding-block-end: var(--space-6);
+}
+
+.exceptions__pager {
+  padding: var(--space-4);
 }
 
 .exceptions-drawer {
@@ -513,13 +568,64 @@ button {
   font-weight: 600;
 }
 
-.staff-roster {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.staff-screen__shell {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-4);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.staff__table .ui-table {
+  min-inline-size: 44rem;
+}
+
+.staff__table {
+  padding-block-end: var(--space-6);
+}
+
+.staff__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.staff__form > .ui-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.roster-screen__shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.roster__table .ui-table {
+  min-inline-size: 40rem;
+}
+
+.roster__table {
+  padding-block-end: var(--space-6);
+}
+
+.roster__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.roster__form > .ui-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .status-settled {
@@ -892,6 +998,133 @@ details.side-panel summary {
 
 .rates-plans__promo-form > .ui-btn {
   grid-column: 1 / -1;
+}
+
+.city-ledger__table .ui-table {
+  min-inline-size: 64rem;
+}
+
+.city-ledger__account-name {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.city-ledger__account-name:hover {
+  text-decoration: underline;
+}
+
+.city-ledger__create-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.city-ledger__create-form > .ui-field {
+  max-inline-size: none;
+}
+
+.city-ledger__create-actions {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.night-audit__table .ui-table,
+.night-audit__report-table .ui-table {
+  min-inline-size: 46rem;
+}
+
+.night-audit__reports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-screen__shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.settings-property__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.settings-property__fx {
+  margin-block-start: var(--space-4);
+}
+
+.settings__table .ui-table {
+  min-inline-size: 52rem;
+}
+
+.settings__tax-table {
+  padding-block-end: var(--space-6);
+}
+
+.settings__table .ui-btn--destructive:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.settings__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.settings__form > h2 {
+  grid-column: 1 / -1;
+}
+
+.settings__form > .ui-btn {
+  justify-self: start;
+}
+
+.settings__charge-form > .ui-btn,
+.settings__routing-form > .ui-btn,
+.settings__tax-form > .ui-btn {
+  grid-column: 1 / -1;
+}
+
+.inventory-screen__shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.inventory__table .ui-table {
+  min-inline-size: 64rem;
+}
+
+.inventory__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.inventory__form > h2 {
+  grid-column: 1 / -1;
+}
+
+.inventory__form > .ui-btn {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .rates-matrix__table .ui-field {

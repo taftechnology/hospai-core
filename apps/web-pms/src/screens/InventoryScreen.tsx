@@ -7,6 +7,9 @@ import {
   Badge,
   Button,
   Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -250,434 +253,493 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
   }
 
   return (
-    <>
-      <PageHeader title="Inventory" />
-      <Card data-testid="inventory-screen">
-      {unsavedGuard}
-      <nav className="nav">
-        <Link to="/inventory">Room Types</Link>
-        <Link to="/inventory/rooms">Rooms</Link>
-      </nav>
-      {message ? (
-        <p className="muted" aria-live="polite">
-          {message}
-        </p>
-      ) : null}
-      {createType.isError ||
-      archiveType.isError ||
-      archiveRoomUnit.isError ||
-      addRoom.isError ||
-      saveType.isError ? (
-        <Alert>
-          {inventoryErrorCopy(
-            createType.error ??
-              archiveRoomUnit.error ??
-              archiveType.error ??
-              addRoom.error ??
-              saveType.error,
-            archiveRoomUnit.isError ? 'room' : archiveType.isError ? 'type' : undefined,
-          )}
-        </Alert>
-      ) : null}
-
-      {activeTab === 'types' ? (
-        <>
-          {types.length === 0 && typesQ.isSuccess ? (
-            <p className="muted">No room types yet — create one to start selling.</p>
-          ) : (
-            <DataTable>
-              <DataTableHead>
-                <DataTableRow>
-                  <DataTableHeaderCell>Code</DataTableHeaderCell>
-                  <DataTableHeaderCell>Kind</DataTableHeaderCell>
-                  <DataTableHeaderCell>Name</DataTableHeaderCell>
-                  <DataTableHeaderCell>Room Count</DataTableHeaderCell>
-                  <DataTableHeaderCell>Occupancy</DataTableHeaderCell>
-                  <DataTableHeaderCell>Constituents</DataTableHeaderCell>
-                  <DataTableHeaderCell>Physical rooms</DataTableHeaderCell>
-                  <DataTableHeaderCell />
-                </DataTableRow>
-              </DataTableHead>
-              <DataTableBody>
-                {types.map((t) => {
-                  const isVirtual = t.kind === 'virtual';
-                  const constituentCodes = (t.constituentRoomTypeIds ?? [])
-                    .map((id) => typeCodeById.get(id) ?? id)
-                    .join(', ');
-                  return (
-                  <DataTableRow key={t.roomTypeId}>
-                    <DataTableCell>
-                      <span translate="no">{t.code}</span>
-                    </DataTableCell>
-                    <DataTableCell>
-                      <Badge rung="informational">{isVirtual ? 'Virtual' : 'Physical'}</Badge>
-                    </DataTableCell>
-                    <DataTableCell>{t.name}</DataTableCell>
-                    <DataTableCell>
-                      {isVirtual ? (
-                        '—'
-                      ) : (
-                        <Field
-                          label={`Room Count for ${t.code}`}
-                          control={
-                            <Input
-                              type="number"
-                              min={1}
-                              autoComplete="off"
-                              value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
-                              onChange={(e) =>
-                                setTypeEdits((prev) => ({
-                                  ...prev,
-                                  [t.roomTypeId]: { roomCount: e.target.value },
-                                }))
-                              }
-                            />
-                          }
-                        />
-                      )}
-                    </DataTableCell>
-                    <DataTableCell>
-                      {t.maxAdults} / {t.maxOccupancy}
-                    </DataTableCell>
-                    <DataTableCell>{isVirtual ? constituentCodes || '—' : '—'}</DataTableCell>
-                    <DataTableCell>{roomsByType.get(t.roomTypeId)?.length ?? 0}</DataTableCell>
-                    <DataTableCell>
-                      {!isVirtual ? (
-                        <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
-                          Save Room Type
-                        </Button>
-                      ) : null}
-                      <Button type="button" intent="destructive" onClick={() => setArchiveTarget(t)}>
-                        Archive Room Type
-                      </Button>
-                    </DataTableCell>
-                  </DataTableRow>
-                  );
-                })}
-              </DataTableBody>
-            </DataTable>
-          )}
-
-          <form
-            className="stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSaving(true);
-              createType.mutate(undefined, { onSettled: () => setSaving(false) });
-            }}
+    <div className="ui-page-stack inventory-screen">
+      <PageHeader
+        title="Inventory"
+        subtitle={`${rooms.length} rooms · ${types.length} types`}
+      />
+      <Card data-testid="inventory-screen" className="inventory-screen__shell">
+        {unsavedGuard}
+        <nav className="ui-tabs" aria-label="Inventory">
+          <Link
+            className="ui-tab"
+            to="/inventory"
+            aria-current={activeTab === 'types' ? 'page' : undefined}
           >
-            <h2>Create Room Type</h2>
-            <Field
-              label="Kind"
-              control={
-                <NativeSelect
-                  value={kind}
-                  onChange={(e) => {
-                    const next = e.target.value as 'physical' | 'virtual';
-                    setKind(next);
-                    if (next === 'physical') setConstituentIds([]);
+            Room Types
+          </Link>
+          <Link
+            className="ui-tab"
+            to="/inventory/rooms"
+            aria-current={activeTab === 'rooms' ? 'page' : undefined}
+          >
+            Rooms
+          </Link>
+        </nav>
+        {message ? (
+          <p className="muted" aria-live="polite">
+            {message}
+          </p>
+        ) : null}
+        {createType.isError ||
+        archiveType.isError ||
+        archiveRoomUnit.isError ||
+        addRoom.isError ||
+        saveType.isError ? (
+          <Alert>
+            {inventoryErrorCopy(
+              createType.error ??
+                archiveRoomUnit.error ??
+                archiveType.error ??
+                addRoom.error ??
+                saveType.error,
+              archiveRoomUnit.isError ? 'room' : archiveType.isError ? 'type' : undefined,
+            )}
+          </Alert>
+        ) : null}
+
+        {activeTab === 'types' ? (
+          <>
+            <Card>
+              <CardContent>
+                <form
+                  className="stack inventory__form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setSaving(true);
+                    createType.mutate(undefined, { onSettled: () => setSaving(false) });
                   }}
                 >
-                  <option value="physical">Physical</option>
-                  <option value="virtual">Virtual (run-of-house)</option>
-                </NativeSelect>
-              }
-            />
-            <Field
-              label="Code"
-              control={
-                <Input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Name"
-              control={<Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />}
-            />
-            {kind === 'physical' ? (
-              <Field
-                label="Room Count"
-                control={
-                  <Input
-                    type="number"
-                    min={1}
-                    value={roomCount}
-                    onChange={(e) => setRoomCount(e.target.value)}
-                    autoComplete="off"
+                  <CardTitle>Create Room Type</CardTitle>
+                  <Field
+                    label="Kind"
+                    control={
+                      <NativeSelect
+                        value={kind}
+                        onChange={(e) => {
+                          const next = e.target.value as 'physical' | 'virtual';
+                          setKind(next);
+                          if (next === 'physical') setConstituentIds([]);
+                        }}
+                      >
+                        <option value="physical">Physical</option>
+                        <option value="virtual">Virtual (run-of-house)</option>
+                      </NativeSelect>
+                    }
                   />
-                }
-              />
-            ) : (
-              <Field
-                label="Constituents"
-                control={
-                  <div data-testid="virtual-constituents" className="stack">
-                    {physicalTypes.map((t) => (
-                      <label key={t.roomTypeId} className="stack-row">
-                        <Checkbox
-                          value={t.roomTypeId}
-                          checked={constituentIds.includes(t.roomTypeId)}
-                          onChange={(e) => {
-                            const id = t.roomTypeId;
-                            setConstituentIds((prev) =>
-                              e.target.checked ? [...prev, id] : prev.filter((x) => x !== id),
-                            );
-                          }}
+                  <Field
+                    label="Code"
+                    control={
+                      <Input
+                        placeholder="KNG"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  <Field
+                    label="Name"
+                    control={
+                      <Input
+                        placeholder="King"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  {kind === 'physical' ? (
+                    <Field
+                      label="Room Count"
+                      control={
+                        <Input
+                          type="number"
+                          min={1}
+                          placeholder="10"
+                          value={roomCount}
+                          onChange={(e) => setRoomCount(e.target.value)}
+                          autoComplete="off"
                         />
-                        <span translate="no">
-                          {t.code} {t.name}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                }
-              />
-            )}
-            <Field
-              label="Max Occupancy"
-              control={
-                <Input
-                  type="number"
-                  min={1}
-                  value={maxOccupancy}
-                  onChange={(e) => setMaxOccupancy(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Max Adults"
-              control={
-                <Input
-                  type="number"
-                  min={1}
-                  value={maxAdults}
-                  onChange={(e) => setMaxAdults(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Button type="submit" intent="primary" disabled={saving}>
-              {saving ? 'Saving…' : 'Create Room Type'}
-            </Button>
-          </form>
-        </>
-      ) : (
-        <>
-          {types.map((t) => {
-            const inType = roomsByType.get(t.roomTypeId) ?? [];
-            const isVirtual = t.kind === 'virtual';
-            return (
-              <section key={t.roomTypeId}>
-                <h2>
-                  <span translate="no">{t.code}</span> {t.name}
-                  {isVirtual ? (
-                    <>
-                      {' '}
-                      <Badge rung="informational">Virtual</Badge>
-                    </>
-                  ) : null}
-                </h2>
-                {isVirtual ? (
-                  <p className="muted">Virtual types do not have room units.</p>
-                ) : inType.length === 0 ? (
-                  <p className="muted">
-                    No rooms in this type — create one. Sellable count is still {t.roomCount}.
-                  </p>
-                ) : (
-                  <DataTable>
-                    <DataTableHead>
-                      <DataTableRow>
-                        <DataTableHeaderCell>Code</DataTableHeaderCell>
-                        <DataTableHeaderCell>Floor</DataTableHeaderCell>
-                        <DataTableHeaderCell>Housekeeping</DataTableHeaderCell>
-                        <DataTableHeaderCell>OOO</DataTableHeaderCell>
-                        <DataTableHeaderCell />
-                      </DataTableRow>
-                    </DataTableHead>
-                    <DataTableBody>
-                      {inType.map((room) => {
-                        const edit = roomEdits[room.roomId] ?? {
-                          code: room.code,
-                          floor: room.floor ?? '',
-                        };
-                        return (
-                          <DataTableRow key={room.roomId}>
-                            <DataTableCell>
-                              <Field
-                                label={`Code for ${room.code}`}
-                                control={
-                                  <Input
-                                    value={edit.code}
-                                    autoComplete="off"
-                                    onChange={(e) =>
-                                      setRoomEdits((prev) => ({
-                                        ...prev,
-                                        [room.roomId]: { ...edit, code: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                }
-                              />
-                            </DataTableCell>
-                            <DataTableCell>
-                              <Field
-                                label={`Floor for ${room.code}`}
-                                control={
-                                  <Input
-                                    value={edit.floor}
-                                    autoComplete="off"
-                                    onChange={(e) =>
-                                      setRoomEdits((prev) => ({
-                                        ...prev,
-                                        [room.roomId]: { ...edit, floor: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                }
-                              />
-                            </DataTableCell>
-                            <DataTableCell>{room.status}</DataTableCell>
-                            <DataTableCell>
-                              {room.oooRanges.length
-                                ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
-                                : '—'}
-                            </DataTableCell>
-                            <DataTableCell>
-                              <Button
-                                type="button"
-                                intent="primary"
-                                onClick={async () => {
-                                  setSaving(true);
-                                  try {
-                                    await api.updateRoom(propertyId, room.roomId, {
-                                      code: edit.code,
-                                      floor: edit.floor || undefined,
-                                    });
-                                    setMessage('Saved.');
-                                    await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
-                                  } catch (err) {
-                                    setMessage(inventoryErrorCopy(err));
-                                  } finally {
-                                    setSaving(false);
-                                  }
+                      }
+                    />
+                  ) : (
+                    <Field
+                      label="Constituents"
+                      control={
+                        <div data-testid="virtual-constituents" className="stack">
+                          {physicalTypes.map((t) => (
+                            <label key={t.roomTypeId} className="stack-row">
+                              <Checkbox
+                                value={t.roomTypeId}
+                                checked={constituentIds.includes(t.roomTypeId)}
+                                onChange={(e) => {
+                                  const id = t.roomTypeId;
+                                  setConstituentIds((prev) =>
+                                    e.target.checked ? [...prev, id] : prev.filter((x) => x !== id),
+                                  );
                                 }}
-                              >
-                                Save Room {room.code}
-                              </Button>
-                              <Button
-                                type="button"
-                                intent="destructive"
-                                onClick={() =>
-                                  setRoomArchiveTarget({ roomId: room.roomId, code: room.code })
-                                }
-                              >
-                                Archive {room.code}
-                              </Button>
-                            </DataTableCell>
-                          </DataTableRow>
-                        );
-                      })}
-                    </DataTableBody>
-                  </DataTable>
-                )}
-              </section>
-            );
-          })}
+                              />
+                              <span translate="no">
+                                {t.code} {t.name}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      }
+                    />
+                  )}
+                  <Field
+                    label="Max Occupancy"
+                    control={
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="2"
+                        value={maxOccupancy}
+                        onChange={(e) => setMaxOccupancy(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  <Field
+                    label="Max Adults"
+                    control={
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="2"
+                        value={maxAdults}
+                        onChange={(e) => setMaxAdults(e.target.value)}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  <Button type="submit" intent="primary" disabled={saving}>
+                    {saving ? 'Saving…' : 'Create Room Type'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
 
-          <form
-            className="stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSaving(true);
-              addRoom.mutate(undefined, { onSettled: () => setSaving(false) });
-            }}
-          >
-            <h2>Create Room</h2>
-            <Field
-              label="Room type"
-              control={
-                <NativeSelect value={roomTypeId} onChange={(e) => setRoomTypeId(e.target.value)}>
-                  <option value="">Select…</option>
-                  {types.map((t) => (
-                    <option key={t.roomTypeId} value={t.roomTypeId}>
-                      {t.code} {t.name}
-                      {t.kind === 'virtual' ? ' (virtual)' : ''}
-                    </option>
-                  ))}
-                </NativeSelect>
-              }
-            />
-            {virtualRoomTypeSelected ? (
-              <p className="muted">Virtual types do not have room units.</p>
-            ) : null}
-            <Field
-              label="Room code"
-              control={
-                <Input
-                  value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value)}
-                  autoComplete="off"
-                  disabled={virtualRoomTypeSelected}
-                />
-              }
-            />
-            <Field
-              label="Floor"
-              control={
-                <Input
-                  value={roomFloor}
-                  onChange={(e) => setRoomFloor(e.target.value)}
-                  autoComplete="off"
-                  disabled={virtualRoomTypeSelected}
-                />
-              }
-            />
-            <Button type="submit" intent="primary" disabled={saving || virtualRoomTypeSelected}>
-              {saving ? 'Saving…' : 'Create Room'}
+            {types.length === 0 && typesQ.isSuccess ? (
+              <p className="muted">No room types yet — create one to start selling.</p>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Room types</CardTitle>
+                </CardHeader>
+                <CardContent flush>
+                  <div className="inventory__table">
+                    <DataTable>
+                      <DataTableHead>
+                        <DataTableRow>
+                          <DataTableHeaderCell>Code</DataTableHeaderCell>
+                          <DataTableHeaderCell>Kind</DataTableHeaderCell>
+                          <DataTableHeaderCell>Name</DataTableHeaderCell>
+                          <DataTableHeaderCell>Room Count</DataTableHeaderCell>
+                          <DataTableHeaderCell>Occupancy</DataTableHeaderCell>
+                          <DataTableHeaderCell>Constituents</DataTableHeaderCell>
+                          <DataTableHeaderCell>Physical rooms</DataTableHeaderCell>
+                          <DataTableHeaderCell />
+                        </DataTableRow>
+                      </DataTableHead>
+                      <DataTableBody>
+                        {types.map((t) => {
+                          const isVirtual = t.kind === 'virtual';
+                          const constituentCodes = (t.constituentRoomTypeIds ?? [])
+                            .map((id) => typeCodeById.get(id) ?? id)
+                            .join(', ');
+                          return (
+                            <DataTableRow key={t.roomTypeId}>
+                              <DataTableCell>
+                                <span translate="no">{t.code}</span>
+                              </DataTableCell>
+                              <DataTableCell>
+                                <Badge rung="informational">{isVirtual ? 'Virtual' : 'Physical'}</Badge>
+                              </DataTableCell>
+                              <DataTableCell>{t.name}</DataTableCell>
+                              <DataTableCell>
+                                {isVirtual ? (
+                                  '—'
+                                ) : (
+                                  <Field
+                                    label={`Room Count for ${t.code}`}
+                                    control={
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        autoComplete="off"
+                                        value={typeEdits[t.roomTypeId]?.roomCount ?? String(t.roomCount)}
+                                        onChange={(e) =>
+                                          setTypeEdits((prev) => ({
+                                            ...prev,
+                                            [t.roomTypeId]: { roomCount: e.target.value },
+                                          }))
+                                        }
+                                      />
+                                    }
+                                  />
+                                )}
+                              </DataTableCell>
+                              <DataTableCell>
+                                {t.maxAdults} / {t.maxOccupancy}
+                              </DataTableCell>
+                              <DataTableCell>{isVirtual ? constituentCodes || '—' : '—'}</DataTableCell>
+                              <DataTableCell>{roomsByType.get(t.roomTypeId)?.length ?? 0}</DataTableCell>
+                              <DataTableCell>
+                                <div className="ui-row">
+                                  {!isVirtual ? (
+                                    <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
+                                      Save Room Type
+                                    </Button>
+                                  ) : null}
+                                  <Button type="button" intent="destructive" onClick={() => setArchiveTarget(t)}>
+                                    Archive Room Type
+                                  </Button>
+                                </div>
+                              </DataTableCell>
+                            </DataTableRow>
+                          );
+                        })}
+                      </DataTableBody>
+                    </DataTable>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        ) : (
+          <>
+            <Card>
+              <CardContent>
+                <form
+                  className="stack inventory__form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setSaving(true);
+                    addRoom.mutate(undefined, { onSettled: () => setSaving(false) });
+                  }}
+                >
+                  <CardTitle>Create Room</CardTitle>
+                  <Field
+                    label="Room type"
+                    control={
+                      <NativeSelect value={roomTypeId} onChange={(e) => setRoomTypeId(e.target.value)}>
+                        <option value="">Select…</option>
+                        {types.map((t) => (
+                          <option key={t.roomTypeId} value={t.roomTypeId}>
+                            {t.code} {t.name}
+                            {t.kind === 'virtual' ? ' (virtual)' : ''}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                  {virtualRoomTypeSelected ? (
+                    <p className="muted">Virtual types do not have room units.</p>
+                  ) : null}
+                  <Field
+                    label="Room code"
+                    control={
+                      <Input
+                        placeholder="101"
+                        value={roomCode}
+                        onChange={(e) => setRoomCode(e.target.value)}
+                        autoComplete="off"
+                        disabled={virtualRoomTypeSelected}
+                      />
+                    }
+                  />
+                  <Field
+                    label="Floor"
+                    control={
+                      <Input
+                        placeholder="2"
+                        value={roomFloor}
+                        onChange={(e) => setRoomFloor(e.target.value)}
+                        autoComplete="off"
+                        disabled={virtualRoomTypeSelected}
+                      />
+                    }
+                  />
+                  <Button type="submit" intent="primary" disabled={saving || virtualRoomTypeSelected}>
+                    {saving ? 'Saving…' : 'Create Room'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {types.map((t) => {
+              const inType = roomsByType.get(t.roomTypeId) ?? [];
+              const isVirtual = t.kind === 'virtual';
+              return (
+                <Card key={t.roomTypeId}>
+                  <CardHeader>
+                    <CardTitle>
+                      <span translate="no">{t.code}</span> {t.name}
+                      {isVirtual ? (
+                        <>
+                          {' '}
+                          <Badge rung="informational">Virtual</Badge>
+                        </>
+                      ) : null}
+                    </CardTitle>
+                  </CardHeader>
+                  {isVirtual ? (
+                    <CardContent>
+                      <p className="muted">Virtual types do not have room units.</p>
+                    </CardContent>
+                  ) : inType.length === 0 ? (
+                    <CardContent>
+                      <p className="muted">
+                        No rooms in this type — create one. Sellable count is still {t.roomCount}.
+                      </p>
+                    </CardContent>
+                  ) : (
+                    <CardContent flush>
+                      <div className="inventory__table">
+                        <DataTable>
+                          <DataTableHead>
+                            <DataTableRow>
+                              <DataTableHeaderCell>Code</DataTableHeaderCell>
+                              <DataTableHeaderCell>Floor</DataTableHeaderCell>
+                              <DataTableHeaderCell>Housekeeping</DataTableHeaderCell>
+                              <DataTableHeaderCell>OOO</DataTableHeaderCell>
+                              <DataTableHeaderCell />
+                            </DataTableRow>
+                          </DataTableHead>
+                          <DataTableBody>
+                            {inType.map((room) => {
+                              const edit = roomEdits[room.roomId] ?? {
+                                code: room.code,
+                                floor: room.floor ?? '',
+                              };
+                              return (
+                                <DataTableRow key={room.roomId}>
+                                  <DataTableCell>
+                                    <Field
+                                      label={`Code for ${room.code}`}
+                                      control={
+                                        <Input
+                                          value={edit.code}
+                                          autoComplete="off"
+                                          onChange={(e) =>
+                                            setRoomEdits((prev) => ({
+                                              ...prev,
+                                              [room.roomId]: { ...edit, code: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      }
+                                    />
+                                  </DataTableCell>
+                                  <DataTableCell>
+                                    <Field
+                                      label={`Floor for ${room.code}`}
+                                      control={
+                                        <Input
+                                          value={edit.floor}
+                                          autoComplete="off"
+                                          onChange={(e) =>
+                                            setRoomEdits((prev) => ({
+                                              ...prev,
+                                              [room.roomId]: { ...edit, floor: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      }
+                                    />
+                                  </DataTableCell>
+                                  <DataTableCell>{room.status}</DataTableCell>
+                                  <DataTableCell>
+                                    {room.oooRanges.length
+                                      ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
+                                      : '—'}
+                                  </DataTableCell>
+                                  <DataTableCell>
+                                    <div className="ui-row">
+                                      <Button
+                                        type="button"
+                                        intent="primary"
+                                        onClick={async () => {
+                                          setSaving(true);
+                                          try {
+                                            await api.updateRoom(propertyId, room.roomId, {
+                                              code: edit.code,
+                                              floor: edit.floor || undefined,
+                                            });
+                                            setMessage('Saved.');
+                                            await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+                                          } catch (err) {
+                                            setMessage(inventoryErrorCopy(err));
+                                          } finally {
+                                            setSaving(false);
+                                          }
+                                        }}
+                                      >
+                                        Save Room {room.code}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        intent="destructive"
+                                        onClick={() =>
+                                          setRoomArchiveTarget({ roomId: room.roomId, code: room.code })
+                                        }
+                                      >
+                                        Archive {room.code}
+                                      </Button>
+                                    </div>
+                                  </DataTableCell>
+                                </DataTableRow>
+                              );
+                            })}
+                          </DataTableBody>
+                        </DataTable>
+                      </div>
+                    </CardContent>
+                  )}
+                </Card>
+              );
+            })}
+          </>
+        )}
+
+        {archiveTarget ? (
+          <Card role="dialog" aria-modal="true" className="overscroll-contain">
+            <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
+            <Button type="button" onClick={() => setArchiveTarget(null)}>
+              Cancel
             </Button>
-          </form>
-        </>
-      )}
-
-      {archiveTarget ? (
-        <Card role="dialog" aria-modal="true" className="overscroll-contain">
-          <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
-          <Button type="button" onClick={() => setArchiveTarget(null)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            intent="destructive"
-            onClick={() => archiveType.mutate(archiveTarget.roomTypeId)}
-            disabled={archiveType.isPending}
-          >
-            {archiveType.isPending ? 'Archiving…' : 'Archive'}
-          </Button>
-        </Card>
-      ) : null}
-      {roomArchiveTarget ? (
-        <Card role="dialog" aria-modal="true" className="overscroll-contain">
-          <p>
-            Archive {roomArchiveTarget.code}? It will free a unit slot. History stays.
-          </p>
-          <Button type="button" onClick={() => setRoomArchiveTarget(null)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            intent="destructive"
-            onClick={() => archiveRoomUnit.mutate({ roomId: roomArchiveTarget.roomId })}
-            disabled={archiveRoomUnit.isPending}
-          >
-            {archiveRoomUnit.isPending ? 'Archiving…' : 'Archive'}
-          </Button>
-        </Card>
-      ) : null}
-    </Card>
-    </>
+            <Button
+              type="button"
+              intent="destructive"
+              onClick={() => archiveType.mutate(archiveTarget.roomTypeId)}
+              disabled={archiveType.isPending}
+            >
+              {archiveType.isPending ? 'Archiving…' : 'Archive'}
+            </Button>
+          </Card>
+        ) : null}
+        {roomArchiveTarget ? (
+          <Card role="dialog" aria-modal="true" className="overscroll-contain">
+            <p>
+              Archive {roomArchiveTarget.code}? It will free a unit slot. History stays.
+            </p>
+            <Button type="button" onClick={() => setRoomArchiveTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="destructive"
+              onClick={() => archiveRoomUnit.mutate({ roomId: roomArchiveTarget.roomId })}
+              disabled={archiveRoomUnit.isPending}
+            >
+              {archiveRoomUnit.isPending ? 'Archiving…' : 'Archive'}
+            </Button>
+          </Card>
+        ) : null}
+      </Card>
+    </div>
   );
 }

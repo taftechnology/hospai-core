@@ -5,6 +5,12 @@ import {
   Alert,
   Button,
   Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableHead,
   Field,
   Input,
   NativeSelect,
@@ -280,219 +286,204 @@ export function StaffScreen() {
   const orgDirectoryUnavailable = orgMembersQ.data?.directory === 'unavailable';
 
   return (
-    <>
-      <PageHeader title="Staff" />
-      <Card data-testid="staff-screen">
-
-      {message ? (
-        <Alert data-testid="staff-message">{message}</Alert>
-      ) : null}
-
-      <section data-testid="property-staff-section" className="board-group">
-        <h2 className="board-group-title">Property</h2>
-        <p className="muted">People who work at this property</p>
-
-        {propDirectoryUnavailable ? (
-          <p className="muted" data-testid="property-directory-unavailable">
-            Names unavailable
-          </p>
+    <div className="ui-page-stack staff-screen">
+      <PageHeader title="Staff" subtitle="Team members · The Meridian Seattle" />
+      <Card data-testid="staff-screen" className="staff-screen__shell">
+        {message ? (
+          <Alert data-testid="staff-message">{message}</Alert>
         ) : null}
 
-        {canWriteStaff ? (
-          <form
-            className="stack-row"
-            data-testid="property-add-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addPropertyMut.mutate();
-            }}
-          >
-            <Field
-              label="Property member email"
-              control={
-                <Input
-                  type="email"
-                  required
-                  placeholder="Email"
-                  value={propEmail}
-                  onChange={(e) => setPropEmail(e.target.value)}
-                  aria-label="Property member email"
-                />
-              }
-            />
-            <Field
-              label="Property member role"
-              control={
-                <NativeSelect
-                  value={propRole}
-                  onChange={(e) => setPropRole(e.target.value as PropertyWriteRole)}
-                  aria-label="Property member role"
-                >
-                  {PROPERTY_ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </NativeSelect>
-              }
-            />
-            <Button type="submit" intent="primary" disabled={addPropertyMut.isPending}>
-              Add
-            </Button>
-          </form>
-        ) : null}
+        <Card>
+          <CardHeader>
+            <CardTitle>Property</CardTitle>
+          </CardHeader>
 
-        {propertyMembersQ.isPending ? (
-          <p className="muted">Loading…</p>
-        ) : propertyMembersQ.isError ? (
-          <Alert>Could not load property members</Alert>
-        ) : (
-          <ul className="staff-roster" data-testid="property-roster">
-            {(propertyMembersQ.data?.members ?? []).map((m) => {
-              const dangling = isDangling(m, propDirectoryUnavailable);
-              return (
-                <li
-                  key={m.userId}
-                  data-testid={`property-member-${m.userId}`}
-                  data-focused={focusUserId === m.userId ? 'true' : undefined}
-                  tabIndex={-1}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(m.userId, el);
-                    else rowRefs.current.delete(m.userId);
-                  }}
-                >
-                  <strong>{memberLabel(m)}</strong>
-                  <span className="muted"> {m.userId}</span>
-                  {dangling ? (
-                    <span className="error" data-testid={`dangling-${m.userId}`}>
-                      {' '}
-                      Account no longer exists
-                    </span>
-                  ) : null}
-                  {canWriteStaff ? (
-                    <>
-                      {(PROPERTY_ROLES as readonly string[]).includes(m.role) ? (
-                        <NativeSelect
-                          aria-label={`Role for ${m.userId}`}
-                          value={m.role}
-                          onChange={(e) =>
-                            void updatePropertyRole(m.userId, e.target.value as PropertyWriteRole)
-                          }
-                        >
-                          {PROPERTY_ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      ) : (
-                        <span className="muted" data-testid={`property-role-readonly-${m.userId}`}>
-                          {m.role}
-                        </span>
-                      )}
-                      <Button type="button" intent="destructive" onClick={() => void removePropertyMember(m)}>
-                        Remove
-                      </Button>
-                    </>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section data-testid="org-staff-section" className="board-group">
-        <h2 className="board-group-title">Org membership</h2>
-        <p className="muted">People in your company</p>
-
-        {!canManageOrg ? (
-          <p data-testid="org-section-disabled">
-            Org membership — Requires <code>org:manage</code>. Ask an owner.
-          </p>
-        ) : (
-          <>
-            {orgDirectoryUnavailable ? (
-              <p className="muted" data-testid="org-directory-unavailable">
+          {propDirectoryUnavailable ? (
+            <CardContent>
+              <p className="muted" data-testid="property-directory-unavailable">
                 Names unavailable
               </p>
-            ) : null}
+            </CardContent>
+          ) : null}
 
-            <form
-              className="stack-row"
-              data-testid="org-add-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addOrgMut.mutate();
-              }}
-            >
-              <Field
-                label="Org member email"
-                control={
-                  <Input
-                    type="email"
-                    required
-                    placeholder="Email"
-                    value={orgEmail}
-                    onChange={(e) => setOrgEmail(e.target.value)}
-                    aria-label="Org member email"
-                  />
-                }
-              />
-              <Field
-                label="Org member role"
-                control={
-                  <NativeSelect
-                    value={orgRole}
-                    onChange={(e) => setOrgRole(e.target.value as OrgRole)}
-                    aria-label="Org member role"
-                  >
-                    {ORG_ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                }
-              />
-              <Button type="submit" intent="primary" disabled={addOrgMut.isPending}>
-                Add
-              </Button>
-            </form>
-
-            {orgMembersQ.isPending ? (
-              <p className="muted">Loading…</p>
-            ) : orgMembersQ.isError ? (
-              <Alert>Could not load org members</Alert>
-            ) : (
-              <ul className="staff-roster" data-testid="org-roster">
-                {(orgMembersQ.data?.members ?? []).map((m) => {
-                  const dangling = isDangling(m, orgDirectoryUnavailable);
-                  return (
-                    <li
-                      key={m.userId}
-                      data-testid={`org-member-${m.userId}`}
-                      data-focused={focusUserId === m.userId ? 'true' : undefined}
-                      tabIndex={-1}
-                      ref={(el) => {
-                        if (el) rowRefs.current.set(m.userId, el);
-                        else rowRefs.current.delete(m.userId);
-                      }}
+          {canWriteStaff ? (
+            <CardContent>
+              <form
+                className="staff__form"
+                data-testid="property-add-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addPropertyMut.mutate();
+                }}
+              >
+                <Field
+                  label="Property member email"
+                  control={
+                    <Input
+                      type="email"
+                      required
+                      placeholder="Email"
+                      value={propEmail}
+                      onChange={(e) => setPropEmail(e.target.value)}
+                      aria-label="Property member email"
+                    />
+                  }
+                />
+                <Field
+                  label="Property member role"
+                  control={
+                    <NativeSelect
+                      value={propRole}
+                      onChange={(e) => setPropRole(e.target.value as PropertyWriteRole)}
+                      aria-label="Property member role"
                     >
-                      <strong>{memberLabel(m)}</strong>
-                      <span className="muted"> {m.userId}</span>
-                      {dangling ? (
-                        <span className="error" data-testid={`dangling-${m.userId}`}>
-                          {' '}
-                          Account no longer exists
-                        </span>
-                      ) : null}
+                      {PROPERTY_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+                <Button type="submit" intent="primary" disabled={addPropertyMut.isPending}>
+                  Add
+                </Button>
+              </form>
+            </CardContent>
+          ) : null}
+
+          {propertyMembersQ.isPending ? (
+            <CardContent>
+              <p className="muted">Loading…</p>
+            </CardContent>
+          ) : propertyMembersQ.isError ? (
+            <CardContent>
+              <Alert>Could not load property members</Alert>
+            </CardContent>
+          ) : null}
+          {(propertyMembersQ.data?.members ?? []).length > 0 ? (
+            <CardContent flush>
+              <div className="staff__table" data-testid="property-roster">
+                <DataTable>
+                  <DataTableHead>
+                    <tr>
+                      <th align="left">Name</th>
+                      <th align="left">Role</th>
+                      <th align="left" />
+                    </tr>
+                  </DataTableHead>
+                  <DataTableBody>
+                    {(propertyMembersQ.data?.members ?? []).map((m) => {
+                      const dangling = isDangling(m, propDirectoryUnavailable);
+                      return (
+                        <tr
+                          key={m.userId}
+                          data-testid={`property-member-${m.userId}`}
+                          data-focused={focusUserId === m.userId ? 'true' : undefined}
+                          tabIndex={-1}
+                          ref={(el) => {
+                            if (el) rowRefs.current.set(m.userId, el);
+                            else rowRefs.current.delete(m.userId);
+                          }}
+                        >
+                          <td align="left">
+                            <strong>{memberLabel(m)}</strong>
+                            <span className="muted"> {m.userId}</span>
+                            {dangling ? (
+                              <span className="error" data-testid={`dangling-${m.userId}`}>
+                                {' '}
+                                Account no longer exists
+                              </span>
+                            ) : null}
+                          </td>
+                          <td align="left">
+                            {canWriteStaff ? (
+                              (PROPERTY_ROLES as readonly string[]).includes(m.role) ? (
+                                <NativeSelect
+                                  aria-label={`Role for ${m.userId}`}
+                                  value={m.role}
+                                  onChange={(e) =>
+                                    void updatePropertyRole(m.userId, e.target.value as PropertyWriteRole)
+                                  }
+                                >
+                                  {PROPERTY_ROLES.map((r) => (
+                                    <option key={r} value={r}>
+                                      {r}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                              ) : (
+                                <span className="muted" data-testid={`property-role-readonly-${m.userId}`}>
+                                  {m.role}
+                                </span>
+                              )
+                            ) : null}
+                          </td>
+                          <td align="left">
+                            {canWriteStaff ? (
+                              <Button type="button" intent="destructive" onClick={() => void removePropertyMember(m)}>
+                                Remove
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </DataTableBody>
+                </DataTable>
+              </div>
+            </CardContent>
+          ) : null}
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Org membership</CardTitle>
+          </CardHeader>
+
+          {!canManageOrg ? (
+            <CardContent>
+              <p data-testid="org-section-disabled">
+                Org membership — Requires <code>org:manage</code>. Ask an owner.
+              </p>
+            </CardContent>
+          ) : (
+            <>
+              <CardContent>
+                {orgDirectoryUnavailable ? (
+                  <p className="muted" data-testid="org-directory-unavailable">
+                    Names unavailable
+                  </p>
+                ) : null}
+
+                <form
+                  className="staff__form"
+                  data-testid="org-add-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    addOrgMut.mutate();
+                  }}
+                >
+                  <Field
+                    label="Org member email"
+                    control={
+                      <Input
+                        type="email"
+                        required
+                        placeholder="Email"
+                        value={orgEmail}
+                        onChange={(e) => setOrgEmail(e.target.value)}
+                        aria-label="Org member email"
+                      />
+                    }
+                  />
+                  <Field
+                    label="Org member role"
+                    control={
                       <NativeSelect
-                        aria-label={`Org role for ${m.userId}`}
-                        value={m.role}
-                        onChange={(e) =>
-                          void updateOrgRole(m.userId, e.target.value as OrgRole)
-                        }
+                        value={orgRole}
+                        onChange={(e) => setOrgRole(e.target.value as OrgRole)}
+                        aria-label="Org member role"
                       >
                         {ORG_ROLES.map((r) => (
                           <option key={r} value={r}>
@@ -500,18 +491,90 @@ export function StaffScreen() {
                           </option>
                         ))}
                       </NativeSelect>
-                      <Button type="button" intent="destructive" onClick={() => void removeOrgMember(m.userId)}>
-                        Remove
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </>
-        )}
-      </section>
-    </Card>
-    </>
+                    }
+                  />
+                  <Button type="submit" intent="primary" disabled={addOrgMut.isPending}>
+                    Add
+                  </Button>
+                </form>
+              </CardContent>
+
+              {orgMembersQ.isPending ? (
+                <CardContent>
+                  <p className="muted">Loading…</p>
+                </CardContent>
+              ) : orgMembersQ.isError ? (
+                <CardContent>
+                  <Alert>Could not load org members</Alert>
+                </CardContent>
+              ) : null}
+              {(orgMembersQ.data?.members ?? []).length > 0 ? (
+                <CardContent flush>
+                  <div className="staff__table" data-testid="org-roster">
+                    <DataTable>
+                      <DataTableHead>
+                        <tr>
+                          <th align="left">Name</th>
+                          <th align="left">Role</th>
+                          <th align="left" />
+                        </tr>
+                      </DataTableHead>
+                      <DataTableBody>
+                        {(orgMembersQ.data?.members ?? []).map((m) => {
+                          const dangling = isDangling(m, orgDirectoryUnavailable);
+                          return (
+                            <tr
+                              key={m.userId}
+                              data-testid={`org-member-${m.userId}`}
+                              data-focused={focusUserId === m.userId ? 'true' : undefined}
+                              tabIndex={-1}
+                              ref={(el) => {
+                                if (el) rowRefs.current.set(m.userId, el);
+                                else rowRefs.current.delete(m.userId);
+                              }}
+                            >
+                              <td align="left">
+                                <strong>{memberLabel(m)}</strong>
+                                <span className="muted"> {m.userId}</span>
+                                {dangling ? (
+                                  <span className="error" data-testid={`dangling-${m.userId}`}>
+                                    {' '}
+                                    Account no longer exists
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td align="left">
+                                <NativeSelect
+                                  aria-label={`Org role for ${m.userId}`}
+                                  value={m.role}
+                                  onChange={(e) =>
+                                    void updateOrgRole(m.userId, e.target.value as OrgRole)
+                                  }
+                                >
+                                  {ORG_ROLES.map((r) => (
+                                    <option key={r} value={r}>
+                                      {r}
+                                    </option>
+                                  ))}
+                                </NativeSelect>
+                              </td>
+                              <td align="left">
+                                <Button type="button" intent="destructive" onClick={() => void removeOrgMember(m.userId)}>
+                                  Remove
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </DataTableBody>
+                    </DataTable>
+                  </div>
+                </CardContent>
+              ) : null}
+            </>
+          )}
+        </Card>
+      </Card>
+    </div>
   );
 }

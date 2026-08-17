@@ -5,6 +5,10 @@ import {
   Badge,
   Button,
   Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -239,7 +243,7 @@ export function CityLedgerScreen() {
         detailQ.error instanceof ClassifiedError);
 
     return (
-      <>
+      <div className="ui-page-stack city-ledger-screen">
         <PageHeader
           title="City ledger"
           subtitle={detail?.name}
@@ -437,11 +441,11 @@ export function CityLedgerScreen() {
               Close
             </Button>
           </Card>
-        ) : null}
+) : null}
       </Card>
-      </>
-    );
-  }
+    </div>
+  );
+}
 
   const accounts = asAccountList(listQ.data?.body);
   const listFailClosed =
@@ -449,71 +453,18 @@ export function CityLedgerScreen() {
     (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
 
   return (
-    <>
+    <div className="ui-page-stack city-ledger-screen">
       <PageHeader
         title="City ledger"
+        subtitle="Company accounts"
         actions={
           canAdjust ? (
-            <Button type="button" onClick={() => setShowCreate(true)}>
+            <Button type="button" intent="primary" onClick={() => setShowCreate(true)}>
               Create account
             </Button>
           ) : undefined
         }
-      />
-      <Card data-testid="city-ledger-list">
-
-      {message ? (
-        <p role="status" data-testid="city-ledger-message">
-          {message}
-        </p>
-      ) : null}
-
-      {listQ.isLoading || meQ.isLoading ? <p className="muted">Loading…</p> : null}
-      {listFailClosed ? (
-        <Alert>City ledger unavailable — property unreachable.</Alert>
-      ) : null}
-
-      {!listQ.isLoading &&
-      meQ.isSuccess &&
-      accounts.length === 0 &&
-      !listFailClosed ? (
-        <p className="muted">No city ledger accounts yet.</p>
-      ) : null}
-
-      {accounts.length > 0 ? (
-        <DataTable>
-          <DataTableHead>
-            <DataTableRow>
-              <DataTableHeaderCell>Name</DataTableHeaderCell>
-              <DataTableHeaderCell>Status</DataTableHeaderCell>
-              <DataTableHeaderCell>Credit limit</DataTableHeaderCell>
-              <DataTableHeaderCell>Open balance</DataTableHeaderCell>
-              <DataTableHeaderCell>Current</DataTableHeaderCell>
-              <DataTableHeaderCell>30</DataTableHeaderCell>
-              <DataTableHeaderCell>60</DataTableHeaderCell>
-              <DataTableHeaderCell>90+</DataTableHeaderCell>
-            </DataTableRow>
-          </DataTableHead>
-          <DataTableBody>
-            {accounts.map((account) => (
-              <DataTableRow key={account.accountId}>
-                <DataTableCell>
-                  <Link to={`/city-ledger/${encodeURIComponent(account.accountId)}`}>
-                    {account.name}
-                  </Link>
-                </DataTableCell>
-                <DataTableCell rung={statusRung(account.status)}>{account.status}</DataTableCell>
-                <DataTableCell>{formatMinor(account.creditLimitMinor)}</DataTableCell>
-                <DataTableCell>{formatMinor(account.openBalanceMinor)}</DataTableCell>
-                <DataTableCell>{formatMinor(account.aging.currentMinor)}</DataTableCell>
-                <DataTableCell>{formatMinor(account.aging.days30Minor)}</DataTableCell>
-                <DataTableCell>{formatMinor(account.aging.days60Minor)}</DataTableCell>
-                <DataTableCell>{formatMinor(account.aging.days90PlusMinor)}</DataTableCell>
-              </DataTableRow>
-            ))}
-          </DataTableBody>
-        </DataTable>
-      ) : null}
+/>
 
       {showCreate ? (
         <Card
@@ -522,60 +473,132 @@ export function CityLedgerScreen() {
           className="overscroll-contain"
           data-testid="city-ledger-create"
         >
-          <h2>Create account</h2>
-          <form
-            className="stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              createAccount.mutate();
-            }}
-          >
-            <Field
-              label="Account name"
-              control={
-                <Input
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Credit limit"
-              control={
-                <Input
-                  value={createCreditLimit}
-                  onChange={(e) => setCreateCreditLimit(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Terms (days)"
-              control={
-                <Input
-                  value={createTermsDays}
-                  onChange={(e) => setCreateTermsDays(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <p className="stack-row">
-              <Button type="button" onClick={() => setShowCreate(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                intent="primary"
-                disabled={createAccount.isPending || !createName.trim()}
-              >
-                {createAccount.isPending ? 'Creating…' : 'Create'}
-              </Button>
-            </p>
-          </form>
+          <CardHeader>
+            <CardTitle>Create account</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="city-ledger__create-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                createAccount.mutate();
+              }}
+            >
+              <Field
+                label="Account name"
+                control={
+                  <Input
+                    placeholder="Company or account name"
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              <Field
+                label="Credit limit"
+                control={
+                  <Input
+                    placeholder="0.00"
+                    value={createCreditLimit}
+                    onChange={(e) => setCreateCreditLimit(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              <Field
+                label="Terms (days)"
+                control={
+                  <Input
+                    placeholder="30"
+                    value={createTermsDays}
+                    onChange={(e) => setCreateTermsDays(e.target.value)}
+                    autoComplete="off"
+                  />
+                }
+              />
+              <p className="stack-row city-ledger__create-actions">
+                <Button type="button" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  intent="primary"
+                  disabled={createAccount.isPending || !createName.trim()}
+                >
+                  {createAccount.isPending ? 'Creating…' : 'Create'}
+                </Button>
+              </p>
+            </form>
+          </CardContent>
         </Card>
       ) : null}
-    </Card>
-    </>
+<Card data-testid="city-ledger-list">
+        <CardHeader>
+          <CardTitle>Accounts</CardTitle>
+        </CardHeader>
+
+        {message || listQ.isLoading || meQ.isLoading || listFailClosed || accounts.length === 0 ? (
+          <CardContent>
+            {message ? (
+              <p role="status" data-testid="city-ledger-message">
+                {message}
+              </p>
+            ) : null}
+
+            {listQ.isLoading || meQ.isLoading ? <p className="muted">Loading…</p> : null}
+            {listFailClosed ? (
+              <Alert>City ledger unavailable — property unreachable.</Alert>
+            ) : null}
+
+            {!listQ.isLoading && meQ.isSuccess && accounts.length === 0 && !listFailClosed ? (
+              <p className="muted">No city ledger accounts yet.</p>
+            ) : null}
+          </CardContent>
+        ) : null}
+
+      {accounts.length > 0 ? (
+        <CardContent flush>
+          <div className="city-ledger__table">
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Name</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">Credit limit</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">Open balance</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">Current</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">30</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">60</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">90+</DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {accounts.map((account) => (
+                  <DataTableRow key={account.accountId}>
+                    <DataTableCell>
+                      <Link className="city-ledger__account-name" to={`/city-ledger/${encodeURIComponent(account.accountId)}`}>
+                        {account.name}
+                      </Link>
+                    </DataTableCell>
+                    <DataTableCell>
+                      <Badge rung={statusRung(account.status)}>{account.status}</Badge>
+                    </DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.creditLimitMinor)}</DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.openBalanceMinor)}</DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.aging.currentMinor)}</DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.aging.days30Minor)}</DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.aging.days60Minor)}</DataTableCell>
+                    <DataTableCell align="right">{formatMinor(account.aging.days90PlusMinor)}</DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
+          </div>
+        </CardContent>
+) : null}
+
+      </Card>
+    </div>
   );
 }

@@ -3,9 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
+  CardHeader,
+  CardTitle,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -389,14 +392,27 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
   }
 
   return (
-    <>
-      <PageHeader title="Settings" />
-      <Card data-testid="settings-screen">
+    <div className="ui-page-stack settings-screen">
+      <PageHeader
+        title="Settings"
+        subtitle={
+          propertyQ.data?.property?.name ? (
+            <>
+              {propertyQ.data.property.name}
+              <span className="sep">·</span>
+              changes are audited
+            </>
+          ) : (
+            'Changes are audited'
+          )
+        }
+      />
+      <Card data-testid="settings-screen" className="settings-screen__shell">
       {unsavedGuard}
-      <nav className="nav">
-        <Link to="/settings/property">Property</Link>
-        <Link to="/settings/charges">Charges</Link>
-        <Link to="/settings/tax">Tax</Link>
+      <nav className="ui-tabs" aria-label="Settings">
+        <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
+        <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
+        <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
       </nav>
       {message ? (
         <p className="muted" aria-live="polite">
@@ -409,223 +425,298 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           <p className="muted">Loading…</p>
         ) : (
           <>
-          <Field
-            label="Reason"
-            control={
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Why this change…"
-                autoComplete="off"
-              />
-            }
-          />
-
-          <h2>Property</h2>
-          <form
-            className="stack"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await api.updatePropertyDetails(propertyId, { name: propName });
-              setMessage('Saved.');
-            }}
-          >
-            <Field
-              label="Property name"
-              control={
-                <Input value={propName} onChange={(e) => setPropName(e.target.value)} autoComplete="off" />
-              }
-            />
-            <Button type="submit" intent="primary">
-              Save Property name
-            </Button>
-          </form>
-          <DomainText
-            label="Time zone"
-            configKey="pms.time.time_zone"
-            initial={lookup(keys, 'pms.time.time_zone')}
-            spellCheck={false}
-            {...common}
-          />
-
-          <h2>Availability</h2>
-          <DomainBool
-            label="Allow overbooking"
-            configKey="pms.availability.allow_overbooking"
-            initial={lookup(keys, 'pms.availability.allow_overbooking')}
-            {...common}
-          />
-          <DomainText
-            label="Oversell allowance"
-            configKey="pms.availability.oversell_allowance"
-            initial={lookup(keys, 'pms.availability.oversell_allowance')}
-            inputType="number"
-            {...common}
-          />
-
-          <h2>Night audit</h2>
-          <DomainText
-            label="Audit time"
-            configKey="pms.night_audit.audit_time"
-            initial={lookup(keys, 'pms.night_audit.audit_time')}
-            inputType="time"
-            {...common}
-          />
-          <DomainBool
-            label="Auto no-show"
-            configKey="pms.night_audit.auto_no_show"
-            initial={lookup(keys, 'pms.night_audit.auto_no_show')}
-            {...common}
-          />
-          <DomainBool
-            label="Auto extend"
-            configKey="pms.night_audit.auto_extend"
-            initial={lookup(keys, 'pms.night_audit.auto_extend')}
-            hint="When on, night audit extends in-house stays that are due out tomorrow by one night if the extra night is available."
-            {...common}
-          />
-
-          <h2>Booking</h2>
-          <DomainBool
-            label="Same-day bookings"
-            configKey="pms.booking.same_day_bookings"
-            initial={lookup(keys, 'pms.booking.same_day_bookings')}
-            {...common}
-          />
-          <DomainText
-            label="Same-day cutoff"
-            configKey="pms.booking.same_day_cutoff"
-            initial={lookup(keys, 'pms.booking.same_day_cutoff')}
-            inputType="time"
-            {...common}
-          />
-          <DomainBool
-            label="Require prepayment"
-            configKey="pms.booking.require_prepayment"
-            initial={lookup(keys, 'pms.booking.require_prepayment')}
-            {...common}
-          />
-          <DomainBool
-            label="Booking date change"
-            configKey="pms.booking.booking_date_change"
-            initial={lookup(keys, 'pms.booking.booking_date_change')}
-            {...common}
-          />
-
-          <h2>Money</h2>
-          <DomainText
-            label="Ledger currency"
-            configKey="pms.money.currency_code"
-            initial={lookup(keys, 'pms.money.currency_code')}
-            readOnly
-            hint="Ledger currency is set at provision and cannot change here."
-            {...common}
-          />
-          <DomainBool
-            label="Payment alloc"
-            configKey="pms.money.payment_alloc"
-            initial={lookup(keys, 'pms.money.payment_alloc')}
-            {...common}
-          />
-          <DomainText
-            label="Currencies list"
-            configKey="pms.money.currencies_list"
-            initial={lookup(keys, 'pms.money.currencies_list')}
-            json
-            hint="Not the FX allowlist — foreign tenders use FX rates on the folio."
-            {...common}
-          />
-
-          <h2>Folio</h2>
-          <DomainText
-            label="Breakfast rule"
-            configKey="pms.folio.breakfast_rule"
-            initial={lookup(keys, 'pms.folio.breakfast_rule')}
-            hint="Display only — night audit does not auto-post from this."
-            {...common}
-          />
-          <DomainBool
-            label="Close window on check-out"
-            configKey="pms.folio.close_window_on_check_out"
-            initial={lookup(keys, 'pms.folio.close_window_on_check_out')}
-            {...common}
-          />
-          <DomainBool
-            label="Auto capture on check-out"
-            configKey="pms.folio.auto_capture_on_check_out"
-            initial={lookup(keys, 'pms.folio.auto_capture_on_check_out')}
-            {...common}
-          />
-          <DomainText
-            label="Folio configs"
-            configKey="pms.folio.configs"
-            initial={lookup(keys, 'pms.folio.configs')}
-            json
-            {...common}
-          />
-
-          <h2>Reservations</h2>
-          <DomainText
-            label="Pending hold hours"
-            configKey="pms.reservations.pending_hold_hours"
-            initial={lookup(keys, 'pms.reservations.pending_hold_hours')}
-            inputType="number"
-            {...common}
-          />
-          <DomainText
-            label="Auth hold hours"
-            configKey="pms.payments.auth_hold_hours"
-            initial={lookup(keys, 'pms.payments.auth_hold_hours')}
-            inputType="number"
-            hint="Authorized card holds older than this many hours are voided automatically."
-            {...common}
-          />
-          <DomainText
-            label="Inquiry TTL days"
-            configKey="pms.reservations.inquiry_ttl_days"
-            initial={lookup(keys, 'pms.reservations.inquiry_ttl_days')}
-            inputType="number"
-            {...common}
-          />
-          <DomainSelect
-            label="Check-in cleanliness"
-            configKey="pms.reservations.check_in_cleanliness"
-            initial={lookup(keys, 'pms.reservations.check_in_cleanliness')}
-            options={['strict', 'off']}
-            {...common}
-          />
-          <DomainBool
-            label="Check-out require zero balance"
-            configKey="pms.reservations.check_out_require_zero_balance"
-            initial={lookup(keys, 'pms.reservations.check_out_require_zero_balance')}
-            {...common}
-          />
-
-          <h2>Housekeeping</h2>
-          <DomainBool
-            label="Require inspection"
-            configKey="pms.housekeeping.require_inspection"
-            initial={lookup(keys, 'pms.housekeeping.require_inspection')}
-            {...common}
-          />
-
-          <h2>Ops (unread)</h2>
-          <DomainBool
-            label="Auto assign rooms"
-            configKey="pms.ops.auto_assign_rooms"
-            initial={lookup(keys, 'pms.ops.auto_assign_rooms')}
-            hint="When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready."
-            {...common}
-          />
-
+          <Alert intent="attention">
+            <span className="ui-alert__title">A reason is required before saving</span>
+            <span>Every configuration change is written to the audit log with this note.</span>
+          </Alert>
           <Card>
             <CardContent>
-              <h2>FX Rates</h2>
-              <p className="muted">
-                Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
-                stay’s folio → FX rates.
-              </p>
-              <Link to="/in-house">Open in-house board</Link>
+              <Field
+                label="Reason"
+                control={
+                  <Input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Why this change…"
+                    autoComplete="off"
+                  />
+                }
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Property</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <form
+                  className="stack"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    await api.updatePropertyDetails(propertyId, { name: propName });
+                    setMessage('Saved.');
+                  }}
+                >
+                  <Field
+                    label="Property name"
+                    control={
+                      <Input value={propName} onChange={(e) => setPropName(e.target.value)} autoComplete="off" />
+                    }
+                  />
+                  <Button type="submit" intent="primary">
+                    Save Property name
+                  </Button>
+                </form>
+                <DomainText
+                  label="Time zone"
+                  configKey="pms.time.time_zone"
+                  initial={lookup(keys, 'pms.time.time_zone')}
+                  spellCheck={false}
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Availability</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainBool
+                  label="Allow overbooking"
+                  configKey="pms.availability.allow_overbooking"
+                  initial={lookup(keys, 'pms.availability.allow_overbooking')}
+                  {...common}
+                />
+                <DomainText
+                  label="Oversell allowance"
+                  configKey="pms.availability.oversell_allowance"
+                  initial={lookup(keys, 'pms.availability.oversell_allowance')}
+                  inputType="number"
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Night audit</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainText
+                  label="Audit time"
+                  configKey="pms.night_audit.audit_time"
+                  initial={lookup(keys, 'pms.night_audit.audit_time')}
+                  inputType="time"
+                  {...common}
+                />
+                <DomainBool
+                  label="Auto no-show"
+                  configKey="pms.night_audit.auto_no_show"
+                  initial={lookup(keys, 'pms.night_audit.auto_no_show')}
+                  {...common}
+                />
+                <DomainBool
+                  label="Auto extend"
+                  configKey="pms.night_audit.auto_extend"
+                  initial={lookup(keys, 'pms.night_audit.auto_extend')}
+                  hint="When on, night audit extends in-house stays that are due out tomorrow by one night if the extra night is available."
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Booking</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainBool
+                  label="Same-day bookings"
+                  configKey="pms.booking.same_day_bookings"
+                  initial={lookup(keys, 'pms.booking.same_day_bookings')}
+                  {...common}
+                />
+                <DomainText
+                  label="Same-day cutoff"
+                  configKey="pms.booking.same_day_cutoff"
+                  initial={lookup(keys, 'pms.booking.same_day_cutoff')}
+                  inputType="time"
+                  {...common}
+                />
+                <DomainBool
+                  label="Require prepayment"
+                  configKey="pms.booking.require_prepayment"
+                  initial={lookup(keys, 'pms.booking.require_prepayment')}
+                  {...common}
+                />
+                <DomainBool
+                  label="Booking date change"
+                  configKey="pms.booking.booking_date_change"
+                  initial={lookup(keys, 'pms.booking.booking_date_change')}
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Money</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainText
+                  label="Ledger currency"
+                  configKey="pms.money.currency_code"
+                  initial={lookup(keys, 'pms.money.currency_code')}
+                  readOnly
+                  hint="Ledger currency is set at provision and cannot change here."
+                  {...common}
+                />
+                <DomainBool
+                  label="Payment alloc"
+                  configKey="pms.money.payment_alloc"
+                  initial={lookup(keys, 'pms.money.payment_alloc')}
+                  {...common}
+                />
+                <DomainText
+                  label="Currencies list"
+                  configKey="pms.money.currencies_list"
+                  initial={lookup(keys, 'pms.money.currencies_list')}
+                  json
+                  hint="Not the FX allowlist — foreign tenders use FX rates on the folio."
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Folio</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainText
+                  label="Breakfast rule"
+                  configKey="pms.folio.breakfast_rule"
+                  initial={lookup(keys, 'pms.folio.breakfast_rule')}
+                  hint="Display only — night audit does not auto-post from this."
+                  {...common}
+                />
+                <DomainBool
+                  label="Close window on check-out"
+                  configKey="pms.folio.close_window_on_check_out"
+                  initial={lookup(keys, 'pms.folio.close_window_on_check_out')}
+                  {...common}
+                />
+                <DomainBool
+                  label="Auto capture on check-out"
+                  configKey="pms.folio.auto_capture_on_check_out"
+                  initial={lookup(keys, 'pms.folio.auto_capture_on_check_out')}
+                  {...common}
+                />
+                <DomainText
+                  label="Folio configs"
+                  configKey="pms.folio.configs"
+                  initial={lookup(keys, 'pms.folio.configs')}
+                  json
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Reservations</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="settings-property__grid">
+                <DomainText
+                  label="Pending hold hours"
+                  configKey="pms.reservations.pending_hold_hours"
+                  initial={lookup(keys, 'pms.reservations.pending_hold_hours')}
+                  inputType="number"
+                  {...common}
+                />
+                <DomainText
+                  label="Auth hold hours"
+                  configKey="pms.payments.auth_hold_hours"
+                  initial={lookup(keys, 'pms.payments.auth_hold_hours')}
+                  inputType="number"
+                  hint="Authorized card holds older than this many hours are voided automatically."
+                  {...common}
+                />
+                <DomainText
+                  label="Inquiry TTL days"
+                  configKey="pms.reservations.inquiry_ttl_days"
+                  initial={lookup(keys, 'pms.reservations.inquiry_ttl_days')}
+                  inputType="number"
+                  {...common}
+                />
+                <DomainSelect
+                  label="Check-in cleanliness"
+                  configKey="pms.reservations.check_in_cleanliness"
+                  initial={lookup(keys, 'pms.reservations.check_in_cleanliness')}
+                  options={['strict', 'off']}
+                  {...common}
+                />
+                <DomainBool
+                  label="Check-out require zero balance"
+                  configKey="pms.reservations.check_out_require_zero_balance"
+                  initial={lookup(keys, 'pms.reservations.check_out_require_zero_balance')}
+                  {...common}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Housekeeping</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DomainBool
+                label="Require inspection"
+                configKey="pms.housekeeping.require_inspection"
+                initial={lookup(keys, 'pms.housekeeping.require_inspection')}
+                {...common}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Ops (unread)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DomainBool
+                label="Auto assign rooms"
+                configKey="pms.ops.auto_assign_rooms"
+                initial={lookup(keys, 'pms.ops.auto_assign_rooms')}
+                hint="When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready."
+                {...common}
+              />
+              <Card className="settings-property__fx">
+                <CardContent>
+                  <h2>FX Rates</h2>
+                  <p className="muted">
+                    Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
+                    stay’s folio → FX rates.
+                  </p>
+                  <Link to="/in-house">Open in-house board</Link>
+                </CardContent>
+              </Card>
             </CardContent>
           </Card>
         </>
@@ -634,10 +725,18 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
 
       {activeTab === 'charges' ? (
         <>
-          {charges.length === 0 && chargesQ.isSuccess ? (
-            <p className="muted">No charge codes.</p>
-          ) : (
-            <DataTable>
+          <Card>
+            <CardHeader>
+              <CardTitle>Charge codes</CardTitle>
+            </CardHeader>
+            {charges.length === 0 && chargesQ.isSuccess ? (
+              <CardContent>
+                <p className="muted">No charge codes.</p>
+              </CardContent>
+            ) : (
+              <CardContent flush>
+                <div className="settings__table">
+                  <DataTable>
               <DataTableHead>
                 <DataTableRow>
                   <DataTableHeaderCell>Code</DataTableHeaderCell>
@@ -654,7 +753,11 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                       <span translate="no">{c.code}</span>
                     </DataTableCell>
                     <DataTableCell>{c.name}</DataTableCell>
-                    <DataTableCell>{c.status}</DataTableCell>
+                    <DataTableCell>
+                      <Badge rung={c.status === 'active' ? 'settled' : 'informational'}>
+                        {c.status}
+                      </Badge>
+                    </DataTableCell>
                     <DataTableCell>{c.taxGroup ?? '—'}</DataTableCell>
                     <DataTableCell>
                       {SYSTEM_CHARGE_CODES.has(c.code) ? (
@@ -675,20 +778,28 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                   </DataTableRow>
                 ))}
               </DataTableBody>
-            </DataTable>
-          )}
-          <form
-            className="stack"
+                  </DataTable>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Create Charge Code</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form
+                className="stack settings__form settings__charge-form"
             onSubmit={(e) => {
               e.preventDefault();
               createCharge.mutate();
             }}
           >
-            <h2>Create Charge Code</h2>
             <Field
               label="Code"
               control={
                 <Input
+                  placeholder="ROOM"
                   value={chargeCode}
                   onChange={(e) => setChargeCode(e.target.value)}
                   autoComplete="off"
@@ -698,15 +809,25 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
             <Field
               label="Name"
               control={
-                <Input value={chargeName} onChange={(e) => setChargeName(e.target.value)} autoComplete="off" />
+                <Input
+                  placeholder="Room charge"
+                  value={chargeName}
+                  onChange={(e) => setChargeName(e.target.value)}
+                  autoComplete="off"
+                />
               }
             />
             <Button type="submit" intent="primary">
               {createCharge.isPending ? 'Saving…' : 'Create Charge Code'}
             </Button>
-          </form>
-          <section className="stack">
-            <h2>Routing rules</h2>
+              </form>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Routing rules</CardTitle>
+            </CardHeader>
+            <CardContent>
             <p className="muted">
               Auto-transfer runs at night audit. Destination window must already be open on the stay.
             </p>
@@ -744,7 +865,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
               </DataTable>
             )}
             <form
-              className="stack"
+              className="stack settings__form settings__routing-form"
               onSubmit={(e) => {
                 e.preventDefault();
                 addRoutingRule.mutate();
@@ -790,16 +911,119 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                 {addRoutingRule.isPending ? 'Saving…' : 'Add routing rule'}
               </Button>
             </form>
-          </section>
+            </CardContent>
+          </Card>
         </>
       ) : null}
 
       {activeTab === 'tax' ? (
         <>
-          <p className="muted">
-            Superseding closes this rule and opens a new one. Posted tax lines stay.
-          </p>
-          <DataTable>
+          <Card>
+            <CardHeader>
+              <CardTitle>Create Tax Rule</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form
+                className="stack settings__form settings__tax-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  createTax.mutate();
+                }}
+              >
+                <Field
+                  label="Name"
+                  control={
+                    <Input
+                      placeholder="City tax"
+                      value={taxName}
+                      onChange={(e) => setTaxName(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Field
+                  label="Rule key"
+                  control={
+                    <Input
+                      placeholder="city_tax"
+                      value={taxKey}
+                      onChange={(e) => setTaxKey(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Field
+                  label="Rule type"
+                  control={
+                    <NativeSelect value={taxType} onChange={(e) => setTaxType(e.target.value)}>
+                      <option value="PERCENTAGE">PERCENTAGE</option>
+                      <option value="PER_PERSON_PER_NIGHT">PER_PERSON_PER_NIGHT</option>
+                      <option value="FLAT">FLAT</option>
+                    </NativeSelect>
+                  }
+                />
+                <Field
+                  label="Rate"
+                  control={
+                    <Input
+                      placeholder="0.1000"
+                      value={taxRate}
+                      onChange={(e) => setTaxRate(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Field
+                  label="Tax group"
+                  control={
+                    <Input
+                      placeholder="ROOM"
+                      value={taxGroup}
+                      onChange={(e) => setTaxGroup(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Field
+                  label="Output charge code"
+                  control={
+                    <Input
+                      placeholder="TAX"
+                      value={taxOutput}
+                      onChange={(e) => setTaxOutput(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Field
+                  label="Valid from"
+                  control={
+                    <Input
+                      type="date"
+                      value={taxFrom}
+                      onChange={(e) => setTaxFrom(e.target.value)}
+                      autoComplete="off"
+                    />
+                  }
+                />
+                <Button type="submit" intent="primary">
+                  {createTax.isPending ? 'Saving…' : 'Create Tax Rule'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Tax rules</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="muted">
+                Superseding closes this rule and opens a new one. Posted tax lines stay.
+              </p>
+            </CardContent>
+            <CardContent flush>
+              <div className="settings__table settings__tax-table">
+                <DataTable>
             <DataTableHead>
               <DataTableRow>
                 <DataTableHeaderCell>Name</DataTableHeaderCell>
@@ -851,6 +1075,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                           label="New rate"
                           control={
                             <Input
+                              placeholder="0.1000"
                               value={superRate}
                               onChange={(e) => setSuperRate(e.target.value)}
                               autoComplete="off"
@@ -877,82 +1102,10 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                 </DataTableRow>
               ))}
             </DataTableBody>
-          </DataTable>
-          <form
-            className="stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              createTax.mutate();
-            }}
-          >
-            <h2>Create Tax Rule</h2>
-            <Field
-              label="Name"
-              control={
-                <Input value={taxName} onChange={(e) => setTaxName(e.target.value)} autoComplete="off" />
-              }
-            />
-            <Field
-              label="Rule key"
-              control={
-                <Input
-                  value={taxKey}
-                  onChange={(e) => setTaxKey(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Rule type"
-              control={
-                <NativeSelect value={taxType} onChange={(e) => setTaxType(e.target.value)}>
-                  <option value="PERCENTAGE">PERCENTAGE</option>
-                  <option value="PER_PERSON_PER_NIGHT">PER_PERSON_PER_NIGHT</option>
-                  <option value="FLAT">FLAT</option>
-                </NativeSelect>
-              }
-            />
-            <Field
-              label="Rate"
-              control={
-                <Input
-                  value={taxRate}
-                  onChange={(e) => setTaxRate(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Tax group"
-              control={
-                <Input value={taxGroup} onChange={(e) => setTaxGroup(e.target.value)} autoComplete="off" />
-              }
-            />
-            <Field
-              label="Output charge code"
-              control={
-                <Input
-                  value={taxOutput}
-                  onChange={(e) => setTaxOutput(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Field
-              label="Valid from"
-              control={
-                <Input
-                  type="date"
-                  value={taxFrom}
-                  onChange={(e) => setTaxFrom(e.target.value)}
-                  autoComplete="off"
-                />
-              }
-            />
-            <Button type="submit" intent="primary">
-              {createTax.isPending ? 'Saving…' : 'Create Tax Rule'}
-            </Button>
-          </form>
+                </DataTable>
+              </div>
+            </CardContent>
+          </Card>
         </>
       ) : null}
 
@@ -967,7 +1120,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
           </Button>
         </Card>
       ) : null}
-    </Card>
-    </>
+      </Card>
+    </div>
   );
 }

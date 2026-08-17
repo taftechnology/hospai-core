@@ -19,6 +19,12 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
   Field,
   Input,
   PageHeader,
@@ -350,26 +356,28 @@ export function TapeChartScreen() {
                 )}.`}
           </p>
           <div className="ui-table-scroll">
-            <table className="ui-table">
-              <thead>
-                <tr>
-                  <th>Room</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
+            <DataTable>
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Room</DataTableHeaderCell>
+                  <DataTableHeaderCell>Type</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
                 {free.map((r) => (
-                  <tr key={r.roomId}>
-                    <td className="ui-num">{r.code}</td>
-                    <td>{typeLabel(r.roomTypeId, typeRows)}</td>
-                    <td>
+                  <DataTableRow key={r.roomId}>
+                    <DataTableCell>
+                      <span className="ui-num">{r.code}</span>
+                    </DataTableCell>
+                    <DataTableCell>{typeLabel(r.roomTypeId, typeRows)}</DataTableCell>
+                    <DataTableCell>
                       <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
-                    </td>
-                  </tr>
+                    </DataTableCell>
+                  </DataTableRow>
                 ))}
-              </tbody>
-            </table>
+              </DataTableBody>
+            </DataTable>
           </div>
         </>
       );

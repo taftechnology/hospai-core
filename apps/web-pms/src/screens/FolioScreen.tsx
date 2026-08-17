@@ -17,6 +17,12 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  DataTable,
+  DataTableBody,
+  DataTableCell,
+  DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
   Field,
   Input,
   NativeSelect,
@@ -1244,32 +1250,36 @@ export function FolioScreen() {
             <p className="muted">Lines unavailable</p>
           ) : (
             <div className="ui-table-scroll">
-              <table className="ui-table" data-testid="folio-lines">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Code</th>
-                    <th>Description</th>
-                    <th align="right">Charge</th>
-                    <th align="right">Payment</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <DataTable data-testid="folio-lines">
+                <DataTableHead>
+                  <DataTableRow>
+                    <DataTableHeaderCell>Date</DataTableHeaderCell>
+                    <DataTableHeaderCell>Code</DataTableHeaderCell>
+                    <DataTableHeaderCell>Description</DataTableHeaderCell>
+                    <DataTableHeaderCell align="right">Charge</DataTableHeaderCell>
+                    <DataTableHeaderCell align="right">Payment</DataTableHeaderCell>
+                  </DataTableRow>
+                </DataTableHead>
+                <DataTableBody>
                   {ledgerRows.map((row) => (
-                    <tr key={row.key}>
-                      <td className="ui-num">{row.date}</td>
-                      <td className="ui-code">{row.code}</td>
-                      <td>{row.description}</td>
-                      <td align="right">
+                    <DataTableRow key={row.key}>
+                      <DataTableCell>
+                        <span className="ui-num">{row.date}</span>
+                      </DataTableCell>
+                      <DataTableCell>
+                        <span className="ui-code">{row.code}</span>
+                      </DataTableCell>
+                      <DataTableCell>{row.description}</DataTableCell>
+                      <DataTableCell align="right">
                         {row.chargeMinor > 0 ? formatMinor(row.chargeMinor) : '—'}
-                      </td>
-                      <td align="right">
+                      </DataTableCell>
+                      <DataTableCell align="right">
                         {row.paymentMinor < 0 ? formatMinor(row.paymentMinor) : '—'}
-                      </td>
-                    </tr>
+                      </DataTableCell>
+                    </DataTableRow>
                   ))}
-                </tbody>
-              </table>
+                </DataTableBody>
+              </DataTable>
             </div>
           )}
         </CardContent>

@@ -10,7 +10,10 @@ import {
   CardTitle,
   DataTable,
   DataTableBody,
+  DataTableCell,
   DataTableHead,
+  DataTableHeaderCell,
+  DataTableRow,
   Field,
   Input,
   NativeSelect,
@@ -366,17 +369,17 @@ export function StaffScreen() {
               <div className="staff__table" data-testid="property-roster">
                 <DataTable>
                   <DataTableHead>
-                    <tr>
-                      <th align="left">Name</th>
-                      <th align="left">Role</th>
-                      <th align="left" />
-                    </tr>
+                    <DataTableRow>
+                      <DataTableHeaderCell align="left">Name</DataTableHeaderCell>
+                      <DataTableHeaderCell align="left">Role</DataTableHeaderCell>
+                      <DataTableHeaderCell align="left" />
+                    </DataTableRow>
                   </DataTableHead>
                   <DataTableBody>
                     {(propertyMembersQ.data?.members ?? []).map((m) => {
                       const dangling = isDangling(m, propDirectoryUnavailable);
                       return (
-                        <tr
+                        <DataTableRow
                           key={m.userId}
                           data-testid={`property-member-${m.userId}`}
                           data-focused={focusUserId === m.userId ? 'true' : undefined}
@@ -386,7 +389,7 @@ export function StaffScreen() {
                             else rowRefs.current.delete(m.userId);
                           }}
                         >
-                          <td align="left">
+                          <DataTableCell align="left">
                             <strong>{memberLabel(m)}</strong>
                             <span className="muted"> {m.userId}</span>
                             {dangling ? (
@@ -395,8 +398,8 @@ export function StaffScreen() {
                                 Account no longer exists
                               </span>
                             ) : null}
-                          </td>
-                          <td align="left">
+                          </DataTableCell>
+                          <DataTableCell align="left">
                             {canWriteStaff ? (
                               (PROPERTY_ROLES as readonly string[]).includes(m.role) ? (
                                 <NativeSelect
@@ -418,15 +421,15 @@ export function StaffScreen() {
                                 </span>
                               )
                             ) : null}
-                          </td>
-                          <td align="left">
+                          </DataTableCell>
+                          <DataTableCell align="left">
                             {canWriteStaff ? (
                               <Button type="button" intent="destructive" onClick={() => void removePropertyMember(m)}>
                                 Remove
                               </Button>
                             ) : null}
-                          </td>
-                        </tr>
+                          </DataTableCell>
+                        </DataTableRow>
                       );
                     })}
                   </DataTableBody>
@@ -513,17 +516,17 @@ export function StaffScreen() {
                   <div className="staff__table" data-testid="org-roster">
                     <DataTable>
                       <DataTableHead>
-                        <tr>
-                          <th align="left">Name</th>
-                          <th align="left">Role</th>
-                          <th align="left" />
-                        </tr>
+                        <DataTableRow>
+                          <DataTableHeaderCell align="left">Name</DataTableHeaderCell>
+                          <DataTableHeaderCell align="left">Role</DataTableHeaderCell>
+                          <DataTableHeaderCell align="left" />
+                        </DataTableRow>
                       </DataTableHead>
                       <DataTableBody>
                         {(orgMembersQ.data?.members ?? []).map((m) => {
                           const dangling = isDangling(m, orgDirectoryUnavailable);
                           return (
-                            <tr
+                            <DataTableRow
                               key={m.userId}
                               data-testid={`org-member-${m.userId}`}
                               data-focused={focusUserId === m.userId ? 'true' : undefined}
@@ -533,7 +536,7 @@ export function StaffScreen() {
                                 else rowRefs.current.delete(m.userId);
                               }}
                             >
-                              <td align="left">
+                              <DataTableCell align="left">
                                 <strong>{memberLabel(m)}</strong>
                                 <span className="muted"> {m.userId}</span>
                                 {dangling ? (
@@ -542,8 +545,8 @@ export function StaffScreen() {
                                     Account no longer exists
                                   </span>
                                 ) : null}
-                              </td>
-                              <td align="left">
+                              </DataTableCell>
+                              <DataTableCell align="left">
                                 <NativeSelect
                                   aria-label={`Org role for ${m.userId}`}
                                   value={m.role}
@@ -557,13 +560,13 @@ export function StaffScreen() {
                                     </option>
                                   ))}
                                 </NativeSelect>
-                              </td>
-                              <td align="left">
+                              </DataTableCell>
+                              <DataTableCell align="left">
                                 <Button type="button" intent="destructive" onClick={() => void removeOrgMember(m.userId)}>
                                   Remove
                                 </Button>
-                              </td>
-                            </tr>
+                              </DataTableCell>
+                            </DataTableRow>
                           );
                         })}
                       </DataTableBody>

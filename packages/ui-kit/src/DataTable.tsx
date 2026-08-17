@@ -1,4 +1,10 @@
-import type { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes } from 'react';
+import type {
+  HTMLAttributes,
+  ReactNode,
+  Ref,
+  TdHTMLAttributes,
+  ThHTMLAttributes,
+} from 'react';
 import { statusRungClass } from './variant-map.js';
 import type { StatusRung, TestIdProps } from './types.js';
 
@@ -29,22 +35,30 @@ export function DataTableBody({ children }: DataTableSectionProps) {
 }
 
 export type DataTableRowProps = TestIdProps &
-  Pick<HTMLAttributes<HTMLTableRowElement>, 'onClick'> & {
+  Pick<HTMLAttributes<HTMLTableRowElement>, 'onClick' | 'tabIndex'> & {
     children?: ReactNode;
     rung?: StatusRung;
+    ref?: Ref<HTMLTableRowElement>;
+    'data-focused'?: 'true' | undefined;
   };
 
 export function DataTableRow({
   children,
   rung,
   onClick,
+  tabIndex,
+  ref,
+  'data-focused': dataFocused,
   'data-testid': dataTestId,
 }: DataTableRowProps) {
   return (
     <tr
       className={rung ? statusRungClass(rung) : undefined}
       data-testid={dataTestId}
+      data-focused={dataFocused}
       onClick={onClick}
+      tabIndex={tabIndex}
+      ref={ref}
     >
       {children}
     </tr>

@@ -10,5 +10,4 @@ dist
 coverage
 .turbo
 .claude
-docs/design-prototype/
 docs/screenshots/

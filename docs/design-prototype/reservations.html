@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reservations — HospAI Design Prototype</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="ui-kit.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-grid" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="2" width="12" height="12" rx="1.5" /><path d="M2 6h12M2 10h12M6 2v12M10 2v12" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 8.5l3.5 3.5L13 5" />
+      </symbol>
+      <symbol id="i-cal" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 3v10M3 8h10" />
+      </symbol>
+      <symbol id="i-bed" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 12V5M2 9h12v3M6.5 6.5h4a2 2 0 012 2H6.5z" />
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4" />
+      </symbol>
+      <symbol id="i-card" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" /><path d="M1.5 7h13" />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M3 2.5h6a2 2 0 012 2v9a1.5 1.5 0 00-1.5-1.5H3z" /><path d="M3 2.5v11" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="1.75" />
+      </symbol>
+      <symbol id="i-gear" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="2.25" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" />
+      </symbol>
+      <symbol id="i-box" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2.5" y="2" width="11" height="12" rx="1.5" /><path d="M5.5 5h5M5.5 8h5M5.5 11h3" />
+      </symbol>
+      <symbol id="i-warn" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2L1.5 13.5h13z" /><path d="M8 6.5v3.25M8 11.75v.5" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" />
+      </symbol>
+    </svg>
+
+    <div class="ui-shell">
+      <aside class="ui-sidebar">
+        <div class="ui-sidebar__brand">
+          <span class="ui-sidebar__mark">✦</span>
+          <span class="ui-sidebar__title">HospAI <span>PMS</span></span>
+        </div>
+        <nav class="ui-sidebar__nav" aria-label="HospAI PMS">
+          <a class="ui-nav-item" href="board.html"><svg><use href="#i-grid" /></svg>Room Plan</a>
+          <a class="ui-nav-item" href="arrivals.html"><svg><use href="#i-check" /></svg>Front Desk</a>
+          <a class="ui-nav-item" aria-current="page" href="reservations.html"><svg><use href="#i-cal" /></svg>Reservations</a>
+          <a class="ui-nav-item" href="book.html"><svg><use href="#i-plus" /></svg>New Booking</a>
+          <a class="ui-nav-item" href="housekeeping.html"><svg><use href="#i-bed" /></svg>Housekeeping</a>
+          <a class="ui-nav-item" href="guests.html"><svg><use href="#i-user" /></svg>Guests</a>
+          <a class="ui-nav-item" href="rates-matrix.html"><svg><use href="#i-card" /></svg>Rates</a>
+          <a class="ui-nav-item" href="city-ledger.html"><svg><use href="#i-book" /></svg>City Ledger</a>
+          <a class="ui-nav-item" href="night-audit.html"><svg><use href="#i-moon" /></svg>Night Audit</a>
+          <a class="ui-nav-item" href="settings.html"><svg><use href="#i-gear" /></svg>Settings</a>
+          <div class="ui-sidebar__section">
+            <a class="ui-nav-item" href="inventory.html"><svg><use href="#i-box" /></svg>Inventory</a>
+            <a class="ui-nav-item" href="staff.html"><svg><use href="#i-user" /></svg>Staff</a>
+            <a class="ui-nav-item" href="roster.html"><svg><use href="#i-cal" /></svg>Roster</a>
+            <a class="ui-nav-item" href="exceptions.html"><svg><use href="#i-warn" /></svg>Exceptions</a>
+          </div>
+        </nav>
+        <div class="ui-sidebar__footer"><svg style="width: 1rem; height: 1rem"><use href="#i-user" /></svg>Owner</div>
+      </aside>
+
+      <div class="ui-main">
+        <header class="ui-rail">
+          <div class="ui-search">
+            <svg><use href="#i-search" /></svg>
+            <input type="search" placeholder="Guest name or reservation" aria-label="Search" />
+          </div>
+          <div class="ui-rail__meta">
+            <span class="ui-rail__property">The Meridian Seattle</span>
+            <span class="ui-metric"><span class="ui-metric__value">Sun 16 Aug</span></span>
+          </div>
+        </header>
+
+        <div class="ui-strip">
+          <span class="ui-strip__dot"></span>
+          <span>Shift open · float <span class="ui-num">$100.00</span> · 2 cash posts</span>
+          <button class="ui-btn ui-btn--sm ui-btn--ghost" type="button">Close shift</button>
+        </div>
+
+        <main class="ui-page">
+          <div class="ui-page__inner">
+            <div class="ui-page-header">
+              <div class="ui-page-header__text">
+                <h1 class="ui-title">Reservations</h1>
+                <p class="ui-subtitle">Sunday, 16 August 2026 <span class="sep">·</span> all stays for The Meridian Seattle</p>
+              </div>
+              <div class="ui-page-header__actions">
+                <a class="ui-link-btn ui-link-btn--primary" href="book.html">New booking</a>
+              </div>
+            </div>
+
+            <div class="ui-metrics">
+              <a class="ui-metric" href="arrivals.html">Arrivals <span class="ui-metric__value">8</span></a>
+              <a class="ui-metric" href="arrivals.html">Due out <span class="ui-metric__value">5</span></a>
+              <a class="ui-metric" href="arrivals.html">In-house <span class="ui-metric__value">12</span></a>
+              <span class="ui-metric">Occupancy <span class="ui-metric__value">14 / 19</span></span>
+            </div>
+
+            <section class="ui-card">
+              <div class="ui-toolbar">
+                <div class="ui-field ui-field--sm">
+                  <label class="ui-field__label" for="rs-status">Status</label>
+                  <select class="ui-select" id="rs-status"><option>All statuses</option><option>Confirmed</option><option>In house</option><option>Checked out</option><option>Cancelled</option></select>
+                </div>
+                <div class="ui-field ui-field--xs">
+                  <label class="ui-field__label" for="rs-from">From</label>
+                  <input class="ui-input" id="rs-from" type="date" value="2026-08-01" />
+                </div>
+                <div class="ui-field ui-field--xs">
+                  <label class="ui-field__label" for="rs-to">To</label>
+                  <input class="ui-input" id="rs-to" type="date" value="2026-08-31" />
+                </div>
+                <div class="ui-toolbar__spacer"></div>
+                <button class="ui-btn ui-btn--sm">Export</button>
+              </div>
+              <div class="ui-card__body ui-card__body--flush">
+                <div class="ui-table-scroll">
+                  <table class="ui-table">
+                    <thead>
+                      <tr>
+                        <th>Guest</th><th>Dates</th><th>Room</th><th>Status</th>
+                        <th class="ui-table__num">Balance</th>
+                        <th class="ui-table__actions"><span class="ui-visually-hidden">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Amira Hassan</a></td>
+                        <td class="ui-num">16–18 Aug</td>
+                        <td class="ui-table__empty-cell">Unassigned</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">David Okonkwo</a></td>
+                        <td class="ui-num">16–19 Aug</td>
+                        <td class="ui-num">105</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$289.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Claire Fontaine</a></td>
+                        <td class="ui-num">16–17 Aug</td>
+                        <td class="ui-num">106</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$219.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Tomiko Sato</a></td>
+                        <td class="ui-num">16–20 Aug</td>
+                        <td class="ui-num">203</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$876.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">James Whitaker</a></td>
+                        <td class="ui-num">16–19 Aug</td>
+                        <td class="ui-num">101</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$352.50</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Benjamin Walsh</a></td>
+                        <td class="ui-num">14–18 Aug</td>
+                        <td class="ui-num">102</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$189.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Ada Lovelace</a></td>
+                        <td class="ui-num">15–17 Aug</td>
+                        <td class="ui-num">103</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Priya Mehta</a></td>
+                        <td class="ui-num">14–18 Aug</td>
+                        <td class="ui-num">104</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Lars Holm</a></td>
+                        <td class="ui-num">16–20 Aug</td>
+                        <td class="ui-num">107</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$578.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Elena Rossi</a></td>
+                        <td class="ui-num">13–16 Aug</td>
+                        <td class="ui-num">108</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$124.50</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Marcus Webb</a></td>
+                        <td class="ui-num">14–16 Aug</td>
+                        <td class="ui-num">201</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Oliver Grant</a></td>
+                        <td class="ui-num">14–19 Aug</td>
+                        <td class="ui-num">204</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$312.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Yara Haddad</a></td>
+                        <td class="ui-num">12–16 Aug</td>
+                        <td class="ui-num">205</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$45.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Hana Kim</a></td>
+                        <td class="ui-num">13–21 Aug</td>
+                        <td class="ui-num">301</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$1,287.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Samir Patel</a></td>
+                        <td class="ui-num">14–16 Aug</td>
+                        <td class="ui-num">302</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Isabel Costa</a></td>
+                        <td class="ui-num">15–18 Aug</td>
+                        <td class="ui-num">303</td>
+                        <td><span class="ui-badge status-informational">In house</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Sofia Alvarez</a></td>
+                        <td class="ui-num">16–18 Aug</td>
+                        <td class="ui-num">110</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$578.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Theo Marin</a></td>
+                        <td class="ui-num">16–19 Aug</td>
+                        <td class="ui-num">206</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$657.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Nadia Rahman</a></td>
+                        <td class="ui-num">16–18 Aug</td>
+                        <td class="ui-num">202</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$438.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Kenji Nakamura</a></td>
+                        <td class="ui-num">16–18 Aug</td>
+                        <td class="ui-num">108</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$578.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Robert Chen</a></td>
+                        <td class="ui-num">10–12 Aug</td>
+                        <td class="ui-num">107</td>
+                        <td><span class="ui-badge status-settled">Checked out</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Linda Park</a></td>
+                        <td class="ui-num">8–10 Aug</td>
+                        <td class="ui-num">204</td>
+                        <td><span class="ui-badge status-settled">Checked out</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">George Mills</a></td>
+                        <td class="ui-num">5–7 Aug</td>
+                        <td class="ui-num">105</td>
+                        <td><span class="ui-badge status-exception">Cancelled</span></td>
+                        <td class="ui-table__num">$0.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Sarah Nguyen</a></td>
+                        <td class="ui-num">20–22 Aug</td>
+                        <td class="ui-num">105</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$578.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                      <tr>
+                        <td><a class="ui-link" href="guests.html">Michael Torres</a></td>
+                        <td class="ui-num">18–21 Aug</td>
+                        <td class="ui-num">302</td>
+                        <td><span class="ui-badge status-neutral">Confirmed</span></td>
+                        <td class="ui-table__num">$1,287.00</td>
+                        <td class="ui-table__actions"><span class="ui-row-actions">
+                          <a class="ui-link-btn ui-link-btn--sm" href="folio.html">Folio</a>
+                          <a class="ui-link-btn ui-link-btn--sm" href="book.html">Book for guest</a>
+                        </span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

@@ -16,6 +16,7 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import {
   BedIcon,
+  BookIcon,
   CalendarIcon,
   CheckIcon,
   CreditCardIcon,
@@ -52,6 +53,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   housekeeping: BedIcon,
   guests: UserIcon,
   rates: CreditCardIcon,
+  'city-ledger': BookIcon,
   'night-audit': NightAuditIcon,
   settings: SettingsIcon,
   inventory: PropertyIcon,

@@ -163,6 +163,10 @@ a {
   width: min(24rem, 100%);
 }
 
+[data-testid="property-name"] {
+  font-weight: 600;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -177,7 +181,6 @@ a {
 }
 
 .top-bar,
-.shift-strip,
 .side-panels {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -195,8 +198,42 @@ a {
 .shift-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1rem;
+  gap: 0.75rem;
   align-items: center;
+  padding: 0.5rem 1.5rem;
+  background: var(--selected);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.shift-strip__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 999px;
+  background: var(--status-settled-fg);
+  flex-shrink: 0;
+}
+
+.shift-strip__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.875rem;
+  padding-inline: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.shift-strip__close:hover {
+  background: color-mix(in srgb, var(--selected) 55%, transparent);
+  color: var(--ink);
 }
 
 .shift-open-form {
@@ -526,7 +563,7 @@ details.side-panel summary {
   background: var(--bg);
   color: var(--ink);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .reservation-search-icon {

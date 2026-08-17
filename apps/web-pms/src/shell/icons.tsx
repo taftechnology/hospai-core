@@ -70,6 +70,15 @@ export function CreditCardIcon({ size = 14 }: IconProps) {
   );
 }
 
+export function BookIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4.5 3.75h9a3 3 0 0 1 3 3v13.5a2.25 2.25 0 0 0-2.25-2.25H4.5z" />
+      <path d="M4.5 3.75v16.5" />
+    </svg>
+  );
+}
+
 export function NightAuditIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

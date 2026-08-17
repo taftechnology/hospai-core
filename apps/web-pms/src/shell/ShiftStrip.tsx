@@ -12,7 +12,6 @@ import {
   parseMajorToMinor,
 } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { shiftSeverity } from '../status/shift-severity.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from './PropertyTimeZone.js';
 
@@ -150,18 +149,16 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   }
 
   const shift = body.shift;
-  const sev = shiftSeverity({
-    kind: 'open',
-    businessDate: shift.businessDate,
-    propertyLocalToday: localToday,
-  });
 
   return (
     <div className="shift-strip">
-      <span className={statusClass(sev)} data-testid="open-shift-badge">
-        Open shift · float {formatMinor(shift.openingFloat)} · cash posts {shift.attributedCashCount}
+      <span className="shift-strip__dot" aria-hidden="true" />
+      <span data-testid="open-shift-badge">
+        Shift open · float ${formatMinor(shift.openingFloat)} · Posts cash {shift.attributedCashCount}
       </span>
-      <Link to="/shift">Close</Link>
+      <Link className="shift-strip__close" to="/shift">
+        Close shift
+      </Link>
       {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
       {callout}
     </div>

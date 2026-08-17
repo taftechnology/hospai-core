@@ -574,6 +574,19 @@ button {
   font-weight: 600;
 }
 
+/* Page wrappers: layout comes from ui-kit's .ui-page-stack; these hooks exist
+   for per-screen styling. */
+.city-ledger-screen,
+.exceptions-screen,
+.inventory-screen,
+.night-audit-screen,
+.rates-screen,
+.roster-screen,
+.settings-screen,
+.staff-screen {
+  /* intentionally minimal */
+}
+
 .staff-screen__shell {
   display: flex;
   flex-direction: column;

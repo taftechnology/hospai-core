@@ -7,10 +7,26 @@ import {
   type FolioPaymentRow,
   type FolioReadState,
 } from '@hospai/client-core';
-import { Alert, Badge, Button, Card, Input, NativeSelect, PageHeader } from '@hospai/ui-kit';
+import {
+  Alert,
+  AlertTitle,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Field,
+  Input,
+  NativeSelect,
+  PageHeader,
+  Total,
+  type StatusRung,
+} from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, type ReactNode } from 'react';
 import {
   hasPropertyPermission,
   meShellStateFromQuery,
@@ -88,6 +104,44 @@ function tenderLabel(p: FolioPaymentRow): string {
   return 'Card';
 }
 
+const RESERVATION_RUNG: Record<string, StatusRung> = {
+  checked_in: 'informational',
+  confirmed: 'settled',
+  pending: 'attention',
+  checked_out: 'informational',
+};
+
+function reservationRung(status: string): StatusRung {
+  return RESERVATION_RUNG[status] ?? 'neutral';
+}
+
+function formatFolioDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('day')} ${part('month')}`;
+}
+
+function formatFolioEpochDate(epochMs: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(epochMs));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('day')} ${part('month')}`;
+}
+
+function nightsBetween(arrival: string, departure: string): number {
+  const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
+
 function configBool(
   keys: Array<{ key: string; value: unknown }> | undefined,
   key: string,
@@ -135,6 +189,16 @@ function presentationFlag(presentation: Record<string, unknown> | undefined, key
   if (typeof snake === 'boolean') return snake;
   return true;
 }
+
+type LedgerRow = {
+  key: string;
+  sortKey: number;
+  date: string;
+  code: string;
+  description: ReactNode;
+  chargeMinor: number;
+  paymentMinor: number;
+};
 
 export function FolioScreen() {
   const { reservationId = '' } = useParams();
@@ -1027,6 +1091,65 @@ export function FolioScreen() {
   const tenderPayments = payments.filter(
     (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
   );
+  const propertyTz = propertyQ.data?.property?.timeZone ?? 'UTC';
+
+  const ledgerRows = useMemo(() => {
+    const rows: LedgerRow[] = [];
+    const tenderById = new Map<string, FolioPaymentRow>();
+    for (const p of tenderPayments) tenderById.set(p.paymentId, p);
+    for (const node of fold.roots) {
+      const line = node.line;
+      if (line.paymentId != null && tenderById.has(line.paymentId)) continue;
+      const date = line.businessDate
+        ? formatFolioDate(line.businessDate, propertyTz)
+        : formatFolioEpochDate(line.createdAt, propertyTz);
+      const sortKey = line.businessDate
+        ? Date.parse(`${line.businessDate}T00:00:00Z`)
+        : line.createdAt;
+      const parentDesc = chargeDescription(line.chargeCode, chargeCodes);
+      rows.push({
+        key: line.folioLineId,
+        sortKey,
+        date,
+        code: line.chargeCode,
+        description: node.orphanTax ? (
+          <>
+            <strong className="error">Orphan tax (data defect) </strong>
+            {parentDesc}
+          </>
+        ) : (
+          parentDesc
+        ),
+        chargeMinor: line.ledgerAmountMinor > 0 ? line.ledgerAmountMinor : 0,
+        paymentMinor: line.ledgerAmountMinor < 0 ? line.ledgerAmountMinor : 0,
+      });
+      for (const t of node.taxes) {
+        rows.push({
+          key: t.line.folioLineId,
+          sortKey,
+          date,
+          code: 'TAX',
+          description: `Tax · ${parentDesc}`,
+          chargeMinor: t.line.ledgerAmountMinor > 0 ? t.line.ledgerAmountMinor : 0,
+          paymentMinor: 0,
+        });
+      }
+    }
+    for (const p of tenderById.values()) {
+      const cash = tenderMethod(p) === 'Cash';
+      rows.push({
+        key: `pay-${p.paymentId}`,
+        sortKey: p.createdAt,
+        date: formatFolioEpochDate(p.createdAt, propertyTz),
+        code: cash ? 'CASH' : 'CARD',
+        description: cash ? 'Cash payment' : `Card payment · ${tenderLabel(p)}`,
+        chargeMinor: 0,
+        paymentMinor: -p.amountMinor,
+      });
+    }
+    rows.sort((a, b) => a.sortKey - b.sortKey);
+    return rows;
+  }, [fold, tenderPayments, chargeCodes, propertyTz]);
 
   const invoiceBody = invoiceQ.data?.body as
     | { snapshot?: InvoiceSnapshot; presentation?: Record<string, unknown> }
@@ -1037,58 +1160,297 @@ export function FolioScreen() {
   const showInvoiceTax = presentationFlag(invoicePresentation, 'showTaxfee');
   const folioDegraded = readState(folioQ) === 'fail_closed' || readState(reservationQ) === 'fail_closed';
 
+  const ledgerChargesMinor = ledgerRows.reduce((sum, r) => sum + r.chargeMinor, 0);
+  const ledgerPaymentsMinor = ledgerRows.reduce((sum, r) => sum + Math.max(0, -r.paymentMinor), 0);
+
   return (
     <>
-      <PageHeader title="Folio" />
-      <Card>
-      <p>
-        <Link to="/in-house">← In house</Link>
-      </p>
-      <p>
-        {guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : 'Guest'}
-        {reservationQ.data
-          ? ` · ${reservationQ.data.arrivalDate} → ${reservationQ.data.departureDate} · ${reservationStatusLabel(reservationQ.data.status)}`
-          : null}
-        {roomCode ? ` · room ${roomCode} ` : null}
-      </p>
-      {guestRef ? (
-        <p>
-          <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`}>Book for guest</Link>
-        </p>
-      ) : null}
+      <PageHeader
+        back={<Link to="/in-house">← In house</Link>}
+        title={guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : 'Guest'}
+        subtitle={
+          reservationQ.data
+            ? (() => {
+                const res = reservationQ.data;
+                return (
+                  <>
+                    <Badge rung={reservationRung(res.status)}>
+                      {reservationStatusLabel(res.status)}
+                    </Badge>
+                    {roomCode ? (
+                      <>
+                        <span className="sep">·</span> Room {roomCode}
+                      </>
+                    ) : null}
+                    <span className="sep">·</span>
+                    {formatFolioDate(res.arrivalDate, propertyTz)} →{' '}
+                    {formatFolioDate(res.departureDate, propertyTz)}
+                    <span className="sep">·</span>{' '}
+                    {nightsBetween(res.arrivalDate, res.departureDate)} nights
+                  </>
+                );
+              })()
+            : undefined
+        }
+        actions={
+          <>
+            {guestRef ? (
+              <Link className="ui-link-btn" to={`/book?guestRef=${encodeURIComponent(guestRef)}`}>
+                Book for guest
+              </Link>
+            ) : null}
+            {policy.canCheckout ? (
+              <Button
+                type="button"
+                intent="primary"
+                data-testid="check-out"
+                disabled={checkOut.isPending}
+                onClick={() => checkOut.mutate()}
+              >
+                Check out
+              </Button>
+            ) : null}
+          </>
+        }
+      />
 
       {folioQ.isError ? (
         <Alert data-testid="folio-unread">
           Folio unreadable — property unreachable
           {policy.reasons.charge ? ` · ${policy.reasons.charge}` : ''}
         </Alert>
-      ) : (
-        <p data-testid="folio-balance">
-          Balance {typeof balanceMinor === 'number' ? formatMinor(balanceMinor) : '…'}
-          {held > 0 ? ` · ${formatMinor(held)} held on card` : ''}
-          {noPost ? (
-            <Badge rung="informational" data-testid="no-post-chip">
-              {' '}
-              No-post
-            </Badge>
-          ) : null}
-          {folioQ.data?.balanceAtRisk ? (
-            <Badge rung="informational" data-testid="balance-at-risk">
-              {' '}
-              Balance at risk
-            </Badge>
-          ) : null}
-        </p>
-      )}
+      ) : null}
 
-      <section>
-        <h2>Tenders</h2>
-        {paymentsQ.isError ? (
-          <p className="muted">Payments unavailable</p>
-        ) : tenderPayments.length === 0 ? (
-          <p className="muted">No tenders</p>
-        ) : (
-          <ul>
+      {typeof balanceMinor === 'number' && balanceMinor < 0 ? (
+        <Alert intent="informational" data-testid="folio-credit-notice">
+          <AlertTitle>Guest credit {formatMinor(Math.abs(balanceMinor))}</AlertTitle>
+          <span>The folio is overpaid. Issue a refund after departure if the guest asks for one.</span>
+        </Alert>
+      ) : null}
+
+      {policy.canCheckout && folioQ.isError ? (
+        <Alert data-testid="checkout-outage-copy">
+          {policy.reasons.checkout ??
+            'Folio unavailable; checking out will not settle any balance.'}
+        </Alert>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Charges &amp; payments</CardTitle>
+        </CardHeader>
+        <CardContent flush>
+          {folioQ.isError ? (
+            <p className="muted">Lines unavailable</p>
+          ) : (
+            <div className="ui-table-scroll">
+              <table className="ui-table" data-testid="folio-lines">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Code</th>
+                    <th>Description</th>
+                    <th align="right">Charge</th>
+                    <th align="right">Payment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerRows.map((row) => (
+                    <tr key={row.key}>
+                      <td className="ui-num">{row.date}</td>
+                      <td className="ui-code">{row.code}</td>
+                      <td>{row.description}</td>
+                      <td align="right">
+                        {row.chargeMinor > 0 ? formatMinor(row.chargeMinor) : '—'}
+                      </td>
+                      <td align="right">
+                        {row.paymentMinor < 0 ? formatMinor(row.paymentMinor) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+        {!folioQ.isError ? (
+          <CardFooter>
+            <dl className="ui-summary">
+              <dt>Charges</dt>
+              <dd>{formatMinor(ledgerChargesMinor)}</dd>
+              <dt>Payments</dt>
+              <dd>{formatMinor(-ledgerPaymentsMinor)}</dd>
+            </dl>
+          </CardFooter>
+        ) : null}
+      </Card>
+
+      <div className="folio-forms">
+        <Card>
+          <CardHeader>
+            <CardTitle>Post a charge</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ui-row">
+              <Field
+                size="sm"
+                label="Charge code"
+                control={
+                  <NativeSelect
+                    aria-label="charge-code"
+                    value={chargeCode}
+                    onChange={(e) => setChargeCode(e.target.value)}
+                    disabled={!policy.canPostCharge}
+                  >
+                    {chargeCodes.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Field
+                size="xs"
+                label="Amount"
+                control={
+                  <Input
+                    aria-label="charge-amount"
+                    value={chargeAmount}
+                    onChange={(e) => setChargeAmount(e.target.value)}
+                    disabled={!policy.canPostCharge}
+                  />
+                }
+              />
+              <Button
+                type="button"
+                data-testid="add-charge"
+                disabled={!policy.canPostCharge || addCharge.isPending}
+                onClick={() => addCharge.mutate()}
+              >
+                Post charge
+              </Button>
+            </div>
+            {!policy.canPostCharge && policy.reasons.charge ? (
+              <p className="muted">{policy.reasons.charge}</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Take a payment</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ui-stack">
+              {openShiftQ.isSuccess &&
+              (openShiftQ.data as { shift?: unknown } | undefined)?.shift == null ? (
+                <p className="muted" data-testid="cash-no-shift-warn">
+                  No open cashier shift.
+                </p>
+              ) : null}
+              <div className="ui-row">
+                <Field
+                  size="xs"
+                  label="Cash"
+                  control={
+                    <Input
+                      aria-label="cash-amount"
+                      value={cashAmount}
+                      onChange={(e) => setCashAmount(e.target.value)}
+                      disabled={!policy.canPay}
+                    />
+                  }
+                />
+                <Button
+                  type="button"
+                  data-testid="record-cash"
+                  disabled={!policy.canPay || cashPay.isPending}
+                  onClick={() => cashPay.mutate()}
+                >
+                  Record cash
+                </Button>
+              </div>
+              <div className="ui-row">
+                <Field
+                  size="xs"
+                  label="Card"
+                  control={
+                    <Input
+                      aria-label="auth-amount"
+                      value={authAmount}
+                      onChange={(e) => setAuthAmount(e.target.value)}
+                      disabled={!policy.canPay}
+                    />
+                  }
+                />
+                <Button
+                  type="button"
+                  data-testid="authorize-card"
+                  disabled={!policy.canPay || authorize.isPending}
+                  onClick={() => authorize.mutate()}
+                >
+                  Charge card
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent>
+          <div data-testid="folio-balance">
+            <Total
+              label="Balance due"
+              tone={
+                typeof balanceMinor !== 'number'
+                  ? 'neutral'
+                  : balanceMinor < 0
+                    ? 'credit'
+                    : 'due'
+              }
+              value={
+                typeof balanceMinor === 'number'
+                  ? balanceMinor < 0
+                    ? `${formatMinor(Math.abs(balanceMinor))} credit`
+                    : formatMinor(balanceMinor)
+                  : '…'
+              }
+            />
+            {held > 0 || noPost || folioQ.data?.balanceAtRisk ? (
+              <div className="ui-row">
+                {held > 0 ? (
+                  <span className="muted">{formatMinor(held)} held on card</span>
+                ) : null}
+                {noPost ? (
+                  <Badge rung="informational" data-testid="no-post-chip">
+                    No-post
+                  </Badge>
+                ) : null}
+                {folioQ.data?.balanceAtRisk ? (
+                  <Badge rung="informational" data-testid="balance-at-risk">
+                    Balance at risk
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tenders</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {paymentsQ.isError ? (
+            <p className="muted">Payments unavailable</p>
+          ) : tenderPayments.length === 0 ? (
+            <p className="muted">No tenders</p>
+          ) : (
+            <ul>
             {tenderPayments.map((p) => {
               const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
               const defaultAmt = formatMinor(remaining);
@@ -1185,127 +1547,10 @@ export function FolioScreen() {
                 </li>
               );
             })}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h2>Lines</h2>
-        {folioQ.isError ? (
-          <p className="muted">Lines unavailable</p>
-        ) : (
-          <ul data-testid="folio-lines">
-            {fold.roots.map((node) => (
-              <li key={node.line.folioLineId}>
-                {node.orphanTax ? (
-                  <strong className="error">Orphan tax (data defect) </strong>
-                ) : null}
-                {chargeDescription(node.line.chargeCode, chargeCodes)}{' '}
-                {formatMinor(node.line.ledgerAmountMinor)}
-                {node.taxes.length > 0 ? (
-                  <ul>
-                    {node.taxes.map((t) => (
-                      <li key={t.line.folioLineId}>Tax {formatMinor(t.line.ledgerAmountMinor)}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="stack-row">
-        <h2>Post charge</h2>
-        <Input
-          aria-label="charge-code"
-          value={chargeCode}
-          onChange={(e) => setChargeCode(e.target.value)}
-          disabled={!policy.canPostCharge}
-        />
-        <Input
-          aria-label="charge-amount"
-          value={chargeAmount}
-          onChange={(e) => setChargeAmount(e.target.value)}
-          disabled={!policy.canPostCharge}
-        />
-        <Button
-          type="button"
-          data-testid="add-charge"
-          disabled={!policy.canPostCharge || addCharge.isPending}
-          onClick={() => addCharge.mutate()}
-        >
-          Add charge
-        </Button>
-        {!policy.canPostCharge && policy.reasons.charge ? (
-          <p className="muted">{policy.reasons.charge}</p>
-        ) : null}
-      </section>
-
-      <section className="stack-row">
-        <h2>Take payment</h2>
-        {openShiftQ.isSuccess &&
-        (openShiftQ.data as { shift?: unknown } | undefined)?.shift == null ? (
-          <p className="muted" data-testid="cash-no-shift-warn">
-            No open cashier shift.
-          </p>
-        ) : null}
-        <Input
-          aria-label="cash-amount"
-          value={cashAmount}
-          onChange={(e) => setCashAmount(e.target.value)}
-          disabled={!policy.canPay}
-        />
-        <Button
-          type="button"
-          data-testid="record-cash"
-          disabled={!policy.canPay || cashPay.isPending}
-          onClick={() => cashPay.mutate()}
-        >
-          Record cash
-        </Button>
-        <Input
-          aria-label="auth-amount"
-          value={authAmount}
-          onChange={(e) => setAuthAmount(e.target.value)}
-          disabled={!policy.canPay}
-        />
-        <Button
-          type="button"
-          data-testid="authorize-card"
-          disabled={!policy.canPay || authorize.isPending}
-          onClick={() => authorize.mutate()}
-        >
-          Charge card
-        </Button>
-      </section>
-
-      <section>
-        {policy.canCheckout ? (
-          <>
-            {folioQ.isError ? (
-              <Alert data-testid="checkout-outage-copy">
-                {policy.reasons.checkout ??
-                  'Folio unavailable; checking out will not settle any balance.'}
-              </Alert>
-            ) : null}
-            {typeof balanceMinor === 'number' && balanceMinor < 0 ? (
-              <Alert data-testid="folio-credit-notice">
-                Guest credit {formatMinor(Math.abs(balanceMinor))} — issue a refund after
-                departure if needed.
-              </Alert>
-            ) : null}
-            <Button
-              type="button"
-              data-testid="check-out"
-              disabled={checkOut.isPending}
-              onClick={() => checkOut.mutate()}
-            >
-              Check out
-            </Button>
-          </>
-        ) : null}
-      </section>
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       {canGenerateInvoice ? (
         <section>
@@ -1852,7 +2097,6 @@ export function FolioScreen() {
           <p className="muted">Indicative — captured at the rate in force at capture.</p>
         ) : null}
       </details>
-    </Card>
     </>
   );
 }

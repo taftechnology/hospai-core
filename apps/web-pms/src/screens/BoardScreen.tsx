@@ -12,9 +12,11 @@ import {
 } from '@hospai/contracts/reservation-status';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
+  CardFooter,
   CardHeader,
   CardTitle,
   DataTable,
@@ -23,18 +25,12 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
-  Field,
   Input,
   PageHeader,
   RowActions,
 } from '@hospai/ui-kit';
 import type { BoardMode } from '../status/board-mode.js';
 
-const BOARD_SECTION_TITLE: Record<BoardMode, string> = {
-  arrivals: 'Arrivals',
-  departures: 'Due out',
-  'in-house': 'In-house',
-};
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -42,7 +38,6 @@ import { api, asClassified, tenant } from '../client.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
-import { reservationStatusLabel } from '../status/reservation-status-label.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -67,6 +62,60 @@ function partitionDepartures(items: FrontDeskItem[]) {
     else other.push(row);
   }
   return { dueOut, departed, other };
+}
+
+function formatLongDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('weekday')}, ${part('day')} ${part('month')} ${part('year')}`;
+}
+
+function formatBoardDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('day')} ${part('month')}`;
+}
+
+function nightsBetween(arrival: string, departure: string): number {
+  const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
+
+function boardStatusBadge(
+  mode: BoardMode,
+  status: string,
+): { rung: 'settled' | 'neutral' | 'informational' | 'attention' | 'exception'; label: string } {
+  const s = asReservationStatus(status);
+  if (mode === 'departures' && s === 'checked_in') return { rung: 'attention', label: 'Due out' };
+  if (mode === 'in-house' && s === 'checked_in') return { rung: 'informational', label: 'In house' };
+  switch (s) {
+    case 'confirmed':
+      return { rung: 'neutral', label: 'Confirmed' };
+    case 'pending':
+      return { rung: 'attention', label: 'Pending' };
+    case 'checked_out':
+      return { rung: 'neutral', label: 'Departed' };
+    case 'no_show':
+      return { rung: 'attention', label: 'No-show' };
+    case 'cancelled':
+      return { rung: 'neutral', label: 'Cancelled' };
+    case 'inquiry':
+      return { rung: 'neutral', label: 'Inquiry' };
+    default:
+      return { rung: 'neutral', label: status };
+  }
 }
 
 function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
@@ -103,6 +152,7 @@ function BoardTable({
   roomsById: Map<string, string>;
 }) {
   const today = timeZone ? propertyLocalToday(timeZone) : null;
+  const showDeparture = mode === 'in-house';
 
   return (
     <DataTable>
@@ -110,8 +160,13 @@ function BoardTable({
         <DataTableRow>
           <DataTableHeaderCell>Guest</DataTableHeaderCell>
           <DataTableHeaderCell>Room</DataTableHeaderCell>
+          <DataTableHeaderCell align="right">
+            {showDeparture ? 'Departure' : 'Nights'}
+          </DataTableHeaderCell>
           <DataTableHeaderCell>Status</DataTableHeaderCell>
-          <DataTableHeaderCell />
+          <DataTableHeaderCell align="right">
+            <span className="ui-visually-hidden">Actions</span>
+          </DataTableHeaderCell>
         </DataTableRow>
       </DataTableHead>
       <DataTableBody>
@@ -128,6 +183,11 @@ function BoardTable({
           const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
           const guestSev = guestSeverity(guestState);
           const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
+          const badge = boardStatusBadge(mode, row.status);
+          const nights =
+            typeof row.arrivalDate === 'string'
+              ? nightsBetween(row.arrivalDate, row.departureDate)
+              : null;
           return (
             <DataTableRow key={row.reservationId} rung={rowSev}>
               <DataTableCell rung={guestSev}>
@@ -140,31 +200,71 @@ function BoardTable({
                   <span data-testid="badge-dnd"> DND</span>
                 ) : null}
               </DataTableCell>
-              <DataTableCell>{roomCode}</DataTableCell>
-              <DataTableCell>{reservationStatusLabel(row.status)}</DataTableCell>
               <DataTableCell>
+                {roomCode || (mode === 'arrivals' ? <span className="muted">Unassigned</span> : '')}
+              </DataTableCell>
+              <DataTableCell align="right">
+                <span className="ui-num">
+                  {showDeparture
+                    ? formatBoardDate(row.departureDate, timeZone ?? 'UTC')
+                    : nights != null
+                      ? nights
+                      : '—'}
+                </span>
+              </DataTableCell>
+              <DataTableCell>
+                <Badge rung={badge.rung}>{badge.label}</Badge>
+              </DataTableCell>
+              <DataTableCell align="right">
                 {mode === 'arrivals' && status === 'pending' ? (
-                  <>
-                    <ConfirmPendingButton reservationId={row.reservationId} />
-                    <RowActions>
-                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
-                      <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
-                        Book for guest
-                      </Link>
-                    </RowActions>
-                  </>
-                ) : mode === 'arrivals' && status !== 'pending' ? (
                   <RowActions>
-                    <Link to={`/check-in/${encodeURIComponent(row.reservationId)}`}>Check in</Link>
-                    <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
-                    <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                    <ConfirmPendingButton reservationId={row.reservationId} />
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/folio/${encodeURIComponent(row.reservationId)}`}
+                    >
+                      Folio
+                    </Link>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}
+                    >
+                      Book for guest
+                    </Link>
+                  </RowActions>
+                ) : mode === 'arrivals' ? (
+                  <RowActions>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm ui-link-btn--primary"
+                      to={`/check-in/${encodeURIComponent(row.reservationId)}`}
+                    >
+                      Check in
+                    </Link>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/folio/${encodeURIComponent(row.reservationId)}`}
+                    >
+                      Folio
+                    </Link>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}
+                    >
                       Book for guest
                     </Link>
                   </RowActions>
                 ) : (
                   <RowActions>
-                    <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>Folio</Link>
-                    <Link to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/folio/${encodeURIComponent(row.reservationId)}`}
+                    >
+                      Folio
+                    </Link>
+                    <Link
+                      className="ui-link-btn ui-link-btn--sm"
+                      to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}
+                    >
                       Book for guest
                     </Link>
                   </RowActions>
@@ -199,7 +299,7 @@ function DeparturesBoard({
   return (
     <>
       {sections.map((section) => (
-        <section key={section.title} className="board-group">
+        <section key={section.title} className="board-group board-group--flush">
           <h2 className="board-group-title">{section.title}</h2>
           {section.rows.length === 0 ? (
             <p className="muted">None</p>
@@ -215,6 +315,59 @@ function DeparturesBoard({
         </section>
       ))}
     </>
+  );
+}
+
+function SectionCard({
+  title,
+  badge,
+  isLoading,
+  error,
+  empty,
+  next,
+  onNext,
+  children,
+}: {
+  title: string;
+  badge?: ReactNode;
+  isLoading?: boolean;
+  error?: string | null;
+  empty?: string | null;
+  next?: string | null;
+  onNext?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {badge}
+      </CardHeader>
+      {error ? (
+        <CardContent>
+          <p className="muted">{error}</p>
+        </CardContent>
+      ) : isLoading ? (
+        <CardContent>
+          <p className="muted">Loading…</p>
+        </CardContent>
+      ) : empty ? (
+        <CardContent>
+          <p className="muted">{empty}</p>
+        </CardContent>
+      ) : (
+        <>
+          <CardContent flush>{children}</CardContent>
+          {next ? (
+            <CardFooter>
+              <Button type="button" onClick={onNext}>
+                Next page
+              </Button>
+            </CardFooter>
+          ) : null}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -263,6 +416,25 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
 
+  const [depCursor, setDepCursor] = useState<string | null>(null);
+  const [inHouseCursor, setInHouseCursor] = useState<string | null>(null);
+
+  const departuresQ = useQuery({
+    queryKey: ['board', 'departures', tenant.propertyId, date, depCursor],
+    queryFn: () => api.getDepartures(tenant.propertyId, date!, depCursor),
+    enabled: mode === 'arrivals' && date != null,
+    retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
+    retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
+  });
+
+  const inHouseQ = useQuery({
+    queryKey: ['board', 'in-house', tenant.propertyId, null, inHouseCursor],
+    queryFn: () => api.getInHouse(tenant.propertyId, inHouseCursor),
+    enabled: mode === 'arrivals',
+    retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
+    retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
+  });
+
   const roomsQ = useQuery({
     queryKey: ['rooms', tenant.propertyId],
     queryFn: () => api.listRooms(tenant.propertyId),
@@ -274,15 +446,20 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     return map;
   }, [roomsQ.data]);
 
-  const refs = useMemo(
-    () => [...new Set((listQ.data?.items ?? []).map((i) => i.guestRef))],
-    [listQ.data],
-  );
+  const refs = useMemo(() => {
+    const all = [
+      ...(listQ.data?.items ?? []),
+      ...(departuresQ.data?.items ?? []),
+      ...(inHouseQ.data?.items ?? []),
+    ];
+    return [...new Set(all.map((i) => i.guestRef))];
+  }, [listQ.data, departuresQ.data, inHouseQ.data]);
 
   const batchQ = useQuery({
     queryKey: ['guests-batch', tenant.propertyId, refs.join('|')],
     queryFn: () => api.postGuestsBatch(tenant.propertyId, refs),
-    enabled: refs.length > 0 && listQ.isSuccess,
+    enabled:
+      refs.length > 0 && (listQ.isSuccess || departuresQ.isSuccess || inHouseQ.isSuccess),
     retry: false,
   });
 
@@ -303,66 +480,164 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const items = listQ.data?.items ?? [];
   const states = batchQ.data?.states ?? {};
 
+  const dateLoading = (mode === 'arrivals' || mode === 'departures') && date == null;
+
   let body: ReactNode;
-  if ((mode === 'arrivals' || mode === 'departures') && date == null) {
+  if (dateLoading) {
     body = <p className="muted">Loading…</p>;
   } else if (listQ.isLoading) {
     body = <p className="muted">Loading…</p>;
+  } else if (mode === 'arrivals') {
+    const depItems = departuresQ.data?.items ?? [];
+    const inHouseItems = inHouseQ.data?.items ?? [];
+    const dueOutCount = partitionDepartures(depItems).dueOut.length;
+    body = (
+      <>
+        <SectionCard
+          title="Arrivals"
+          badge={<Badge rung="neutral">{items.length} expected</Badge>}
+          isLoading={listQ.isLoading}
+          error={listQ.isError ? 'Arrivals unavailable' : null}
+          empty={items.length === 0 ? 'No arrivals for this date' : null}
+          next={listQ.data?.nextCursor}
+          onNext={() => setCursor(listQ.data!.nextCursor!)}
+        >
+          <BoardTable
+            mode="arrivals"
+            items={items}
+            states={states}
+            timeZone={timeZone}
+            roomsById={roomsById}
+          />
+        </SectionCard>
+        <SectionCard
+          title="Departures"
+          badge={<Badge rung="attention">{dueOutCount} due out</Badge>}
+          isLoading={departuresQ.isLoading}
+          error={departuresQ.isError ? 'Departures unavailable' : null}
+          empty={depItems.length === 0 ? 'No departures for this date' : null}
+          next={departuresQ.data?.nextCursor}
+          onNext={() => setDepCursor(departuresQ.data!.nextCursor!)}
+        >
+          <DeparturesBoard
+            items={depItems}
+            states={states}
+            timeZone={timeZone}
+            roomsById={roomsById}
+          />
+        </SectionCard>
+        <SectionCard
+          title="In House"
+          badge={<Badge rung="informational">{inHouseItems.length} guests</Badge>}
+          isLoading={inHouseQ.isLoading}
+          error={inHouseQ.isError ? 'In-house unavailable' : null}
+          empty={inHouseItems.length === 0 ? 'No guests in house' : null}
+          next={inHouseQ.data?.nextCursor}
+          onNext={() => setInHouseCursor(inHouseQ.data!.nextCursor!)}
+        >
+          <BoardTable
+            mode="in-house"
+            items={inHouseItems}
+            states={states}
+            timeZone={timeZone}
+            roomsById={roomsById}
+          />
+        </SectionCard>
+      </>
+    );
   } else if (items.length === 0) {
-    body = <p className="muted">No reservations for this view</p>;
+    body = (
+      <SectionCard
+        title={mode === 'departures' ? 'Departures' : 'In House'}
+        badge={
+          mode === 'departures' ? (
+            <Badge rung="attention">0 due out</Badge>
+          ) : (
+            <Badge rung="informational">0 guests</Badge>
+          )
+        }
+        empty="No reservations for this view"
+      />
+    );
   } else if (mode === 'departures') {
-    body = <DeparturesBoard items={items} states={states} timeZone={timeZone} roomsById={roomsById} />;
+    const dueOutCount = partitionDepartures(items).dueOut.length;
+    body = (
+      <SectionCard
+        title="Departures"
+        badge={<Badge rung="attention">{dueOutCount} due out</Badge>}
+        next={listQ.data?.nextCursor}
+        onNext={() => setCursor(listQ.data!.nextCursor!)}
+      >
+        <DeparturesBoard
+          items={items}
+          states={states}
+          timeZone={timeZone}
+          roomsById={roomsById}
+        />
+      </SectionCard>
+    );
   } else {
     body = (
-      <BoardTable mode={mode} items={items} states={states} timeZone={timeZone} roomsById={roomsById} />
+      <SectionCard
+        title="In House"
+        badge={<Badge rung="informational">{items.length} guests</Badge>}
+        next={listQ.data?.nextCursor}
+        onNext={() => setCursor(listQ.data!.nextCursor!)}
+      >
+        <BoardTable
+          mode="in-house"
+          items={items}
+          states={states}
+          timeZone={timeZone}
+          roomsById={roomsById}
+        />
+      </SectionCard>
     );
   }
 
   const summaryDate = date ?? (timeZone ? propertyLocalToday(timeZone) : null);
+  const headerDate = summaryDate;
 
   return (
-    <div>
+    <div className="board-page">
       {createdBanner ? (
         <Card role="status" data-testid="created-banner">
           Reservation {createdBanner} created
         </Card>
       ) : null}
 
-      <PageHeader title="Front Desk" />
-      <BoardSummary date={summaryDate} />
-
-      <Card>
-        <CardHeader>
-          <header className="board-header">
-            <CardTitle>{BOARD_SECTION_TITLE[mode]}</CardTitle>
+      <PageHeader
+        title="Front Desk"
+        subtitle={
+          headerDate
+            ? `${formatLongDate(headerDate, timeZone ?? 'UTC')} · arrivals and departures for the business date`
+            : undefined
+        }
+        actions={
+          <>
             {mode !== 'in-house' ? (
-              <Field
-                size="xs"
-                label="Date"
-                control={
-                  <Input
-                    type="date"
-                    data-testid="board-date"
-                    value={date ?? ''}
-                    onChange={(e) => {
-                      setCursor(null);
-                      setDate(e.target.value);
-                    }}
-                  />
-                }
-              />
+              <div className="ui-field ui-field--xs">
+                <Input
+                  type="date"
+                  data-testid="board-date"
+                  aria-label="Business date"
+                  value={date ?? ''}
+                  onChange={(e) => {
+                    setCursor(null);
+                    setDepCursor(null);
+                    setDate(e.target.value);
+                  }}
+                />
+              </div>
             ) : null}
-          </header>
-        </CardHeader>
-        <CardContent>
-          {body}
-          {listQ.data?.nextCursor ? (
-            <Button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>
-              Next page
-            </Button>
-          ) : null}
-        </CardContent>
-      </Card>
+            <Link className="ui-link-btn ui-link-btn--primary" to="/book">
+              New booking
+            </Link>
+          </>
+        }
+      />
+      <BoardSummary date={summaryDate} />
+      {body}
     </div>
   );
 }

@@ -4,10 +4,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
+  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -48,6 +50,11 @@ function asGuestPage(result: unknown): { items: GuestDirItem[]; nextCursor: stri
 
 function formatCreated(createdAt: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(createdAt));
+}
+
+function displayGuestField(value?: string): ReactNode {
+  const normalized = value?.trim();
+  return normalized ? normalized : <span className="muted">—</span>;
 }
 
 export function GuestsDirectoryScreen() {
@@ -110,6 +117,7 @@ export function GuestsDirectoryScreen() {
               <DataTableCell>
                 <Link
                   to={`/guests/${encodeURIComponent(row.guestId)}`}
+                  className="guest-directory__name"
                   data-testid="guest-profile-link"
                 >
                   {row.profile.displayName}
@@ -118,8 +126,8 @@ export function GuestsDirectoryScreen() {
                   {row.guestId}
                 </div>
               </DataTableCell>
-              <DataTableCell>{row.profile.email ?? ''}</DataTableCell>
-              <DataTableCell>{row.profile.phone ?? ''}</DataTableCell>
+              <DataTableCell>{displayGuestField(row.profile.email)}</DataTableCell>
+              <DataTableCell>{displayGuestField(row.profile.phone)}</DataTableCell>
               <DataTableCell>{formatCreated(row.createdAt)}</DataTableCell>
             </DataTableRow>
           ))}
@@ -127,6 +135,8 @@ export function GuestsDirectoryScreen() {
       </DataTable>
     );
   }
+
+  const hasTable = !failClosed && !listQ.isLoading && page.items.length > 0;
 
   function goNext() {
     if (!page.nextCursor) return;
@@ -137,14 +147,15 @@ export function GuestsDirectoryScreen() {
   }
 
   return (
-    <div>
-      <PageHeader title="Guests" />
-      <div aria-live="polite">
-      <Card>
-        <CardHeader>
-          <header className="board-header">
+    <div className="ui-page-stack">
+      <PageHeader
+        title="Guests"
+        subtitle="Guest directory · The Meridian Seattle"
+        actions={
+          <div className="guest-directory__actions">
             <Field
-              label="Name, email, or phone"
+              size="lg"
+              label={<span className="ui-visually-hidden">Name, email, or phone</span>}
               control={
                 <Input
                   type="search"
@@ -157,17 +168,31 @@ export function GuestsDirectoryScreen() {
                 />
               }
             />
-          </header>
-        </CardHeader>
-        <CardContent>
-          {results}
-          {page.nextCursor ? (
-            <Button type="button" onClick={goNext}>
-              Next
-            </Button>
-          ) : null}
-        </CardContent>
-      </Card>
+            <Link className="ui-link-btn ui-link-btn--primary" to="/book">
+              New booking
+            </Link>
+          </div>
+        }
+      />
+      <div aria-live="polite">
+        <Card>
+          <CardHeader>
+            <CardTitle>All guests</CardTitle>
+            <Badge rung="neutral">
+              {page.items.length} {page.items.length === 1 ? 'profile' : 'profiles'}
+            </Badge>
+          </CardHeader>
+          <CardContent flush>
+            <div className={hasTable ? undefined : 'guest-directory__state'}>{results}</div>
+            {page.nextCursor ? (
+              <div className="guest-directory__pagination">
+                <Button type="button" onClick={goNext}>
+                  Next
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

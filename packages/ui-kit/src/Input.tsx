@@ -68,7 +68,7 @@ export const Input = forwardRef(function Input(
   return (
     <input
       ref={ref}
-      className="ui-input"
+      className={type === 'radio' ? 'ui-radio' : 'ui-input'}
       type={type}
       value={value}
       defaultValue={defaultValue}

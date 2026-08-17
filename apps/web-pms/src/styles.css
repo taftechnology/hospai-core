@@ -4,7 +4,7 @@
 /* App-shell layout metrics. Type, spacing, and control scales come from
    ui-kit; these three are the shell's own and are not colours. */
 :root {
-  --content-max: 78rem;
+  --content-max: 100rem;
   --sidebar-w: 15rem;
   --rail-h: 3.5rem;
 }
@@ -130,7 +130,7 @@ a {
 }
 
 .app-sidebar-footer {
-  padding: 1rem;
+  padding: 1.25rem 1rem;
   border-top: 1px solid var(--line);
   background: var(--selected);
   font-size: 0.75rem;
@@ -139,6 +139,7 @@ a {
 .app-main {
   flex: 1;
   min-width: 0;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -278,13 +279,19 @@ a {
 }
 
 /* Content is capped so tables and fields stop bleeding off the right edge
-   on wide monitors. Wide tables scroll inside .ui-table-scroll instead. */
+   on wide monitors. Wide tables scroll inside .ui-table-scroll instead.
+   width:100% + margin-inline:auto centers the column once the viewport
+   exceeds the cap; border-box keeps padding inside the 1600px. */
 .main {
-  padding: var(--space-5);
+  box-sizing: border-box;
+  width: 100%;
   max-inline-size: var(--content-max);
+  margin-inline: auto;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  flex: 1;
 }
 
 .error {
@@ -349,14 +356,14 @@ a {
 .tape-scroller {
   overflow: auto;
   touch-action: manipulation;
-  overscroll-behavior: contain;
   max-block-size: min(70vh, calc(100dvh - 18rem));
+  font-size: var(--text-sm);
 }
 
 .tape-row {
   display: grid;
   align-items: stretch;
-  grid-template-columns: minmax(7rem, 9rem) repeat(var(--tape-cols, 1), minmax(4.5rem, 1fr));
+  grid-template-columns: 6.5rem repeat(var(--tape-cols, 1), minmax(5rem, 1fr));
 }
 
 .tape-room {
@@ -366,17 +373,28 @@ a {
   grid-column: 1;
   grid-row: 1;
   background: var(--panel);
-  padding: 0.35rem 0.5rem;
+  padding: 0.375rem 0.75rem;
   border-bottom: 1px solid var(--line);
   border-right: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .tape-cell {
   min-width: 0;
+  min-height: 2rem;
   grid-column: var(--tape-col);
   grid-row: 1;
   border-bottom: 1px solid var(--line);
   border-right: 1px solid var(--line);
+}
+
+.tape-cell--today {
+  background: color-mix(in srgb, var(--primary) 6%, var(--panel));
 }
 
 .tape-block {
@@ -387,31 +405,65 @@ a {
   min-width: 0;
   grid-column: var(--tape-col-start) / var(--tape-col-end);
   grid-row: 1;
-  margin: 0.15rem;
-  padding: 0.2rem 0.4rem;
+  margin: 0.1875rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 2px);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  align-self: center;
+}
+
+.tape-block--unassigned {
+  background: var(--selected);
+  color: var(--muted);
+  border-color: var(--line);
+  border-style: dashed;
 }
 
 .tape-header-cell {
-  padding: 0.35rem 0.4rem;
+  padding: 0.5rem 0.4rem;
   grid-column: var(--tape-col);
   grid-row: 1;
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* Header row pins to the top of the scroller; corner cell sticks left too */
+.tape-row:first-child {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
   background: var(--panel);
 }
 
-/* Header corner cell (empty .tape-room in date row) sticks on vertical scroll too */
 .tape-row:first-child .tape-room {
-  top: 0;
-  z-index: 3;
+  z-index: 4;
 }
 
 .tape-type {
-  margin: 0.75rem 0 0.25rem;
-  font-size: 0.9rem;
+  margin: 0;
+  padding: 0.375rem 0.75rem;
+  background: var(--selected);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.available-note {
+  margin: 0;
+  padding: 0.75rem 1rem 0;
+  font-size: var(--text-sm);
+  max-inline-size: 40rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -502,7 +554,7 @@ details.side-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 0.5rem 0.75rem;
+  padding: 0.25rem 0.75rem;
 }
 
 details.side-panel summary {
@@ -524,6 +576,12 @@ details.side-panel summary {
 
 .board-group {
   margin-bottom: 1.25rem;
+}
+
+/* Section headers sit on a flush card body; pad them to the table text. */
+.board-group--flush .board-group-title,
+.board-group--flush > .muted {
+  padding-inline: 0.75rem;
 }
 
 .board-group-title {
@@ -675,4 +733,264 @@ details.side-panel summary {
   flex-direction: column;
   gap: 0.75rem;
   margin-block-start: 1rem;
+}
+
+/* Folio: post-a-charge / take-a-payment cards sit side by side. */
+.folio-forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+}
+
+/* Guest profile contact details. */
+.guest-directory__state {
+  padding: var(--space-4);
+}
+
+.guest-directory__actions {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  inline-size: min(35rem, calc(100vw - 3rem));
+}
+
+.guest-directory__actions .ui-field {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  max-inline-size: none;
+}
+
+.guest-directory__actions .ui-field__label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.guest-directory__actions .ui-input,
+.guest-directory__actions .ui-link-btn {
+  block-size: var(--control-h);
+}
+
+.guest-directory__name {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.guest-directory__name:hover {
+  text-decoration: underline;
+}
+
+.guest-directory__pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-3) var(--space-4);
+  border-block-start: 1px solid var(--line);
+}
+
+.guest-profile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Front desk boards stack cards vertically with the shell's rhythm. */
+.board-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Reservations toolbar search — 29rem ≈ 20% below the lg field cap. */
+.directory-search {
+  inline-size: 29rem;
+  max-inline-size: 100%;
+}
+
+.directory-search .ui-field {
+  inline-size: 100%;
+}
+
+/* Booking footer actions sit right; Hold/Quote lead, Confirm on the right. */
+.ui-card__footer .book-actions {
+  margin-inline-start: auto;
+  align-items: center;
+}
+
+/* Keep a group of fields together on one line (e.g. Rate plan + Promo). */
+.ui-row--nowrap {
+  flex-wrap: nowrap;
+}
+
+.guest-contact {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4375rem var(--space-4);
+  margin: 0;
+}
+
+.guest-contact dt {
+  color: var(--muted);
+}
+
+.guest-contact dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+/* Guest edit form: fields, then a two-button row, then a wide Erase. */
+.guest-edit-form {
+  margin-block-start: var(--space-3);
+}
+
+.guest-actions {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
+  gap: var(--space-3);
+  margin-block-start: var(--space-3);
+}
+
+.guest-actions--solo .ui-btn {
+  grid-column: 1 / -1;
+}
+
+.rates-screen__notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-block-end: 1px solid var(--line);
+}
+
+.rates-plans__table .ui-table {
+  min-inline-size: 48rem;
+}
+
+.rates-plans__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  align-items: end;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.rates-plans__form > h2,
+.rates-plans__form > .ui-field:has(.ui-textarea) {
+  grid-column: 1 / -1;
+}
+
+.rates-plans__form > .ui-field:has(.ui-textarea) {
+  max-inline-size: none;
+}
+
+.rates-plans__form > .ui-btn {
+  justify-self: start;
+}
+
+.rates-plans__promo-form > .ui-btn {
+  grid-column: 1 / -1;
+}
+
+.rates-matrix__table .ui-field {
+  max-inline-size: none;
+}
+
+.rates-matrix__table .ui-table {
+  min-inline-size: 70rem;
+}
+
+.rates-matrix__table .ui-table th:first-child,
+.rates-matrix__table .ui-table td:first-child {
+  min-inline-size: 14rem;
+}
+
+.rates-matrix__table .ui-table th:not(:first-child),
+.rates-matrix__table .ui-table td:not(:first-child) {
+  min-inline-size: 9rem;
+}
+
+.rates-matrix__table .ui-input {
+  min-inline-size: 8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rates-matrix__bulk {
+  flex-direction: column;
+  max-inline-size: 100%;
+  margin: 0;
+  padding-block-end: var(--space-2);
+}
+
+.rates-matrix__bulk-options,
+.rates-matrix__bulk-actions {
+  display: flex;
+  gap: var(--space-3);
+  max-inline-size: 100%;
+}
+
+.rates-matrix__bulk-options {
+  flex-direction: column;
+  align-items: flex-start;
+  inline-size: 100%;
+}
+
+.rates-matrix__bulk-options > h2,
+.rates-matrix__bulk-checkboxes > .ui-field,
+.rates-matrix__bulk-actions > .ui-field,
+.rates-matrix__bulk-actions > .ui-btn {
+  flex: 0 0 auto;
+}
+
+.rates-matrix__bulk-checkboxes {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--space-3);
+  inline-size: max-content;
+  min-inline-size: max-content;
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+
+.rates-matrix__bulk-actions {
+  flex-direction: column;
+  align-items: flex-start;
+  inline-size: var(--field-sm);
+  overflow-x: auto;
+}
+
+.rates-matrix__bulk-checkboxes > .ui-field,
+.rates-matrix__bulk-actions > .ui-field {
+  inline-size: auto;
+  max-inline-size: none;
+}
+
+.rates-matrix__bulk-checkboxes > .ui-field {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rates-matrix__bulk-checkboxes > .ui-field .ui-checkbox,
+.rates-restrictions__table .ui-field:has(.ui-checkbox) .ui-checkbox {
+  order: -1;
+}
+
+.rates-restrictions__table .ui-field:has(.ui-checkbox) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rates-matrix__bulk-actions > .ui-field,
+.rates-matrix__bulk-actions > .ui-btn {
+  inline-size: 100%;
+}
+
+.rates-matrix__bulk-actions .ui-input {
+  inline-size: 100%;
 }

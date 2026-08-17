@@ -1,11 +1,25 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Field, NativeSelect, PageHeader } from '@hospai/ui-kit';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Checkbox,
+  Field,
+  NativeSelect,
+  PageHeader,
+  type StatusRung,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
+import { reservationStatusLabel } from '../status/reservation-status-label.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -16,6 +30,33 @@ function bodyErrorCode(body: unknown): string | null {
 }
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
+
+const RESERVATION_RUNG: Record<string, StatusRung> = {
+  checked_in: 'informational',
+  confirmed: 'settled',
+  pending: 'attention',
+  checked_out: 'informational',
+};
+
+function reservationRung(status: string): StatusRung {
+  return RESERVATION_RUNG[status] ?? 'neutral';
+}
+
+function formatCheckInDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('day')} ${part('month')}`;
+}
+
+function nightsBetween(arrival: string, departure: string): number {
+  const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
 
 export function CheckInScreen() {
   const { reservationId = '' } = useParams();
@@ -144,87 +185,143 @@ export function CheckInScreen() {
   const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
+  const propertyTz = propertyQ.data?.property?.timeZone ?? 'UTC';
+  const res = reservationQ.data;
 
   return (
     <>
       <PageHeader
-        title={`Check in ${displayName ?? 'guest'}`}
         back={<Link to="/arrivals">← Arrivals</Link>}
+        title={`Check in ${displayName ?? 'guest'}`}
+        subtitle={
+          res
+            ? (() => {
+                const roomLabel = roomTypeLabel;
+                return (
+                  <>
+                    <Badge rung={reservationRung(res.status)}>
+                      {reservationStatusLabel(res.status)}
+                    </Badge>
+                    {roomLabel ? (
+                      <>
+                        <span className="sep">·</span> {roomLabel}
+                      </>
+                    ) : null}
+                    <span className="sep">·</span>
+                    {formatCheckInDate(res.arrivalDate, propertyTz)} →{' '}
+                    {formatCheckInDate(res.departureDate, propertyTz)}
+                    <span className="sep">·</span>{' '}
+                    {nightsBetween(res.arrivalDate, res.departureDate)} nights
+                  </>
+                );
+              })()
+            : undefined
+        }
+        actions={
+          <Button
+            type="button"
+            intent="primary"
+            data-testid="check-in"
+            disabled={!canCheckIn}
+            onClick={() => checkIn.mutate()}
+          >
+            Check in
+          </Button>
+        }
       />
+
       <Card>
-      <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
-      {reservationQ.isSuccess ? (
-        <p>
-          Adults {adults} · Children {children}
-        </p>
-      ) : null}
-      <div className="stack-row">
-        {roomsQ.isSuccess ? (
-          <Field
-            label="Room"
-            control={
-              <NativeSelect
-                data-testid="check-in-room"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
+        <CardHeader>
+          <CardTitle>Room assignment</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-stack">
+            <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
+            {res ? (
+              <p>
+                Adults {adults} · Children {children}
+              </p>
+            ) : null}
+            <div className="ui-row">
+              {roomsQ.isSuccess ? (
+                <Field
+                  label="Room"
+                  control={
+                    <NativeSelect
+                      data-testid="check-in-room"
+                      value={roomId}
+                      onChange={(e) => setRoomId(e.target.value)}
+                    >
+                      <option value="">Select room</option>
+                      {roomOptions.map((r) => (
+                        <option key={r.roomId} value={r.roomId}>
+                          {r.code}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+              ) : null}
+              <Button
+                type="button"
+                disabled={!roomId || assign.isPending}
+                onClick={() => assign.mutate()}
               >
-                <option value="">Select room</option>
-                {roomOptions.map((r) => (
-                  <option key={r.roomId} value={r.roomId}>
-                    {r.code}
-                  </option>
-                ))}
-              </NativeSelect>
-            }
-          />
-        ) : null}
-        <Button type="button" disabled={!roomId || assign.isPending} onClick={() => assign.mutate()}>
-          Assign room
-        </Button>
-        <Button
-          type="button"
-          intent="primary"
-          data-testid="check-in"
-          disabled={!canCheckIn}
-          onClick={() => checkIn.mutate()}
-        >
-          Check in
-        </Button>
-      </div>
-      {showOverride ? (
-        <Field
-          label="Override cleanliness"
-          control={
-            <Checkbox
-              data-testid="override-cleanliness"
-              checked={overrideCleanliness}
-              onChange={(e) => setOverrideCleanliness(e.target.checked)}
+                Assign room
+              </Button>
+            </div>
+            {showOverride ? (
+              <Field
+                label="Override cleanliness"
+                control={
+                  <Checkbox
+                    data-testid="override-cleanliness"
+                    checked={overrideCleanliness}
+                    onChange={(e) => setOverrideCleanliness(e.target.checked)}
+                  />
+                }
+              />
+            ) : null}
+            {message ? <Alert data-testid="check-in-message">{message}</Alert> : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      {res ? (
+        <Card>
+          <CardContent>
+            <FrontOfficeEditor
+              reservationId={reservationId}
+              frontOfficeComment={res.frontOfficeComment}
+              vipFlag={res.vipFlag}
+              dndFlag={res.dndFlag}
+              disabled={editorDisabled}
             />
-          }
-        />
+          </CardContent>
+        </Card>
       ) : null}
-      {message ? <Alert data-testid="check-in-message">{message}</Alert> : null}
-      {reservationQ.isSuccess ? (
-        <FrontOfficeEditor
-          reservationId={reservationId}
-          frontOfficeComment={reservationQ.data.frontOfficeComment}
-          vipFlag={reservationQ.data.vipFlag}
-          dndFlag={reservationQ.data.dndFlag}
-          disabled={editorDisabled}
-        />
-      ) : null}
-      <PrintRegCardControl canPrint={canPrint} />
-      {allocatedEntry && allocatedRoomTypeId !== roomTypeId ? (
-        <p className="muted">Allocated: {allocatedEntry.name || allocatedEntry.code}</p>
-      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Registration card</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-stack">
+            <PrintRegCardControl canPrint={canPrint} />
+            {allocatedEntry && allocatedRoomTypeId !== roomTypeId ? (
+              <p className="muted">Allocated: {allocatedEntry.name || allocatedEntry.code}</p>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
       <RegistrationCard
         propertyName={propertyQ.data?.property?.name ?? null}
-        reservation={reservationQ.data}
+        reservation={res}
         displayName={displayName}
         roomLabel={selectedCode ?? null}
         roomTypeLabel={roomTypeLabel}
       />
-    </Card>
     </>
   );
 }

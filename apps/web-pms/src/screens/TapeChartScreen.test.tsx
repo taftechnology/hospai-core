@@ -291,7 +291,7 @@ describe('TapeChartScreen', () => {
     expect(src).toContain('<TapeChartScreen');
   });
 
-  it('available view lists free rooms and Book links to /book', async () => {
+  it('available view lists free rooms as a table', async () => {
     getAvailableRooms.mockResolvedValue({
       ok: true,
       fromDate: '2026-08-13',
@@ -311,7 +311,13 @@ describe('TapeChartScreen', () => {
           (c[1] as { fromDate: string; toDate: string }).toDate === '2026-08-19',
       ),
     ).toBe(true);
-    expect(screen.getByRole('link', { name: /^Book$/i }).getAttribute('href')).toBe('/book');
+    expect(screen.getByRole('columnheader', { name: 'Room' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Type' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Status' })).toBeTruthy();
+    expect(await screen.findByText('King')).toBeTruthy();
+    expect(screen.getByText('clean')).toBeTruthy();
+    expect(screen.getByText('1 vacant')).toBeTruthy();
+    expect(screen.getByText(/Vacant sellable inventory/)).toBeTruthy();
   });
 
   it('available view empty copy', async () => {

@@ -5,14 +5,14 @@ import {
   ClassifiedError,
   shouldRetry,
   retryDelay,
-  type FrontDeskItem,
 } from '@hospai/client-core';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
-  CardHeader,
+  CardFooter,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -21,7 +21,10 @@ import {
   DataTableRow,
   Field,
   Input,
+  NativeSelect,
   PageHeader,
+  RowActions,
+  type StatusRung,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -33,6 +36,60 @@ import { GuestNameLink } from './guest-row.js';
 type DirWindow = 'today' | 'tomorrow' | 'week' | 'all';
 const ACTIVE_STATUS = 'inquiry,pending,confirmed,checked_in';
 const TERMINAL_STATUS = 'checked_out,cancelled,no_show';
+
+const WINDOW_TABS: Array<{ id: DirWindow; label: string }> = [
+  { id: 'today', label: 'Today' },
+  { id: 'tomorrow', label: 'Tomorrow' },
+  { id: 'week', label: 'This Week' },
+  { id: 'all', label: 'All' },
+];
+
+const DIRECTORY_RUNG: Record<string, StatusRung> = {
+  confirmed: 'neutral',
+  checked_in: 'informational',
+  checked_out: 'settled',
+  cancelled: 'exception',
+  pending: 'attention',
+  no_show: 'attention',
+  inquiry: 'neutral',
+};
+
+function formatLongDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('weekday')}, ${part('day')} ${part('month')} ${part('year')}`;
+}
+
+function dirDateParts(iso: string, timeZone: string): { day: string; month: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return { day: part('day'), month: part('month') };
+}
+
+function datesLabel(
+  arrival: string | undefined,
+  departure: string | undefined,
+  timeZone: string,
+): string {
+  if (!arrival || !departure) return '';
+  const a = dirDateParts(arrival, timeZone);
+  const d = dirDateParts(departure, timeZone);
+  return a.month === d.month
+    ? `${a.day}–${d.day} ${d.month}`
+    : `${a.day} ${a.month} – ${d.day} ${d.month}`;
+}
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -183,11 +240,6 @@ export function ReservationsDirectoryScreen() {
     navigate({ search: `?${sp.toString()}` }, { replace: true });
   }
 
-  function roomLabel(row: FrontDeskItem): string {
-    if (!row.roomId) return '';
-    return roomsById.get(row.roomId) ?? '';
-  }
-
   if (!searching && listQ.isError) {
     const c = asClassified(listQ.error);
     if (c.class === 'fail_closed' || listQ.error instanceof ClassifiedError) {
@@ -207,11 +259,13 @@ export function ReservationsDirectoryScreen() {
   const hits = searching ? searchItems(searchQ.data) : [];
 
   let body: ReactNode;
+  let flush = false;
   if (searching) {
-    body =
-      hits.length === 0 ? (
-        <p className="muted">No reservations in this window.</p>
-      ) : (
+    if (hits.length === 0) {
+      body = <p className="muted">No reservations in this window.</p>;
+    } else {
+      flush = true;
+      body = (
         <DataTable>
           <DataTableHead>
             <DataTableRow>
@@ -223,9 +277,7 @@ export function ReservationsDirectoryScreen() {
             {hits.map((hit) => (
               <DataTableRow key={hit.reservationId}>
                 <DataTableCell>
-                  <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>
-                    View folio
-                  </Link>
+                  <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>Folio</Link>
                 </DataTableCell>
                 <DataTableCell>
                   {hit.guestRef ? (
@@ -246,6 +298,7 @@ export function ReservationsDirectoryScreen() {
           </DataTableBody>
         </DataTable>
       );
+    }
   } else if (windowParam !== 'all' && date == null) {
     body = <p className="muted">Loading…</p>;
   } else if (listQ.isLoading) {
@@ -253,31 +306,59 @@ export function ReservationsDirectoryScreen() {
   } else if (items.length === 0) {
     body = <p className="muted">No reservations in this window.</p>;
   } else {
+    flush = true;
     body = (
       <DataTable>
         <DataTableHead>
           <DataTableRow>
-            <DataTableHeaderCell>Reservation</DataTableHeaderCell>
             <DataTableHeaderCell>Guest</DataTableHeaderCell>
-            <DataTableHeaderCell>Status</DataTableHeaderCell>
             <DataTableHeaderCell>Dates</DataTableHeaderCell>
             <DataTableHeaderCell>Room</DataTableHeaderCell>
+            <DataTableHeaderCell>Status</DataTableHeaderCell>
+            <DataTableHeaderCell align="right">
+              <span className="ui-visually-hidden">Actions</span>
+            </DataTableHeaderCell>
           </DataTableRow>
         </DataTableHead>
         <DataTableBody>
           {items.map((row) => (
             <DataTableRow key={row.reservationId}>
               <DataTableCell>
-                <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
-              </DataTableCell>
-              <DataTableCell>
                 <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
               </DataTableCell>
-              <DataTableCell>{reservationStatusLabel(row.status)}</DataTableCell>
               <DataTableCell>
-                {row.arrivalDate} → {row.departureDate}
+                <span className="ui-num">
+                  {datesLabel(row.arrivalDate, row.departureDate, timeZone ?? 'UTC')}
+                </span>
               </DataTableCell>
-              <DataTableCell>{roomLabel(row)}</DataTableCell>
+              <DataTableCell>
+                {row.roomId == null ? (
+                  <span className="muted">Unassigned</span>
+                ) : (
+                  (roomsById.get(row.roomId) ?? '')
+                )}
+              </DataTableCell>
+              <DataTableCell>
+                <Badge rung={DIRECTORY_RUNG[row.status] ?? 'neutral'}>
+                  {reservationStatusLabel(row.status)}
+                </Badge>
+              </DataTableCell>
+              <DataTableCell align="right">
+                <RowActions>
+                  <Link
+                    className="ui-link-btn ui-link-btn--sm"
+                    to={`/folio/${encodeURIComponent(row.reservationId)}`}
+                  >
+                    Folio
+                  </Link>
+                  <Link
+                    className="ui-link-btn ui-link-btn--sm"
+                    to={`/book?guestRef=${encodeURIComponent(row.guestRef)}`}
+                  >
+                    Book for guest
+                  </Link>
+                </RowActions>
+              </DataTableCell>
             </DataTableRow>
           ))}
         </DataTableBody>
@@ -286,30 +367,33 @@ export function ReservationsDirectoryScreen() {
   }
 
   return (
-    <div>
-      <PageHeader title="Reservations" />
+    <div className="board-page">
+      <PageHeader
+        title="Reservations"
+        subtitle={date ? `${formatLongDate(date, timeZone ?? 'UTC')} · all stays` : undefined}
+        actions={
+          <Link className="ui-link-btn ui-link-btn--primary" to="/book">
+            New booking
+          </Link>
+        }
+      />
       <Card>
-        <CardHeader>
-          <header className="board-header">
-            <nav className="stack-row">
-              <Link to={tabSearch('today', date)}>Today</Link>
-              <Link to={tabSearch('tomorrow', date)}>Tomorrow</Link>
-              <Link to={tabSearch('week', date)}>This Week</Link>
-              <Link to={tabSearch('all', date)}>All</Link>
-            </nav>
-            <div className="stack-row">
-              <Button type="button" onClick={() => setStatus(null)}>
-                All statuses
-              </Button>
-              <Button type="button" onClick={() => setStatus(ACTIVE_STATUS)}>
-                Active
-              </Button>
-              <Button type="button" onClick={() => setStatus(TERMINAL_STATUS)}>
-                Terminal
-              </Button>
-            </div>
+        <div className="ui-toolbar">
+          {WINDOW_TABS.map((tab) => (
+            <Link
+              key={tab.id}
+              className="ui-tab"
+              aria-current={windowParam === tab.id ? 'page' : undefined}
+              to={tabSearch(tab.id, date)}
+            >
+              {tab.label}
+            </Link>
+          ))}
+          <div className="ui-toolbar__spacer" />
+          <div className="directory-search">
             <Field
               label="Search"
+              size="full"
               control={
                 <Input
                   type="search"
@@ -320,16 +404,30 @@ export function ReservationsDirectoryScreen() {
                 />
               }
             />
-          </header>
-        </CardHeader>
-        <CardContent>
-          {body}
-          {!searching && listQ.data?.nextCursor ? (
+          </div>
+          <Field
+            label="Status"
+            control={
+              <NativeSelect
+                data-testid="directory-status"
+                value={statusParam ?? ''}
+                onChange={(e) => setStatus(e.target.value || null)}
+              >
+                <option value="">All statuses</option>
+                <option value={ACTIVE_STATUS}>Active</option>
+                <option value={TERMINAL_STATUS}>Terminal</option>
+              </NativeSelect>
+            }
+          />
+        </div>
+        <CardContent flush={flush}>{body}</CardContent>
+        {!searching && listQ.data?.nextCursor ? (
+          <CardFooter>
             <Button type="button" onClick={() => setCursor(listQ.data!.nextCursor)}>
               Next page
             </Button>
-          ) : null}
-        </CardContent>
+          </CardFooter>
+        ) : null}
       </Card>
     </div>
   );

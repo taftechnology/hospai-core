@@ -11,7 +11,20 @@ import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Button, Card, Field, Input, NativeSelect, PageHeader } from '@hospai/ui-kit';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Field,
+  Input,
+  NativeSelect,
+  PageHeader,
+  Total,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor } from '../money.js';
@@ -498,279 +511,311 @@ export function BookingScreen() {
   });
 
   return (
-    <div>
-      <PageHeader title="Book" back={<Link to="/arrivals">← Arrivals</Link>} />
-      <Card data-testid="booking-screen">
-      <section className="stack">
-        <h2>Dates</h2>
-        {!timeZone ? <p className="muted">Waiting for property timezone…</p> : null}
-        <Field
-          label="Arrival"
-          control={
-            <Input
-              type="date"
-              data-testid="arrival-date"
-              value={arrivalDate}
-              onChange={(e) => {
-                setArrivalDate(e.target.value);
-                setRoomTypeId(null);
-              }}
-            />
-          }
-        />
-        <Field
-          label="Departure"
-          control={
-            <Input
-              type="date"
-              data-testid="departure-date"
-              value={departureDate}
-              onChange={(e) => {
-                setDepartureDate(e.target.value);
-                setRoomTypeId(null);
-              }}
-            />
-          }
-        />
-        {dateCapBlocked ? (
-          <Alert>Stay exceeds the 90-night availability query limit — shorten dates.</Alert>
-        ) : null}
-      </section>
+    <div className="board-page">
+      <PageHeader
+        title="Book"
+        back={<Link to="/arrivals">← Arrivals</Link>}
+        subtitle="New reservation"
+      />
 
-      <section className="stack">
-        <h2>Rate plan</h2>
-        {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
-        {plansEmpty ? (
-          <p className="muted" role="status">
-            No active rate plans.
-          </p>
-        ) : null}
-        {plansQ.isSuccess && plans.length > 0 ? (
-          <Field
-            label="Rate plan"
-            control={
-              <NativeSelect
-                data-testid="rate-plan"
-                value={ratePlanId}
-                onChange={(e) => setRatePlanId(e.target.value)}
-              >
-                {plans.map((p) => (
-                  <option key={p.ratePlanId} value={p.ratePlanId}>
-                    {p.name} ({p.code})
-                  </option>
-                ))}
-              </NativeSelect>
+      <Card data-testid="booking-screen">
+        <CardHeader>
+          <CardTitle>Stay details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-stack">
+            {!timeZone ? <p className="muted">Waiting for property timezone…</p> : null}
+            <div className="ui-row">
+              <Field
+                size="xs"
+                label="Arrival"
+                control={
+                  <Input
+                    type="date"
+                    data-testid="arrival-date"
+                    value={arrivalDate}
+                    onChange={(e) => {
+                      setArrivalDate(e.target.value);
+                      setRoomTypeId(null);
+                    }}
+                  />
+                }
+              />
+              <Field
+                size="xs"
+                label="Departure"
+                control={
+                  <Input
+                    type="date"
+                    data-testid="departure-date"
+                    value={departureDate}
+                    onChange={(e) => {
+                      setDepartureDate(e.target.value);
+                      setRoomTypeId(null);
+                    }}
+                  />
+                }
+              />
+              <div className="ui-row ui-row--nowrap">
+                {plansQ.isSuccess && plans.length > 0 ? (
+                  <Field
+                    size="sm"
+                    label="Rate plan"
+                    control={
+                      <NativeSelect
+                        data-testid="rate-plan"
+                        value={ratePlanId}
+                        onChange={(e) => setRatePlanId(e.target.value)}
+                      >
+                        {plans.map((p) => (
+                          <option key={p.ratePlanId} value={p.ratePlanId}>
+                            {p.name} ({p.code})
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                ) : null}
+                <Field
+                  size="sm"
+                  label="Promo code"
+                  control={
+                    <Input
+                      data-testid="promo-code"
+                      placeholder="Optional"
+                      value={promoCodeInput}
+                      onChange={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
+                      onBlur={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
+                    />
+                  }
+                />
+              </div>
+            </div>
+            {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
+            {plansEmpty ? (
+              <p className="muted" role="status">
+                No active rate plans.
+              </p>
+            ) : null}
+            {dateCapBlocked ? (
+              <Alert>Stay exceeds the 90-night availability query limit — shorten dates.</Alert>
+            ) : null}
+            {promoError ? (
+              <p className="muted" role="status">
+                {promoError}
+              </p>
+            ) : null}
+
+            <p className="ui-section-label">Party</p>
+            <div className="ui-row">
+              <Field
+                size="xs"
+                label="Adults"
+                control={
+                  <Input
+                    type="number"
+                    min={1}
+                    data-testid="adults"
+                    value={String(adults)}
+                    onChange={(e) => setAdults(Number(e.target.value))}
+                  />
+                }
+              />
+              <Field
+                size="xs"
+                label="Children"
+                control={
+                  <Input
+                    type="number"
+                    min={0}
+                    data-testid="children"
+                    value={String(children)}
+                    onChange={(e) => setChildren(Number(e.target.value))}
+                  />
+                }
+              />
+            </div>
+
+            <p className="ui-section-label">Guest</p>
+            {contextMode && contextDisplayName ? (
+              <p data-testid="context-guest">Booking for {contextDisplayName}</p>
+            ) : (
+              <>
+                <Field
+                  label="Find existing"
+                  control={
+                    <Input
+                      data-testid="guest-find"
+                      type="search"
+                      autoComplete="off"
+                      placeholder="Search by name or email"
+                      value={findQ}
+                      onChange={(e) => setFindQ(e.target.value)}
+                    />
+                  }
+                />
+                {findHits.length > 0 ? (
+                  <ul>
+                    {findHits.map((hit) => (
+                      <li key={hit.guestId}>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setContextGuestRef(hit.guestId);
+                            setContextDisplayName(hit.profile.displayName);
+                          }}
+                        >
+                          {hit.profile.displayName}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <Field
+                  label="Name"
+                  control={
+                    <Input
+                      data-testid="guest-name"
+                      placeholder="Full name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                    />
+                  }
+                />
+                <Field
+                  label="Email"
+                  control={
+                    <Input
+                      data-testid="guest-email"
+                      placeholder="Email address"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  }
+                />
+                <Field
+                  label="Phone"
+                  control={
+                    <Input
+                      data-testid="guest-phone"
+                      placeholder="Phone number"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                  }
+                />
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Room type</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-stack">
+            {availErrorClassified ? (
+              <Alert>
+                {availDateRangeExceeded
+                  ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
+                  : `Availability unavailable — ${classifiedUserMessage(availErrorClassified, {})}. Confirm blocked until a fresh quote.`}
+              </Alert>
+            ) : null}
+            {availQ.isSuccess && selectable.length === 0 ? (
+              <p className="muted" role="status">
+                No room types available for these dates — adjust dates.
+              </p>
+            ) : null}
+            <div data-testid="room-type-list" className="ui-choice-row">
+              {selectable.map((id) => (
+                <label key={id} className="ui-choice">
+                  <Input
+                    type="radio"
+                    name="roomType"
+                    value={id}
+                    checked={roomTypeId === id}
+                    onChange={() => setRoomTypeId(id)}
+                  />
+                  {(() => {
+                    const t = typeDir.get(id);
+                    if (!t) return 'Room type unavailable';
+                    const suffix = t.kind === 'virtual' ? ' · Run of house' : '';
+                    return (
+                      <>
+                        {t.name} (<span translate="no">{t.code}</span>){suffix}
+                      </>
+                    );
+                  })()}
+                </label>
+              ))}
+            </div>
+            {quoteAriVersion != null ? (
+              <p className="visually-hidden" data-testid="quote-version">
+                {quoteAriVersion}
+              </p>
+            ) : null}
+            {roomTypeId != null &&
+            ratePlanId &&
+            !ratesQ.isLoading &&
+            stayQuoteMinor == null &&
+            arrivalDate &&
+            lastNight &&
+            lastNight >= arrivalDate ? (
+              <p className="muted" role="status">
+                No published rate for every night of this stay on this plan.
+              </p>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <Total
+            label="Quote total"
+            value={
+              stayQuoteMinor != null ? (
+                <span data-testid="stay-quote">{'$' + formatMinor(stayQuoteMinor)}</span>
+              ) : (
+                '…'
+              )
             }
           />
-        ) : null}
-      </section>
-
-      <section className="stack">
-        <h2>Promo code</h2>
-        <Field
-          label="Promo code"
-          control={
-            <Input
-              data-testid="promo-code"
-              value={promoCodeInput}
-              onChange={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
-              onBlur={(e) => setPromoCodeInput(e.target.value.trim().toUpperCase())}
-            />
-          }
-        />
-        {promoError ? (
-          <p className="muted" role="status">
-            {promoError}
-          </p>
-        ) : null}
-      </section>
-
-      <section className="stack">
-        <h2>Room type</h2>
-        {availErrorClassified ? (
-          <Alert>
-            {availDateRangeExceeded
-              ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
-              : `Availability unavailable — ${classifiedUserMessage(availErrorClassified, {})}. Confirm blocked until a fresh quote.`}
-          </Alert>
-        ) : null}
-        {availQ.isSuccess && selectable.length === 0 ? (
-          <p className="muted" role="status">
-            No room types available for these dates — adjust dates.
-          </p>
-        ) : null}
-        <ul data-testid="room-type-list">
-          {selectable.map((id) => (
-            <li key={id} className="ui-choice-row">
-              <label className="ui-choice">
-                <Input
-                  type="radio"
-                  name="roomType"
-                  value={id}
-                  checked={roomTypeId === id}
-                  onChange={() => setRoomTypeId(id)}
-                />
-                {(() => {
-                  const t = typeDir.get(id);
-                  if (!t) return 'Room type unavailable';
-                  const suffix = t.kind === 'virtual' ? ' · Run of house' : '';
-                  return (
-                    <>
-                      {t.name} (<span translate="no">{t.code}</span>){suffix}
-                    </>
-                  );
-                })()}
-              </label>
-            </li>
-          ))}
-        </ul>
-        {quoteAriVersion != null ? (
-          <p className="visually-hidden" data-testid="quote-version">
-            {quoteAriVersion}
-          </p>
-        ) : null}
-        {roomTypeId != null &&
-        ratePlanId &&
-        !ratesQ.isLoading &&
-        stayQuoteMinor == null &&
-        arrivalDate &&
-        lastNight &&
-        lastNight >= arrivalDate ? (
-          <p className="muted" role="status">
-            No published rate for every night of this stay on this plan.
-          </p>
-        ) : null}
-        {stayQuoteMinor != null ? (
-          <p data-testid="stay-quote">${formatMinor(stayQuoteMinor)}</p>
-        ) : null}
-      </section>
-
-      <section className="stack">
-        <h2>Party</h2>
-        <Field
-          label="Adults"
-          control={
-            <Input
-              type="number"
-              min={1}
-              data-testid="adults"
-              value={String(adults)}
-              onChange={(e) => setAdults(Number(e.target.value))}
-            />
-          }
-        />
-        <Field
-          label="Children"
-          control={
-            <Input
-              type="number"
-              min={0}
-              data-testid="children"
-              value={String(children)}
-              onChange={(e) => setChildren(Number(e.target.value))}
-            />
-          }
-        />
-      </section>
-
-      <section className="stack">
-        <h2>Guest</h2>
-        {contextMode && contextDisplayName ? (
-          <p data-testid="context-guest">
-            Booking for {contextDisplayName}
-          </p>
-        ) : (
-          <>
-            <Field
-              label="Find existing"
-              control={
-                <Input
-                  data-testid="guest-find"
-                  type="search"
-                  autoComplete="off"
-                  value={findQ}
-                  onChange={(e) => setFindQ(e.target.value)}
-                />
-              }
-            />
-            {findHits.length > 0 ? (
-              <ul>
-                {findHits.map((hit) => (
-                  <li key={hit.guestId}>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        setContextGuestRef(hit.guestId);
-                        setContextDisplayName(hit.profile.displayName);
-                      }}
-                    >
-                      {hit.profile.displayName}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <Field
-              label="Name"
-              control={
-                <Input
-                  data-testid="guest-name"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              }
-            />
-            <Field
-              label="Email"
-              control={
-                <Input
-                  data-testid="guest-email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              }
-            />
-            <Field
-              label="Phone"
-              control={
-                <Input
-                  data-testid="guest-phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-              }
-            />
-          </>
-        )}
-      </section>
-
-      <Button
-        type="button"
-        intent="primary"
-        data-testid="confirm-book"
-        disabled={!confirmEnabled || bookMutation.isPending}
-        onClick={() => bookMutation.mutate('confirmed')}
-      >
-        Confirm booking
-      </Button>
-      <Button
-        type="button"
-        data-testid="hold-book"
-        disabled={!confirmEnabled || bookMutation.isPending}
-        onClick={() => bookMutation.mutate('pending')}
-      >
-        Hold
-      </Button>
-      <Button
-        type="button"
-        data-testid="quote-book"
-        disabled={!quoteEnabled || bookMutation.isPending}
-        onClick={() => bookMutation.mutate('inquiry')}
-      >
-        Quote
-      </Button>
-      {message ? <Alert data-testid="book-message">{message}</Alert> : null}
+        </CardContent>
+        <CardFooter>
+          <div className="ui-row book-actions">
+            <Button
+              type="button"
+              data-testid="hold-book"
+              disabled={!confirmEnabled || bookMutation.isPending}
+              onClick={() => bookMutation.mutate('pending')}
+            >
+              Hold
+            </Button>
+            <Button
+              type="button"
+              data-testid="quote-book"
+              disabled={!quoteEnabled || bookMutation.isPending}
+              onClick={() => bookMutation.mutate('inquiry')}
+            >
+              Quote
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              data-testid="confirm-book"
+              disabled={!confirmEnabled || bookMutation.isPending}
+              onClick={() => bookMutation.mutate('confirmed')}
+            >
+              Confirm booking
+            </Button>
+          </div>
+        </CardFooter>
       </Card>
+
+      {message ? <Alert data-testid="book-message">{message}</Alert> : null}
     </div>
   );
 }

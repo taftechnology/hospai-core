@@ -250,6 +250,15 @@
   flex-shrink: 0;
 }
 
+.ui-radio {
+  inline-size: 0.9375rem;
+  block-size: 0.9375rem;
+  accent-color: var(--primary);
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* Borderless replacement for the native fieldset/legend box. */
 .ui-field-group {
   border: 0;
@@ -320,6 +329,61 @@
   gap: var(--space-2);
 }
 
+.ui-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.ui-stack--tight {
+  gap: var(--space-2);
+}
+
+/* Page-level vertical stack that stretches children (page header, cards). */
+.ui-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ui-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* Buttons inside a label+input row sit beside the control, not the label. */
+.ui-row > .ui-btn,
+.ui-row > .ui-link-btn {
+  align-self: flex-end;
+}
+
+/* Totals row in a card footer — e.g. folio Charges / Payments. */
+.ui-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4375rem var(--space-4);
+  font-size: var(--text-base);
+  min-inline-size: 16rem;
+  margin-block: 0;
+}
+
+.ui-card__footer .ui-summary {
+  margin-inline-start: auto;
+}
+
+.ui-summary dt {
+  color: var(--muted);
+}
+
+.ui-summary dd {
+  margin: 0;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- page header ----------------------------------------------------- */
 
 .ui-page-header {
@@ -364,6 +428,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4375rem;
+}
+
+.ui-page-header__subtitle .sep {
+  opacity: 0.45;
 }
 
 .ui-page-header__actions {
@@ -427,6 +495,10 @@
   inline-size: auto;
 }
 
+.ui-toolbar__spacer {
+  margin-inline-start: auto;
+}
+
 .ui-metrics {
   display: flex;
   flex-wrap: wrap;
@@ -442,7 +514,6 @@
   background: var(--selected);
   font-size: var(--text-sm);
   color: var(--muted);
-  border: 1px solid var(--line);
 }
 
 .ui-metric__value {
@@ -460,7 +531,6 @@ a.ui-metric:hover {
 .ui-table-scroll {
   overflow-x: auto;
   max-block-size: 70vh;
-  overscroll-behavior: contain;
 }
 
 .ui-table {
@@ -689,6 +759,11 @@ a.ui-metric:hover {
 
 .ui-num {
   font-variant-numeric: tabular-nums;
+}
+
+.ui-code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: var(--text-sm);
 }
 
 /* --- print ------------------------------------------------------------ */

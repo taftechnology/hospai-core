@@ -527,7 +527,7 @@ describe('FolioScreen wiring', () => {
       expect(screen.getByTestId('folio-message').textContent).toMatch(/queued/i),
     );
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/^Checked out\.?$/);
-    expect(screen.getByText(/· In house/)).toBeTruthy();
+    expect(screen.getByText('In house', { selector: '.ui-badge' })).toBeTruthy();
     expect(screen.queryByText(/checked_in/)).toBeNull();
   });
 
@@ -1228,11 +1228,11 @@ describe('FolioScreen wiring', () => {
     renderFolio();
     await waitFor(() => {
       expect(screen.getByTestId('guest-profile-link').textContent).toMatch(/Ada Lovelace/);
-      expect(document.body.textContent).toMatch(/\broom 101\b/);
+      expect(document.body.textContent).toMatch(/Room 101/);
     });
     expect(document.body.textContent).toMatch(/2026-08-08/);
     expect(document.body.textContent).toMatch(/2026-08-10/);
-    expect(document.body.textContent).toMatch(/\broom 101\b/);
+    expect(document.body.textContent).toMatch(/Room 101/);
     expect(document.body.textContent).not.toMatch(/rm_101/);
     expect(screen.getByTestId('folio-balance')).toBeTruthy();
     expect(screen.getByTestId('folio-lines').textContent).toMatch(/Misc/);

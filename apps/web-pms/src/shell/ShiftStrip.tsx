@@ -154,7 +154,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
     <div className="shift-strip">
       <span className="shift-strip__dot" aria-hidden="true" />
       <span data-testid="open-shift-badge">
-        Shift open · float ${formatMinor(shift.openingFloat)} · Posts cash {shift.attributedCashCount}
+        Shift open · float ${formatMinor(shift.openingFloat)} · {shift.attributedCashCount} cash posts
       </span>
       <Link className="shift-strip__close" to="/shift">
         Close shift

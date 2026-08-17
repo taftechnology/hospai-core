@@ -137,8 +137,11 @@ describe('BoardScreen folio links', () => {
     async (mode) => {
       renderBoard(mode);
       await waitFor(() => {
-        const link = screen.getByRole('link', { name: /^Folio$/i });
-        expect(link.getAttribute('href')).toBe('/folio/res_board_1');
+        const links = screen.getAllByRole('link', { name: /^Folio$/i });
+        expect(links.length).toBeGreaterThan(0);
+        for (const link of links) {
+          expect(link.getAttribute('href')).toBe('/folio/res_board_1');
+        }
       });
     },
   );
@@ -161,10 +164,17 @@ describe('BoardScreen folio links', () => {
   it('links Book for guest with guestRef', async () => {
     renderBoard('arrivals');
     await waitFor(() => {
-      const link = screen.getByRole('link', { name: /Book for guest/i });
-      expect(link.getAttribute('href')).toBe('/book?guestRef=g1');
+      const links = screen.getAllByRole('link', { name: /Book for guest/i });
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) {
+        expect(link.getAttribute('href')).toBe('/book?guestRef=g1');
+      }
     });
-    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
+    const profileLinks = screen.getAllByTestId('guest-profile-link');
+    expect(profileLinks.length).toBeGreaterThan(0);
+    for (const link of profileLinks) {
+      expect(link.getAttribute('href')).toBe('/guests/g1');
+    }
   });
 
   it('VIP and DND badges on the guest cell', async () => {
@@ -247,7 +257,7 @@ describe('BoardScreen folio links', () => {
     });
     renderBoard('arrivals', '/arrivals?date=2026-08-13');
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Front Desk' })).toBeTruthy());
-    expect(screen.getByRole('heading', { name: 'Arrivals' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Arrivals' })).toBeTruthy());
     expect(screen.getByRole('heading', { name: 'Arrivals' }).textContent).toBe('Arrivals');
   });
 

@@ -60,6 +60,7 @@ export function FrontOfficeEditor({
       <h2>Front office</h2>
       <Field
         label="Comment"
+        size="full"
         control={
           <Textarea
             data-testid="front-office-comment"
@@ -69,28 +70,30 @@ export function FrontOfficeEditor({
           />
         }
       />
-      <Field
-        label="VIP"
-        control={
-          <Checkbox
-            data-testid="vip-flag"
-            checked={vip}
-            disabled={disabled}
-            onChange={(e) => setVip(e.target.checked)}
-          />
-        }
-      />
-      <Field
-        label="DND"
-        control={
-          <Checkbox
-            data-testid="dnd-flag"
-            checked={dnd}
-            disabled={disabled}
-            onChange={(e) => setDnd(e.target.checked)}
-          />
-        }
-      />
+      <div className="ui-row">
+        <Field
+          label="VIP"
+          control={
+            <Checkbox
+              data-testid="vip-flag"
+              checked={vip}
+              disabled={disabled}
+              onChange={(e) => setVip(e.target.checked)}
+            />
+          }
+        />
+        <Field
+          label="DND"
+          control={
+            <Checkbox
+              data-testid="dnd-flag"
+              checked={dnd}
+              disabled={disabled}
+              onChange={(e) => setDnd(e.target.checked)}
+            />
+          }
+        />
+      </div>
       <Button
         type="button"
         intent="primary"

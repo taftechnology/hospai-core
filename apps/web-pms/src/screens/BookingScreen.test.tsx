@@ -217,7 +217,7 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Book' })).toBeTruthy());
     expect(screen.getByTestId('booking-screen')).toBeTruthy();
     expect(screen.getByTestId('room-type-list')).toBeTruthy();
-    const choice = document.querySelector('li.ui-choice-row label.ui-choice');
+    const choice = document.querySelector('div.ui-choice-row label.ui-choice');
     expect(choice).toBeTruthy();
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));

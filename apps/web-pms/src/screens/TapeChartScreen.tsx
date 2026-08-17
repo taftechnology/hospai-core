@@ -17,6 +17,8 @@ import {
   Badge,
   Card,
   CardContent,
+  CardHeader,
+  CardTitle,
   Field,
   Input,
   PageHeader,
@@ -25,7 +27,6 @@ import {
   type StatusRung,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
-import { boardRowSeverity } from '../status/board-row-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -64,6 +65,29 @@ function formatTapeHeader(iso: string, timeZone: string): string {
   }).format(new Date(`${iso}T12:00:00Z`));
 }
 
+function formatPageHeaderDate(iso: string | null, timeZone: string): string | null {
+  if (iso == null) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(`${iso}T12:00:00Z`));
+}
+
+function formatAvailableDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('weekday')} ${part('day')} ${part('month')}`;
+}
+
 function spanRange(
   startDate: string,
   endExclusive: string,
@@ -81,11 +105,30 @@ function spanRange(
   return { colStart: startIdx + 2, colEnd: endNightIdx + 3 };
 }
 
-function tapeBlockSeverity(status: ReservationStatus, overstay: boolean) {
-  if (status === 'checked_in') {
-    return boardRowSeverity({ mode: 'in-house', status, overstay });
+function tapeBlockSeverity(
+  status: ReservationStatus,
+  overstay: boolean,
+  departureToday: boolean,
+) {
+  if (overstay) return 'exception';
+  if (status === 'checked_in' && departureToday) return 'attention';
+  switch (status) {
+    case 'checked_in':
+      return 'informational';
+    case 'confirmed':
+      return 'settled';
+    case 'pending':
+      return 'attention';
+    case 'no_show':
+    case 'cancelled':
+    case 'inquiry':
+    case 'checked_out':
+      return 'informational';
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
   }
-  return boardRowSeverity({ mode: 'arrivals', status, overstay: false });
 }
 
 type RoomTypeLabel = { roomTypeId: string; name?: string; code?: string };
@@ -128,10 +171,17 @@ function StayBlock({
     status === 'checked_in' &&
     typeof block.departureDate === 'string' &&
     block.departureDate < today;
-  const sev = status ? tapeBlockSeverity(status, overstay) : 'informational';
+  const departureToday =
+    today != null &&
+    status === 'checked_in' &&
+    typeof block.departureDate === 'string' &&
+    block.departureDate === today;
+  const sev = status ? tapeBlockSeverity(status, overstay, departureToday) : 'informational';
   return (
     <div
-      className={`tape-block min-w-0 truncate ${statusClass(sev)}`}
+      className={`tape-block min-w-0 truncate ${statusClass(sev)}${
+        block.roomId == null ? ' tape-block--unassigned' : ''
+      }`}
       style={{
         ['--tape-col-start' as string]: String(colStart),
         ['--tape-col-end' as string]: String(colEnd),
@@ -210,6 +260,12 @@ export function TapeChartScreen() {
     retry: false,
   });
 
+  const propertyQ = useQuery({
+    queryKey: ['property', tenant.propertyId],
+    queryFn: () => api.getProperty(tenant.propertyId),
+    retry: false,
+  });
+
   const refs = useMemo(
     () => [...new Set((tapeQ.data?.blocks ?? []).map((i) => i.guestRef))],
     [tapeQ.data],
@@ -282,32 +338,40 @@ export function TapeChartScreen() {
         </div>
       );
     } else {
-      const availGroups: Array<{ typeId: string; rooms: typeof free }> = [];
-      const availSeen = new Set<string>();
-      for (const r of free) {
-        if (availSeen.has(r.roomTypeId)) continue;
-        availSeen.add(r.roomTypeId);
-        availGroups.push({
-          typeId: r.roomTypeId,
-          rooms: free.filter((x) => x.roomTypeId === r.roomTypeId),
-        });
-      }
       body = (
-        <div>
-          <Link to="/book">Book</Link>
-          {availGroups.map((g) => (
-            <section key={g.typeId}>
-              <h2 className="tape-type">{typeLabel(g.typeId, typeRows)}</h2>
-              <ul>
-                {g.rooms.map((r) => (
-                  <li key={r.roomId}>
-                    {r.code} <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
-                  </li>
+        <>
+          <p className="available-note muted">
+            Vacant sellable inventory{' '}
+            {from === to
+              ? `on ${formatAvailableDate(from, timeZone ?? 'UTC')}.`
+              : `for ${formatAvailableDate(from, timeZone ?? 'UTC')} through ${formatAvailableDate(
+                  to,
+                  timeZone ?? 'UTC',
+                )}.`}
+          </p>
+          <div className="ui-table-scroll">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {free.map((r) => (
+                  <tr key={r.roomId}>
+                    <td className="ui-num">{r.code}</td>
+                    <td>{typeLabel(r.roomTypeId, typeRows)}</td>
+                    <td>
+                      <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
+                    </td>
+                  </tr>
                 ))}
-              </ul>
-            </section>
-          ))}
-        </div>
+              </tbody>
+            </table>
+          </div>
+        </>
       );
     }
   } else if (rooms.length === 0) {
@@ -316,7 +380,7 @@ export function TapeChartScreen() {
     body = (
       <div className="tape-scroller">
         <div className="tape-row" style={{ ['--tape-cols' as string]: tapeCols }}>
-          <div className="tape-room" />
+          <div className="tape-room">Room</div>
           {dates.map((d, i) => (
             <div
               key={d}
@@ -335,7 +399,11 @@ export function TapeChartScreen() {
           >
             <div className="tape-room">Unassigned</div>
             {dates.map((d, i) => (
-              <div key={d} className="tape-cell min-w-0" style={{ ['--tape-col' as string]: String(i + 2) }} />
+              <div
+                key={d}
+                className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
+                style={{ ['--tape-col' as string]: String(i + 2) }}
+              />
             ))}
             {unassigned.map((block) => {
               const span = spanRange(block.arrivalDate ?? from, block.departureDate, from, to, dates);
@@ -369,7 +437,7 @@ export function TapeChartScreen() {
                 {dates.map((d, i) => (
                   <div
                     key={d}
-                    className="tape-cell min-w-0"
+                    className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
                     style={{ ['--tape-col' as string]: String(i + 2) }}
                   />
                 ))}
@@ -402,7 +470,7 @@ export function TapeChartScreen() {
                     return (
                       <div
                         key={row.oooId}
-                        className={`tape-block min-w-0 truncate ${statusClass('attention')}`}
+                        className={`tape-block min-w-0 truncate ${statusClass('exception')}`}
                         style={{
                           ['--tape-col-start' as string]: String(span.colStart),
                           ['--tape-col-end' as string]: String(span.colEnd),
@@ -426,9 +494,26 @@ export function TapeChartScreen() {
     from && to ? windowSearch(from, to, 'available') : '/board?view=available';
 
   return (
-    <div>
+    <>
       <div className="visually-hidden" aria-live="polite" />
-      <PageHeader title="Room Plan" />
+      <PageHeader
+        title="Room Plan"
+        subtitle={
+          today && propertyQ.data?.property?.name ? (
+            <>
+              {formatPageHeaderDate(today, timeZone ?? 'UTC')}{' '}
+              <span className="sep">·</span> tape and availability for{' '}
+              {propertyQ.data.property.name}
+            </>
+          ) : undefined
+        }
+        actions={
+          <Link className="ui-link-btn ui-link-btn--primary" to="/book">
+            New booking
+          </Link>
+        }
+      />
+      <BoardSummary date={today} />
       <Tabs label="Room Plan views">
         <Link
           className="ui-tab"
@@ -445,8 +530,13 @@ export function TapeChartScreen() {
           Available
         </Link>
       </Tabs>
-      <BoardSummary date={today} />
       <Card>
+        {view === 'available' && availableQ.isSuccess ? (
+          <CardHeader>
+            <CardTitle>Available Rooms</CardTitle>
+            <Badge rung="settled">{availableQ.data?.rooms.length ?? 0} vacant</Badge>
+          </CardHeader>
+        ) : null}
         <Toolbar>
           <Field
             size="xs"
@@ -485,6 +575,6 @@ export function TapeChartScreen() {
         </Toolbar>
         <CardContent flush>{body}</CardContent>
       </Card>
-    </div>
+    </>
   );
 }

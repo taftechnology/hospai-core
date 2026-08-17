@@ -266,9 +266,27 @@ export function HousekeepingApp({
   const showPicker = canAssign && readRoster && assignable.length > 0;
   const formRoomId = oooRoomId || rooms[0]?.roomId || '';
 
+  const businessDateLabel = useMemo(() => {
+    if (!businessDate) return '';
+    const d = new Date(`${businessDate}T00:00:00Z`);
+    return new Intl.DateTimeFormat('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(d);
+  }, [businessDate]);
+
   return (
-    <div>
-      <PageHeader title="Housekeeping" />
+    <div className="ui-page-stack">
+      <PageHeader
+        title="Housekeeping"
+        subtitle={
+          <>
+            {businessDateLabel} <span className="sep">·</span> room status and assignments
+          </>
+        }
+      />
       <Card>
         <Toolbar>
           <Field
@@ -284,7 +302,7 @@ export function HousekeepingApp({
             }
           />
           <Field
-            size="xs"
+            size="sm"
             label="Filter status"
             control={
               <NativeSelect
@@ -321,7 +339,7 @@ export function HousekeepingApp({
             }
           />
           <Field
-            size="xs"
+            size="sm"
             label="Assignment"
             control={
               <NativeSelect
@@ -338,29 +356,32 @@ export function HousekeepingApp({
         </Toolbar>
 
         <CardContent>
-          {(roomsQuery.isError || assignmentsQuery.isError) && (
-            <Alert>
-              Unable to load housekeeping board
-              {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
-                ? ' (property unreachable)'
-                : ''}
-              .
-            </Alert>
-          )}
+          <div className="ui-stack">
+            {(roomsQuery.isError || assignmentsQuery.isError) && (
+              <Alert>
+                Unable to load housekeeping board
+                {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
+                  ? ' (property unreachable)'
+                  : ''}
+                .
+              </Alert>
+            )}
 
-          {rosterQuery.isError && <Alert>Unable to load housekeepers</Alert>}
+            {rosterQuery.isError && <Alert>Unable to load housekeepers</Alert>}
 
-          {emptyRoster && <p>No housekeepers on the roster</p>}
-
-          <div data-testid="hk-workload">
-            {workload.rows.map((row) => (
-              <div key={row.staffId}>
-                {row.label}: {row.count}
-              </div>
-            ))}
-            <div>Unassigned: {workload.unassigned}</div>
+            <div data-testid="hk-workload" className="ui-metrics">
+              {workload.rows.map((row) => (
+                <span key={row.staffId} className="ui-metric">
+                  {row.label}: {row.count}
+                </span>
+              ))}
+              <span className="ui-metric">Unassigned: {workload.unassigned}</span>
+              {emptyRoster ? <span>No housekeepers on the roster</span> : null}
+            </div>
           </div>
+        </CardContent>
 
+        <CardContent flush>
           <DataTable data-testid="hk-board">
             <DataTableHead>
               <DataTableRow>
@@ -468,6 +489,7 @@ export function HousekeepingApp({
           <CardContent>
             <form
               data-testid="hk-ooo-form"
+              className="ui-row"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!formRoomId || !oooStart || !oooReturn) return;

@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
+  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -17,6 +19,7 @@ import {
   Field,
   Input,
   PageHeader,
+  type StatusRung,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -74,6 +77,31 @@ function staySeverity(status: string): StatusSeverity {
   if (status === 'pending' || status === 'no_show') return 'attention';
   if (status === 'cancelled' || status === 'checked_out' || status === 'inquiry') return 'informational';
   return 'informational';
+}
+
+const STAY_ACTIVE_STATUSES = new Set(['checked_in', 'confirmed', 'pending']);
+
+function stayBadgeRung(status: string): StatusRung {
+  if (status === 'checked_in') return 'informational';
+  if (status === 'pending') return 'attention';
+  if (status === 'confirmed') return 'settled';
+  return 'neutral';
+}
+
+function formatGuestDate(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  }).formatToParts(new Date(`${iso}T12:00:00Z`));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${part('day')} ${part('month')}`;
+}
+
+function nightsBetween(arrival: string, departure: string): number {
+  const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000));
 }
 
 export function GuestProfileScreen() {
@@ -178,10 +206,51 @@ export function GuestProfileScreen() {
         ? guestRef
         : guest.profile.displayName;
 
+  const highlightedStay =
+    stays.items.find((s) => STAY_ACTIVE_STATUSES.has(s.status)) ?? stays.items[0] ?? null;
+
   return (
-    <div data-testid="guest-profile">
+    <div className="guest-profile" data-testid="guest-profile">
       {unsavedGuard}
-      <PageHeader title={heading} />
+      <PageHeader
+        back={<Link to="/guests">← Guests</Link>}
+        title={heading}
+        subtitle={
+          highlightedStay
+            ? (() => {
+                const stay = highlightedStay;
+                const roomCode = stay.roomId ? (roomsById.get(stay.roomId) ?? null) : null;
+                return (
+                  <>
+                    <Badge rung={stayBadgeRung(stay.status)}>
+                      {reservationStatusLabel(stay.status)}
+                    </Badge>
+                    {roomCode ? (
+                      <>
+                        <span className="sep">·</span> Room {roomCode}
+                      </>
+                    ) : null}
+                    <span className="sep">·</span>
+                    {formatGuestDate(stay.arrivalDate)} → {formatGuestDate(stay.departureDate)}
+                    <span className="sep">·</span>{' '}
+                    {nightsBetween(stay.arrivalDate, stay.departureDate)} nights
+                  </>
+                );
+              })()
+            : undefined
+        }
+        actions={
+          canBook ? (
+            <Link
+              className="ui-link-btn"
+              to={`/book?guestRef=${encodeURIComponent(guestRef)}`}
+              data-testid="guest-book"
+            >
+              Book for guest
+            </Link>
+          ) : null
+        }
+      />
       {contactFailClosed ? (
         <Alert>Guest profile unavailable — organization unreachable.</Alert>
       ) : guestQ.isLoading ? (
@@ -189,20 +258,14 @@ export function GuestProfileScreen() {
       ) : guest ? (
         <Card>
           <CardHeader>
-            <header className="board-header">
-              {canBook ? (
-                <Link to={`/book?guestRef=${encodeURIComponent(guestRef)}`} data-testid="guest-book">
-                  Book for guest
-                </Link>
-              ) : null}
-            </header>
+            <CardTitle>Contact</CardTitle>
           </CardHeader>
           <CardContent>
             <p>
               PII: <strong>{guest.erased ? 'Erased' : 'Live'}</strong>
             </p>
             {guest.erased ? null : (
-              <dl>
+              <dl className="guest-contact">
                 <div>
                   <dt>Name</dt>
                   <dd>{guest.profile.displayName}</dd>
@@ -224,6 +287,7 @@ export function GuestProfileScreen() {
             {canWrite && !guest.erased ? (
               editing ? (
                 <form
+                  className="ui-stack guest-edit-form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!displayName.trim()) {
@@ -266,24 +330,29 @@ export function GuestProfileScreen() {
                       />
                     }
                   />
-                  <Button type="submit" disabled={saveM.isPending}>
-                    {saveM.isPending ? 'Saving…' : 'Save'}
-                  </Button>
-                  <Button type="button" onClick={() => setEditing(false)}>
-                    Cancel
-                  </Button>
+                  <div className="ui-row">
+                    <Button type="submit" disabled={saveM.isPending}>
+                      {saveM.isPending ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button type="button" onClick={() => setEditing(false)}>
+                      Cancel
+                    </Button>
+                  </div>
                 </form>
-              ) : (
+              ) : null
+            ) : null}
+            <div className={`guest-actions${editing ? ' guest-actions--solo' : ''}`}>
+              {canWrite && !guest.erased && !editing ? (
                 <Button type="button" onClick={() => setEditing(true)}>
                   Edit
                 </Button>
-              )
-            ) : null}
-            {canErase && !guest.erased ? (
-              <Button type="button" data-testid="guest-erase" onClick={() => setConfirmErase(true)}>
-                Erase
-              </Button>
-            ) : null}
+              ) : null}
+              {canErase && !guest.erased ? (
+                <Button type="button" data-testid="guest-erase" onClick={() => setConfirmErase(true)}>
+                  Erase
+                </Button>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -293,7 +362,7 @@ export function GuestProfileScreen() {
       <section data-testid="guest-stays">
       <Card>
         <CardHeader>
-          <h2>Stays</h2>
+          <CardTitle>Stays</CardTitle>
         </CardHeader>
         <CardContent>
           {staysFailClosed ? (
@@ -321,7 +390,7 @@ export function GuestProfileScreen() {
                       <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
                     </DataTableCell>
                     <DataTableCell>
-                      {row.arrivalDate} → {row.departureDate}
+                      {formatGuestDate(row.arrivalDate)} → {formatGuestDate(row.departureDate)}
                     </DataTableCell>
                     <DataTableCell rung={staySeverity(row.status)}>
                       {reservationStatusLabel(row.status)}

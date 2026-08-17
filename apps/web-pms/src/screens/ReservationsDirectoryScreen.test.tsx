@@ -145,12 +145,14 @@ describe('ReservationsDirectoryScreen', () => {
 
   it('active status filter and folio row link; empty and fail-closed copy', async () => {
     renderDirectory();
-    await waitFor(() => expect(screen.getByRole('link', { name: 'View folio' })).toBeTruthy());
-    expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Folio' })).toBeTruthy());
+    expect(screen.getByRole('link', { name: 'Folio' }).getAttribute('href')).toBe(
       '/folio/res_dir_1',
     );
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
-    fireEvent.click(screen.getByRole('button', { name: 'Active' }));
+    fireEvent.change(screen.getByTestId('directory-status'), {
+      target: { value: 'inquiry,pending,confirmed,checked_in' },
+    });
     await waitFor(() =>
       expect(
         getFrontOfficeDirectory.mock.calls.some(
@@ -201,7 +203,7 @@ describe('ReservationsDirectoryScreen', () => {
       getFrontOfficeDirectory.mock.calls.every((c) => !('q' in ((c[1] as object) ?? {}))),
     ).toBe(true);
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
+      expect(screen.getByRole('link', { name: 'Folio' }).getAttribute('href')).toBe(
         '/folio/res_hit',
       ),
     );

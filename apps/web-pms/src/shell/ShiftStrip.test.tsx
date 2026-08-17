@@ -85,7 +85,7 @@ describe('ShiftStrip', () => {
     });
     renderStrip();
     await waitFor(() => expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/100\.00/));
-    expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/Posts cash 3/);
+    expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/3 cash posts/);
     expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/shift_1/);
     expect(screen.getByRole('link', { name: /close/i }).getAttribute('href')).toBe('/shift');
   });

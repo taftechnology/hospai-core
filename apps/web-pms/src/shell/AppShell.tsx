@@ -293,7 +293,10 @@ export function AppShell() {
           </div>
           <footer className="app-sidebar-footer">
             {authority.kind === 'live' ? (
-              <span data-testid="shell-role">{roleLabel(authority.me.role)}</span>
+              <span data-testid="shell-role">
+                <UserIcon size={14} />
+                {roleLabel(authority.me.role)}
+              </span>
             ) : null}
           </footer>
         </aside>

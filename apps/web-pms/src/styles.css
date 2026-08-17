@@ -130,10 +130,16 @@ a {
 }
 
 .app-sidebar-footer {
-  padding: 1.25rem 1rem;
+  padding: 1.11rem 1rem;
   border-top: 1px solid var(--line);
   background: var(--selected);
   font-size: 0.75rem;
+}
+
+.app-sidebar-footer [data-testid='shell-role'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .app-main {

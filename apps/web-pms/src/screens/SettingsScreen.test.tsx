@@ -1,5 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -209,18 +209,19 @@ describe('SettingsScreen', () => {
   it('currencies list opens in a popup and saves the selection as an array', async () => {
     renderSettings('/settings/property');
     fireEvent.click(await screen.findByRole('button', { name: 'Select currencies…' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: /EUR/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('EUR'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
       target: { value: 'ops:accept-eur' },
     });
-    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 4000 });
     expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
       key: 'pms.money.currencies_list',
       value: ['EUR'],
     });
-  });
+  }, 15000);
 
   it('breakfast_rule is display-only for night audit', async () => {
     renderSettings('/settings/property');

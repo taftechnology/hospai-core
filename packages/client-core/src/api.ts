@@ -2018,7 +2018,7 @@ export function createClient(opts: {
       input: { key: string; value: unknown; reason: string; effectiveFrom?: string },
     ) {
       const idempotencyKey = stableKeyForOperation(
-        `domain-config:${input.key}`,
+        `domain-config:${input.key}:${JSON.stringify(input.value)}:${input.reason}`,
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}/config/domain`, {
@@ -2029,7 +2029,7 @@ export function createClient(opts: {
     },
     async updatePropertyDetails(propertyId: string, input: { name: string }) {
       const idempotencyKey = stableKeyForOperation(
-        `property:details:${propertyId}`,
+        `property:details:${propertyId}:${input.name}`,
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}`, {

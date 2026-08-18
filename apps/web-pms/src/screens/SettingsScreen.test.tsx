@@ -132,8 +132,7 @@ describe('SettingsScreen', () => {
     fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
       target: { value: 'ops:hold-extend' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save Auto extend' }));
-    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled());
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
     expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
       key: 'pms.night_audit.auto_extend',
       value: false,
@@ -182,9 +181,45 @@ describe('SettingsScreen', () => {
     );
   });
 
+  it('time zone is a select of IANA zones defaulting to the current value', async () => {
+    renderSettings('/settings/property');
+    const select = (await screen.findByLabelText('Time zone')) as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('UTC');
+    expect(select.options.length).toBeGreaterThan(100);
+    expect(select.options[0]!.value).toMatch(/^[A-Za-z_+\-0-9]+\/[A-Za-z_+\-0-9]+$|^UTC$/);
+    const target = select.options[1]!.value;
+    expect(target).not.toBe('UTC');
+    fireEvent.change(select, { target: { value: target } });
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:tz' },
+    });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
+      key: 'pms.time.time_zone',
+      value: target,
+    });
+  });
+
   it('currencies_list is not the FX allowlist', async () => {
     renderSettings('/settings/property');
     expect(await screen.findByText(/Not the FX allowlist/)).toBeTruthy();
+  });
+
+  it('currencies list opens in a popup and saves the selection as an array', async () => {
+    renderSettings('/settings/property');
+    fireEvent.click(await screen.findByRole('button', { name: 'Select currencies…' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /EUR/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:accept-eur' },
+    });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
+      key: 'pms.money.currencies_list',
+      value: ['EUR'],
+    });
   });
 
   it('breakfast_rule is display-only for night audit', async () => {
@@ -262,6 +297,24 @@ describe('SettingsScreen', () => {
     await waitFor(() =>
       expect(archiveFolioRoutingRule).toHaveBeenCalledWith('prop_demo', 'rr_1'),
     );
+  });
+
+  it('does not auto-save until a reason is given; shows hint instead', async () => {
+    renderSettings('/settings/property');
+    fireEvent.change(await screen.findByLabelText('Auth hold hours'), {
+      target: { value: '48' },
+    });
+    await screen.findByText('Enter a reason to save changes.');
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(putDomainConfig).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:hold-hours' },
+    });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
+      key: 'pms.payments.auth_hold_hours',
+      value: 48,
+    });
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

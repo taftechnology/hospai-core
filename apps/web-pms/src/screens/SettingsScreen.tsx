@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Alert,
@@ -23,6 +23,8 @@ import {
   Textarea,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { CURRENCIES } from '../config/currencies.js';
+import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
@@ -62,6 +64,44 @@ function lookup(keys: DomainKey[], key: string): unknown {
   return keys.find((k) => k.key === key)?.value;
 }
 
+type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+const AUTO_SAVE_DELAY_MS = 800;
+const SAVED_ACK_MS = 2000;
+
+function useAutoSave(props: { dirty: boolean; reason: string; save: () => void }) {
+  const [status, setStatus] = useState<AutoSaveStatus>('idle');
+  const saveRef = useRef(props.save);
+  saveRef.current = props.save;
+  useEffect(() => {
+    if (!props.dirty || !props.reason.trim()) return;
+    setStatus('saving');
+    const t = setTimeout(() => saveRef.current(), AUTO_SAVE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [props.dirty, props.reason]);
+  useEffect(() => {
+    if (status !== 'saved') return;
+    const t = setTimeout(() => setStatus('idle'), SAVED_ACK_MS);
+    return () => clearTimeout(t);
+  }, [status]);
+  return [status, setStatus] as const;
+}
+
+function AutoSaveStatus(props: { status: AutoSaveStatus; dirty: boolean; reason: string }) {
+  let text: string | null = null;
+  if (props.status === 'saving') text = 'Saving…';
+  else if (props.status === 'saved') text = 'Saved.';
+  else if (props.status === 'error') text = 'Save failed. Try again.';
+  else if (props.dirty && !props.reason.trim()) text = 'Enter a reason to save changes.';
+  return text ? (
+    <p className="muted settings-property__status" aria-live="polite">
+      {text}
+    </p>
+  ) : (
+    <p className="settings-property__status" aria-hidden="true" />
+  );
+}
+
 function DomainBool(props: {
   label: string;
   configKey: string;
@@ -75,6 +115,7 @@ function DomainBool(props: {
   useEffect(() => {
     setOn(Boolean(props.initial));
   }, [props.initial]);
+  const dirty = on !== Boolean(props.initial);
   const save = useMutation({
     mutationFn: () =>
       api.putDomainConfig(props.propertyId, {
@@ -82,25 +123,22 @@ function DomainBool(props: {
         value: on,
         reason: props.reason,
       }),
-    onSuccess: props.onSaved,
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
   });
+  const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
   return (
-    <form
-      className="stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate();
-      }}
-    >
+    <div className="stack">
       <Field
         label={props.label}
         hint={props.hint}
         control={<Checkbox checked={on} onChange={(e) => setOn(e.target.checked)} />}
       />
-      <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
-        {save.isPending ? 'Saving…' : `Save ${props.label}`}
-      </Button>
-    </form>
+      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+    </div>
   );
 }
 
@@ -124,19 +162,6 @@ function DomainText(props: {
   useEffect(() => {
     setRaw(asString);
   }, [asString]);
-  const save = useMutation({
-    mutationFn: () => {
-      let value: unknown = raw;
-      if (props.json) value = JSON.parse(raw) as unknown;
-      else if (props.inputType === 'number') value = Number(raw);
-      return api.putDomainConfig(props.propertyId, {
-        key: props.configKey,
-        value,
-        reason: props.reason,
-      });
-    },
-    onSuccess: props.onSaved,
-  });
   const inputType = props.inputType ?? 'text';
   const control = props.json ? (
     <Textarea
@@ -164,22 +189,36 @@ function DomainText(props: {
       onChange={(e) => setRaw(e.target.value)}
     />
   );
+  const dirty = raw !== asString;
+  const save = useMutation({
+    mutationFn: () => {
+      let value: unknown = raw;
+      if (props.json) value = JSON.parse(raw) as unknown;
+      else if (props.inputType === 'number') value = Number(raw);
+      return api.putDomainConfig(props.propertyId, {
+        key: props.configKey,
+        value,
+        reason: props.reason,
+      });
+    },
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
+  });
+  const [status, setStatus] = useAutoSave({
+    dirty: !props.readOnly && dirty,
+    reason: props.reason,
+    save: () => save.mutate(),
+  });
   return (
-    <form
-      className="stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (props.readOnly) return;
-        save.mutate();
-      }}
-    >
+    <div className="stack">
       <Field label={props.label} hint={props.hint} control={control} />
       {props.readOnly ? null : (
-        <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
-          {save.isPending ? 'Saving…' : `Save ${props.label}`}
-        </Button>
+        <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
       )}
-    </form>
+    </div>
   );
 }
 
@@ -196,6 +235,8 @@ function DomainSelect(props: {
   useEffect(() => {
     setRaw(String(props.initial ?? props.options[0]));
   }, [props.initial, props.options]);
+  const baseline = String(props.initial ?? props.options[0]);
+  const dirty = raw !== baseline;
   const save = useMutation({
     mutationFn: () =>
       api.putDomainConfig(props.propertyId, {
@@ -203,16 +244,15 @@ function DomainSelect(props: {
         value: raw,
         reason: props.reason,
       }),
-    onSuccess: props.onSaved,
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
   });
+  const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
   return (
-    <form
-      className="stack"
-      onSubmit={(e) => {
-        e.preventDefault();
-        save.mutate();
-      }}
-    >
+    <div className="stack">
       <Field
         label={props.label}
         control={
@@ -225,10 +265,161 @@ function DomainSelect(props: {
           </NativeSelect>
         }
       />
-      <Button type="submit" intent="primary" disabled={save.isPending || !props.reason.trim()}>
-        {save.isPending ? 'Saving…' : `Save ${props.label}`}
-      </Button>
-    </form>
+      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+    </div>
+  );
+}
+
+function DomainCurrencies(props: {
+  label: string;
+  configKey: string;
+  initial: unknown;
+  reason: string;
+  hint?: string;
+  propertyId: string;
+  onSaved: () => void;
+}) {
+  const initialList = useMemo(
+    () =>
+      Array.isArray(props.initial)
+        ? props.initial.filter((v): v is string => typeof v === 'string')
+        : [],
+    [props.initial],
+  );
+  const initialKey = useMemo(() => [...new Set(initialList)].sort().join(','), [initialList]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialList));
+  useEffect(() => {
+    setSelected(new Set(initialList));
+  }, [initialKey]);
+  const initialSet = useMemo(() => new Set(initialList), [initialKey]);
+  const dirty =
+    selected.size !== initialSet.size || [...selected].some((c) => !initialSet.has(c));
+  const save = useMutation({
+    mutationFn: () =>
+      api.putDomainConfig(props.propertyId, {
+        key: props.configKey,
+        value: CURRENCIES.filter((c) => selected.has(c.code)).map((c) => c.code),
+        reason: props.reason,
+      }),
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
+  });
+  const [status, setStatus] = useAutoSave({
+    dirty,
+    reason: props.reason,
+    save: () => save.mutate(),
+  });
+  const [open, setOpen] = useState(false);
+  const selectedCodes = CURRENCIES.filter((c) => selected.has(c.code)).map((c) => c.code);
+  return (
+    <div className="stack">
+      <div className="ui-field">
+        <label className="ui-field__label" id="currencies-label">
+          {props.label}
+        </label>
+        <Button
+          type="button"
+          intent="default"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          {selectedCodes.length === 0
+            ? 'Select currencies…'
+            : `Currencies: ${selectedCodes.join(', ')}`}
+        </Button>
+        {props.hint ? <p className="ui-field__hint">{props.hint}</p> : null}
+      </div>
+      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+      {open ? (
+        <div
+          className="settings-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="currencies-label"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        >
+          <div
+            className="settings-modal__backdrop"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="settings-modal__panel">
+            <header className="settings-modal__head">
+              <h2>{props.label}</h2>
+              <Button type="button" intent="ghost" onClick={() => setOpen(false)}>
+                Close
+              </Button>
+            </header>
+            <div className="settings-currencies__grid">
+              {CURRENCIES.map((c) => (
+                <label key={c.code} className="settings-currencies__item">
+                  <Checkbox
+                    checked={selected.has(c.code)}
+                    onChange={(e) =>
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(c.code);
+                        else next.delete(c.code);
+                        return next;
+                      })
+                    }
+                  />
+                  <span translate="no">{c.code}</span>
+                  <span className="muted">{c.name}</span>
+                </label>
+              ))}
+            </div>
+            <footer className="settings-modal__foot">
+              <span className="muted">{selectedCodes.length} selected</span>
+              <Button type="button" intent="primary" onClick={() => setOpen(false)}>
+                Done
+              </Button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PropertyNameField(props: {
+  name: string;
+  onChange: (name: string) => void;
+  initial: string;
+  reason: string;
+  propertyId: string;
+  onSaved: () => void;
+}) {
+  const dirty = props.name !== props.initial;
+  const save = useMutation({
+    mutationFn: () => api.updatePropertyDetails(props.propertyId, { name: props.name }),
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
+  });
+  const [status, setStatus] = useAutoSave({
+    dirty,
+    reason: props.reason,
+    save: () => save.mutate(),
+  });
+  return (
+    <div className="stack">
+      <Field
+        label="Property name"
+        control={
+          <Input value={props.name} onChange={(e) => props.onChange(e.target.value)} autoComplete="off" />
+        }
+      />
+      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+    </div>
   );
 }
 
@@ -259,7 +450,6 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
   const unsavedGuard = useUnsavedChanges(dirty);
 
   const onSaved = async () => {
-    setMessage('Saved.');
     await queryClient.invalidateQueries({ queryKey: ['domain-config', propertyId] });
   };
 
@@ -382,6 +572,13 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
     [reason, propertyId],
   );
 
+  const timeZoneOptions = useMemo(() => {
+    const current = lookup(keys, 'pms.time.time_zone');
+    return typeof current === 'string' && !IANA_TIME_ZONES.includes(current)
+      ? [current, ...IANA_TIME_ZONES]
+      : IANA_TIME_ZONES;
+  }, [keys]);
+
   if (failClosed) {
     return (
       <div className="main" data-testid="settings-screen">
@@ -450,30 +647,23 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
               <CardTitle>Property</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="settings-property__grid">
-                <form
-                  className="stack"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    await api.updatePropertyDetails(propertyId, { name: propName });
+<div className="settings-property__grid">
+                <PropertyNameField
+                  name={propName}
+                  onChange={setPropName}
+                  initial={propertyQ.data?.property?.name ?? ''}
+                  reason={reason}
+                  propertyId={propertyId}
+                  onSaved={async () => {
                     setMessage('Saved.');
+                    await queryClient.invalidateQueries({ queryKey: ['property', propertyId] });
                   }}
-                >
-                  <Field
-                    label="Property name"
-                    control={
-                      <Input value={propName} onChange={(e) => setPropName(e.target.value)} autoComplete="off" />
-                    }
-                  />
-                  <Button type="submit" intent="primary">
-                    Save Property name
-                  </Button>
-                </form>
-                <DomainText
+                />
+                <DomainSelect
                   label="Time zone"
                   configKey="pms.time.time_zone"
                   initial={lookup(keys, 'pms.time.time_zone')}
-                  spellCheck={false}
+                  options={timeZoneOptions}
                   {...common}
                 />
               </div>
@@ -588,11 +778,10 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
                   initial={lookup(keys, 'pms.money.payment_alloc')}
                   {...common}
                 />
-                <DomainText
+<DomainCurrencies
                   label="Currencies list"
                   configKey="pms.money.currencies_list"
                   initial={lookup(keys, 'pms.money.currencies_list')}
-                  json
                   hint="Not the FX allowlist — foreign tenders use FX rates on the folio."
                   {...common}
                 />

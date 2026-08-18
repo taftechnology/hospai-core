@@ -131,4 +131,31 @@ describe('property-setup client methods', () => {
     await expect(client.listDomainConfig('p')).rejects.toBeInstanceOf(ClassifiedError);
     expect(queued.entries()).toHaveLength(0);
   });
+
+  it('putDomainConfig creates a new idempotency key when the value or reason changes', async () => {
+    const keys: string[] = [];
+    const { client } = testClient((_path, init) => {
+      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string };
+      keys.push(body.idempotencyKey);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.putDomainConfig('p', { key: 'pms.ops.auto_assign_rooms', value: true, reason: 'ops:a' });
+    await client.putDomainConfig('p', { key: 'pms.ops.auto_assign_rooms', value: false, reason: 'ops:a' });
+    await client.putDomainConfig('p', { key: 'pms.ops.auto_assign_rooms', value: false, reason: 'ops:b' });
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('updatePropertyDetails creates a new idempotency key when the name changes', async () => {
+    const keys: string[] = [];
+    const { client } = testClient((_path, init) => {
+      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string };
+      keys.push(body.idempotencyKey);
+      return new Response(JSON.stringify({ ok: true, propertyId: 'p', name: 'x' }), { status: 200 });
+    });
+    await client.updatePropertyDetails('p', { name: 'First' });
+    await client.updatePropertyDetails('p', { name: 'Second' });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
 });

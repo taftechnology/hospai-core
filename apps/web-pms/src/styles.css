@@ -1022,7 +1022,7 @@ details.side-panel summary {
   display: none;
 }
 
-.sign-in__intro h1 {
+.sign-in__intro .ui-page-header__title {
   margin: 0;
   color: var(--ink);
   font-size: clamp(2rem, 4vw, 3rem);

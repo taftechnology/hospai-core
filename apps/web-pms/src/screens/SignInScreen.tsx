@@ -4,8 +4,10 @@ import { Navigate, useNavigate } from 'react-router';
 import {
   Alert,
   Button,
+  Card,
   Field,
   Input,
+  PageHeader,
 } from '@hospai/ui-kit';
 import {
   demoGateEmail,
@@ -70,13 +72,13 @@ function SignInChrome({
             </div>
           </div>
 
-          <div className="sign-in__intro">
+<div className="sign-in__intro">
             <p className="sign-in__eyebrow">Front desk workspace</p>
-            <h1 id="sign-in-title">Sign in</h1>
+            <PageHeader title="Sign in" />
             <p>Access your property operations in one place.</p>
           </div>
 
-          <div className="sign-in__form-card">
+          <Card className="sign-in__form-card">
             <div className="sign-in__form-card-top">
               <span>Workspace access</span>
               {badge ?? (
@@ -87,7 +89,7 @@ function SignInChrome({
               )}
             </div>
             {children}
-          </div>
+          </Card>
 
           <p className="sign-in__support-copy">
             Sign-in access is managed by your organization. Contact an administrator if you need help.

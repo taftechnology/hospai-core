@@ -35,6 +35,7 @@ import { PropertyTimeZoneProvider, usePropertyTimeZone } from './PropertyTimeZon
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
+import { LogoutModal } from './LogoutModal.js';
 
 type SearchHit = {
   reservationId: string;
@@ -230,6 +231,7 @@ function NavItems({ entries }: { entries: NavEntry[] }) {
 
 export function AppShell() {
   const propertyId = tenant.propertyId;
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const meQuery = useQuery({
     queryKey: ['me', propertyId],
     queryFn: () => api.getMe(propertyId),
@@ -293,11 +295,22 @@ export function AppShell() {
           </div>
           <footer className="app-sidebar-footer">
             {authority.kind === 'live' ? (
-              <span data-testid="shell-role">
-                <UserIcon size={14} />
-                {roleLabel(authority.me.role)}
-              </span>
+              <>
+                <span data-testid="shell-role">
+                  <UserIcon size={14} />
+                  {roleLabel(authority.me.role)}
+                </span>
+                <Button
+                  type="button"
+                  intent="default"
+                  size="sm"
+                  onClick={() => setLogoutOpen(true)}
+                >
+                  Log out
+                </Button>
+              </>
             ) : null}
+            {logoutOpen ? <LogoutModal onCancel={() => setLogoutOpen(false)} /> : null}
           </footer>
         </aside>
         <div className="app-main">

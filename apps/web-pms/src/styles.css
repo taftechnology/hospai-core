@@ -134,6 +134,10 @@ a {
   border-top: 1px solid var(--line);
   background: var(--selected);
   font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .app-sidebar-footer [data-testid='shell-role'] {
@@ -1336,22 +1340,23 @@ details.side-panel summary {
   font-size: 0.8rem;
 }
 
-.settings-modal {
+.app-modal {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: var(--space-4);
 }
 
-.settings-modal__backdrop {
+.app-modal__backdrop {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--panel) 45%, transparent);
+  background: rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(2px);
 }
 
-.settings-modal__panel {
+.app-modal__panel {
   position: relative;
   width: min(56rem, 100%);
   max-height: 85vh;
@@ -1365,30 +1370,44 @@ details.side-panel summary {
   gap: var(--space-3);
 }
 
-.settings-modal__head {
+.app-modal__panel--compact {
+  width: min(24rem, 100%);
+}
+
+.app-modal__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
 }
 
-.settings-modal__head h2 {
+.app-modal__head h2 {
   font-size: var(--text-lg);
   margin: 0;
 }
 
-.settings-modal .settings-currencies__grid {
+.app-modal .settings-currencies__grid {
   overflow: auto;
   margin: 0;
 }
 
-.settings-modal__foot {
+.app-modal__foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   border-block-start: 1px solid var(--line-soft);
   padding-block-start: var(--space-3);
+}
+
+.app-modal__foot--end {
+  justify-content: flex-end;
+}
+
+.app-modal__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .settings-property__fx {

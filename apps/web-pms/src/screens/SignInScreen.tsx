@@ -17,7 +17,7 @@ import {
   spaAuthMode,
 } from '../providers/spa-auth-mode.js';
 
-const DEMO_UNLOCK_KEY = 'hospai.demo-unlock';
+export const DEMO_UNLOCK_KEY = 'hospai.demo-unlock';
 
 function SignInChrome({ children }: { children?: ReactNode }) {
   return (

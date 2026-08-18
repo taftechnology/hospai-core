@@ -336,7 +336,7 @@ function DomainCurrencies(props: {
       <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
       {open ? (
         <div
-          className="settings-modal"
+          className="app-modal"
           role="dialog"
           aria-modal="true"
           aria-labelledby="currencies-label"
@@ -345,12 +345,12 @@ function DomainCurrencies(props: {
           }}
         >
           <div
-            className="settings-modal__backdrop"
+            className="app-modal__backdrop"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
-          <div className="settings-modal__panel">
-            <header className="settings-modal__head">
+          <div className="app-modal__panel">
+            <header className="app-modal__head">
               <h2>{props.label}</h2>
               <Button type="button" intent="ghost" onClick={() => setOpen(false)}>
                 Close
@@ -375,7 +375,7 @@ function DomainCurrencies(props: {
                 </label>
               ))}
             </div>
-            <footer className="settings-modal__foot">
+            <footer className="app-modal__foot">
               <span className="muted">{selectedCodes.length} selected</span>
               <Button type="button" intent="primary" onClick={() => setOpen(false)}>
                 Done

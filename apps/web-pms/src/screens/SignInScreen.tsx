@@ -4,11 +4,7 @@ import { Navigate, useNavigate } from 'react-router';
 import {
   Alert,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   Field,
-  PageHeader,
   Input,
 } from '@hospai/ui-kit';
 import {
@@ -18,24 +14,87 @@ import {
 } from '../providers/spa-auth-mode.js';
 
 export const DEMO_UNLOCK_KEY = 'hospai.demo-unlock';
+export const ENGINEER_DEMO_PASSWORD = 'demo';
 
-function SignInChrome({ children }: { children?: ReactNode }) {
+function SignInChrome({
+  children,
+  badge,
+}: {
+  children?: ReactNode;
+  badge?: ReactNode;
+}) {
   return (
-    <div className="sign-in" data-testid="sign-in">
-      <PageHeader title="Sign in" />
-      <Card>
-        <CardHeader>
-          <div className="app-sidebar-brand">
-            <span className="app-sidebar-mark">✦</span>
-            <p className="app-sidebar-title">
-              HospAI <span>PMS</span>
-            </p>
+    <main className="sign-in" data-testid="sign-in">
+      <section className="sign-in__brand" aria-label="HospAI PMS">
+        <div className="sign-in__brand-top">
+          <div className="sign-in__lockup">
+            <span className="sign-in__mark" aria-hidden="true">
+              ✦
+            </span>
+            <span className="sign-in__wordmark">
+              HOSPAI <span>PMS</span>
+            </span>
           </div>
-          <p className="muted">Front desk</p>
-        </CardHeader>
-        <CardContent>{children}</CardContent>
-      </Card>
-    </div>
+          <span className="sign-in__brand-label">Front desk</span>
+        </div>
+
+        <div className="sign-in__brand-copy">
+          <p className="sign-in__eyebrow">Hospitality operations</p>
+          <h2 className="sign-in__brand-title">
+            Keep the desk
+            <span>moving.</span>
+          </h2>
+          <p className="sign-in__brand-description">
+            One calm workspace for arrivals, rooms, reservations, and every detail in between.
+          </p>
+        </div>
+
+        <div className="sign-in__brand-footer">
+          <span className="sign-in__status-dot" aria-hidden="true" />
+          <span>Front office workspace</span>
+          <span className="sign-in__brand-footer-rule" aria-hidden="true" />
+          <span>Ready when you are</span>
+        </div>
+      </section>
+
+      <section className="sign-in__content">
+        <div className="sign-in__content-inner">
+          <div className="sign-in__mobile-lockup">
+            <div className="sign-in__lockup">
+              <span className="sign-in__mark" aria-hidden="true">
+                ✦
+              </span>
+              <span className="sign-in__wordmark">
+                HOSPAI <span>PMS</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="sign-in__intro">
+            <p className="sign-in__eyebrow">Front desk workspace</p>
+            <h1 id="sign-in-title">Sign in</h1>
+            <p>Access your property operations in one place.</p>
+          </div>
+
+          <div className="sign-in__form-card">
+            <div className="sign-in__form-card-top">
+              <span>Workspace access</span>
+              {badge ?? (
+                <span className="sign-in__secure-label">
+                  <span className="sign-in__secure-dot" aria-hidden="true" />
+                  Secure
+                </span>
+              )}
+            </div>
+            {children}
+          </div>
+
+          <p className="sign-in__support-copy">
+            Sign-in access is managed by your organization. Contact an administrator if you need help.
+          </p>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -74,7 +133,7 @@ function ClerkSignInForm() {
   };
 
   return (
-    <form onSubmit={onSubmit}>
+    <form className="sign-in__form" onSubmit={onSubmit}>
       <Field
         label="Email"
         control={
@@ -112,7 +171,7 @@ function ClerkSignInForm() {
   );
 }
 
-function PasswordGateForm() {
+function PasswordGateForm({ acceptAny = false }: { acceptAny?: boolean }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
@@ -121,7 +180,10 @@ function PasswordGateForm() {
     const form = event.currentTarget;
     const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim().toLowerCase();
     const password = (form.elements.namedItem('password') as HTMLInputElement).value;
-    if (email === demoGateEmail().trim().toLowerCase() && password === demoGatePassword()) {
+    if (
+      acceptAny ||
+      (email === demoGateEmail().trim().toLowerCase() && password === demoGatePassword())
+    ) {
       sessionStorage.setItem(DEMO_UNLOCK_KEY, '1');
       navigate('/board');
       return;
@@ -130,7 +192,7 @@ function PasswordGateForm() {
   };
 
   return (
-    <form onSubmit={onSubmit}>
+    <form className="sign-in__form" onSubmit={onSubmit}>
       <Field
         label="Email"
         control={
@@ -139,6 +201,7 @@ function PasswordGateForm() {
             name="email"
             data-testid="sign-in-email"
             autoComplete="username"
+            defaultValue={acceptAny ? demoGateEmail() : undefined}
             required
           />
         }
@@ -151,6 +214,7 @@ function PasswordGateForm() {
             name="password"
             data-testid="sign-in-password"
             autoComplete="current-password"
+            defaultValue={acceptAny ? ENGINEER_DEMO_PASSWORD : undefined}
             required
           />
         }
@@ -167,6 +231,19 @@ export function SignInScreen() {
   const mode = spaAuthMode();
 
   if (mode === 'engineer') {
+    if (new URLSearchParams(window.location.search).has('logged-out')) {
+      return (
+        <SignInChrome
+          badge={
+            <span className="sign-in__engineer-badge" data-testid="engineer-mode-badge">
+              Engineering mode
+            </span>
+          }
+        >
+          <PasswordGateForm acceptAny />
+        </SignInChrome>
+      );
+    }
     return <Navigate to="/board" replace />;
   }
 

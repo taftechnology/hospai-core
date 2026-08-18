@@ -58,14 +58,55 @@ describe('SignInScreen', () => {
     expect(screen.queryByTestId('sign-in')).toBeNull();
   });
 
+  it('engineer mode after logout shows the sign-in form', () => {
+    mode.value = 'engineer';
+    window.history.pushState({}, '', '/sign-in?logged-out=1');
+    renderSignIn();
+    expect(screen.getByTestId('sign-in')).toBeTruthy();
+    expect(screen.getByTestId('sign-in-email')).toBeTruthy();
+    expect(screen.queryByTestId('board-landed')).toBeNull();
+  });
+
+  it('engineer mode badges the screen and prefills demo credentials', () => {
+    mode.value = 'engineer';
+    window.history.pushState({}, '', '/sign-in?logged-out=1');
+    renderSignIn();
+    expect(screen.getByTestId('engineer-mode-badge').textContent).toContain('Engineering mode');
+    expect((screen.getByTestId('sign-in-email') as HTMLInputElement).value).toBe(
+      'demo@hospai.local',
+    );
+    expect((screen.getByTestId('sign-in-password') as HTMLInputElement).value).toBe('demo');
+  });
+
+  it('engineer mode sign-in form accepts any credentials', async () => {
+    mode.value = 'engineer';
+    window.history.pushState({}, '', '/sign-in?logged-out=1');
+    renderSignIn();
+    fireEvent.change(screen.getByTestId('sign-in-email'), { target: { value: 'anyone@example.com' } });
+    fireEvent.change(screen.getByTestId('sign-in-password'), { target: { value: 'whatever' } });
+    fireEvent.click(screen.getByTestId('sign-in-submit'));
+    await waitFor(() => {
+      expect(screen.getByTestId('board-landed')).toBeTruthy();
+    });
+  });
+
   it('misconfigured shows card without submit', () => {
     renderSignIn();
     expect(screen.getByTestId('sign-in')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeTruthy();
-    expect(screen.getByText(/HospAI/i)).toBeTruthy();
+    expect(screen.getAllByText(/HospAI/i).length).toBeGreaterThan(0);
     expect(screen.getByText('Sign-in is not configured.')).toBeTruthy();
     expect(screen.queryByTestId('sign-in-submit')).toBeNull();
     expect(document.body.textContent).not.toMatch(/x-dev-actor|user_owner|vite_|clerk/i);
+  });
+
+  it('renders the branded responsive sign-in chrome', () => {
+    const screenRoot = renderSignIn().getByTestId('sign-in');
+
+    expect(screenRoot.querySelector('.sign-in__brand')).toBeTruthy();
+    expect(screenRoot.querySelector('.sign-in__content')).toBeTruthy();
+    expect(screenRoot.querySelector('.sign-in__form-card')).toBeTruthy();
+    expect(screenRoot.querySelector('.sign-in__support-copy')).toBeTruthy();
   });
 
   it('password-gate wrong password shows alert', async () => {

@@ -46,11 +46,8 @@ function ConfirmLogoutDialog({
 function ClerkLogoutModal({ onCancel }: { onCancel: () => void }) {
   const { signOut } = useAuth();
   const onConfirm = async () => {
-    try {
-      await signOut();
-    } finally {
-      window.location.assign('/sign-in');
-    }
+    await signOut();
+    window.location.assign('/sign-in');
   };
   return <ConfirmLogoutDialog onCancel={onCancel} onConfirm={() => void onConfirm()} />;
 }
@@ -58,7 +55,7 @@ function ClerkLogoutModal({ onCancel }: { onCancel: () => void }) {
 function LocalLogoutModal({ onCancel }: { onCancel: () => void }) {
   const onConfirm = () => {
     sessionStorage.removeItem(DEMO_UNLOCK_KEY);
-    window.location.assign('/sign-in');
+    window.location.assign('/sign-in?logged-out=1');
   };
   return <ConfirmLogoutDialog onCancel={onCancel} onConfirm={onConfirm} />;
 }

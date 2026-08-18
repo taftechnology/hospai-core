@@ -1692,7 +1692,7 @@ details.side-panel summary {
 .app-modal__backdrop {
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 0.6);
+  background: color-mix(in srgb, var(--ink) 60%, transparent);
   backdrop-filter: blur(2px);
 }
 

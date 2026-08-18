@@ -667,6 +667,12 @@ a {
   border-color: transparent;
 }
 
+.ui-btn--destructive:hover,
+.ui-link-btn--destructive:hover {
+  background: var(--selected);
+  color: var(--ink);
+}
+
 .ui-btn--ghost,
 .ui-link-btn--ghost {
   background: transparent;

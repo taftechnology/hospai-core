@@ -331,9 +331,19 @@ export function GuestProfileScreen() {
                     }
                   />
                   <div className="ui-row">
-                    <Button type="submit" disabled={saveM.isPending}>
+                    <Button type="submit" intent="primary" disabled={saveM.isPending}>
                       {saveM.isPending ? 'Saving…' : 'Save'}
                     </Button>
+                    {canErase ? (
+                      <Button
+                        type="button"
+                        intent="destructive"
+                        data-testid="guest-erase"
+                        onClick={() => setConfirmErase(true)}
+                      >
+                        Erase
+                      </Button>
+                    ) : null}
                     <Button type="button" onClick={() => setEditing(false)}>
                       Cancel
                     </Button>
@@ -347,8 +357,13 @@ export function GuestProfileScreen() {
                   Edit
                 </Button>
               ) : null}
-              {canErase && !guest.erased ? (
-                <Button type="button" data-testid="guest-erase" onClick={() => setConfirmErase(true)}>
+              {canErase && !guest.erased && !editing ? (
+                <Button
+                  type="button"
+                  intent="destructive"
+                  data-testid="guest-erase"
+                  onClick={() => setConfirmErase(true)}
+                >
                   Erase
                 </Button>
               ) : null}
@@ -358,6 +373,33 @@ export function GuestProfileScreen() {
       ) : (
         <Alert>Guest not found.</Alert>
       )}
+
+      {confirmErase ? (
+        <div role="dialog" aria-modal="true">
+        <Card>
+          <CardContent>
+            <p>
+              This permanently destroys the guest’s contact details. Stay records remain. This cannot be
+              undone.
+            </p>
+            <div className="ui-row">
+              <Button type="button" onClick={() => setConfirmErase(false)} aria-label="Cancel erase">
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="destructive"
+                onClick={() => eraseM.mutate()}
+                disabled={eraseM.isPending}
+                data-testid="guest-erase-confirm"
+              >
+                {eraseM.isPending ? 'Erasing…' : 'Erase guest'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        </div>
+      ) : null}
 
       <section data-testid="guest-stays">
       <Card>
@@ -411,31 +453,6 @@ export function GuestProfileScreen() {
         </CardContent>
       </Card>
       </section>
-
-      {confirmErase ? (
-        <div role="dialog" aria-modal="true">
-        <Card>
-          <CardContent>
-            <p>
-              This permanently destroys the guest’s contact details. Stay records remain. This cannot be
-              undone.
-            </p>
-            <Button type="button" onClick={() => setConfirmErase(false)} aria-label="Cancel erase">
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              intent="destructive"
-              onClick={() => eraseM.mutate()}
-              disabled={eraseM.isPending}
-              data-testid="guest-erase-confirm"
-            >
-              {eraseM.isPending ? 'Erasing…' : 'Erase guest'}
-            </Button>
-          </CardContent>
-        </Card>
-        </div>
-      ) : null}
     </div>
   );
 }

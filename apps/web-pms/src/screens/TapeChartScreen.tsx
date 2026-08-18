@@ -194,6 +194,9 @@ function StayBlock({
       }}
     >
       <GuestNameLink state={state} guestRef={block.guestRef} />
+      <span className="sep" aria-hidden="true">
+        ·
+      </span>
       <Link to={`/folio/${encodeURIComponent(block.reservationId)}`}>Folio</Link>
       {block.vipFlag === true ? <span data-testid="badge-vip"> VIP</span> : null}
       {block.dndFlag === true ? <span data-testid="badge-dnd"> DND</span> : null}

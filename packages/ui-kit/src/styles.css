@@ -93,6 +93,12 @@
   border-color: transparent;
 }
 
+.ui-btn--destructive:hover:not(:disabled),
+.ui-link-btn--destructive:hover:not([aria-disabled='true']) {
+  background: var(--selected);
+  color: var(--ink);
+}
+
 .ui-btn--ghost,
 .ui-link-btn--ghost {
   background: transparent;

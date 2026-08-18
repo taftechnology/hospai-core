@@ -1626,42 +1626,45 @@ export function FolioScreen() {
 
       {message ? <p data-testid="folio-message">{message}</p> : null}
 
-      <details data-testid="folio-advanced">
+      <details className="folio-advanced" data-testid="folio-advanced">
         <summary>Advanced</summary>
-        {canWrite ? (
-          <Button
-            type="button"
-            data-testid="toggle-no-post"
-            disabled={toggleNoPost.isPending}
-            onClick={() => toggleNoPost.mutate()}
-          >
-            {noPost ? 'Clear no-post' : 'Set no-post'}
-          </Button>
-        ) : null}
+        <div className="folio-advanced__body">
+          {canWrite ? (
+            <div className="folio-advanced__actions">
+              <Button
+                type="button"
+                data-testid="toggle-no-post"
+                disabled={toggleNoPost.isPending}
+                onClick={() => toggleNoPost.mutate()}
+              >
+                {noPost ? 'Clear no-post' : 'Set no-post'}
+              </Button>
+            </div>
+          ) : null}
 
-        {reservationQ.isSuccess ? (
-          <FrontOfficeEditor
-            reservationId={reservationId}
-            frontOfficeComment={reservationQ.data.frontOfficeComment}
-            vipFlag={reservationQ.data.vipFlag}
-            dndFlag={reservationQ.data.dndFlag}
-            disabled={editorDisabled}
-            actions={<PrintRegCardControl canPrint={canPrint} />}
+          {reservationQ.isSuccess ? (
+            <FrontOfficeEditor
+              reservationId={reservationId}
+              frontOfficeComment={reservationQ.data.frontOfficeComment}
+              vipFlag={reservationQ.data.vipFlag}
+              dndFlag={reservationQ.data.dndFlag}
+              disabled={editorDisabled}
+              actions={<PrintRegCardControl canPrint={canPrint} />}
+            />
+          ) : (
+            <PrintRegCardControl canPrint={canPrint} />
+          )}
+          <RegistrationCard
+            propertyName={propertyQ.data?.property?.name ?? null}
+            reservation={reservationQ.data}
+            displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
+            roomLabel={roomCode ?? null}
           />
-        ) : (
-          <PrintRegCardControl canPrint={canPrint} />
-        )}
-        <RegistrationCard
-          propertyName={propertyQ.data?.property?.name ?? null}
-          reservation={reservationQ.data}
-          displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
-          roomLabel={roomCode ?? null}
-        />
 
-        {windows.length > 0 ? (
-          <section>
+          {windows.length > 0 ? (
+            <section className="folio-advanced__section">
             <h2>Windows</h2>
-            <ul data-testid="folio-windows">
+            <ul className="folio-advanced__window-list" data-testid="folio-windows">
               {windows.map((w) => (
                 <li key={w.folioWindowId}>
                   <Badge
@@ -1694,7 +1697,7 @@ export function FolioScreen() {
               ))}
             </ul>
             {canAdjust ? (
-              <div className="stack-row">
+              <div className="folio-advanced__actions">
                 {cityLedgerPickerAvailable ? (
                   <NativeSelect
                     aria-label="company-billed-party"
@@ -1734,9 +1737,9 @@ export function FolioScreen() {
                 </Button>
               </div>
             ) : null}
-          </section>
-        ) : canAdjust ? (
-          <section className="stack-row">
+            </section>
+          ) : canAdjust ? (
+            <section className="folio-advanced__section">
             <h2>Windows</h2>
             {cityLedgerPickerAvailable ? (
               <NativeSelect
@@ -1775,21 +1778,23 @@ export function FolioScreen() {
             >
               Open company folio
             </Button>
-          </section>
-        ) : null}
+            </section>
+          ) : null}
 
-        {showCaptureDue ? (
-          <Button
-            type="button"
-            data-testid="capture-due"
-            disabled={captureDueHolds.isPending}
-            onClick={() => captureDueHolds.mutate()}
-          >
-            Capture due
-          </Button>
-        ) : null}
+          {showCaptureDue ? (
+            <div className="folio-advanced__actions">
+              <Button
+                type="button"
+                data-testid="capture-due"
+                disabled={captureDueHolds.isPending}
+                onClick={() => captureDueHolds.mutate()}
+              >
+                Capture due
+              </Button>
+            </div>
+          ) : null}
 
-        <ul>
+        <ul className="folio-advanced__line-actions">
           {fold.roots.map((node) => (
             <li key={`adv-${node.line.folioLineId}`}>
               {node.line.txnCurrency !== ledgerCurrency ||
@@ -1845,7 +1850,7 @@ export function FolioScreen() {
           ))}
         </ul>
 
-        <section>
+        <section className="folio-advanced__section">
           <h2>Queued this reservation</h2>
           {queued.forReservation.length === 0 ? (
             <p className="muted">None</p>
@@ -1872,7 +1877,7 @@ export function FolioScreen() {
           ) : null}
         </section>
 
-        <section className="stack-row">
+        <section className="folio-advanced__section folio-advanced__form-row">
           <h2>Split charge</h2>
           <Input
             aria-label="split-line-id"
@@ -1934,7 +1939,7 @@ export function FolioScreen() {
         </section>
 
         {canAdjust ? (
-          <section className="stack-row">
+          <section className="folio-advanced__section folio-advanced__form-row">
             <h2>Discount</h2>
             <Input
               aria-label="discount-line-id"
@@ -1973,7 +1978,10 @@ export function FolioScreen() {
         ) : null}
 
         {canAdjust ? (
-          <section className="stack-row" data-testid="chargeback-form">
+          <section
+            className="folio-advanced__section folio-advanced__form-row"
+            data-testid="chargeback-form"
+          >
             <h2>Chargeback</h2>
             <Input
               aria-label="chargeback-payment-id"
@@ -2009,7 +2017,10 @@ export function FolioScreen() {
         ) : null}
 
         {canAdjust ? (
-          <section className="stack-row" data-testid="fx-adjustment-form">
+          <section
+            className="folio-advanced__section folio-advanced__form-row"
+            data-testid="fx-adjustment-form"
+          >
             <h2>FX adjustment</h2>
             <NativeSelect
               aria-label="fx-kind"
@@ -2045,7 +2056,7 @@ export function FolioScreen() {
         ) : null}
 
         {canConfigureFx ? (
-          <details data-testid="fx-rates-editor">
+          <details className="folio-advanced__subsection" data-testid="fx-rates-editor">
             <summary>FX rates</summary>
             <ul>
               {(fxRatesQ.data?.rates ?? [])
@@ -2081,35 +2092,48 @@ export function FolioScreen() {
           </details>
         ) : null}
 
-        <NativeSelect
-          aria-label="cash-currency"
-          data-testid="cash-currency"
-          value={selectedPayCurrency}
-          disabled={!policy.canPay || !folioLive}
-          onChange={(e) => setPayCurrency(e.target.value)}
-        >
-          {payCurrencies.map((c) => (
-            <option key={`cash-${c}`} value={c}>
-              {c}
-            </option>
-          ))}
-        </NativeSelect>
-        <NativeSelect
-          aria-label="authorize-currency"
-          data-testid="authorize-currency"
-          value={selectedPayCurrency}
-          disabled={!policy.canPay || !folioLive}
-          onChange={(e) => setPayCurrency(e.target.value)}
-        >
-          {payCurrencies.map((c) => (
-            <option key={`auth-${c}`} value={c}>
-              {c}
-            </option>
-          ))}
-        </NativeSelect>
-        {selectedPayCurrency !== ledgerCurrency ? (
-          <p className="muted">Indicative — captured at the rate in force at capture.</p>
-        ) : null}
+        <div className="folio-advanced__currency-grid">
+          <Field
+            label="Cash currency"
+            control={
+              <NativeSelect
+                aria-label="cash-currency"
+                data-testid="cash-currency"
+                value={selectedPayCurrency}
+                disabled={!policy.canPay || !folioLive}
+                onChange={(e) => setPayCurrency(e.target.value)}
+              >
+                {payCurrencies.map((c) => (
+                  <option key={`cash-${c}`} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Card authorization currency"
+            control={
+              <NativeSelect
+                aria-label="authorize-currency"
+                data-testid="authorize-currency"
+                value={selectedPayCurrency}
+                disabled={!policy.canPay || !folioLive}
+                onChange={(e) => setPayCurrency(e.target.value)}
+              >
+                {payCurrencies.map((c) => (
+                  <option key={`auth-${c}`} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          {selectedPayCurrency !== ledgerCurrency ? (
+            <p className="muted">Indicative — captured at the rate in force at capture.</p>
+            ) : null}
+        </div>
+        </div>
       </details>
     </>
   );

@@ -127,7 +127,8 @@ describe('RatesScreen', () => {
 
   it('fill one cell sends integer amountMinor and ledger currency', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26&plan=BAR');
-    const cell = await screen.findByLabelText('Rate for KNG on 2026-08-13');
+    const cells = await screen.findAllByLabelText('Rate for KNG');
+    const cell = cells[0]!;
     fireEvent.change(cell, { target: { value: '150.00' } });
     fireEvent.blur(cell);
     await waitFor(() => expect(putRateDay).toHaveBeenCalled());
@@ -143,8 +144,8 @@ describe('RatesScreen', () => {
 
   it('empty cell does not PUT zero', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
-    const cell = await screen.findByLabelText('Rate for KNG on 2026-08-13');
-    fireEvent.blur(cell);
+    const cells = await screen.findAllByLabelText('Rate for KNG');
+    fireEvent.blur(cells[0]!);
     expect(putRateDay).not.toHaveBeenCalled();
   });
 
@@ -178,7 +179,7 @@ describe('RatesScreen', () => {
     );
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
     expect(await screen.findByText(/Property unreachable — cannot load rates/)).toBeTruthy();
-    expect(screen.queryByLabelText('Rate for KNG on 2026-08-13')).toBeNull();
+    expect(screen.queryByLabelText('Rate for KNG')).toBeNull();
     expect(screen.queryByText('BAR')).toBeNull();
   });
 
@@ -215,7 +216,8 @@ describe('RatesScreen', () => {
         'Stop sell hides the type from sale without changing inventory.',
       ),
     ).toBeTruthy();
-    fireEvent.click(await screen.findByLabelText('Stop sell for KNG on 2026-08-13'));
+    const stopSellBoxes = await screen.findAllByLabelText('Stop sell for KNG');
+    fireEvent.click(stopSellBoxes[0]!);
     await waitFor(() => expect(putRestrictionDay).toHaveBeenCalled());
     const args = putRestrictionDay.mock.calls[0] as [string, Record<string, unknown>];
     expect(args[1]).toMatchObject({
@@ -290,7 +292,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR15');
     expect(await screen.findByText('Edit the parent plan’s rates.')).toBeTruthy();
-    const cell = screen.getByLabelText('Rate for KNG on 2026-08-13');
+    const cell = screen.getByLabelText('Rate for KNG');
     expect(cell).toHaveAttribute('readonly');
     fireEvent.blur(cell);
     expect(putRateDay).not.toHaveBeenCalled();

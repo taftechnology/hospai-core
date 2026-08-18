@@ -1388,6 +1388,11 @@ details.side-panel summary {
   min-inline-size: 70rem;
 }
 
+.rates-matrix__table .ui-table th,
+.rates-matrix__table .ui-table td {
+  padding-block: 0.75rem;
+}
+
 .rates-matrix__table .ui-table th:first-child,
 .rates-matrix__table .ui-table td:first-child {
   min-inline-size: 14rem;
@@ -1402,6 +1407,24 @@ details.side-panel summary {
   min-inline-size: 8rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.rates-restrictions__table .ui-table tbody td:not(:first-child) {
+  vertical-align: top;
+  padding-block: var(--space-4);
+}
+
+.rates-restrictions__los,
+.rates-restrictions__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rates-restrictions__toggles {
+  margin-block-start: var(--space-5);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--line-soft);
 }
 
 .rates-matrix__bulk {

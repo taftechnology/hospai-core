@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
   Alert,
@@ -151,9 +151,12 @@ function RateCell(props: {
   readOnly?: boolean;
 }) {
   const [raw, setRaw] = useState(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
+  useEffect(() => {
+    setRaw(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
+  }, [props.amountMinor]);
   return (
     <Field
-      label={`Rate for ${props.code} on ${props.stayDate}`}
+      label={`Rate for ${props.code}`}
       control={
         <Input
           value={raw}
@@ -217,6 +220,17 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [promoValidTo, setPromoValidTo] = useState('');
   const [promoPlanId, setPromoPlanId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashMessage = (text: string) => {
+    setMessage(text);
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    messageTimer.current = setTimeout(() => setMessage(null), 5000);
+  };
+  useEffect(() => {
+    return () => {
+      if (messageTimer.current) clearTimeout(messageTimer.current);
+    };
+  }, []);
 
   const unsavedGuard = useUnsavedChanges(Boolean(planCode || planName));
 
@@ -305,7 +319,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       setPlanName('');
       setDerivedFrom('');
       setDerivePercent('');
-      setMessage('Saved.');
+      flashMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
     },
   });
@@ -314,7 +328,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
     mutationFn: (id: string) => api.archiveRatePlan(propertyId, id),
     onSuccess: async () => {
       setArchivePlan(null);
-      setMessage('Saved.');
+      flashMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
     },
   });
@@ -344,7 +358,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       setPromoValidFrom('');
       setPromoValidTo('');
       setPromoPlanId('');
-      setMessage('Saved.');
+      flashMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-promos', propertyId] });
     },
   });
@@ -352,7 +366,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const doArchivePromo = useMutation({
     mutationFn: (promoId: string) => api.archiveRatePromo(propertyId, promoId),
     onSuccess: async () => {
-      setMessage('Saved.');
+      flashMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-promos', propertyId] });
     },
   });
@@ -879,9 +893,9 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                       );
                     setSavingBulk(true);
                     try {
-                      await api.bulkUpdateRates(propertyId, updates);
-                      setMessage('Saved.');
-                      await queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
+await api.bulkUpdateRates(propertyId, updates);
+                      flashMessage('Saved.');
+                      void queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
                     } finally {
                       setSavingBulk(false);
                     }
@@ -1015,109 +1029,113 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                       const row = restMap.get(`${t.roomTypeId}:${d}`);
                       return (
                         <DataTableCell key={d}>
-                          <Field
-                            label={`Min LOS for ${t.code} on ${d}`}
-                            control={
-                              <Input
-                                type="number"
-                                min={1}
-                                autoComplete="off"
-                                defaultValue={row?.minLos != null ? String(row.minLos) : ''}
-                                onBlur={async (e) => {
-                                  const v = e.target.value.trim();
-                                  await api.putRestrictionDay(propertyId, {
-                                    roomTypeId: t.roomTypeId,
-                                    stayDate: d,
-                                    minLos: v ? Number(v) : null,
-                                    maxLos: row?.maxLos ?? null,
-                                    cta: row?.cta ?? false,
-                                    ctd: row?.ctd ?? false,
-                                    stopSell: row?.stopSell ?? false,
-                                  });
-                                }}
-                              />
-                            }
-                          />
-                          <Field
-                            label={`Max LOS for ${t.code} on ${d}`}
-                            control={
-                              <Input
-                                type="number"
-                                min={1}
-                                autoComplete="off"
-                                defaultValue={row?.maxLos != null ? String(row.maxLos) : ''}
-                                onBlur={async (e) => {
-                                  const v = e.target.value.trim();
-                                  await api.putRestrictionDay(propertyId, {
-                                    roomTypeId: t.roomTypeId,
-                                    stayDate: d,
-                                    minLos: row?.minLos ?? null,
-                                    maxLos: v ? Number(v) : null,
-                                    cta: row?.cta ?? false,
-                                    ctd: row?.ctd ?? false,
-                                    stopSell: row?.stopSell ?? false,
-                                  });
-                                }}
-                              />
-                            }
-                          />
-                          <Field
-                            label={`CTA for ${t.code} on ${d}`}
-                            control={
-                              <Checkbox
-                                defaultChecked={row?.cta ?? false}
-                                onChange={async (e) => {
-                                  await api.putRestrictionDay(propertyId, {
-                                    roomTypeId: t.roomTypeId,
-                                    stayDate: d,
-                                    minLos: row?.minLos ?? null,
-                                    maxLos: row?.maxLos ?? null,
-                                    cta: e.target.checked,
-                                    ctd: row?.ctd ?? false,
-                                    stopSell: row?.stopSell ?? false,
-                                  });
-                                }}
-                              />
-                            }
-                          />
-                          <Field
-                            label={`CTD for ${t.code} on ${d}`}
-                            control={
-                              <Checkbox
-                                defaultChecked={row?.ctd ?? false}
-                                onChange={async (e) => {
-                                  await api.putRestrictionDay(propertyId, {
-                                    roomTypeId: t.roomTypeId,
-                                    stayDate: d,
-                                    minLos: row?.minLos ?? null,
-                                    maxLos: row?.maxLos ?? null,
-                                    cta: row?.cta ?? false,
-                                    ctd: e.target.checked,
-                                    stopSell: row?.stopSell ?? false,
-                                  });
-                                }}
-                              />
-                            }
-                          />
-                          <Field
-                            label={`Stop sell for ${t.code} on ${d}`}
-                            control={
-                              <Checkbox
-                                defaultChecked={row?.stopSell ?? false}
-                                onChange={async (e) => {
-                                  await api.putRestrictionDay(propertyId, {
-                                    roomTypeId: t.roomTypeId,
-                                    stayDate: d,
-                                    minLos: row?.minLos ?? null,
-                                    maxLos: row?.maxLos ?? null,
-                                    cta: row?.cta ?? false,
-                                    ctd: row?.ctd ?? false,
-                                    stopSell: e.target.checked,
-                                  });
-                                }}
-                              />
-                            }
-                          />
+                          <div className="rates-restrictions__los">
+                            <Field
+                              label={`Min LOS for ${t.code}`}
+                              control={
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  autoComplete="off"
+                                  defaultValue={row?.minLos != null ? String(row.minLos) : ''}
+                                  onBlur={async (e) => {
+                                    const v = e.target.value.trim();
+                                    await api.putRestrictionDay(propertyId, {
+                                      roomTypeId: t.roomTypeId,
+                                      stayDate: d,
+                                      minLos: v ? Number(v) : null,
+                                      maxLos: row?.maxLos ?? null,
+                                      cta: row?.cta ?? false,
+                                      ctd: row?.ctd ?? false,
+                                      stopSell: row?.stopSell ?? false,
+                                    });
+                                  }}
+                                />
+                              }
+                            />
+                            <Field
+                              label={`Max LOS for ${t.code}`}
+                              control={
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  autoComplete="off"
+                                  defaultValue={row?.maxLos != null ? String(row.maxLos) : ''}
+                                  onBlur={async (e) => {
+                                    const v = e.target.value.trim();
+                                    await api.putRestrictionDay(propertyId, {
+                                      roomTypeId: t.roomTypeId,
+                                      stayDate: d,
+                                      minLos: row?.minLos ?? null,
+                                      maxLos: v ? Number(v) : null,
+                                      cta: row?.cta ?? false,
+                                      ctd: row?.ctd ?? false,
+                                      stopSell: row?.stopSell ?? false,
+                                    });
+                                  }}
+                                />
+                              }
+                            />
+                          </div>
+                          <div className="rates-restrictions__toggles">
+                            <Field
+                              label={`CTA for ${t.code}`}
+                              control={
+                                <Checkbox
+                                  defaultChecked={row?.cta ?? false}
+                                  onChange={async (e) => {
+                                    await api.putRestrictionDay(propertyId, {
+                                      roomTypeId: t.roomTypeId,
+                                      stayDate: d,
+                                      minLos: row?.minLos ?? null,
+                                      maxLos: row?.maxLos ?? null,
+                                      cta: e.target.checked,
+                                      ctd: row?.ctd ?? false,
+                                      stopSell: row?.stopSell ?? false,
+                                    });
+                                  }}
+                                />
+                              }
+                            />
+                            <Field
+                              label={`CTD for ${t.code}`}
+                              control={
+                                <Checkbox
+                                  defaultChecked={row?.ctd ?? false}
+                                  onChange={async (e) => {
+                                    await api.putRestrictionDay(propertyId, {
+                                      roomTypeId: t.roomTypeId,
+                                      stayDate: d,
+                                      minLos: row?.minLos ?? null,
+                                      maxLos: row?.maxLos ?? null,
+                                      cta: row?.cta ?? false,
+                                      ctd: e.target.checked,
+                                      stopSell: row?.stopSell ?? false,
+                                    });
+                                  }}
+                                />
+                              }
+                            />
+                            <Field
+                              label={`Stop sell for ${t.code}`}
+                              control={
+                                <Checkbox
+                                  defaultChecked={row?.stopSell ?? false}
+                                  onChange={async (e) => {
+                                    await api.putRestrictionDay(propertyId, {
+                                      roomTypeId: t.roomTypeId,
+                                      stayDate: d,
+                                      minLos: row?.minLos ?? null,
+                                      maxLos: row?.maxLos ?? null,
+                                      cta: row?.cta ?? false,
+                                      ctd: row?.ctd ?? false,
+                                      stopSell: e.target.checked,
+                                    });
+                                  }}
+                                />
+                              }
+                            />
+                          </div>
                         </DataTableCell>
                       );
                     })}

@@ -1943,7 +1943,7 @@ export function createClient(opts: {
       },
     ) {
       const idempotencyKey = stableKeyForOperation(
-        `rate-day:${input.roomTypeId}:${input.ratePlanId ?? 'BAR'}:${input.stayDate}`,
+        `rate-day:${input.roomTypeId}:${input.ratePlanId ?? 'BAR'}:${input.stayDate}:${input.amountMinor}:${input.currency}`,
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}/rate-days`, {
@@ -1963,7 +1963,9 @@ export function createClient(opts: {
       }>,
     ) {
       const idempotencyKey = stableKeyForOperation(
-        `rates:bulk:${propertyId}:${updates.map((u) => `${u.roomTypeId}:${u.stayDate}`).join(',')}`,
+        `rates:bulk:${propertyId}:${updates
+          .map((u) => `${u.roomTypeId}:${u.ratePlanId ?? 'BAR'}:${u.stayDate}:${u.amountMinor}:${u.currency}`)
+          .join(',')}`,
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}/rates/bulk`, {
@@ -1998,7 +2000,7 @@ export function createClient(opts: {
       },
     ) {
       const idempotencyKey = stableKeyForOperation(
-        `restriction-day:${input.roomTypeId}:${input.stayDate}`,
+        `restriction-day:${input.roomTypeId}:${input.stayDate}:${input.minLos ?? ''}:${input.maxLos ?? ''}:${input.cta ? 1 : 0}:${input.ctd ? 1 : 0}:${input.stopSell ? 1 : 0}`,
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}/restriction-days`, {

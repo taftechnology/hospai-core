@@ -64,6 +64,27 @@ describe('property-setup client methods', () => {
     });
   });
 
+  it('bulkUpdateRates creates a new idempotency key when the amount changes', async () => {
+    const keys: string[] = [];
+    const { client } = testClient((_path, init) => {
+      const body = JSON.parse(String(init?.body)) as { idempotencyKey: string };
+      keys.push(body.idempotencyKey);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const base = {
+      roomTypeId: 'rt_king',
+      ratePlanId: 'BAR',
+      stayDate: '2026-08-13',
+      currency: 'USD',
+    };
+
+    await client.bulkUpdateRates('p', [{ ...base, amountMinor: 2300 }]);
+    await client.bulkUpdateRates('p', [{ ...base, amountMinor: 2400 }]);
+
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
   it('putRestrictionDay omits ratePlanId', async () => {
     const { client } = testClient((_path, init) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

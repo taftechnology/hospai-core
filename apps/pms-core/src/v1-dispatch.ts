@@ -211,6 +211,8 @@ import {
   degradedReadStaleResponse,
   invokePropertyDo,
 } from './invoke-property-do.js';
+import { commandErrorHttpStatus, commandFailureResponse } from './command-error-http.js';
+import { finishPropertyDoInvoke } from './finish-property-do-invoke.js';
 import { commandEnvelope } from './command-envelope.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
@@ -364,641 +366,8 @@ function coerceCommandError(error: string | undefined): CommandError {
   return error !== undefined && isCommandError(error) ? error : INTERNAL_ERROR;
 }
 
-type ConcreteCommandError = Exclude<CommandError, `undeclared:${string}`>;
-
-function mapAddRoomTypeErrorStatus(
-  error: typeof IDEM_KEY_REUSED | typeof ROOM_TYPE_EXISTS | typeof ROOM_TYPE_CODE_EXISTS,
-): number {
-  switch (error) {
-    case IDEM_KEY_REUSED:
-    case ROOM_TYPE_EXISTS:
-    case ROOM_TYPE_CODE_EXISTS:
-      return 409;
-  }
-}
-
-function mapReservationCommandErrorStatus(error: CommandError): number {
-  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
-  return mapReservationConcreteCommandErrorStatus(error as ConcreteCommandError);
-}
-
-function mapReservationConcreteCommandErrorStatus(error: ConcreteCommandError): number {
-  switch (error) {
-    case ALREADY_CANCELLED:
-    case LEDGER_INCONSISTENT:
-    case PROMO_CODE_EXISTS:
-    case INVOICE_ALREADY_EXISTS:
-    case INVOICE_VOIDED:
-    case CITY_LEDGER_ACCOUNT_EXISTS:
-    case CITY_LEDGER_ACCOUNT_ARCHIVED:
-    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
-    case NO_AVAILABILITY:
-      return 409;
-    case RATE_PLAN_NOT_FOUND:
-    case PROMO_NOT_FOUND:
-    case INVOICE_NOT_FOUND:
-    case CHARGE_CODE_NOT_FOUND:
-    case TAX_RULE_NOT_FOUND:
-    case SHIFT_NOT_FOUND:
-    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
-    case CITY_LEDGER_STATEMENT_NOT_FOUND:
-    case NOT_FOUND:
-      return 404;
-    case BUSINESS_DATE_UNSET:
-    case ORG_ID_UNSET:
-    case PROPERTY_ID_UNSET:
-    case TIMEZONE_UNSET:
-    case INTERNAL_ERROR:
-    case UNKNOWN_COMMAND:
-      return 500;
-    case INVOICE_R2_UNBOUND:
-    case CITY_LEDGER_R2_UNBOUND:
-    case REPORTS_R2_UNBOUND:
-      return 503;
-    case UNBOOKABLE:
-    case RESTRICTION_VIOLATED:
-    case NOT_MODIFIABLE:
-    case INVALID_STATUS_TRANSITION:
-    case NO_SHOW_BEFORE_ARRIVAL:
-    case CURRENCY_UNSET:
-    case FX_RATE_INVALID:
-    case LEDGER_AMOUNT_MISMATCH:
-    case MONEY_INVALID:
-    case CROSS_CURRENCY_UNSUPPORTED:
-    case FX_RATE_MISSING:
-    case FX_RATE_NOT_LEDGER:
-    case FX_RATE_OPEN_EXISTS:
-    case FX_REASON_REQUIRED:
-    case PAYMENT_NOT_CHARGEBACKABLE:
-    case SPLIT_AMOUNT_MISMATCH:
-    case LINE_NOT_SPLITTABLE:
-    case ROOM_CODE_EXISTS:
-    case ROOM_COUNT_EXCEEDED:
-    case ROOM_UNITS_EXCEED_COUNT:
-    case ROOM_TYPE_MISMATCH:
-    case ROOM_ALREADY_ASSIGNED:
-    case ROOM_NOT_ASSIGNABLE:
-    case BALANCE_DUE:
-    case INVOICE_REQUIRED:
-    case FOLIO_BALANCE_DUE:
-    case HOLD_EXPIRED:
-    case INQUIRY_EXPIRED:
-    case ROOM_REQUIRED:
-    case ROOM_NOT_READY:
-    case ROOM_OUT_OF_ORDER:
-    case OOO_VIA_RANGE:
-    case OOO_ROOM_ASSIGNED:
-    case OOO_RANGE_OVERLAP:
-    case OOO_INVALID_RANGE:
-    case OCCUPANCY_EXCEEDED:
-    case VIRTUAL_TYPE_NO_ROOMS:
-    case FRONT_OFFICE_COMMENT_TOO_LONG:
-    case RATE_PLAN_CODE_EXISTS:
-    case RATE_PLAN_ID_EXISTS:
-    case DEFAULT_RATE_PLAN_PROTECTED:
-    case RATE_MISSING:
-    case INVALID_CANCEL_POLICY:
-    case DERIVED_RATE_PLAN_INVALID:
-    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
-    case CHARGE_CODE_EXISTS:
-    case SYSTEM_CHARGE_CODE_PROTECTED:
-    case TAX_RULE_KEY_EXISTS:
-    case TAX_RULE_KEY_OVERLAP:
-    case TAX_RULE_TYPE_UNSUPPORTED:
-    case TAX_OUTPUT_CODE_TAXABLE:
-    case SHIFT_ALREADY_OPEN:
-    case SHIFT_NOT_OPEN:
-    case WINDOW_CLOSED:
-    case WINDOW_NOT_CLOSABLE:
-    case WINDOW_BALANCE_DUE:
-    case WINDOW_NOT_REOPENABLE:
-    case WINDOW_NOT_OPENABLE:
-    case GUEST_WINDOW_NOT_OPENABLE:
-    case TRANSFER_CROSS_RESERVATION:
-    case TRANSFER_SAME_WINDOW:
-    case LINE_NOT_TRANSFERABLE:
-    case LINE_ALREADY_TRANSFERRED:
-    case PAYMENT_NOT_VOIDABLE:
-    case PAYMENT_NOT_REFUNDABLE:
-    case LINE_NOT_DISCOUNTABLE:
-    case DISCOUNT_REASON_REQUIRED:
-    case PROMO_NOT_APPLICABLE:
-    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
-    case CITY_LEDGER_BILLED_PARTY_INVALID:
-    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
-    case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_RECONCILABLE:
-    case REFUND_EXCEEDS_REMAINING:
-    case OVERSELL:
-    case ARCHIVE_BLOCKED:
-    case VIRTUAL_CONSTITUENTS_REQUIRED:
-    case VIRTUAL_CONSTITUENTS_MIN_TWO:
-    case VIRTUAL_CONSTITUENTS_DUPLICATE:
-    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
-    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
-    case VIRTUAL_NESTED_FORBIDDEN:
-    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
-    case ROOM_TYPE_KIND_IMMUTABLE:
-    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
-    case CONSTITUENT_IN_USE:
-    case BUSINESS_DATE_CLOSED:
-    case NOT_MEMBER:
-    case SCOPE_MISMATCH:
-    case ORG_UNREACHABLE:
-    case BULK_NOT_ADMITTED:
-    case DOMAIN_ERROR:
-    case TENANT_NOT_ACTIVE:
-    case PENDING_COMMANDS_UNDRAINED:
-    case PROVISIONAL_EXCEPTIONS_OPEN:
-    case PENDING_CENSUS_REQUIRED:
-    case ALREADY_RESOLVED:
-    case NOTE_TOO_LONG:
-    case NOTE_LIMIT:
-    case NIGHT_AUDIT_HALTED:
-    case NIGHT_AUDIT_STEP_NOT_FAILED:
-    case NIGHT_AUDIT_NOT_DUE:
-    case NIGHT_AUDIT_WORKFLOW_EXISTS:
-    case INVALID_STATUS:
-    case INVALID_BUSINESS_DATE:
-    case INVALID_ASSIGNEE_REF:
-    case INVALID_DATE:
-    case GUEST_REF_REQUIRED:
-    case INVALID_STAY_RANGE:
-    case INVALID_WINDOW:
-    case INVALID_DATE_RANGE:
-    case VALIDATION_ERROR:
-    case PSP_UNAVAILABLE:
-    case INVALID_VOID_REASON:
-    case PSP_ADAPTER_FAILED:
-    case PAYMENT_INSERT_FAILED:
-    case INVALID_PROMO_CODE:
-    case INVALID_PROMO_WINDOW:
-    case INVALID_PROMO_KIND_FIELD:
-    case PROMO_ID_EXISTS:
-    case INVOICE_COUNTER_RACE:
-    case ROUTING_RULE_CONFLICT:
-    case CONFIG_CLASS_NOT_DOMAIN:
-    case GUEST_NOT_FOUND:
-    case GUEST_ALREADY_ERASED:
-    case GUEST_EXISTS:
-    case STAFF_NOT_FOUND:
-    case STAFF_EXITED:
-    case STAFF_NOT_ASSIGNABLE:
-    case INVALID_KINDS:
-    case EMPTY_KINDS:
-    case INVALID_ROLE:
-    case ALREADY_MEMBER:
-    case LAST_OWNER:
-    case PROPERTY_REF_NOT_FOUND:
-    case DECRYPT_UNRESOLVED:
-    case KEY_SHRED_FAILED:
-    case FORBIDDEN:
-    case ENTITLEMENT_REQUIRED:
-    case ENTITLEMENT_UNAVAILABLE:
-    case LIMIT_EXCEEDED:
-      return 422;
-    case IDEM_KEY_REUSED:
-    case ROOM_TYPE_EXISTS:
-    case ROOM_TYPE_CODE_EXISTS:
-      return mapAddRoomTypeErrorStatus(error);
-    default: {
-      const _exhaustive: never = error;
-      return _exhaustive;
-    }
-  }
-}
-
-/** Lock 4: `not_member` → 404 — actor lacks effective org/property role (see spec §2.4). */
-function mapGuestCommandErrorStatus(error: CommandError): number {
-  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
-  return mapPersonEntityCommandErrorStatus(error as ConcreteCommandError);
-}
-
-function mapPersonEntityCommandErrorStatus(error: ConcreteCommandError): number {
-  switch (error) {
-    case GUEST_NOT_FOUND:
-    case STAFF_NOT_FOUND:
-      return 404;
-    case GUEST_ALREADY_ERASED:
-    case GUEST_EXISTS:
-    case STAFF_EXITED:
-    case IDEM_KEY_REUSED:
-      return 409;
-    case FORBIDDEN:
-    case SCOPE_MISMATCH:
-      return 403;
-    case NOT_MEMBER:
-      return 404;
-    case BUSINESS_DATE_UNSET:
-    case ORG_ID_UNSET:
-    case PROPERTY_ID_UNSET:
-    case TIMEZONE_UNSET:
-    case INTERNAL_ERROR:
-    case UNKNOWN_COMMAND:
-      return 500;
-    case ROOM_TYPE_EXISTS:
-    case ROOM_TYPE_CODE_EXISTS:
-    case OVERSELL:
-    case ARCHIVE_BLOCKED:
-    case VIRTUAL_CONSTITUENTS_REQUIRED:
-    case VIRTUAL_CONSTITUENTS_MIN_TWO:
-    case VIRTUAL_CONSTITUENTS_DUPLICATE:
-    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
-    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
-    case VIRTUAL_NESTED_FORBIDDEN:
-    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
-    case ROOM_TYPE_KIND_IMMUTABLE:
-    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
-    case CONSTITUENT_IN_USE:
-    case VIRTUAL_TYPE_NO_ROOMS:
-    case NOT_FOUND:
-    case BUSINESS_DATE_CLOSED:
-    case ORG_UNREACHABLE:
-    case BULK_NOT_ADMITTED:
-    case DOMAIN_ERROR:
-    case TENANT_NOT_ACTIVE:
-    case PENDING_COMMANDS_UNDRAINED:
-    case PROVISIONAL_EXCEPTIONS_OPEN:
-    case PENDING_CENSUS_REQUIRED:
-    case ALREADY_RESOLVED:
-    case NOTE_TOO_LONG:
-    case NOTE_LIMIT:
-    case NIGHT_AUDIT_HALTED:
-    case NIGHT_AUDIT_STEP_NOT_FAILED:
-    case NIGHT_AUDIT_NOT_DUE:
-    case NIGHT_AUDIT_WORKFLOW_EXISTS:
-    case NO_AVAILABILITY:
-    case UNBOOKABLE:
-    case ALREADY_CANCELLED:
-    case LEDGER_INCONSISTENT:
-    case NOT_MODIFIABLE:
-    case INVALID_STATUS_TRANSITION:
-    case NO_SHOW_BEFORE_ARRIVAL:
-    case RESTRICTION_VIOLATED:
-    case RATE_MISSING:
-    case SPLIT_AMOUNT_MISMATCH:
-    case HOLD_EXPIRED:
-    case INQUIRY_EXPIRED:
-    case ROOM_REQUIRED:
-    case ROOM_NOT_READY:
-    case ROOM_OUT_OF_ORDER:
-    case BALANCE_DUE:
-    case OCCUPANCY_EXCEEDED:
-    case FRONT_OFFICE_COMMENT_TOO_LONG:
-    case INVALID_STATUS:
-    case INVALID_BUSINESS_DATE:
-    case INVALID_ASSIGNEE_REF:
-    case INVALID_DATE:
-    case GUEST_REF_REQUIRED:
-    case INVALID_STAY_RANGE:
-    case INVALID_WINDOW:
-    case INVALID_DATE_RANGE:
-    case VALIDATION_ERROR:
-    case WINDOW_CLOSED:
-    case WINDOW_NOT_CLOSABLE:
-    case WINDOW_BALANCE_DUE:
-    case WINDOW_NOT_REOPENABLE:
-    case WINDOW_NOT_OPENABLE:
-    case GUEST_WINDOW_NOT_OPENABLE:
-    case TRANSFER_CROSS_RESERVATION:
-    case TRANSFER_SAME_WINDOW:
-    case LINE_NOT_TRANSFERABLE:
-    case LINE_ALREADY_TRANSFERRED:
-    case LINE_NOT_DISCOUNTABLE:
-    case PAYMENT_NOT_VOIDABLE:
-    case PAYMENT_NOT_REFUNDABLE:
-    case DISCOUNT_REASON_REQUIRED:
-    case FX_REASON_REQUIRED:
-    case PAYMENT_NOT_CHARGEBACKABLE:
-    case REFUND_EXCEEDS_REMAINING:
-    case PSP_UNAVAILABLE:
-    case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_RECONCILABLE:
-    case LINE_NOT_SPLITTABLE:
-    case INVALID_VOID_REASON:
-    case PSP_ADAPTER_FAILED:
-    case PAYMENT_INSERT_FAILED:
-    case ROOM_CODE_EXISTS:
-    case ROOM_COUNT_EXCEEDED:
-    case ROOM_UNITS_EXCEED_COUNT:
-    case ROOM_TYPE_MISMATCH:
-    case ROOM_ALREADY_ASSIGNED:
-    case ROOM_NOT_ASSIGNABLE:
-    case OOO_VIA_RANGE:
-    case OOO_ROOM_ASSIGNED:
-    case OOO_RANGE_OVERLAP:
-    case OOO_INVALID_RANGE:
-    case RATE_PLAN_NOT_FOUND:
-    case RATE_PLAN_CODE_EXISTS:
-    case RATE_PLAN_ID_EXISTS:
-    case DEFAULT_RATE_PLAN_PROTECTED:
-    case DERIVED_RATE_PLAN_INVALID:
-    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
-    case INVALID_CANCEL_POLICY:
-    case PROMO_NOT_FOUND:
-    case PROMO_NOT_APPLICABLE:
-    case PROMO_CODE_EXISTS:
-    case INVALID_PROMO_CODE:
-    case INVALID_PROMO_WINDOW:
-    case INVALID_PROMO_KIND_FIELD:
-    case PROMO_ID_EXISTS:
-    case INVOICE_ALREADY_EXISTS:
-    case INVOICE_NOT_FOUND:
-    case INVOICE_VOIDED:
-    case INVOICE_R2_UNBOUND:
-    case INVOICE_COUNTER_RACE:
-    case REPORTS_R2_UNBOUND:
-    case INVOICE_REQUIRED:
-    case FOLIO_BALANCE_DUE:
-    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
-    case CITY_LEDGER_ACCOUNT_EXISTS:
-    case CITY_LEDGER_ACCOUNT_ARCHIVED:
-    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
-    case CITY_LEDGER_BILLED_PARTY_INVALID:
-    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
-    case CITY_LEDGER_STATEMENT_NOT_FOUND:
-    case CITY_LEDGER_R2_UNBOUND:
-    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
-    case CHARGE_CODE_NOT_FOUND:
-    case CHARGE_CODE_EXISTS:
-    case ROUTING_RULE_CONFLICT:
-    case SYSTEM_CHARGE_CODE_PROTECTED:
-    case CONFIG_CLASS_NOT_DOMAIN:
-    case TAX_RULE_NOT_FOUND:
-    case TAX_RULE_KEY_EXISTS:
-    case TAX_RULE_KEY_OVERLAP:
-    case TAX_RULE_TYPE_UNSUPPORTED:
-    case TAX_OUTPUT_CODE_TAXABLE:
-    case SHIFT_NOT_FOUND:
-    case SHIFT_ALREADY_OPEN:
-    case SHIFT_NOT_OPEN:
-    case STAFF_NOT_ASSIGNABLE:
-    case INVALID_KINDS:
-    case EMPTY_KINDS:
-    case INVALID_ROLE:
-    case ALREADY_MEMBER:
-    case LAST_OWNER:
-    case PROPERTY_REF_NOT_FOUND:
-    case DECRYPT_UNRESOLVED:
-    case KEY_SHRED_FAILED:
-    case ENTITLEMENT_REQUIRED:
-    case ENTITLEMENT_UNAVAILABLE:
-    case LIMIT_EXCEEDED:
-    case MONEY_INVALID:
-    case FX_RATE_INVALID:
-    case LEDGER_AMOUNT_MISMATCH:
-    case CURRENCY_UNSET:
-    case CROSS_CURRENCY_UNSUPPORTED:
-    case FX_RATE_MISSING:
-    case FX_RATE_NOT_LEDGER:
-    case FX_RATE_OPEN_EXISTS:
-      return 422;
-    default: {
-      const _exhaustive: never = error;
-      return _exhaustive;
-    }
-  }
-}
-
-function mapRosterCommandErrorStatus(error: CommandError): number {
-  if (error.startsWith(UNDECLARED_CONFIG_PREFIX)) return 422;
-  return mapPersonEntityCommandErrorStatus(error as ConcreteCommandError);
-}
-
-function mapCommandErrorStatus(error: CommandError): number {
-  return mapGuestCommandErrorStatus(error);
-}
-
 function commandErrorResponse(err: CommandError, permission: Permission): Response {
-  if (err === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-  if (err === FORBIDDEN || err === SCOPE_MISMATCH) {
-    return json({ error: 'forbidden', permission }, 403);
-  }
-  return json({ ok: false, error: err }, mapCommandErrorStatus(err));
-}
-
-function mapConfigErrorStatus(error: CommandError): number {
-  if (error.startsWith(UNDECLARED_CONFIG_PREFIX) || error === CONFIG_CLASS_NOT_DOMAIN) return 400;
-  return mapConfigConcreteCommandErrorStatus(error as ConcreteCommandError);
-}
-
-function mapConfigConcreteCommandErrorStatus(error: ConcreteCommandError): number {
-  switch (error) {
-    case IDEM_KEY_REUSED:
-      return 409;
-    case FORBIDDEN:
-    case SCOPE_MISMATCH:
-      return 403;
-    case NOT_MEMBER:
-      return 404;
-    case ENTITLEMENT_REQUIRED:
-    case ENTITLEMENT_UNAVAILABLE:
-      return 503;
-    case BUSINESS_DATE_UNSET:
-    case ORG_ID_UNSET:
-    case PROPERTY_ID_UNSET:
-    case TIMEZONE_UNSET:
-    case INTERNAL_ERROR:
-    case UNKNOWN_COMMAND:
-      return 500;
-    case CONFIG_CLASS_NOT_DOMAIN:
-      return 400;
-    case ROOM_TYPE_EXISTS:
-    case ROOM_TYPE_CODE_EXISTS:
-    case OVERSELL:
-    case ARCHIVE_BLOCKED:
-    case VIRTUAL_CONSTITUENTS_REQUIRED:
-    case VIRTUAL_CONSTITUENTS_MIN_TWO:
-    case VIRTUAL_CONSTITUENTS_DUPLICATE:
-    case VIRTUAL_CONSTITUENT_NOT_PHYSICAL:
-    case VIRTUAL_ROOM_COUNT_MUST_BE_ZERO:
-    case VIRTUAL_NESTED_FORBIDDEN:
-    case VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS:
-    case ROOM_TYPE_KIND_IMMUTABLE:
-    case VIRTUAL_CONSTITUENTS_ON_PHYSICAL:
-    case CONSTITUENT_IN_USE:
-    case VIRTUAL_TYPE_NO_ROOMS:
-    case NOT_FOUND:
-    case BUSINESS_DATE_CLOSED:
-    case ORG_UNREACHABLE:
-    case BULK_NOT_ADMITTED:
-    case DOMAIN_ERROR:
-    case TENANT_NOT_ACTIVE:
-    case PENDING_COMMANDS_UNDRAINED:
-    case PROVISIONAL_EXCEPTIONS_OPEN:
-    case PENDING_CENSUS_REQUIRED:
-    case ALREADY_RESOLVED:
-    case NOTE_TOO_LONG:
-    case NOTE_LIMIT:
-    case NIGHT_AUDIT_HALTED:
-    case NIGHT_AUDIT_STEP_NOT_FAILED:
-    case NIGHT_AUDIT_NOT_DUE:
-    case NIGHT_AUDIT_WORKFLOW_EXISTS:
-    case NO_AVAILABILITY:
-    case UNBOOKABLE:
-    case ALREADY_CANCELLED:
-    case LEDGER_INCONSISTENT:
-    case NOT_MODIFIABLE:
-    case INVALID_STATUS_TRANSITION:
-    case NO_SHOW_BEFORE_ARRIVAL:
-    case RESTRICTION_VIOLATED:
-    case RATE_MISSING:
-    case SPLIT_AMOUNT_MISMATCH:
-    case HOLD_EXPIRED:
-    case INQUIRY_EXPIRED:
-    case ROOM_REQUIRED:
-    case ROOM_NOT_READY:
-    case ROOM_OUT_OF_ORDER:
-    case BALANCE_DUE:
-    case OCCUPANCY_EXCEEDED:
-    case FRONT_OFFICE_COMMENT_TOO_LONG:
-    case INVALID_STATUS:
-    case INVALID_BUSINESS_DATE:
-    case INVALID_ASSIGNEE_REF:
-    case INVALID_DATE:
-    case GUEST_REF_REQUIRED:
-    case INVALID_STAY_RANGE:
-    case INVALID_WINDOW:
-    case INVALID_DATE_RANGE:
-    case VALIDATION_ERROR:
-    case WINDOW_CLOSED:
-    case WINDOW_NOT_CLOSABLE:
-    case WINDOW_BALANCE_DUE:
-    case WINDOW_NOT_REOPENABLE:
-    case WINDOW_NOT_OPENABLE:
-    case GUEST_WINDOW_NOT_OPENABLE:
-    case TRANSFER_CROSS_RESERVATION:
-    case TRANSFER_SAME_WINDOW:
-    case LINE_NOT_TRANSFERABLE:
-    case LINE_ALREADY_TRANSFERRED:
-    case LINE_NOT_DISCOUNTABLE:
-    case PAYMENT_NOT_VOIDABLE:
-    case PAYMENT_NOT_REFUNDABLE:
-    case DISCOUNT_REASON_REQUIRED:
-    case FX_REASON_REQUIRED:
-    case PAYMENT_NOT_CHARGEBACKABLE:
-    case REFUND_EXCEEDS_REMAINING:
-    case PSP_UNAVAILABLE:
-    case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_RECONCILABLE:
-    case LINE_NOT_SPLITTABLE:
-    case INVALID_VOID_REASON:
-    case PSP_ADAPTER_FAILED:
-    case PAYMENT_INSERT_FAILED:
-    case ROOM_CODE_EXISTS:
-    case ROOM_COUNT_EXCEEDED:
-    case ROOM_UNITS_EXCEED_COUNT:
-    case ROOM_TYPE_MISMATCH:
-    case ROOM_ALREADY_ASSIGNED:
-    case ROOM_NOT_ASSIGNABLE:
-    case OOO_VIA_RANGE:
-    case OOO_ROOM_ASSIGNED:
-    case OOO_RANGE_OVERLAP:
-    case OOO_INVALID_RANGE:
-    case RATE_PLAN_NOT_FOUND:
-    case RATE_PLAN_CODE_EXISTS:
-    case RATE_PLAN_ID_EXISTS:
-    case DEFAULT_RATE_PLAN_PROTECTED:
-    case DERIVED_RATE_PLAN_INVALID:
-    case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
-    case INVALID_CANCEL_POLICY:
-    case PROMO_NOT_FOUND:
-    case PROMO_NOT_APPLICABLE:
-    case PROMO_CODE_EXISTS:
-    case INVALID_PROMO_CODE:
-    case INVALID_PROMO_WINDOW:
-    case INVALID_PROMO_KIND_FIELD:
-    case PROMO_ID_EXISTS:
-    case INVOICE_ALREADY_EXISTS:
-    case INVOICE_NOT_FOUND:
-    case INVOICE_VOIDED:
-    case INVOICE_R2_UNBOUND:
-    case INVOICE_COUNTER_RACE:
-    case REPORTS_R2_UNBOUND:
-    case INVOICE_REQUIRED:
-    case FOLIO_BALANCE_DUE:
-    case CITY_LEDGER_ACCOUNT_NOT_FOUND:
-    case CITY_LEDGER_ACCOUNT_EXISTS:
-    case CITY_LEDGER_ACCOUNT_ARCHIVED:
-    case CITY_LEDGER_CREDIT_LIMIT_EXCEEDED:
-    case CITY_LEDGER_BILLED_PARTY_INVALID:
-    case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
-    case CITY_LEDGER_STATEMENT_NOT_FOUND:
-    case CITY_LEDGER_R2_UNBOUND:
-    case CITY_LEDGER_CHARGE_ALREADY_POSTED:
-    case CHARGE_CODE_NOT_FOUND:
-    case CHARGE_CODE_EXISTS:
-    case ROUTING_RULE_CONFLICT:
-    case SYSTEM_CHARGE_CODE_PROTECTED:
-    case TAX_RULE_NOT_FOUND:
-    case TAX_RULE_KEY_EXISTS:
-    case TAX_RULE_KEY_OVERLAP:
-    case TAX_RULE_TYPE_UNSUPPORTED:
-    case TAX_OUTPUT_CODE_TAXABLE:
-    case SHIFT_NOT_FOUND:
-    case SHIFT_ALREADY_OPEN:
-    case SHIFT_NOT_OPEN:
-    case GUEST_NOT_FOUND:
-    case GUEST_ALREADY_ERASED:
-    case GUEST_EXISTS:
-    case STAFF_NOT_FOUND:
-    case STAFF_EXITED:
-    case STAFF_NOT_ASSIGNABLE:
-    case INVALID_KINDS:
-    case EMPTY_KINDS:
-    case INVALID_ROLE:
-    case ALREADY_MEMBER:
-    case LAST_OWNER:
-    case PROPERTY_REF_NOT_FOUND:
-    case DECRYPT_UNRESOLVED:
-    case KEY_SHRED_FAILED:
-    case LIMIT_EXCEEDED:
-    case MONEY_INVALID:
-    case FX_RATE_INVALID:
-    case LEDGER_AMOUNT_MISMATCH:
-    case CURRENCY_UNSET:
-    case CROSS_CURRENCY_UNSUPPORTED:
-    case FX_RATE_MISSING:
-    case FX_RATE_NOT_LEDGER:
-    case FX_RATE_OPEN_EXISTS:
-      return 422;
-    default: {
-      const _exhaustive: never = error;
-      return _exhaustive;
-    }
-  }
-}
-
-function mapPaymentCommandErrorStatus(error: CommandError): number {
-  switch (error) {
-    case PSP_UNAVAILABLE:
-      return 501;
-    case IDEM_KEY_REUSED:
-    case PAYMENT_NOT_RECONCILABLE:
-      return 409;
-    case NOT_FOUND:
-      return 404;
-    case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_VOIDABLE:
-    case PAYMENT_NOT_REFUNDABLE:
-    case LINE_NOT_SPLITTABLE:
-    case SPLIT_AMOUNT_MISMATCH:
-    case MONEY_INVALID:
-    case CURRENCY_UNSET:
-    case FX_RATE_MISSING:
-    case FX_RATE_NOT_LEDGER:
-    case FX_RATE_OPEN_EXISTS:
-    case FX_REASON_REQUIRED:
-    case PAYMENT_NOT_CHARGEBACKABLE:
-    case REFUND_EXCEEDS_REMAINING:
-      return 422;
-    case ENTITLEMENT_REQUIRED:
-      return 402;
-    case ENTITLEMENT_UNAVAILABLE:
-      return 503;
-    default:
-      return mapReservationCommandErrorStatus(error);
-  }
+  return commandFailureResponse(err, permission);
 }
 
 const PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
@@ -1512,17 +881,14 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    if (result.error === 'forbidden') {
-      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 201,
+    onFailure: (result) => {return commandFailureResponse(result.error, 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
@@ -1579,21 +945,20 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
     if (result.error === FORBIDDEN) {
       return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
     }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
     if (result.error === OVERSELL && 'dates' in result) {
       return json({ ok: false, error: result.error, dates: result.dates }, 409);
     }
-    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
-  }
-  return json(result, 200);
+      return null;
+    },
+  });
 }
 
 async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
@@ -1629,21 +994,18 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (result.error === FORBIDDEN) {
-      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    if (result.error === ARCHIVE_BLOCKED) {
-      return json({ ok: false, error: result.error }, 409);
-    }
-    return json({ ok: false, error: result.error }, 422);
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      if (result.error === ARCHIVE_BLOCKED) {
+        return json({ ok: false, error: result.error }, 409);
+      }
+      return null;
+    },
+  });
 }
 
 async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
@@ -1679,21 +1041,18 @@ async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (result.error === FORBIDDEN) {
-      return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    if (result.error === ARCHIVE_BLOCKED) {
-      return json({ ok: false, error: result.error }, 409);
-    }
-    return json({ ok: false, error: result.error }, 422);
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      if (result.error === ARCHIVE_BLOCKED) {
+        return json({ ok: false, error: result.error }, 409);
+      }
+      return null;
+    },
+  });
 }
 
 async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Response> {
@@ -1805,12 +1164,12 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
     try {
       perm = requiredPermissionForKey(key);
     } catch {
-      /* undeclared — mapConfigErrorStatus handles */
+      /* undeclared — commandErrorHttpStatus handles */
     }
     if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
       return json({ error: 'forbidden', permission: perm }, 403);
     }
-    return json({ ok: false, error: result.error }, mapConfigErrorStatus(result.error));
+    return commandFailureResponse(result.error, perm);
   }
   return json({ ok: true, key: result.key, version: result.version, events: result.events }, 200);
 }
@@ -2065,7 +1424,7 @@ async function handleGetRoster(ctx: V1DispatchContext): Promise<Response> {
       if (err === FORBIDDEN || err === 'scope_mismatch') {
         return rosterGetJson({ error: 'forbidden', permission: 'roster:read' }, 403);
       }
-      return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+      return rosterGetJson({ ok: false, error: err }, commandErrorHttpStatus(err));
     }
     const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
     const kind = ctx.url.searchParams.get('kind');
@@ -2099,7 +1458,7 @@ async function handleGetRosterOne(ctx: V1DispatchContext): Promise<Response> {
       if (err === FORBIDDEN || err === 'scope_mismatch') {
         return rosterGetJson({ error: 'forbidden', permission: 'roster:read' }, 403);
       }
-      return rosterGetJson({ ok: false, error: err }, mapRosterCommandErrorStatus(err));
+      return rosterGetJson({ ok: false, error: err }, commandErrorHttpStatus(err));
     }
     const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
     return rosterGetJson({ ok: true, ...stripRosterRow(grants, result) }, 200);
@@ -2445,9 +1804,9 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     }
     if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
     if (err === GUEST_NOT_FOUND || err === GUEST_ALREADY_ERASED) {
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+      return commandFailureResponse(err, 'reservations:write');
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
+    return commandFailureResponse(err, 'reservations:write');
   }
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -2559,43 +1918,43 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NO_AVAILABILITY) {
-      const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
-      logAriRejectOnCommit(ctx.observability, body.quoteAriVersion, fail, body.roomTypeId);
-      return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
-    }
-    if (err === RESTRICTION_VIOLATED) {
-      const fail = result as {
-        ok: false;
-        error: typeof RESTRICTION_VIOLATED;
-        rule: string;
-        date: string;
-        required?: number;
-      };
-      return json(
-        {
-          ok: false,
-          error: fail.error,
-          rule: fail.rule,
-          date: fail.date,
-          ...(fail.required !== undefined ? { required: fail.required } : {}),
-        },
-        422,
-      );
-    }
-    if (err === UNBOOKABLE || err === LEDGER_INCONSISTENT) {
-      const fail = result as { ok: false; error: typeof UNBOOKABLE | typeof LEDGER_INCONSISTENT; date: string };
-      return json({ ok: false, error: fail.error, date: fail.date }, mapReservationCommandErrorStatus(fail.error));
-    }
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === NO_AVAILABILITY) {
+        const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
+        logAriRejectOnCommit(ctx.observability, body.quoteAriVersion, fail, body.roomTypeId);
+        return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
+      }
+      if (result.error === RESTRICTION_VIOLATED) {
+        const fail = result as {
+          ok: false;
+          error: typeof RESTRICTION_VIOLATED;
+          rule: string;
+          date: string;
+          required?: number;
+        };
+        return json(
+          {
+            ok: false,
+            error: fail.error,
+            rule: fail.rule,
+            date: fail.date,
+            ...(fail.required !== undefined ? { required: fail.required } : {}),
+          },
+          422,
+        );
+      }
+      if (result.error === UNBOOKABLE || result.error === LEDGER_INCONSISTENT) {
+        const fail = result as { ok: false; error: typeof UNBOOKABLE | typeof LEDGER_INCONSISTENT; date: string };
+        return json({ ok: false, error: fail.error, date: fail.date }, commandErrorHttpStatus(fail.error));
+      }
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Response> {
@@ -2630,19 +1989,18 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (err === LEDGER_INCONSISTENT) {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === LEDGER_INCONSISTENT) {
       const fail = result as { ok: false; error: typeof LEDGER_INCONSISTENT; date: string };
       return json({ ok: false, error: fail.error, date: fail.date }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Response> {
@@ -2680,18 +2038,18 @@ async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Res
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (err === NO_AVAILABILITY) {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === NO_AVAILABILITY) {
       const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
       return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Response> {
@@ -2734,18 +2092,18 @@ async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Respon
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (err === NO_AVAILABILITY) {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === NO_AVAILABILITY) {
       const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string; ariVersion: number };
       return json({ ok: false, error: fail.error, date: fail.date, ariVersion: fail.ariVersion }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise<Response> {
@@ -2792,14 +2150,14 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
 }
 
 async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Response> {
@@ -2901,7 +2259,7 @@ async function handlePostReservationStatusAction(
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
-  const invoked = await invokePropertyDo({
+  const invoked = await invokePropertyDo<{ ok: true } | { ok: false; error?: string; date?: string }>({
     ...commandEnvelope(ctx, resolvedCtx, {
       commandId,
       routeId,
@@ -2912,19 +2270,20 @@ async function handlePostReservationStatusAction(
     invoke: () => action(resolvedCtx.resolved.stub, actor, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    if (err === LEDGER_INCONSISTENT) {
-      return json({ ok: false, error: err, date: result.date }, 409);
-    }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === LEDGER_INCONSISTENT) {
+        return json(
+          { ok: false, error: result.error, date: (result as { date?: string }).date },
+          409,
+        );
+      }
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Response> {
@@ -2959,15 +2318,15 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
     invoke: () => resolvedCtx.resolved.stub.tryCheckIn(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Response> {
@@ -3001,15 +2360,15 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
     invoke: () => resolvedCtx.resolved.stub.tryCheckOut(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
@@ -3574,9 +2933,8 @@ async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> 
       if (err === FORBIDDEN || err === 'scope_mismatch') {
         return json({ error: 'forbidden', permission: 'guests:read' }, 403);
       }
-      if (err === ENTITLEMENT_REQUIRED) return json({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' }, 402);
-      if (err === ENTITLEMENT_UNAVAILABLE) return json({ error: ENTITLEMENT_UNAVAILABLE }, 503);
-      return json({ ok: false, error: err }, mapGuestCommandErrorStatus(err));
+        if (err === ENTITLEMENT_UNAVAILABLE) return json({ error: ENTITLEMENT_UNAVAILABLE }, 503);
+      return commandFailureResponse(err, 'reservations:write');
     }
     for (const [guestId, entry] of Object.entries(result.guests)) {
       if (!entry.ok && entry.error === 'decrypt_unresolved') {
@@ -3654,16 +3012,15 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
 }
 
 async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Response> {
@@ -3729,13 +3086,11 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    return json({ ok: false, error: result.error }, mapReservationCommandErrorStatus(result.error));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+  });
 }
 
 async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
@@ -3779,21 +3134,20 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryAddFolioLine(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === CHARGE_CODE_NOT_FOUND) {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === CHARGE_CODE_NOT_FOUND) {
       return json({ error: CHARGE_CODE_NOT_FOUND }, 404);
     }
-    if (err === NOT_FOUND || err === 'not_member') {
+    if (result.error === NOT_FOUND || result.error === 'not_member') {
       return json({ error: 'not_found' }, 404);
     }
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
@@ -3860,15 +3214,15 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryCreateRoom(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
@@ -3915,15 +3269,15 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRoom(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handleGetRooms(ctx: V1DispatchContext): Promise<Response> {
@@ -3979,15 +3333,15 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRoomStatus(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response> {
@@ -4044,19 +3398,19 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     invoke: () => resolvedCtx.resolved.stub.trySetOooRange(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    const payload: { ok: false; error: string; reservationId?: string } = { ok: false, error: err };
-    if (err === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
+    const payload: { ok: false; error: string; reservationId?: string } = { ok: false, error: result.error };
+    if (result.error === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
       payload.reservationId = result.reservationId;
     }
-    return json(payload, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Response> {
@@ -4096,15 +3450,15 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
     invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRoomStatus(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'inventory:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<Response> {
@@ -4138,15 +3492,15 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
     invoke: () => resolvedCtx.resolved.stub.tryAssignRoom(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Response> {
@@ -4188,28 +3542,28 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     invoke: () => resolvedCtx.resolved.stub.tryAssignHousekeeping(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === 'org_unreachable') {
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === 'org_unreachable') {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'housekeeping.assign' },
         503,
         { 'Retry-After': '30' },
       );
     }
-    if (err === STAFF_NOT_FOUND || err === STAFF_EXITED || err === STAFF_NOT_ASSIGNABLE) {
-      return json({ ok: false, error: err }, 422);
+    if (result.error === STAFF_NOT_FOUND || result.error === STAFF_EXITED || result.error === STAFF_NOT_ASSIGNABLE) {
+      return json({ ok: false, error: result.error }, 422);
     }
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    if (err === 'invalid_assignee_ref' || err === 'invalid_business_date') {
-      return json({ ok: false, error: err }, 400);
+    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
+    if (result.error === 'invalid_assignee_ref' || result.error === 'invalid_business_date') {
+      return json({ ok: false, error: result.error }, 400);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+    return commandFailureResponse(coerceCommandError(result.error), 'housekeeping:write');
+      return null;
+    },
+  });
 }
 
 async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise<Response> {
@@ -4291,15 +3645,16 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryCreateRatePlan(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
@@ -4366,15 +3721,16 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryUpdateRatePlan(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member' || result.error === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
@@ -4407,18 +3763,19 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryDeleteRatePlan(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member' || err === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    if (err === ARCHIVE_BLOCKED) {
-      return json({ ok: false, error: err }, 409);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member' || result.error === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    if (result.error === ARCHIVE_BLOCKED) {
+      return json({ ok: false, error: result.error }, 409);
     }
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> {
@@ -4455,15 +3812,16 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
     invoke: () => resolvedCtx.resolved.stub.tryCreateChargeCode(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> {
@@ -4505,15 +3863,16 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
     invoke: () => resolvedCtx.resolved.stub.tryUpdateChargeCode(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Response> {
@@ -4550,15 +3909,16 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
     invoke: () => resolvedCtx.resolved.stub.trySetChargeCodeStatus(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
@@ -4650,15 +4010,16 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
     invoke: () => resolvedCtx.resolved.stub.tryUpsertRoutingRule(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member' || err === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promise<Response> {
@@ -4692,15 +4053,16 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
     invoke: () => resolvedCtx.resolved.stub.tryArchiveRoutingRule(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
@@ -4764,15 +4126,16 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryCreateTaxRule(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Response> {
@@ -4835,15 +4198,16 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
     invoke: () => resolvedCtx.resolved.stub.trySupersedeTaxRule(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === 'not_member' || err === TAX_RULE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    if (result.error === 'not_member' || result.error === TAX_RULE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handleGetTaxRules(ctx: V1DispatchContext): Promise<Response> {
@@ -4902,15 +4266,15 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryOpenShift(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
@@ -4947,15 +4311,15 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryCloseShift(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    if (err === 'not_member' || err === SHIFT_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === 'not_member' || result.error === SHIFT_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> {
@@ -5005,15 +4369,11 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
     invoke: () => resolvedCtx.resolved.stub.tryRecordCashPayment(actor, commandPayload),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+  });
 }
 
 async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
@@ -5160,17 +4520,18 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
     }),
     invoke: () => resolvedCtx.resolved.stub.tryCreatePromo(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === 'invalid_promo_code') return json({ error: 'invalid_body' }, 400);
-    if (err === PROMO_CODE_EXISTS) return json({ ok: false, error: err }, 409);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    if (result.error === 'invalid_promo_code') return json({ error: 'invalid_body' }, 400);
+    if (result.error === PROMO_CODE_EXISTS) return json({ ok: false, error: result.error }, 409);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
@@ -5235,15 +4596,16 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryUpdatePromo(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member' || result.error === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> {
@@ -5276,15 +4638,16 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
     invoke: () => resolvedCtx.resolved.stub.tryArchivePromo(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member' || err === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member' || result.error === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
@@ -5323,15 +4686,15 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     }),
     invoke: () => resolvedCtx.resolved.stub.tryGenerateInvoice(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    if (err === 'not_member' || err === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
+      return null;
+    },
+  });
 }
 
 async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
@@ -5380,24 +4743,22 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
     }),
     invoke: () => resolvedCtx.resolved.stub.tryVoidInvoice(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    if (err === 'not_member' || err === INVOICE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
+      return null;
+    },
+  });
 }
 
 function mapCityLedgerCommandFailure(
   error: CommandError,
   permission: 'folio:adjust' | 'folio:read',
 ): Response {
-  if (error === FORBIDDEN) return json({ error: 'forbidden', permission }, 403);
-  if (error === NOT_MEMBER || error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-  return json({ ok: false, error }, mapReservationCommandErrorStatus(error));
+  if (error === INVOICE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+  return commandFailureResponse(error, permission);
 }
 
 async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Response> {
@@ -5981,16 +5342,15 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
       }),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
 }
 
 async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
@@ -6044,15 +5404,16 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.tryBulkUpdateRates(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
-    if (err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
@@ -6092,16 +5453,14 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
     invoke: () => resolvedCtx.resolved.stub.trySplitFolioLine(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> {
@@ -6132,15 +5491,14 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
     }),
     invoke: () => resolvedCtx.resolved.stub.tryOpenFolioWindow(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Response> {
@@ -6167,15 +5525,14 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
     }),
     invoke: () => resolvedCtx.resolved.stub.tryCloseFolioWindow(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Response> {
@@ -6202,15 +5559,14 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
     }),
     invoke: () => resolvedCtx.resolved.stub.tryReopenFolioWindow(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response> {
@@ -6240,15 +5596,14 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
     }),
     invoke: () => resolvedCtx.resolved.stub.tryTransferCharge(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
@@ -6275,15 +5630,14 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
     }),
     invoke: () => resolvedCtx.resolved.stub.tryVoidPayment(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<Response> {
@@ -6330,15 +5684,14 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
     invoke: () => resolvedCtx.resolved.stub.tryReconcilePayment(actor, commandPayload, idem),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> {
@@ -6372,15 +5725,14 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
     }),
     invoke: () => resolvedCtx.resolved.stub.tryRefundPayment(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response> {
@@ -6429,15 +5781,14 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
     }),
     invoke: () => resolvedCtx.resolved.stub.tryPostDiscount(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Response> {
@@ -6486,15 +5837,14 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
     }),
     invoke: () => resolvedCtx.resolved.stub.tryPostDiscount(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Response> {
@@ -6521,15 +5871,14 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
     }),
     invoke: () => resolvedCtx.resolved.stub.tryCaptureDueHolds(actor, commandPayload, idem),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Response> {
@@ -6579,15 +5928,11 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
     invoke: () => resolvedCtx.resolved.stub.tryAuthorizePayment(actor, commandPayload),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+  });
 }
 
 async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response> {
@@ -6631,15 +5976,11 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
     invoke: () => resolvedCtx.resolved.stub.tryCapturePayment(actor, commandPayload),
   });
 
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:post' }, 403);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+  });
 }
 
 async function handleGetFolioPayment(ctx: V1DispatchContext): Promise<Response> {
@@ -6760,14 +6101,10 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
   if (!result.ok) {
-    if (result.error === 'forbidden') {
-      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
-    }
     if (result.error === NIGHT_AUDIT_HALTED || result.error === 'night_audit_not_due') {
       return json({ error: result.error }, 409);
     }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, 422);
+    return commandFailureResponse(result.error, 'night_audit:run');
   }
 
   const created = await getOrCreateNightAuditWorkflow(
@@ -6841,14 +6178,10 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
   if (!result.ok) {
-    if (result.error === 'forbidden') {
-      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
-    }
     if (result.error === 'night_audit_step_not_failed') {
       return json({ error: result.error }, 409);
     }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, 422);
+    return commandFailureResponse(result.error, 'night_audit:run');
   }
   return json({ status: result.status, error: result.error }, 200);
 }
@@ -6888,11 +6221,7 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
   if (!result.ok) {
-    if (result.error === 'forbidden') {
-      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
-    }
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, 422);
+    return commandFailureResponse(result.error, 'night_audit:run');
   }
   return json({ status: result.status, error: result.error, halted: result.halted }, 200);
 }
@@ -6931,14 +6260,7 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   });
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
-  if (!result.ok) {
-    if (result.error === 'forbidden') {
-      return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
-    }
-    if (result.error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
-    if (result.error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: result.error }, 422);
-  }
+  if (!result.ok) return mapExceptionWriterError(result.error);
   if (result.alreadyResolved) {
     return json({ ok: true, alreadyResolved: true }, 200);
   }
@@ -6964,11 +6286,6 @@ async function handleGetProvisionalException(ctx: V1DispatchContext): Promise<Re
 }
 
 function mapExceptionWriterError(error: CommandError): Response {
-  if (error === 'forbidden') {
-    return json({ error: 'forbidden', permission: 'night_audit:run' }, 403);
-  }
-  if (error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
-  if (error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
   if (error === 'org_unreachable') {
     return json(
       { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'provisional.retry_exception' },
@@ -6976,7 +6293,7 @@ function mapExceptionWriterError(error: CommandError): Response {
       { 'Retry-After': '30' },
     );
   }
-  return json({ ok: false, error }, 422);
+  return commandFailureResponse(error, 'night_audit:run');
 }
 
 async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Promise<Response> {
@@ -7107,17 +6424,10 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
 }
 
 function guestDirectoryErrorResponse(err: string): Response {
-  if (err === 'not_member') return json({ error: 'not_found' }, 404, GUEST_HEADERS);
-  if (err === FORBIDDEN || err === 'scope_mismatch') {
-    return json({ error: 'forbidden', permission: 'guests:read' }, 403, GUEST_HEADERS);
-  }
-  if (err === ENTITLEMENT_REQUIRED) {
-    return json({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' }, 402, GUEST_HEADERS);
-  }
   if (err === ENTITLEMENT_UNAVAILABLE) {
     return json({ error: ENTITLEMENT_UNAVAILABLE }, 503, GUEST_HEADERS);
   }
-  return json({ ok: false, error: err }, 422, GUEST_HEADERS);
+  return commandFailureResponse(err as CommandError, 'guests:read', { headers: GUEST_HEADERS });
 }
 
 async function handleGetGuests(ctx: V1DispatchContext): Promise<Response> {
@@ -7313,15 +6623,15 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
         fingerprint,
       }),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Response> {
@@ -7363,15 +6673,15 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
         fingerprint,
       }),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 async function handleGetFxRates(ctx: V1DispatchContext): Promise<Response> {
@@ -7431,15 +6741,11 @@ async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Respon
         fingerprint,
       }),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapPaymentCommandErrorStatus(err));
-  }
-  return json(result, 200);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+  });
 }
 
 async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Response> {
@@ -7485,15 +6791,14 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
         fingerprint,
       }),
   });
-  if (invoked.kind === 'response') return invoked.response;
-  const result = invoked.result;
-  if (!result.ok) {
-    const err = result.error;
-    if (err === FORBIDDEN) return json({ error: 'forbidden', permission: 'folio:adjust' }, 403);
-    if (err === NOT_FOUND || err === 'not_member') return json({ error: 'not_found' }, 404);
-    return json({ ok: false, error: err }, mapReservationCommandErrorStatus(coerceCommandError(err)));
-  }
-  return json(result, 201);
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
+      return null;
+    },
+  });
 }
 
 export const V1_ROUTES: V1RouteDef[] = [

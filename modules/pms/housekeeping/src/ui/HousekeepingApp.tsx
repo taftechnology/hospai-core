@@ -341,6 +341,7 @@ export function HousekeepingApp({
           <Field
             size="sm"
             label="Assignment"
+            hint="Assignment only — use Status for clean/dirty."
             control={
               <NativeSelect
                 aria-label="Filter assignment"

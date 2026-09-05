@@ -319,6 +319,58 @@ describe('FolioScreen wiring', () => {
     confirmSpy.mockRestore();
   });
 
+  it('T17: folio mutation message renders as Alert not bare p', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    addFolioLine.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: { error: 'internal' },
+        retryAfterMs: null,
+      }),
+    );
+    renderFolio();
+    await waitFor(() => {
+      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
+    });
+    screen.getByTestId('add-charge').click();
+    await waitFor(() => expect(screen.getByTestId('folio-message')).toBeTruthy());
+    expect(screen.getByTestId('folio-message').tagName).toBe('DIV');
+  });
+
+  it('T18: tenders render in DataTable not ul', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_1',
+          amountMinor: 5000,
+          status: 'authorized',
+          tenderType: 'CARD',
+          capturedAmountMinor: 0,
+          createdAt: Date.now(),
+        },
+      ],
+    });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-tenders')).toBeTruthy());
+    expect(document.querySelector('[data-testid="folio-tenders"] ul')).toBeNull();
+  });
+
   it('policy C: charge submit does not issue a request when folio fail_closed', async () => {
     getFolio.mockRejectedValue(
       new ClassifiedError({
@@ -618,16 +670,22 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
     expect(screen.queryByText(/does not require settlement/i)).toBeNull();
 
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(window, 'confirm');
     screen.getByTestId('check-out').click();
-    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(await screen.findByRole('dialog', { name: /Depart with open balance/i })).toBeTruthy();
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(checkOut).not.toHaveBeenCalled();
 
-    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /Depart with open balance/i })).toBeNull(),
+    );
+
     screen.getByTestId('check-out').click();
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
     await waitFor(() => expect(checkOut).toHaveBeenCalled());
     expect(checkOut.mock.calls[0]![3]).toMatchObject({ overrideBalance: true });
-    confirm.mockRestore();
+    confirmSpy.mockRestore();
   });
 
   it('62: checkout success invalidates board and reservation', async () => {
@@ -1630,42 +1688,42 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('void-payment-pay_auth')).toBeTruthy());
-    const authLi = screen.getByTestId('void-payment-pay_auth').closest('li')!;
-    expect(authLi.textContent).toMatch(/Card/);
-    expect(authLi.textContent).toMatch(/50\.00/);
-    expect(authLi.textContent).not.toMatch(/4242/);
-    expect(authLi.textContent).not.toMatch(/••••/);
-    expect(authLi.textContent).not.toMatch(/pay_auth/);
-    expect(authLi.textContent).not.toMatch(/sim_/);
-    const authTokenLi = screen.getByTestId('void-payment-pay_auth_token').closest('li')!;
-    expect(authTokenLi.textContent).toMatch(/Visa/);
-    expect(authTokenLi.textContent).toMatch(/••••/);
-    expect(authTokenLi.textContent).toMatch(/4242/);
-    expect(authTokenLi.textContent).toMatch(/50\.00/);
-    expect(authTokenLi.textContent).not.toMatch(/pay_auth_token/);
-    expect(authTokenLi.textContent).not.toMatch(/sim_/);
-    const tokenLi = [...document.querySelectorAll('li')].find(
-      (li) =>
-        /Visa/.test(li.textContent ?? '') &&
-        /4242/.test(li.textContent ?? '') &&
-        /••••/.test(li.textContent ?? '') &&
-        /50\.00/.test(li.textContent ?? ''),
+    const authRow = screen.getByTestId('void-payment-pay_auth').closest('tr')!;
+    expect(authRow.textContent).toMatch(/Card/);
+    expect(authRow.textContent).toMatch(/50\.00/);
+    expect(authRow.textContent).not.toMatch(/4242/);
+    expect(authRow.textContent).not.toMatch(/••••/);
+    expect(authRow.textContent).not.toMatch(/pay_auth/);
+    expect(authRow.textContent).not.toMatch(/sim_/);
+    const authTokenRow = screen.getByTestId('void-payment-pay_auth_token').closest('tr')!;
+    expect(authTokenRow.textContent).toMatch(/Visa/);
+    expect(authTokenRow.textContent).toMatch(/••••/);
+    expect(authTokenRow.textContent).toMatch(/4242/);
+    expect(authTokenRow.textContent).toMatch(/50\.00/);
+    expect(authTokenRow.textContent).not.toMatch(/pay_auth_token/);
+    expect(authTokenRow.textContent).not.toMatch(/sim_/);
+    const tokenRow = [...document.querySelectorAll('tr')].find(
+      (row) =>
+        /Visa/.test(row.textContent ?? '') &&
+        /4242/.test(row.textContent ?? '') &&
+        /••••/.test(row.textContent ?? '') &&
+        /50\.00/.test(row.textContent ?? ''),
     );
-    expect(tokenLi).toBeTruthy();
-    expect(tokenLi!.textContent).not.toMatch(/simulate/i);
-    expect(tokenLi!.textContent).not.toMatch(/sim_/);
-    expect(tokenLi!.textContent).not.toMatch(/pay_token/);
-    const noBrandLi = [...document.querySelectorAll('li')].find(
-      (li) => /Card •••• 9999/.test(li.textContent ?? ''),
+    expect(tokenRow).toBeTruthy();
+    expect(tokenRow!.textContent).not.toMatch(/simulate/i);
+    expect(tokenRow!.textContent).not.toMatch(/sim_/);
+    expect(tokenRow!.textContent).not.toMatch(/pay_token/);
+    const noBrandRow = [...document.querySelectorAll('tr')].find(
+      (row) => /Card •••• 9999/.test(row.textContent ?? ''),
     );
-    expect(noBrandLi).toBeTruthy();
-    const cashLi = [...document.querySelectorAll('li')].find(
-      (li) => /Cash/.test(li.textContent ?? '') && /15\.00/.test(li.textContent ?? ''),
+    expect(noBrandRow).toBeTruthy();
+    const cashRow = [...document.querySelectorAll('tr')].find(
+      (row) => /Cash/.test(row.textContent ?? '') && /15\.00/.test(row.textContent ?? ''),
     );
-    expect(cashLi).toBeTruthy();
-    expect(cashLi!.textContent).not.toMatch(/4242/);
-    expect(cashLi!.textContent).not.toMatch(/••••/);
-    expect(cashLi!.textContent).not.toMatch(/pay_cash/);
+    expect(cashRow).toBeTruthy();
+    expect(cashRow!.textContent).not.toMatch(/4242/);
+    expect(cashRow!.textContent).not.toMatch(/••••/);
+    expect(cashRow!.textContent).not.toMatch(/pay_cash/);
     const firstPaintHeadings = [...document.querySelectorAll('h2')]
       .filter((h) => !h.closest('[data-testid="folio-advanced"]'))
       .map((h) => h.textContent ?? '');
@@ -1705,9 +1763,9 @@ describe('FolioScreen wiring', () => {
     });
     renderFolio();
     const markAuthorized = await screen.findByRole('button', { name: 'Mark authorized' });
-    const unknownLi = markAuthorized.closest('li')!;
-    expect(unknownLi.textContent).toMatch(/Card/);
-    expect(unknownLi.textContent).toMatch(/50\.00/);
+    const unknownRow = markAuthorized.closest('tr')!;
+    expect(unknownRow.textContent).toMatch(/Card/);
+    expect(unknownRow.textContent).toMatch(/50\.00/);
     expect(screen.getByRole('button', { name: 'Mark declined' })).toBeTruthy();
     fireEvent.click(markAuthorized);
     await waitFor(() =>

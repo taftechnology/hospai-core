@@ -1,3 +1,4 @@
+import { ClassifiedError } from '@hospai/client-core';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -18,12 +19,17 @@ vi.mock('../client.js', () => ({
     retryNightAuditStep: (...a: unknown[]) => retryNightAuditStep(...a),
     resolveNightAuditHalt: (...a: unknown[]) => resolveNightAuditHalt(...a),
   },
-  asClassified: () => ({
-    class: 'server_error' as const,
-    status: 500,
-    body: {},
-    retryAfterMs: null,
-  }),
+  asClassified: (err: unknown) => {
+    if (err && typeof err === 'object' && 'classified' in err) {
+      return (err as { classified: unknown }).classified;
+    }
+    return {
+      class: 'server_error' as const,
+      status: 500,
+      body: {},
+      retryAfterMs: null,
+    };
+  },
 }));
 
 vi.mock('../shell/PropertyTimeZone.js', () => ({
@@ -150,6 +156,50 @@ describe('NightAuditScreen', () => {
       'night-audit:resolve-halt:prop_demo:2026-03-01',
     );
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['night-audit', 'prop_demo'] });
+  });
+
+  it('T12: disabled Run shows reason when business date is current', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    getNightAudit.mockResolvedValue(statusPayload({ businessDate: today, timelineDate: today }));
+    renderScreen();
+    await waitFor(() => expect(screen.getByRole('button', { name: /run night audit/i })).toBeTruthy());
+    expect((screen.getByRole('button', { name: /run night audit/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByText(/Business date is already current/i)).toBeTruthy();
+  });
+
+  it('T13: run mutation error shows Alert with classified copy', async () => {
+    getNightAudit.mockResolvedValue(statusPayload());
+    runNightAudit.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
+    renderScreen();
+    await waitFor(() => expect(screen.getByRole('button', { name: /run night audit/i })).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /run night audit/i }));
+    });
+    await waitFor(() => expect(screen.getByTestId('night-audit-message')).toBeTruthy());
+    expect(screen.getByTestId('night-audit-message').textContent).toMatch(/Property unreachable/i);
+  });
+
+  it('T14: step column shows clerk labels not bare wire ids', async () => {
+    const steps = pendingSteps();
+    steps[1] = { ...steps[1]!, step: 'POST_ROOM_CHARGES' };
+    getNightAudit.mockResolvedValue(statusPayload({ steps }));
+    renderScreen();
+    await waitFor(() => expect(screen.getByText('Post room charges')).toBeTruthy());
+    expect(screen.queryByText('POST_ROOM_CHARGES')).toBeNull();
   });
 
   it('Run is disabled when businessDate is today (not due)', async () => {

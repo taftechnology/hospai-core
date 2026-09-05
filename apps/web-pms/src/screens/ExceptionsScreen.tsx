@@ -604,7 +604,30 @@ export function ExceptionsScreen() {
               </p>
               <details>
                 <summary>Payload</summary>
-                <pre>{JSON.stringify(detail.exception.payload, null, 2)}</pre>
+                {detail.exception.payload &&
+                typeof detail.exception.payload === 'object' &&
+                !Array.isArray(detail.exception.payload) ? (
+                  <DataTable data-testid="exception-payload">
+                    <DataTableBody>
+                      {Object.entries(detail.exception.payload as Record<string, unknown>).map(
+                        ([key, value]) => (
+                          <DataTableRow key={key}>
+                            <DataTableHeaderCell>{key}</DataTableHeaderCell>
+                            <DataTableCell>
+                              {value == null
+                                ? ''
+                                : typeof value === 'object'
+                                  ? JSON.stringify(value)
+                                  : String(value)}
+                            </DataTableCell>
+                          </DataTableRow>
+                        ),
+                      )}
+                    </DataTableBody>
+                  </DataTable>
+                ) : (
+                  <p className="muted">No structured payload</p>
+                )}
               </details>
               <h3>Actions</h3>
               <ol>

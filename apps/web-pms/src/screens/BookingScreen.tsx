@@ -334,6 +334,12 @@ export function BookingScreen() {
     }
   }, [contextMode, contextBatchQ.isSuccess, contextBatchQ.data, contextGuestRef, contextDisplayName]);
 
+  const bookFailClosed =
+    (typesQ.isError && asClassified(typesQ.error).class === 'fail_closed') ||
+    (availQ.isError && asClassified(availQ.error).class === 'fail_closed') ||
+    (plansQ.isError && asClassified(plansQ.error).class === 'fail_closed') ||
+    (ratesQ.isError && asClassified(ratesQ.error).class === 'fail_closed');
+
   const guestResolved = contextMode
     ? contextDisplayName != null
     : displayName.trim().length > 0;
@@ -341,6 +347,7 @@ export function BookingScreen() {
   const partyOk = adults >= 1 && children >= 0;
   const quoteComplete = stayQuoteMinor != null;
   const confirmEnabled =
+    !bookFailClosed &&
     !plansEmpty &&
     quoteComplete &&
     !promoBlocked &&
@@ -350,6 +357,7 @@ export function BookingScreen() {
     !dateCapBlocked &&
     partyOk;
   const quoteEnabled =
+    !bookFailClosed &&
     !plansEmpty &&
     quoteComplete &&
     !promoBlocked &&
@@ -514,7 +522,7 @@ export function BookingScreen() {
     <div className="board-page">
       <PageHeader
         title="Book"
-        back={<Link to="/arrivals">← Arrivals</Link>}
+        back={<Link to="/arrivals">Arrivals</Link>}
         subtitle="New reservation"
       />
 
@@ -647,6 +655,7 @@ export function BookingScreen() {
                     <Input
                       data-testid="guest-find"
                       type="search"
+                      aria-label="Find guest"
                       autoComplete="off"
                       placeholder="Search by name or email"
                       value={findQ}
@@ -654,6 +663,16 @@ export function BookingScreen() {
                     />
                   }
                 />
+                {findQry.isFetching && debouncedFind.length > 0 ? (
+                  <p className="muted" role="status">
+                    Searching…
+                  </p>
+                ) : null}
+                {debouncedFind.length > 0 && findQry.isSuccess && findHits.length === 0 ? (
+                  <p className="muted" role="status">
+                    No guests match
+                  </p>
+                ) : null}
                 {findHits.length > 0 ? (
                   <ul>
                     {findHits.map((hit) => (
@@ -716,6 +735,11 @@ export function BookingScreen() {
         </CardHeader>
         <CardContent>
           <div className="ui-stack">
+            {bookFailClosed ? (
+              <Alert data-testid="book-fail-closed">
+                Booking unavailable — property unreachable.
+              </Alert>
+            ) : null}
             {availErrorClassified ? (
               <Alert>
                 {availDateRangeExceeded

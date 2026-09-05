@@ -68,7 +68,7 @@ describe('AppShell boot path', () => {
     );
 
     expect(screen.getByRole('navigation', { name: /hospai pms/i })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: /hospai pms/i })).toBeTruthy();
+    expect(document.querySelector('.app-sidebar-brand p.app-sidebar-title')).toBeTruthy();
     expect(document.querySelector('aside')).toBeTruthy();
     // fail_closed on /me → fail open: full nav after settle (not withheld forever)
     await waitFor(() => expect(screen.getByRole('link', { name: /front desk/i })).toBeTruthy());

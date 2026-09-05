@@ -1,6 +1,6 @@
 import type { ReservationRead } from '@hospai/client-core';
 
-import { Button } from '@hospai/ui-kit';
+import { Badge, Button } from '@hospai/ui-kit';
 
 export function RegistrationCard({
   propertyName,
@@ -17,7 +17,7 @@ export function RegistrationCard({
 }) {
   const adults = reservation?.adults ?? 1;
   const children = reservation?.children ?? 0;
-  const roomText = roomLabel !== undefined ? roomLabel : reservation?.roomId;
+  const roomText = roomLabel ?? null;
   const confirmationToken = reservation?.reservationId.slice(-8);
   const roomTypeText = roomTypeLabel ?? 'unavailable';
   return (
@@ -36,8 +36,18 @@ export function RegistrationCard({
           <p>
             Adults {adults} · Children {children}
           </p>
-          {reservation.vipFlag ? <p>VIP</p> : null}
-          {reservation.dndFlag ? <p>DND</p> : null}
+          <div className="ui-row">
+            {reservation.vipFlag ? (
+              <Badge rung="attention" data-testid="reg-vip-badge">
+                VIP
+              </Badge>
+            ) : null}
+            {reservation.dndFlag ? (
+              <Badge rung="neutral" data-testid="reg-dnd-badge">
+                DND
+              </Badge>
+            ) : null}
+          </div>
           {reservation.frontOfficeComment ? <p>{reservation.frontOfficeComment}</p> : null}
         </>
       ) : null}
@@ -60,7 +70,9 @@ export function PrintRegCardControl({ canPrint }: { canPrint: boolean }) {
         Print registration card
       </Button>
       {!canPrint ? (
-        <p className="muted">Registration card is unavailable while the property is unreachable.</p>
+        <p className="muted">
+          Registration card is unavailable while the property is unreachable or room code is unknown.
+        </p>
       ) : null}
     </div>
   );

@@ -17,7 +17,11 @@ export function GuestNameLink({
   guestRef: string;
 }) {
   return (
-    <Link to={`/guests/${encodeURIComponent(guestRef)}`} data-testid="guest-profile-link">
+    <Link
+      to={`/guests/${encodeURIComponent(guestRef)}`}
+      data-testid="guest-profile-link"
+      title={guestRef}
+    >
       {guestLabel(state, guestRef)}
     </Link>
   );

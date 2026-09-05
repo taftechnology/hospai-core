@@ -6,6 +6,7 @@ import {
   meShellStateFromQuery,
   type PropertyMe,
 } from './me.js';
+import { setPermissionDenyFlash } from '../shell/PermissionDenyFlash.js';
 import { api, asClassified, tenant } from '../client.js';
 
 export type PermissionRouteProps = {
@@ -46,6 +47,7 @@ export function PermissionRoute({
 
   if (shell.authority.kind === 'live') {
     if (!hasPropertyPermission(shell.authority.me, permission)) {
+      setPermissionDenyFlash();
       return <Navigate to={fallback} replace />;
     }
     return <Outlet />;

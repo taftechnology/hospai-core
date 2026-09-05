@@ -134,7 +134,7 @@ describe('RatesScreen', () => {
 
   it('fill one cell sends integer amountMinor and ledger currency', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26&plan=BAR');
-    const cells = await screen.findAllByLabelText('Rate for KNG');
+    const cells = await screen.findAllByLabelText(/Rate for KNG on/i);
     const cell = cells[0]!;
     fireEvent.change(cell, { target: { value: '150.00' } });
     fireEvent.blur(cell);
@@ -151,7 +151,7 @@ describe('RatesScreen', () => {
 
   it('empty cell does not PUT zero', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
-    const cells = await screen.findAllByLabelText('Rate for KNG');
+    const cells = await screen.findAllByLabelText(/Rate for KNG on/i);
     fireEvent.blur(cells[0]!);
     expect(putRateDay).not.toHaveBeenCalled();
   });
@@ -186,7 +186,7 @@ describe('RatesScreen', () => {
     );
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
     expect(await screen.findByText(/Property unreachable — cannot load rates/)).toBeTruthy();
-    expect(screen.queryByLabelText('Rate for KNG')).toBeNull();
+    expect(screen.queryByLabelText(/^Rate for KNG$/)).toBeNull();
     expect(screen.queryByText('BAR')).toBeNull();
   });
 
@@ -299,7 +299,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR15');
     expect(await screen.findByText('Edit the parent plan’s rates.')).toBeTruthy();
-    const cell = screen.getByLabelText('Rate for KNG');
+    const cell = screen.getByLabelText(/Rate for KNG on/i);
     expect(cell).toHaveAttribute('readonly');
     fireEvent.blur(cell);
     expect(putRateDay).not.toHaveBeenCalled();

@@ -294,7 +294,7 @@ describe('BoardScreen folio links', () => {
     expect(screen.queryByRole('heading', { level: 1, name: 'Front Desk' })).toBeNull();
   });
 
-  it('shows Front Desk page title and Title Case section heading', async () => {
+  it('shows Arrivals page title and Title Case section heading', async () => {
     getArrivals.mockResolvedValue({ ok: true, items: [item], nextCursor: null });
     postGuestsBatch.mockResolvedValue({ states: { g1: { kind: 'named', displayName: 'Ada' } } });
     listRooms.mockResolvedValue({ rooms: [] });
@@ -310,9 +310,10 @@ describe('BoardScreen folio links', () => {
       occupancy: { occupiedRooms: 0, sellableRooms: 3 },
     });
     renderBoard('arrivals', '/arrivals?date=2026-08-13');
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Front Desk' })).toBeTruthy());
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Arrivals' })).toBeTruthy());
-    expect(screen.getByRole('heading', { name: 'Arrivals' }).textContent).toBe('Arrivals');
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Arrivals' })).toBeTruthy(),
+    );
+    expect(screen.queryByRole('heading', { level: 1, name: 'Front Desk' })).toBeNull();
   });
 
   it('separates row action links with RowActions', async () => {
@@ -361,7 +362,7 @@ describe('BoardScreen folio links', () => {
     await waitFor(() => expect(screen.getByText('Ada')).toBeTruthy());
     expect(screen.getByText('101')).toBeTruthy();
     expect(screen.queryByText('checked_in')).toBeNull();
-    expect(screen.getByText('In house')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'In house' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /^Folio$/i }).getAttribute('href')).toBe(
       '/folio/res_board_1',
     );

@@ -166,7 +166,7 @@ describe('SignInScreen', () => {
     });
   });
 
-  it('clerk needs_second_factor shows demo copy', async () => {
+  it('T28: clerk needs_second_factor omits demo user copy', async () => {
     mode.value = 'clerk';
     createMock.mockResolvedValue({ status: 'needs_second_factor' });
     renderSignIn();
@@ -174,9 +174,7 @@ describe('SignInScreen', () => {
     fireEvent.change(screen.getByTestId('sign-in-password'), { target: { value: 'pass' } });
     fireEvent.click(screen.getByTestId('sign-in-submit'));
     await waitFor(() => {
-      expect(screen.getByRole('alert').textContent).toBe(
-        'This account needs a second step. Use the demo user.',
-      );
+      expect(screen.getByRole('alert').textContent).toBe('This account needs a second step.');
     });
     expect(setActiveMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('sign-in')).toBeTruthy();

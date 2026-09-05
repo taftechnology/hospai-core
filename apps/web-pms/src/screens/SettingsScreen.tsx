@@ -725,41 +725,6 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'tax' }
 
           <Card>
             <CardHeader>
-              <CardTitle>Booking</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="settings-property__grid">
-                <DomainBool
-                  label="Same-day bookings"
-                  configKey="pms.booking.same_day_bookings"
-                  initial={lookup(keys, 'pms.booking.same_day_bookings')}
-                  {...common}
-                />
-                <DomainText
-                  label="Same-day cutoff"
-                  configKey="pms.booking.same_day_cutoff"
-                  initial={lookup(keys, 'pms.booking.same_day_cutoff')}
-                  inputType="time"
-                  {...common}
-                />
-                <DomainBool
-                  label="Require prepayment"
-                  configKey="pms.booking.require_prepayment"
-                  initial={lookup(keys, 'pms.booking.require_prepayment')}
-                  {...common}
-                />
-                <DomainBool
-                  label="Booking date change"
-                  configKey="pms.booking.booking_date_change"
-                  initial={lookup(keys, 'pms.booking.booking_date_change')}
-                  {...common}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle>Money</CardTitle>
             </CardHeader>
             <CardContent>

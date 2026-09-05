@@ -1,3 +1,4 @@
+import { ClassifiedError } from '@hospai/client-core';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -13,7 +14,10 @@ const archiveCityLedgerAccount = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
-  asClassified: () => ({ class: 'live' as const, status: 200, body: {}, retryAfterMs: null }),
+  asClassified: (err: unknown) => {
+    if (err instanceof ClassifiedError) return err.classified;
+    return { class: 'live' as const, status: 200, body: {}, retryAfterMs: null };
+  },
   api: {
     getMe: (...args: unknown[]) => getMe(...args),
     fetchCityLedgerAccounts: (...args: unknown[]) => fetchCityLedgerAccounts(...args),
@@ -205,4 +209,37 @@ describe('CityLedgerScreen', () => {
       await client.invalidateQueries({ queryKey: ['city-ledger-account', 'prop_demo', 'a1'] });
     });
   });
+});
+
+it('T24: create failure uses classified copy not JSON.stringify', async () => {
+  getMe.mockResolvedValue(ownerMe);
+  fetchCityLedgerAccounts.mockResolvedValue({ body: { accounts: [] }, classified: { class: 'live' } });
+  createCityLedgerAccount.mockRejectedValue(
+    new ClassifiedError({
+      class: 'forbidden',
+      status: 403,
+      body: { error: 'forbidden' },
+      retryAfterMs: null,
+    }),
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/city-ledger']}>
+        <Routes>
+          <Route path="/city-ledger" element={<CityLedgerScreen />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByRole('button', { name: /create account/i })).toBeTruthy());
+  fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+  await waitFor(() => expect(screen.getByLabelText(/Account name/i)).toBeTruthy());
+  fireEvent.change(screen.getByLabelText(/Account name/i), { target: { value: 'Acme' } });
+  fireEvent.click(screen.getByRole('button', { name: /^Create$/i }));
+  await waitFor(() => expect(screen.getByTestId('city-ledger-message')).toBeTruthy());
+  expect(screen.getByTestId('city-ledger-message').textContent).not.toMatch(/\{/);
+  expect(screen.getByTestId('city-ledger-message').textContent).toMatch(/Forbidden/i);
 });

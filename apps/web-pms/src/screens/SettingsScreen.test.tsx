@@ -320,7 +320,7 @@ describe('SettingsScreen', () => {
 
   it('T19: unread booking settings keys are not rendered', async () => {
     renderSettings('/settings/property');
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Booking' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Money' })).toBeTruthy());
     for (const key of [
       'pms.booking.same_day_bookings',
       'pms.booking.same_day_cutoff',
@@ -331,6 +331,7 @@ describe('SettingsScreen', () => {
     }
     expect(screen.queryByLabelText(/Same-day bookings/i)).toBeNull();
     expect(screen.queryByLabelText(/Require prepayment/i)).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Booking' })).toBeNull();
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

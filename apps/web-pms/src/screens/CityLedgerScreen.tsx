@@ -24,6 +24,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
 
 type AgingBuckets = {
@@ -99,7 +101,8 @@ export function CityLedgerScreen() {
   const [showPayment, setShowPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
-  const [statementJson, setStatementJson] = useState<string | null>(null);
+  const [statementSnapshot, setStatementSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   const meQ = useQuery({
     queryKey: ['me', propertyId],
@@ -144,7 +147,7 @@ export function CityLedgerScreen() {
     onError: (err) => {
       setMessage(
         err instanceof ClassifiedError
-          ? `Create failed: ${JSON.stringify(err.classified.body)}`
+          ? classifiedUserMessage(err.classified, { fallback: 'Create account failed.' })
           : 'Create account failed.',
       );
     },
@@ -170,7 +173,7 @@ export function CityLedgerScreen() {
     onError: (err) => {
       setMessage(
         err instanceof ClassifiedError
-          ? `Payment failed: ${JSON.stringify(err.classified.body)}`
+          ? classifiedUserMessage(err.classified, { fallback: 'Receive payment failed.' })
           : 'Receive payment failed.',
       );
     },
@@ -182,8 +185,8 @@ export function CityLedgerScreen() {
         idempotencyKey: `city-ledger:statement:${accountId}:${crypto.randomUUID()}`,
       }),
     onSuccess: (result) => {
-      const body = result.body as { snapshot?: unknown; statementId?: string };
-      setStatementJson(JSON.stringify(body.snapshot ?? body, null, 2));
+      const body = result.body as { snapshot?: Record<string, unknown>; statementId?: string };
+      setStatementSnapshot(body.snapshot ?? (body as Record<string, unknown>));
       setMessage(
         typeof body.statementId === 'string'
           ? `Statement ${body.statementId} generated.`
@@ -193,7 +196,7 @@ export function CityLedgerScreen() {
     onError: (err) => {
       setMessage(
         err instanceof ClassifiedError
-          ? `Statement failed: ${JSON.stringify(err.classified.body)}`
+          ? classifiedUserMessage(err.classified, { fallback: 'Generate statement failed.' })
           : err instanceof Error
             ? err.message
             : 'Generate statement failed.',
@@ -202,15 +205,12 @@ export function CityLedgerScreen() {
   });
 
   const archiveAccount = useMutation({
-    mutationFn: () => {
-      if (!window.confirm('Archive this account? It cannot receive new charges.')) {
-        throw new Error('archive_cancelled');
-      }
-      return api.archiveCityLedgerAccount(propertyId, accountId!, {
+    mutationFn: () =>
+      api.archiveCityLedgerAccount(propertyId, accountId!, {
         idempotencyKey: `city-ledger:archive:${accountId}:${crypto.randomUUID()}`,
-      });
-    },
+      }),
     onSuccess: () => {
+      setArchiveConfirmOpen(false);
       setMessage('Account archived.');
       void queryClient.invalidateQueries({
         queryKey: ['city-ledger-account', propertyId, accountId],
@@ -218,10 +218,9 @@ export function CityLedgerScreen() {
       void queryClient.invalidateQueries({ queryKey: ['city-ledger-accounts', propertyId] });
     },
     onError: (err) => {
-      if (err instanceof Error && err.message === 'archive_cancelled') return;
       setMessage(
         err instanceof ClassifiedError
-          ? `Archive failed: ${JSON.stringify(err.classified.body)}`
+          ? classifiedUserMessage(err.classified, { fallback: 'Archive account failed.' })
           : 'Archive account failed.',
       );
     },
@@ -255,9 +254,9 @@ export function CityLedgerScreen() {
         <Card data-testid="city-ledger-detail">
 
         {message ? (
-          <p role="status" data-testid="city-ledger-message">
+          <Alert role="status" data-testid="city-ledger-message">
             {message}
-          </p>
+          </Alert>
         ) : null}
 
         {detailQ.isLoading ? <p className="muted">Loading…</p> : null}
@@ -368,7 +367,7 @@ export function CityLedgerScreen() {
                     detail.openBalanceMinor > 0 ||
                     archiveAccount.isPending
                   }
-                  onClick={() => archiveAccount.mutate()}
+                  onClick={() => setArchiveConfirmOpen(true)}
                 >
                   Archive
                 </Button>
@@ -428,7 +427,7 @@ export function CityLedgerScreen() {
           </Card>
         ) : null}
 
-        {statementJson ? (
+        {statementSnapshot ? (
           <Card
             role="dialog"
             aria-modal="true"
@@ -436,12 +435,33 @@ export function CityLedgerScreen() {
             data-testid="city-ledger-statement-view"
           >
             <h2>Statement snapshot</h2>
-            <pre>{statementJson}</pre>
-            <Button type="button" onClick={() => setStatementJson(null)}>
+            <DataTable>
+              <DataTableBody>
+                {Object.entries(statementSnapshot)
+                  .filter(([, v]) => typeof v !== 'object' || v === null)
+                  .map(([key, value]) => (
+                    <DataTableRow key={key}>
+                      <DataTableHeaderCell>{key}</DataTableHeaderCell>
+                      <DataTableCell>{value == null ? '' : String(value)}</DataTableCell>
+                    </DataTableRow>
+                  ))}
+              </DataTableBody>
+            </DataTable>
+            <Button type="button" onClick={() => setStatementSnapshot(null)}>
               Close
             </Button>
           </Card>
-) : null}
+        ) : null}
+        {archiveConfirmOpen ? (
+          <ConfirmDialog
+            title="Archive this account?"
+            description="It cannot receive new charges."
+            confirmLabel="Archive"
+            intent="destructive"
+            onCancel={() => setArchiveConfirmOpen(false)}
+            onConfirm={() => archiveAccount.mutate()}
+          />
+        ) : null}
       </Card>
     </div>
   );
@@ -541,9 +561,9 @@ export function CityLedgerScreen() {
         {message || listQ.isLoading || meQ.isLoading || listFailClosed || accounts.length === 0 ? (
           <CardContent>
             {message ? (
-              <p role="status" data-testid="city-ledger-message">
+              <Alert role="status" data-testid="city-ledger-message">
                 {message}
-              </p>
+              </Alert>
             ) : null}
 
             {listQ.isLoading || meQ.isLoading ? <p className="muted">Loading…</p> : null}

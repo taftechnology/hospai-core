@@ -178,7 +178,9 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
   if (q.isPending) return <p className="muted">Loading receipt…</p>;
   if (q.isError) {
     const c = asClassified(q.error);
-    return <p className="muted">{classifiedUserMessage(c, { fallback: 'Could not load shift' })}</p>;
+    return (
+      <Alert>{classifiedUserMessage(c, { fallback: 'Could not load shift' })}</Alert>
+    );
   }
 
   const shift = q.data?.shift;

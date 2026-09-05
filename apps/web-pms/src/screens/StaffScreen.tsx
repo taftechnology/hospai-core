@@ -26,6 +26,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 type OrgRole = 'owner' | 'admin' | 'staff';
@@ -101,7 +102,7 @@ function membershipWriteMessage(err: unknown): string {
   if (c.class === 'fail_closed') {
     return 'Organization unavailable — try again shortly.';
   }
-  return `Request failed (${c.class})`;
+  return classifiedUserMessage(c, { fallback: 'Request failed.' });
 }
 
 export function StaffScreen() {

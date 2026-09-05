@@ -14,6 +14,7 @@ import {
   type ReservationStatus,
 } from '@hospai/contracts/reservation-status';
 import {
+  Alert,
   Badge,
   Card,
   CardContent,
@@ -294,16 +295,16 @@ export function TapeChartScreen() {
     const c = asClassified(activeError);
     if (c.class === 'fail_closed' || activeError instanceof ClassifiedError) {
       return (
-        <div className="error" role="alert">
+        <Alert data-testid="tape-fail-closed">
           Property unreachable — board cannot load. This is not an empty day.
-        </div>
+        </Alert>
       );
     }
     if (c.class === 'unauthorized') {
       window.location.assign('/sign-in');
       return null;
     }
-    return <div className="error">Failed to load board</div>;
+    return <Alert>Failed to load board</Alert>;
   }
 
   const rooms = tapeQ.data?.rooms ?? [];

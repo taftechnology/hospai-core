@@ -19,6 +19,8 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  EmptyState,
+  Skeleton,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -304,7 +306,7 @@ function DeparturesBoard({
         <section key={section.title} className="board-group board-group--flush">
           <h2 className="board-group-title">{section.title}</h2>
           {section.rows.length === 0 ? (
-            <p className="muted">None</p>
+            <EmptyState title="None" />
           ) : (
             <BoardTable
               mode="departures"
@@ -347,15 +349,15 @@ function SectionCard({
       </CardHeader>
       {error ? (
         <CardContent>
-          <p className="muted">{error}</p>
+          <Alert>{error}</Alert>
         </CardContent>
       ) : isLoading ? (
         <CardContent>
-          <p className="muted">Loading…</p>
+          <Skeleton aria-label="Loading section" />
         </CardContent>
       ) : empty ? (
         <CardContent>
-          <p className="muted">{empty}</p>
+          <EmptyState title={empty} />
         </CardContent>
       ) : (
         <>

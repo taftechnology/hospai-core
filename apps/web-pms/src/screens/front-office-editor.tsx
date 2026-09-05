@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, Button, Checkbox, Field, Textarea } from '@hospai/ui-kit';
+import { Alert, Badge, Button, Checkbox, Field, Textarea } from '@hospai/ui-kit';
 import { api, tenant } from '../client.js';
 
 const COMMENT_MAX = 2000;
@@ -60,6 +60,18 @@ export function FrontOfficeEditor({
   return (
     <section className="stack" data-testid="front-office-editor">
       <h2>Front office</h2>
+      <div className="ui-row">
+        {vip ? (
+          <Badge rung="attention" data-testid="vip-badge">
+            VIP
+          </Badge>
+        ) : null}
+        {dnd ? (
+          <Badge rung="neutral" data-testid="dnd-badge">
+            DND
+          </Badge>
+        ) : null}
+      </div>
       <Field
         label="Comment"
         size="full"
@@ -109,7 +121,7 @@ export function FrontOfficeEditor({
         {actions}
       </div>
       {tooLong ? <Alert>Comment must be 2000 characters or fewer.</Alert> : null}
-      {message ? <p className="muted">{message}</p> : null}
+      {message ? <Alert data-testid="front-office-message">{message}</Alert> : null}
     </section>
   );
 }

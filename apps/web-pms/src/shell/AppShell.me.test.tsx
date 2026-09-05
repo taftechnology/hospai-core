@@ -151,7 +151,9 @@ describe('AppShell /me states', () => {
     );
     renderShell();
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /hospai pms/i })).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('.app-sidebar-brand p.app-sidebar-title')).toBeTruthy(),
+    );
     expect(screen.queryByTestId('property-name')).toBeNull();
     expect(screen.queryByTestId('business-date-chip')).toBeNull();
   });

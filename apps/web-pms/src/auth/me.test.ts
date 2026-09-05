@@ -116,7 +116,6 @@ describe('me authority helpers', () => {
     };
     const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
     expect(filtered.map((e) => e.id)).not.toContain('staff');
-    expect(filtered.map((e) => e.id)).not.toContain('roster');
     expect(filtered.map((e) => e.id)).not.toContain('night-audit');
     expect(filtered.map((e) => e.id)).not.toContain('inventory');
     expect(filtered.map((e) => e.id)).not.toContain('rates');

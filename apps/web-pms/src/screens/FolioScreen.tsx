@@ -43,11 +43,18 @@ import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { formatMinor } from '../money.js';
+import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
+
+function folioBackTarget(status: string | undefined): { to: string; label: string } {
+  if (status === 'checked_in') return { to: '/in-house', label: 'In house' };
+  if (status === 'checked_out') return { to: '/departures', label: 'Departures' };
+  return { to: '/arrivals', label: 'Arrivals' };
+}
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
 
@@ -246,6 +253,8 @@ export function FolioScreen() {
   const [fxRate, setFxRate] = useState('1.10');
   const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
+  const [checkoutOverrideOpen, setCheckoutOverrideOpen] = useState(false);
+  const [closeWindowId, setCloseWindowId] = useState<string | null>(null);
 
   const folioQ = useQuery({
     queryKey: ['folio', propertyId, reservationId],
@@ -716,25 +725,14 @@ export function FolioScreen() {
     fallback: 'Checkout failed',
     setMessage,
     onLocalError: (err) => {
-      if (err instanceof Error && err.message === 'checkout_cancelled') return true;
       if (err instanceof Error && err.message === 'policy_blocked_checkout') {
         setMessage(policy.reasons.checkout ?? 'Checkout unavailable.');
         return true;
       }
       return false;
     },
-    mutationFn: async () => {
+    mutationFn: async (overrideBalance: boolean) => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
-      const overrideBalance =
-        typeof balanceMinor === 'number' && balanceMinor > 0;
-      if (
-        overrideBalance &&
-        !window.confirm(
-          `Depart with open balance ${formatMinor(balanceMinor)}? This posts checkout with a balance override.`,
-        )
-      ) {
-        throw new Error('checkout_cancelled');
-      }
       if (invoiceGenMode === 'Automatically') {
         const gen = await generateInvoiceForFolio(`invoice:checkout:${reservationId}`);
         const invoiceId = invoiceIdFromGenerateResult(gen);
@@ -784,10 +782,12 @@ export function FolioScreen() {
   const closeWindow = useFolioActionMutation({
     fallback: 'Close window failed',
     setMessage,
-    onLocalError: (err) => err instanceof Error && err.message === 'close_cancelled',
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'close_cancelled') return true;
+      return false;
+    },
     mutationFn: (folioWindowId: string) => {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
-      if (!window.confirm('Close this folio window?')) throw new Error('close_cancelled');
       return api.closeFolioWindow(
         propertyId,
         folioWindowId,
@@ -1094,21 +1094,28 @@ export function FolioScreen() {
 
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const guestResolved = guestState?.kind === 'resolved';
-  const canPrint = reservationQ.isSuccess && guestResolved;
-  const editorDisabled =
-    writeDenied ||
-    Boolean(reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status));
+  const propertyTz = propertyQ.data?.property?.timeZone ?? 'UTC';
+  const businessDate = propertyLocalToday(propertyTz);
+  const showRemainingNightsWarn =
+    reservationQ.data?.departureDate != null &&
+    businessDate != null &&
+    reservationQ.data.departureDate > businessDate &&
+    policy.canCheckout;
   const roomCode = (() => {
     const roomId = reservationQ.data?.roomId;
     if (!roomId) return undefined;
     const code = roomsQ.data?.rooms.find((r) => r.roomId === roomId)?.code;
     return code && code.length > 0 ? code : undefined;
   })();
+  const hasRoomLabel = !reservationQ.data?.roomId || roomCode != null;
+  const canPrint = reservationQ.isSuccess && guestResolved && hasRoomLabel;
+  const editorDisabled =
+    writeDenied ||
+    Boolean(reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status));
   const chargeCodes = (chargeCodesQ.data?.codes ?? []) as Array<{ code: string; name: string }>;
   const tenderPayments = payments.filter(
     (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
   );
-  const propertyTz = propertyQ.data?.property?.timeZone ?? 'UTC';
 
   const ledgerRows = useMemo(() => {
     const rows: LedgerRow[] = [];
@@ -1179,11 +1186,15 @@ export function FolioScreen() {
 
   const ledgerChargesMinor = ledgerRows.reduce((sum, r) => sum + r.chargeMinor, 0);
   const ledgerPaymentsMinor = ledgerRows.reduce((sum, r) => sum + Math.max(0, -r.paymentMinor), 0);
+  const folioBack = folioBackTarget(reservationQ.data?.status);
+  const checkoutNeedsOverride = typeof balanceMinor === 'number' && balanceMinor > 0;
 
   return (
     <>
       <PageHeader
-        back={<Link to="/in-house">← In house</Link>}
+        back={
+          <Link to={folioBack.to}>{folioBack.label}</Link>
+        }
         title={guestRef ? <GuestNameLink state={guestState} guestRef={guestRef} /> : 'Guest'}
         subtitle={
           reservationQ.data
@@ -1222,7 +1233,13 @@ export function FolioScreen() {
                 intent="primary"
                 data-testid="check-out"
                 disabled={checkOut.isPending}
-                onClick={() => checkOut.mutate()}
+                onClick={() => {
+                  if (checkoutNeedsOverride) {
+                    setCheckoutOverrideOpen(true);
+                    return;
+                  }
+                  checkOut.mutate(false);
+                }}
               >
                 Check out
               </Button>
@@ -1235,6 +1252,12 @@ export function FolioScreen() {
         <Alert data-testid="folio-unread">
           Folio unreadable — property unreachable
           {policy.reasons.charge ? ` · ${policy.reasons.charge}` : ''}
+        </Alert>
+      ) : null}
+
+      {showRemainingNightsWarn ? (
+        <Alert intent="informational" data-testid="checkout-remaining-nights-warn">
+          Checkout does not release remaining nights — shorten the stay first.
         </Alert>
       ) : null}
 
@@ -1471,104 +1494,130 @@ export function FolioScreen() {
           ) : tenderPayments.length === 0 ? (
             <p className="muted">No tenders</p>
           ) : (
-            <ul>
-            {tenderPayments.map((p) => {
-              const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
-              const defaultAmt = formatMinor(remaining);
-              const value = captureAmounts[p.paymentId] ?? defaultAmt;
-              const capturedBase = p.capturedAmountMinor ?? p.amountMinor;
-              const refundedBase = p.refundedAmountMinor ?? 0;
-              const remainingMinor = capturedBase - refundedBase;
-              const defaultRefund = formatMinor(remainingMinor);
-              const refundValue = refundAmounts[p.paymentId] ?? defaultRefund;
-              return (
-                <li key={p.paymentId}>
-                  {tenderLabel(p)} · {formatMinor(p.amountMinor)}
-                  {p.status === 'unknown' ? (
-                    <>
-                      <Button
-                        type="button"
-                        disabled={!policy.canPay || reconcilePay.isPending}
-                        onClick={() =>
-                          reconcilePay.mutate({ paymentId: p.paymentId, outcome: 'authorized' })
-                        }
-                      >
-                        Mark authorized
-                      </Button>
-                      <Button
-                        type="button"
-                        disabled={!policy.canPay || reconcilePay.isPending}
-                        onClick={() =>
-                          reconcilePay.mutate({ paymentId: p.paymentId, outcome: 'declined' })
-                        }
-                      >
-                        Mark declined
-                      </Button>
-                    </>
-                  ) : null}
-                  {p.status === 'authorized' ? (
-                    <>
-                      <Input
-                        aria-label={`capture-amount-${p.paymentId}`}
-                        value={value}
-                        onChange={(e) =>
-                          setCaptureAmounts((prev) => ({ ...prev, [p.paymentId]: e.target.value }))
-                        }
-                        disabled={!policy.canPay}
-                      />
-                      <Button
-                        type="button"
-                        disabled={!policy.canPay || capture.isPending}
-                        onClick={() =>
-                          capture.mutate({
-                            paymentId: p.paymentId,
-                            amountMinor: Math.round(Number(value) * 100),
-                            opId: `capture:${p.paymentId}:${crypto.randomUUID()}`,
-                          })
-                        }
-                      >
-                        Capture
-                      </Button>
-                      {canPost ? (
-                        <Button
-                          type="button"
-                          data-testid={`void-payment-${p.paymentId}`}
-                          disabled={voidPay.isPending}
-                          onClick={() => setVoidPaymentId(p.paymentId)}
-                        >
-                          Void
-                        </Button>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {p.status === 'captured' && canAdjust ? (
-                    <>
-                      <Input
-                        aria-label={`refund-amount-${p.paymentId}`}
-                        value={refundValue}
-                        onChange={(e) =>
-                          setRefundAmounts((prev) => ({ ...prev, [p.paymentId]: e.target.value }))
-                        }
-                      />
-                      <Button
-                        type="button"
-                        data-testid={`refund-payment-${p.paymentId}`}
-                        disabled={refundPay.isPending}
-                        onClick={() =>
-                          refundPay.mutate({
-                            paymentId: p.paymentId,
-                            amountMinor: Math.round(Number(refundValue) * 100),
-                          })
-                        }
-                      >
-                        Refund
-                      </Button>
-                    </>
-                  ) : null}
-                </li>
-              );
-            })}
-            </ul>
+            <DataTable data-testid="folio-tenders">
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Method</DataTableHeaderCell>
+                  <DataTableHeaderCell>Amount</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell>Actions</DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {tenderPayments.map((p) => {
+                  const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
+                  const defaultAmt = formatMinor(remaining);
+                  const value = captureAmounts[p.paymentId] ?? defaultAmt;
+                  const capturedBase = p.capturedAmountMinor ?? p.amountMinor;
+                  const refundedBase = p.refundedAmountMinor ?? 0;
+                  const remainingMinor = capturedBase - refundedBase;
+                  const defaultRefund = formatMinor(remainingMinor);
+                  const refundValue = refundAmounts[p.paymentId] ?? defaultRefund;
+                  return (
+                    <DataTableRow key={p.paymentId}>
+                      <DataTableCell>{tenderLabel(p)}</DataTableCell>
+                      <DataTableCell>{formatMinor(p.amountMinor)}</DataTableCell>
+                      <DataTableCell>{p.status}</DataTableCell>
+                      <DataTableCell>
+                        {p.status === 'unknown' ? (
+                          <>
+                            <Button
+                              type="button"
+                              disabled={!policy.canPay || reconcilePay.isPending}
+                              onClick={() =>
+                                reconcilePay.mutate({
+                                  paymentId: p.paymentId,
+                                  outcome: 'authorized',
+                                })
+                              }
+                            >
+                              Mark authorized
+                            </Button>
+                            <Button
+                              type="button"
+                              disabled={!policy.canPay || reconcilePay.isPending}
+                              onClick={() =>
+                                reconcilePay.mutate({
+                                  paymentId: p.paymentId,
+                                  outcome: 'declined',
+                                })
+                              }
+                            >
+                              Mark declined
+                            </Button>
+                          </>
+                        ) : null}
+                        {p.status === 'authorized' ? (
+                          <>
+                            <Input
+                              aria-label={`capture-amount-${p.paymentId}`}
+                              value={value}
+                              onChange={(e) =>
+                                setCaptureAmounts((prev) => ({
+                                  ...prev,
+                                  [p.paymentId]: e.target.value,
+                                }))
+                              }
+                              disabled={!policy.canPay}
+                            />
+                            <Button
+                              type="button"
+                              disabled={!policy.canPay || capture.isPending}
+                              onClick={() =>
+                                capture.mutate({
+                                  paymentId: p.paymentId,
+                                  amountMinor: Math.round(Number(value) * 100),
+                                  opId: `capture:${p.paymentId}:${crypto.randomUUID()}`,
+                                })
+                              }
+                            >
+                              Capture
+                            </Button>
+                            {canPost ? (
+                              <Button
+                                type="button"
+                                data-testid={`void-payment-${p.paymentId}`}
+                                disabled={voidPay.isPending}
+                                onClick={() => setVoidPaymentId(p.paymentId)}
+                              >
+                                Void
+                              </Button>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {p.status === 'captured' && canAdjust ? (
+                          <>
+                            <Input
+                              aria-label={`refund-amount-${p.paymentId}`}
+                              value={refundValue}
+                              onChange={(e) =>
+                                setRefundAmounts((prev) => ({
+                                  ...prev,
+                                  [p.paymentId]: e.target.value,
+                                }))
+                              }
+                            />
+                            <Button
+                              type="button"
+                              data-testid={`refund-payment-${p.paymentId}`}
+                              disabled={refundPay.isPending}
+                              onClick={() =>
+                                refundPay.mutate({
+                                  paymentId: p.paymentId,
+                                  amountMinor: Math.round(Number(refundValue) * 100),
+                                })
+                              }
+                            >
+                              Refund
+                            </Button>
+                          </>
+                        ) : null}
+                      </DataTableCell>
+                    </DataTableRow>
+                  );
+                })}
+              </DataTableBody>
+            </DataTable>
           )}
         </CardContent>
       </Card>
@@ -1635,7 +1684,7 @@ export function FolioScreen() {
         </section>
       ) : null}
 
-      {message ? <p data-testid="folio-message">{message}</p> : null}
+      {message ? <Alert data-testid="folio-message">{message}</Alert> : null}
 
       <details className="folio-advanced" data-testid="folio-advanced">
         <summary>Advanced</summary>
@@ -1689,7 +1738,7 @@ export function FolioScreen() {
                       type="button"
                       data-testid={`close-window-${w.folioWindowId}`}
                       disabled={windowCloseDisabled(w) || closeWindow.isPending}
-                      onClick={() => closeWindow.mutate(w.folioWindowId)}
+                      onClick={() => setCloseWindowId(w.folioWindowId)}
                     >
                       Close
                     </Button>
@@ -2170,6 +2219,31 @@ export function FolioScreen() {
             const paymentId = voidPaymentId;
             setVoidPaymentId(null);
             voidPay.mutate(paymentId);
+          }}
+        />
+      ) : null}
+      {checkoutOverrideOpen ? (
+        <ConfirmDialog
+          title="Depart with open balance?"
+          description={`Depart with open balance ${formatMinor(balanceMinor ?? 0)}? This posts checkout with a balance override.`}
+          confirmLabel="Check out"
+          onCancel={() => setCheckoutOverrideOpen(false)}
+          onConfirm={() => {
+            setCheckoutOverrideOpen(false);
+            checkOut.mutate(true);
+          }}
+        />
+      ) : null}
+      {closeWindowId ? (
+        <ConfirmDialog
+          title="Close this folio window?"
+          description="This closes the folio window on the stay."
+          confirmLabel="Close window"
+          onCancel={() => setCloseWindowId(null)}
+          onConfirm={() => {
+            const id = closeWindowId;
+            setCloseWindowId(null);
+            closeWindow.mutate(id);
           }}
         />
       ) : null}

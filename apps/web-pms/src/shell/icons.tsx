@@ -129,3 +129,17 @@ export function SearchIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function RosterIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="3" y1="16" x2="21" y2="16" />
+      <line x1="9" y1="4" x2="9" y2="20" />
+      <circle cx="6" cy="7" r="1" fill="currentColor" stroke="none" />
+      <circle cx="13" cy="13" r="1" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}

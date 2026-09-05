@@ -24,6 +24,7 @@ import {
   PlusIcon,
   PropertyIcon,
   RoomPlanIcon,
+  RosterIcon,
   SearchIcon,
   SettingsIcon,
   UserIcon,
@@ -35,7 +36,7 @@ import { PropertyTimeZoneProvider, usePropertyTimeZone } from './PropertyTimeZon
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
-import { LogoutModal } from './LogoutModal.js';
+import { consumePermissionDenyFlash } from './PermissionDenyFlash.js';
 
 type SearchHit = {
   reservationId: string;
@@ -59,7 +60,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   settings: SettingsIcon,
   inventory: PropertyIcon,
   staff: UserIcon,
-  roster: CalendarIcon,
+  roster: RosterIcon,
   exceptions: WarningIcon,
 };
 
@@ -145,6 +146,7 @@ function ReservationSearch() {
       <Input
         data-testid="reservation-search"
         type="search"
+        aria-label="Search reservations"
         placeholder="Guest name or reservation"
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -232,6 +234,13 @@ function NavItems({ entries }: { entries: NavEntry[] }) {
 export function AppShell() {
   const propertyId = tenant.propertyId;
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [showPermissionDeny, setShowPermissionDeny] = useState(() => consumePermissionDenyFlash());
+
+  useEffect(() => {
+    if (!showPermissionDeny) return;
+    const t = window.setTimeout(() => setShowPermissionDeny(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [showPermissionDeny]);
   const meQuery = useQuery({
     queryKey: ['me', propertyId],
     queryFn: () => api.getMe(propertyId),
@@ -318,6 +327,11 @@ export function AppShell() {
           <ShiftStrip authority={authority} />
           <FrontOfficeLive authority={authority} />
           <main className="main">
+            {showPermissionDeny ? (
+              <div role="status" className="app-flash" data-testid="permission-deny-toast">
+                You don&apos;t have access to that page.
+              </div>
+            ) : null}
             <Outlet />
           </main>
           <div className="side-panels">

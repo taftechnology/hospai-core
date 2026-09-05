@@ -68,6 +68,11 @@ describe('HousekeepingApp assign picker', () => {
     expect(document.querySelector('.ui-card')).toBeTruthy();
   });
 
+  it('T30: Assignment helper text is visible', async () => {
+    renderApp(stubApi());
+    expect(await screen.findByText(/Assignment only — use Status for clean\/dirty\./i)).toBeTruthy();
+  });
+
   it('31: empty roster shows “No housekeepers on the roster” and no text input', async () => {
     renderApp(stubApi({ listRoster: async () => ({ ok: true, staff: [] }) }), true);
 

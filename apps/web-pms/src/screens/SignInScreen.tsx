@@ -122,7 +122,7 @@ function ClerkSignInForm() {
         return;
       }
       if (result.status === 'needs_second_factor') {
-        setError('This account needs a second step. Use the demo user.');
+        setError('This account needs a second step.');
         return;
       }
       setError('Could not sign in.');

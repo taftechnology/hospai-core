@@ -844,7 +844,7 @@ describe('BookingScreen', () => {
     expect(screen.getByText('KNG').getAttribute('translate')).toBe('no');
   });
 
-  it('FAIL_CLOSED room-types still lists ids and does not block Confirm', async () => {
+  it('T20: FAIL_CLOSED prerequisites disable Hold Quote Confirm with Alert', async () => {
     listRoomTypes.mockRejectedValue(
       new ClassifiedError({
         class: 'fail_closed',
@@ -858,11 +858,10 @@ describe('BookingScreen', () => {
         availOk(3, range.fromDate, range.toDate, [{ roomTypeId: 'rt_x', free: 1 }]),
     );
     renderBook();
-    expect(await screen.findByText('Room type unavailable')).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: /Room type unavailable/i }));
-    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
-    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
-    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(false);
+    expect(await screen.findByTestId('book-fail-closed')).toBeTruthy();
+    expect((screen.getByTestId('hold-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('confirm-book') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('Lock 9.1: picker lists BAR + CORP with name (code) labels', async () => {

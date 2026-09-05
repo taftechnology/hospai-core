@@ -23,6 +23,7 @@ import {
   PageHeader,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
 type RoomTypeRow = {
@@ -106,7 +107,7 @@ function inventoryErrorCopy(err: unknown, context?: 'room' | 'type'): string {
   if (code === 'room_code_exists') return 'Room code already exists.';
   const c = asClassified(err);
   if (c.class === 'fail_closed') return 'Property unreachable — cannot load inventory.';
-  return `Request failed (${c.class})`;
+  return classifiedUserMessage(c, { fallback: 'Request failed.' });
 }
 
 export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {

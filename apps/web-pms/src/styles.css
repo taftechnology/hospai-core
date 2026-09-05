@@ -823,6 +823,23 @@ details.side-panel summary {
 }
 
 @media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .reg-card,
+  .reg-card * {
+    visibility: visible;
+  }
+
+  .reg-card {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
 
   aside,
   .app-sidebar,
@@ -833,14 +850,19 @@ details.side-panel summary {
   .nav {
     display: none !important;
   }
+}
 
-  .reg-card {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip: auto;
-  }
+.app-flash {
+  position: fixed;
+  inset-block-start: 1rem;
+  inset-inline: 50% auto;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
 }
 
 .sign-in {

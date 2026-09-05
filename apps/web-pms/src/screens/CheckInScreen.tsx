@@ -173,7 +173,6 @@ export function CheckInScreen() {
   const canCheckIn = !checkIn.isPending && !terminalOrInHouse;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const guestResolved = guestState?.kind === 'resolved';
-  const canPrint = reservationQ.isSuccess && guestResolved;
   const displayName = guestState?.kind === 'resolved' ? guestState.displayName : null;
   const adults = reservationQ.data?.adults ?? 1;
   const children = reservationQ.data?.children ?? 0;
@@ -189,6 +188,8 @@ export function CheckInScreen() {
   const typedRooms = assignTypeId ? rooms.filter((r) => r.roomTypeId === assignTypeId) : rooms;
   const roomOptions = typedRooms.length > 0 ? typedRooms : rooms;
   const selectedCode = rooms.find((r) => r.roomId === roomId)?.code;
+  const hasRoomLabel = !reservationQ.data?.roomId || (selectedCode != null && selectedCode.length > 0);
+  const canPrint = reservationQ.isSuccess && guestResolved && hasRoomLabel;
   const roomTypeId = reservationQ.data?.roomTypeId;
   const allocatedRoomTypeId = reservationQ.data?.allocatedRoomTypeId;
   const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
@@ -207,7 +208,7 @@ export function CheckInScreen() {
         </Alert>
       ) : null}
       <PageHeader
-        back={<Link to="/arrivals">← Arrivals</Link>}
+        back={<Link to="/arrivals">Arrivals</Link>}
         title={`Check in ${displayName ?? 'guest'}`}
         subtitle={
           res

@@ -755,6 +755,12 @@ describe('command catalog', () => {
     }
   });
 
+  it('bulk array commands and night_audit.run declare INTERACTIVE lane (Q11)', () => {
+    for (const id of ['rates.bulk_update', 'rooms.bulk_update_status', 'night_audit.run'] as const) {
+      expect(COMMAND_CATALOG.find((c) => c.id === id)?.lane).toBe('INTERACTIVE');
+    }
+  });
+
   it('encodes degraded classes in the catalog — not prose notes (§4.6)', () => {
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.authorize')?.degraded).toBe('FAIL_CLOSED');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.capture')?.degraded).toBe('FAIL_CLOSED');

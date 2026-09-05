@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ARCHIVE_BLOCKED,
   CONSTITUENT_IN_USE,
+  commandFingerprint,
   fingerprintPayload,
   IDEM_KEY_REUSED,
   NOT_FOUND,
@@ -288,5 +289,22 @@ describe('fingerprintPayload', () => {
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
     expect(count).toBe(159);
+  });
+});
+
+describe('commandFingerprint (N2)', () => {
+  it('T12: cancel vs no-show same reservationId → different digests', async () => {
+    const reservationId = 'res_alias_test';
+    const cancel = await commandFingerprint('reservations.cancel', { reservationId });
+    const noShow = await commandFingerprint('reservations.no_show', { reservationId });
+    expect(cancel).not.toBe(noShow);
+    expect(cancel).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('includes commandId — payload-only hash differs', async () => {
+    const payload = { reservationId: 'res_x' };
+    const withCommand = await commandFingerprint('reservations.cancel', payload);
+    const payloadOnly = await fingerprintPayload(payload);
+    expect(withCommand).not.toBe(payloadOnly);
   });
 });

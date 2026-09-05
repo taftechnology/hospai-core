@@ -6902,16 +6902,6 @@ export const V1_ROUTES: V1RouteDef[] = [
     handler: handlePostReservationCheckOut,
   },
   {
-    id: 'post_reservation_early_depart',
-    scope: 'property',
-    method: 'POST',
-    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/early-depart$/,
-    permission: 'reservations:write',
-    commandId: 'reservations.early_depart',
-    entitlement: 'pms.core',
-    handler: handlePostReservationEarlyDepart,
-  },
-  {
     id: 'post_reservation_no_show',
     scope: 'property',
     method: 'POST',
@@ -8087,6 +8077,16 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetCityLedgerStatement,
+  },
+  {
+    id: 'post_reservation_early_depart',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/early-depart$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.early_depart',
+    entitlement: 'pms.core',
+    handler: handlePostReservationEarlyDepart,
   },
 ];
 

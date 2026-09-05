@@ -228,6 +228,23 @@ async function main() {
   if (!accountId) fail('9b', claRes.status, 'missing accountId');
   console.log('✓ step 9b: POST city-ledger account');
 
+  // Step 9b2: POST folio line (ROOM) — desk charge, no night audit
+  const roomLineRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/lines`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        chargeCode: 'ROOM',
+        amountMinor: 10000,
+        idempotencyKey: `idem-folio-room-${suffix}`,
+      }),
+    },
+  );
+  const roomLineBody = await readJson(roomLineRes);
+  if (roomLineRes.status !== 201) fail('9b2', roomLineRes.status, snippet(roomLineBody));
+  console.log('✓ step 9b2: POST folio line (ROOM)');
+
   // Step 9c: GET folio — find ROOM line on GUEST window
   const folioRes = await fetch(
     `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,

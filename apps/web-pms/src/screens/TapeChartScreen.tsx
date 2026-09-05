@@ -64,6 +64,30 @@ function inclusiveDates(fromDate: string, toDate: string): string[] {
   return out;
 }
 
+const MAX_TAPE_UI_DAYS = 14;
+
+function inclusiveDayCount(from: string, to: string): number {
+  if (to < from) return 0;
+  let count = 0;
+  let cur = from;
+  while (cur <= to) {
+    count++;
+    cur = addCalendarDays(cur, 1);
+  }
+  return count;
+}
+
+function clampTapeWindow(from: string, to: string): { from: string; to: string; clamped: boolean } {
+  if (inclusiveDayCount(from, to) <= MAX_TAPE_UI_DAYS) {
+    return { from, to, clamped: false };
+  }
+  return {
+    from: addCalendarDays(to, -(MAX_TAPE_UI_DAYS - 1)),
+    to,
+    clamped: true,
+  };
+}
+
 function formatTapeHeader(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -214,18 +238,26 @@ export function TapeChartScreen() {
   const view = params.get('view') === 'available' ? 'available' : 'tape';
   const [from, setFrom] = useState<string | null>(() => fromParam);
   const [to, setTo] = useState<string | null>(() => toParam);
-  const seededRef = useRef(Boolean(fromParam && toParam));
+  const [tapeWindowHint, setTapeWindowHint] = useState<string | null>(null);
+  const seededRef = useRef(false);
   const timeZone = usePropertyTimeZone();
 
   useEffect(() => {
-    if (seededRef.current) return;
     if (fromParam && toParam) {
-      seededRef.current = true;
-      setFrom(fromParam);
-      setTo(toParam);
+      if (!seededRef.current) {
+        seededRef.current = true;
+        const clamped = clampTapeWindow(fromParam, toParam);
+        setFrom(clamped.from);
+        setTo(clamped.to);
+        setTapeWindowHint(clamped.clamped ? 'Room plan shows up to 14 days.' : null);
+        if (clamped.clamped) {
+          navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
+        }
+      }
       return;
     }
     if (!timeZone) return;
+    if (seededRef.current) return;
     const seededFrom = propertyLocalToday(timeZone);
     const seededTo = addCalendarDays(seededFrom, 6);
     seededRef.current = true;
@@ -243,9 +275,11 @@ export function TapeChartScreen() {
   }
 
   function writeWindow(nextFrom: string, nextTo: string) {
-    setFrom(nextFrom);
-    setTo(nextTo);
-    navigate({ search: windowSearch(nextFrom, nextTo, view) }, { replace: true });
+    const clamped = clampTapeWindow(nextFrom, nextTo);
+    setFrom(clamped.from);
+    setTo(clamped.to);
+    setTapeWindowHint(clamped.clamped ? 'Room plan shows up to 14 days.' : null);
+    navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
   }
 
   const tapeQ = useQuery({
@@ -586,6 +620,7 @@ export function TapeChartScreen() {
             }
           />
         </Toolbar>
+        {tapeWindowHint ? <p className="muted">{tapeWindowHint}</p> : null}
         <CardContent flush>{body}</CardContent>
       </Card>
     </>

@@ -28,6 +28,7 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  Skeleton,
   Total,
   type StatusRung,
 } from '@hospai/ui-kit';
@@ -255,6 +256,10 @@ export function FolioScreen() {
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
   const [checkoutOverrideOpen, setCheckoutOverrideOpen] = useState(false);
   const [closeWindowId, setCloseWindowId] = useState<string | null>(null);
+  const [chargeCodesRequested, setChargeCodesRequested] = useState(false);
+  const [fxRatesEditorOpen, setFxRatesEditorOpen] = useState(false);
+  const [domainConfigRequested, setDomainConfigRequested] = useState(false);
+  const [folioAdvancedOpen, setFolioAdvancedOpen] = useState(false);
 
   const folioQ = useQuery({
     queryKey: ['folio', propertyId, reservationId],
@@ -274,7 +279,7 @@ export function FolioScreen() {
   const fxRatesQ = useQuery({
     queryKey: ['fx-rates', propertyId],
     queryFn: () => api.listFxRates(propertyId),
-    enabled: Boolean(propertyId),
+    enabled: Boolean(propertyId) && fxRatesEditorOpen,
   });
   const openShiftQ = useQuery({
     queryKey: ['open-shift', propertyId],
@@ -300,17 +305,17 @@ export function FolioScreen() {
   const roomsQ = useQuery({
     queryKey: ['rooms', propertyId],
     queryFn: () => api.listRooms(propertyId),
-    enabled: Boolean(propertyId),
+    enabled: Boolean(propertyId) && reservationQ.isSuccess && Boolean(reservationQ.data?.roomId),
   });
   const chargeCodesQ = useQuery({
     queryKey: ['charge-codes', propertyId],
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
-    enabled: Boolean(propertyId),
+    enabled: Boolean(propertyId) && chargeCodesRequested,
   });
   const domainConfigQ = useQuery({
     queryKey: ['domain-config', propertyId],
     queryFn: () => api.listDomainConfig(propertyId),
-    enabled: Boolean(propertyId),
+    enabled: Boolean(propertyId) && domainConfigRequested,
     retry: false,
   });
 
@@ -370,7 +375,7 @@ export function FolioScreen() {
   const cityLedgerAccountsQ = useQuery({
     queryKey: ['city-ledger-accounts-active', propertyId],
     queryFn: () => api.fetchCityLedgerAccounts(propertyId, { status: 'active' }),
-    enabled: Boolean(propertyId) && canAdjust,
+    enabled: Boolean(propertyId) && canAdjust && folioAdvancedOpen,
     retry: false,
   });
 
@@ -1113,11 +1118,20 @@ export function FolioScreen() {
     writeDenied ||
     Boolean(reservationQ.data && TERMINAL_STATUSES.has(reservationQ.data.status));
   const chargeCodes = (chargeCodesQ.data?.codes ?? []) as Array<{ code: string; name: string }>;
-  const tenderPayments = payments.filter(
-    (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
+
+  const tenderPayments = useMemo(
+    () =>
+      payments.filter(
+        (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
+      ),
+    [payments],
   );
 
   const ledgerRows = useMemo(() => {
+    const chargeCodesLocal = (chargeCodesQ.data?.codes ?? []) as Array<{ code: string; name: string }>;
+    const tenderPayments = payments.filter(
+      (p) => p.status === 'authorized' || p.status === 'captured' || p.status === 'unknown',
+    );
     const rows: LedgerRow[] = [];
     const tenderById = new Map<string, FolioPaymentRow>();
     for (const p of tenderPayments) tenderById.set(p.paymentId, p);
@@ -1130,7 +1144,7 @@ export function FolioScreen() {
       const sortKey = line.businessDate
         ? Date.parse(`${line.businessDate}T00:00:00Z`)
         : line.createdAt;
-      const parentDesc = chargeDescription(line.chargeCode, chargeCodes);
+      const parentDesc = chargeDescription(line.chargeCode, chargeCodesLocal);
       rows.push({
         key: line.folioLineId,
         sortKey,
@@ -1173,7 +1187,7 @@ export function FolioScreen() {
     }
     rows.sort((a, b) => a.sortKey - b.sortKey);
     return rows;
-  }, [fold, tenderPayments, chargeCodes, propertyTz]);
+  }, [fold, payments, chargeCodesQ.data, propertyTz]);
 
   const invoiceBody = invoiceQ.data?.body as
     | { snapshot?: InvoiceSnapshot; presentation?: Record<string, unknown> }
@@ -1330,7 +1344,7 @@ export function FolioScreen() {
       </Card>
 
       <div className="folio-forms">
-        <Card>
+        <Card onFocusCapture={() => setChargeCodesRequested(true)}>
           <CardHeader>
             <CardTitle>Post a charge</CardTitle>
           </CardHeader>
@@ -1340,18 +1354,23 @@ export function FolioScreen() {
                 size="sm"
                 label="Charge code"
                 control={
+                  chargeCodesRequested && chargeCodesQ.isPending ? (
+                    <Skeleton aria-label="Loading charge codes" />
+                  ) : (
                   <NativeSelect
                     aria-label="charge-code"
                     value={chargeCode}
                     onChange={(e) => setChargeCode(e.target.value)}
+                    onFocus={() => setChargeCodesRequested(true)}
                     disabled={!policy.canPostCharge}
                   >
-                    {chargeCodes.map((c) => (
+                    {(chargeCodes.length > 0 ? chargeCodes : [{ code: chargeCode, name: chargeCode }]).map((c) => (
                       <option key={c.code} value={c.code}>
                         {c.code}
                       </option>
                     ))}
                   </NativeSelect>
+                  )
                 }
               />
               <Field
@@ -1370,7 +1389,11 @@ export function FolioScreen() {
                 type="button"
                 data-testid="add-charge"
                 disabled={!policy.canPostCharge || addCharge.isPending}
-                onClick={() => addCharge.mutate()}
+                onFocus={() => setChargeCodesRequested(true)}
+                onClick={() => {
+                  setChargeCodesRequested(true);
+                  addCharge.mutate();
+                }}
               >
                 Post charge
               </Button>
@@ -1628,7 +1651,10 @@ export function FolioScreen() {
             type="button"
             data-testid="invoice-generate"
             disabled={generateInv.isPending}
-            onClick={() => generateInv.mutate()}
+            onClick={() => {
+              setDomainConfigRequested(true);
+              generateInv.mutate();
+            }}
           >
             Generate invoice
           </Button>
@@ -1686,7 +1712,11 @@ export function FolioScreen() {
 
       {message ? <Alert data-testid="folio-message">{message}</Alert> : null}
 
-      <details className="folio-advanced" data-testid="folio-advanced">
+      <details
+        className="folio-advanced"
+        data-testid="folio-advanced"
+        onToggle={(e) => setFolioAdvancedOpen(e.currentTarget.open)}
+      >
         <summary>Advanced</summary>
         <div className="folio-advanced__body">
           {canWrite ? (
@@ -2116,8 +2146,16 @@ export function FolioScreen() {
         ) : null}
 
         {canConfigureFx ? (
-          <details className="folio-advanced__subsection" data-testid="fx-rates-editor">
+          <details
+            className="folio-advanced__subsection"
+            data-testid="fx-rates-editor"
+            onToggle={(e) => setFxRatesEditorOpen(e.currentTarget.open)}
+          >
             <summary>FX rates</summary>
+            {fxRatesEditorOpen && fxRatesQ.isPending ? (
+              <Skeleton aria-label="Loading FX rates" />
+            ) : (
+            <>
             <ul>
               {(fxRatesQ.data?.rates ?? [])
                 .filter((r) => r.effectiveTo === null)
@@ -2149,6 +2187,8 @@ export function FolioScreen() {
             >
               Create FX rate
             </Button>
+            </>
+            )}
           </details>
         ) : null}
 

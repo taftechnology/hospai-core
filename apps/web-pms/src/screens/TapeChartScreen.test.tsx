@@ -1,6 +1,6 @@
 import { ClassifiedError } from '@hospai/client-core';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -394,6 +394,61 @@ describe('TapeChartScreen', () => {
     expect(screen.getByTestId('tape-from')).toBeTruthy();
     expect(screen.getByTestId('tape-to')).toBeTruthy();
     await waitFor(() => expect(document.querySelector('.tape-scroller')).toBeTruthy());
+  });
+
+  it('P13: clamps tape URL window to 14 inclusive days', async () => {
+    getFrontOfficeTape.mockResolvedValue({
+      ...emptyTape('2026-08-17', '2026-08-30'),
+      rooms: [room],
+      blocks: [],
+    });
+    postGuestsBatch.mockResolvedValue({ ok: true, guests: {}, states: {} });
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-17',
+      asOf: 1,
+      arrivals: 0,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
+    });
+    renderTape({ pathname: '/board', search: '?from=2026-08-01&to=2026-08-30' });
+    await waitFor(() => {
+      expect(screen.getByTestId('board-search').textContent).toMatch(/from=2026-08-17/);
+      expect(screen.getByTestId('board-search').textContent).toMatch(/to=2026-08-30/);
+    });
+    expect(screen.getByText(/Room plan shows up to 14 days/i)).toBeTruthy();
+  });
+
+  it('P13: tape-to picker clamps an over-wide window', async () => {
+    getFrontOfficeTape.mockResolvedValue({
+      ...emptyTape('2026-08-13', '2026-08-26'),
+      rooms: [room],
+      blocks: [],
+    });
+    postGuestsBatch.mockResolvedValue({ ok: true, guests: {}, states: {} });
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [] });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 0,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
+    });
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    await waitFor(() => expect(screen.getByTestId('tape-to')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('tape-to'), { target: { value: '2026-08-30' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('board-search').textContent).toMatch(/from=2026-08-17/);
+      expect(screen.getByTestId('board-search').textContent).toMatch(/to=2026-08-30/);
+    });
   });
 
   it('63: 51 guest refs chunk postGuestsBatch at 50', async () => {

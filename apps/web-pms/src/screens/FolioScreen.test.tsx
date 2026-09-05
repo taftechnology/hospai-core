@@ -145,6 +145,23 @@ function advanced() {
   return screen.getByTestId('folio-advanced') as HTMLDetailsElement;
 }
 
+function openAdvanced() {
+  const el = advanced();
+  if (!el.open) {
+    fireEvent.click(el.querySelector('summary')!);
+  }
+  return el;
+}
+
+function openFxRatesEditor() {
+  openAdvanced();
+  const el = screen.getByTestId('fx-rates-editor') as HTMLDetailsElement;
+  if (!el.open) {
+    fireEvent.click(el.querySelector('summary')!);
+  }
+  return el;
+}
+
 function invokeReactClick(el: HTMLElement) {
   const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
   if (!key) throw new Error('missing __reactProps$ on element');
@@ -281,6 +298,54 @@ describe('FolioScreen wiring', () => {
     expect(listFxRates).not.toHaveBeenCalled();
     expect(listDomainConfig).not.toHaveBeenCalled();
     expect(fetchCityLedgerAccounts).not.toHaveBeenCalled();
+  });
+
+  it('T-P7b: opening Advanced triggers city ledger / fx subset', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(getFolio).toHaveBeenCalled());
+    openAdvanced();
+    await waitFor(() => expect(fetchCityLedgerAccounts).toHaveBeenCalled());
+  });
+
+  it('T-P7c: ledgerRows stable when payment array identity changes but contents same', async () => {
+    const payment = {
+      paymentId: 'pay_1',
+      reservationId: 'res_1',
+      amountMinor: 5000,
+      currency: 'USD',
+      status: 'authorized' as const,
+      purpose: 'STAY',
+      tenderType: 'CARD' as const,
+      gatewayReference: 'gw',
+      capturedAmountMinor: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [payment] });
+    const { client } = renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-lines')).toBeTruthy());
+    const rowsBefore = screen.getByTestId('folio-lines').querySelectorAll('tbody tr').length;
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [{ ...payment }] });
+    await client.refetchQueries({ queryKey: ['folio-payments', 'prop_demo', 'res_1'] });
+    await waitFor(() => {
+      expect(screen.getByTestId('folio-lines').querySelectorAll('tbody tr').length).toBe(rowsBefore);
+    });
   });
 
   it('T15: shows remaining-nights warning when departure after business date', async () => {
@@ -895,7 +960,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('transfer-dest-line_room')).toBeTruthy());
-    advanced().open = true;
+    openAdvanced();
     fireEvent.change(screen.getByTestId('transfer-dest-line_room'), {
       target: { value: 'res_1:COMPANY' },
     });
@@ -941,7 +1006,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('transfer-dest-line_room')).toBeTruthy());
-    advanced().open = true;
+    openAdvanced();
     fireEvent.change(screen.getByTestId('transfer-dest-line_room'), {
       target: { value: 'res_1:COMPANY' },
     });
@@ -1409,6 +1474,8 @@ describe('FolioScreen wiring', () => {
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     authorizePayment.mockResolvedValue({ ok: true });
     renderFolio();
+    openFxRatesEditor();
+    await waitFor(() => expect(listFxRates).toHaveBeenCalled());
     await waitFor(() => {
       const select = screen.getByTestId('authorize-currency') as HTMLSelectElement;
       expect([...select.options].map((o) => o.value)).toEqual(expect.arrayContaining(['USD', 'EUR']));
@@ -1502,7 +1569,7 @@ describe('FolioScreen wiring', () => {
     expect(document.body.textContent).toMatch(/Room 101/);
     expect(document.body.textContent).not.toMatch(/rm_101/);
     expect(screen.getByTestId('folio-balance')).toBeTruthy();
-    expect(screen.getByTestId('folio-lines').textContent).toMatch(/Misc/);
+    expect(screen.getByTestId('folio-lines').textContent).toMatch(/MISC/);
     expect(screen.getByTestId('folio-lines').textContent).toMatch(/50\.00/);
     expect(screen.queryByText(/paymentId/i)).toBeNull();
     expect(screen.getByTestId('add-charge')).toBeTruthy();
@@ -1589,7 +1656,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('folio-advanced')).toBeTruthy());
-    advanced().open = true;
+    openAdvanced();
     await waitFor(() =>
       expect(screen.getByTestId('company-account-picker')).toBeTruthy(),
     );
@@ -1912,7 +1979,7 @@ describe('FolioScreen wiring', () => {
     openFolioWindowMock.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
 
     renderFolio();
-    advanced().open = true;
+    openAdvanced();
     await waitFor(() =>
       expect(screen.getByTestId('company-account-picker').tagName).toBe('SELECT'),
     );

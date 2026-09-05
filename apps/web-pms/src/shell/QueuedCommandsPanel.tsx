@@ -7,7 +7,8 @@ export function QueuedCommandsPanel() {
     queryKey: ['queued-commands'],
     queryFn: async () => [...queuedCommands.entries()],
     staleTime: 0,
-    refetchInterval: 1000,
+    refetchInterval: (query) =>
+      (query.state.data?.length ?? 0) > 0 ? 1000 : false,
   });
   const entries = q.data ?? [];
 

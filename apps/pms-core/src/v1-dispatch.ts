@@ -1964,7 +1964,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
   const guestId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -2040,7 +2040,7 @@ async function handleGetRoster(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -2074,7 +2074,7 @@ async function handleGetRosterOne(ctx: V1DispatchContext): Promise<Response> {
   const staffId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -2321,7 +2321,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const normalizedPromoCode =
@@ -2423,6 +2423,31 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     }
     return json({ ok: false, error: err }, mapReservationCommandErrorStatus(err));
   }
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const link = await org.upsertGuestPropertyAssociation(actor, propertyId, body.guestRef);
+    if (!link.ok && link.error !== GUEST_NOT_FOUND) {
+      logError(ctx.observability, {
+        msg: 'guest_property.link_failed',
+        propertyId,
+        guestRef: body.guestRef,
+        error: link.error,
+      });
+    }
+  } catch (e) {
+    if (isOrgDoTransportFailure(e)) {
+      logError(ctx.observability, {
+        msg: 'guest_property.link_transport_failed',
+        propertyId,
+        guestRef: body.guestRef,
+      });
+    } else {
+      throw e;
+    }
+  }
+
   return json(result, 201);
 }
 
@@ -3486,7 +3511,7 @@ async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> 
   if (refs.length === 0) return json({ error: 'invalid_body', detail: 'refs_required' }, 400);
   if (refs.length > 50) return json({ error: 'refs_limit_exceeded', max: 50 }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -6954,7 +6979,7 @@ async function handleGetGuests(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -7005,7 +7030,7 @@ async function handlePostGuestsSearch(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;

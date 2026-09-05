@@ -223,6 +223,14 @@ export async function runDemoSeed(input: {
       if (!created.ok) {
         throw new Error(`demo_seed_res:${stay.reservationId}:${created.error}`);
       }
+      const link = await org.upsertGuestPropertyAssociation(
+        input.actor,
+        input.propertyId,
+        stay.guestId,
+      );
+      if (!link.ok) {
+        throw new Error(`demo_seed_guest_link:${stay.reservationId}:${link.error}`);
+      }
       mutated = true;
     }
 

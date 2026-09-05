@@ -207,6 +207,12 @@ export const ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS = [
 export const ORG_PROPERTY_PII_ASSOCIATION_SQL =
   ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS.join(';\n\n') + ';\n';
 
+const ORG_DATA_KEY_VERSION_STATEMENTS = [
+  `ALTER TABLE data_key ADD COLUMN key_version INTEGER NOT NULL DEFAULT 0`,
+] as const;
+
+export const ORG_DATA_KEY_VERSION_SQL = ORG_DATA_KEY_VERSION_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -247,5 +253,10 @@ export const ORG_MIGRATIONS = [
     version: 8,
     name: '0008_property_pii_association',
     statements: ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS,
+  },
+  {
+    version: 9,
+    name: '0009_data_key_key_version',
+    statements: ORG_DATA_KEY_VERSION_STATEMENTS,
   },
 ] as const;

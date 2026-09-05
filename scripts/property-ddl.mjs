@@ -88,6 +88,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_ROSTER_SQL;
   let ORG_GUEST_BLIND_INDEX_SQL;
   let ORG_PROPERTY_PII_ASSOCIATION_SQL;
+  let ORG_DATA_KEY_VERSION_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -137,6 +138,7 @@ if (process.argv.includes('--self-test')) {
       ORG_ROSTER_SQL,
       ORG_GUEST_BLIND_INDEX_SQL,
       ORG_PROPERTY_PII_ASSOCIATION_SQL,
+      ORG_DATA_KEY_VERSION_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -558,6 +560,15 @@ const targets = [
 
 `,
     sql: ORG_PROPERTY_PII_ASSOCIATION_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0009_data_key_key_version.sql'),
+    header: `-- OrgDO data_key.key_version for HKDF wrap versioning — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_DATA_KEY_VERSION_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

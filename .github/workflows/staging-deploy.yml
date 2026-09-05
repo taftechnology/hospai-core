@@ -1,16 +1,60 @@
 name: Staging Deploy
 
+# Repo variable STAGING_SMOKE_USER_ID: Clerk user_… for default post-deploy smoke when smoke_user_id input is empty.
+
 on:
   workflow_dispatch:
     inputs:
+      run_smoke:
+        description: 'Run post-deploy HTTP smoke (default on). Set false for deploy-only.'
+        required: false
+        type: boolean
+        default: true
       smoke_user_id:
-        description: 'Clerk user ID (user_...) to smoke as; mints a fresh session token in-job. Leave empty for deploy-only.'
+        description: 'Clerk user ID (user_...) to smoke as; overrides vars.STAGING_SMOKE_USER_ID when set.'
         required: false
         type: string
+      skip_ci_check:
+        description: 'Emergency bypass — deploy without green CI on this SHA (default false).'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
+  verify-ci-green:
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_ci_check }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require green CI on this SHA
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
+            const ci = workflows.data.workflows.find(w => w.path === '.github/workflows/ci.yml' || w.name === 'CI');
+            if (!ci) {
+              core.setFailed('CI workflow (ci.yml) not found');
+              return;
+            }
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: ci.id, head_sha: sha, status: 'completed', per_page: 20,
+            });
+            const green = runs.data.workflow_runs.some(r => r.conclusion === 'success');
+            if (!green) {
+              core.setFailed(
+                `No successful CI run on ${sha}. Push/merge and wait for CI green before staging deploy. ` +
+                `https://github.com/${owner}/${repo}/actions`
+              );
+            }
+
   deploy:
     runs-on: ubuntu-latest
+    needs: verify-ci-green
+    if: ${{ !cancelled() && (needs.verify-ci-green.result == 'success' || needs.verify-ci-green.result == 'skipped') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,6 +63,24 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install
+      - name: CI gate bypass warning
+        if: inputs.skip_ci_check
+        run: echo "::warning::CI gate was bypassed (skip_ci_check=true). Deploy proceeding without green CI on this SHA."
+      - name: Resolve smoke user id
+        if: inputs.run_smoke == true
+        id: smoke_user
+        run: |
+          set -euo pipefail
+          INPUT="${{ inputs.smoke_user_id }}"
+          VAR="${{ vars.STAGING_SMOKE_USER_ID }}"
+          if [ -n "$INPUT" ]; then
+            echo "id=$INPUT" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VAR" ]; then
+            echo "id=$VAR" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::run_smoke=true but no smoke user id. Set repo variable STAGING_SMOKE_USER_ID or pass smoke_user_id input."
+            exit 1
+          fi
       - name: Build (staging SPA with Clerk)
         env:
           VITE_USE_DEV_ACTOR: '0'
@@ -47,11 +109,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --env staging
       - name: Mint fresh Clerk session JWT
-        if: inputs.smoke_user_id != ''
+        if: inputs.run_smoke == true
         id: jwt
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-          SMOKE_USER_ID: ${{ inputs.smoke_user_id }}
+          SMOKE_USER_ID: ${{ steps.smoke_user.outputs.id }}
         run: |
           set -euo pipefail
           SESSION=$(curl -sf -X POST "https://api.clerk.com/v1/sessions" \
@@ -67,7 +129,7 @@ jobs:
           echo "::add-mask::$JWT"
           echo "CLERK_SESSION_JWT=$JWT" >> "$GITHUB_OUTPUT"
       - name: Smoke test (optional)
-        if: inputs.smoke_user_id != ''
+        if: inputs.run_smoke == true
         env:
           BASE: https://hospai-pms-core-staging.hospai.workers.dev
           CLERK_SESSION_JWT: ${{ steps.jwt.outputs.CLERK_SESSION_JWT }}

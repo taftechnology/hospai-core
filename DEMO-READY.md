@@ -35,6 +35,8 @@ The 8-minute path can already be walked on current APIs. Do not re-derive these.
 
 The gap is staging, first-paint, and appearance — not missing commands.
 
+Default staging smoke uses repo variable **`STAGING_SMOKE_USER_ID`** (Clerk `user_…`); override with workflow input **`smoke_user_id`**. Disable with **`run_smoke: false`**.
+
 ---
 
 ## Priority order

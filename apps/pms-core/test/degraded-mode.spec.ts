@@ -236,9 +236,11 @@ describe('degraded mode §4.6 fault injection', () => {
     vi.restoreAllMocks();
   });
 
-  it('transport allowlist matches fault-injection harness error', () => {
-    expect(isPropertyDoTransportFailure(new Error(PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE))).toBe(true);
-    expect(isPropertyDoTransportFailure(new Error('simulated_internal_bug'))).toBe(false);
+  it('transport allowlist: harness blocked message excluded in production mode (N7)', () => {
+    expect(isPropertyDoTransportFailure(new Error(PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE))).toBe(false);
+    expect(
+      isPropertyDoTransportFailure(new Error(PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE), env),
+    ).toBe(true);
   });
 
   it('1: check-in while blocked returns 202 and leaves DO state unchanged', async () => {
@@ -607,6 +609,32 @@ describe('degraded mode §4.6 fault injection', () => {
     expect(await stub.outboxUnackedCount()).toBe(unackedBefore);
   });
 
+  it('X2a: first replay after offboard before apply → not_member exception; not checked in', async () => {
+    const actor = 'user_deg_x2a';
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    expect((await postReservation(propertyId, actor, 'res_deg_x2a', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, actor, 'res_deg_x2a', 'rm_deg_x2a', '317');
+
+    const sent: PendingCommandMessage[] = [];
+    mockQueueSendCapture(sent);
+    await stub.setTransportBlockedForTest(true);
+    expect((await postCheckIn(propertyId, actor, 'res_deg_x2a', 'idem-x2a')).status).toBe(202);
+    await stub.setTransportBlockedForTest(false);
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
+    await org.removePropertyMemberForTest(actor, propertyId);
+    await stub.clearPermissionCacheForTest();
+
+    await dispatchPendingBatch(sent);
+    expect(await stub.countProvisionalExceptions()).toBe(1);
+    expect(await stub.getReservationStatus('res_deg_x2a')).toBe('confirmed');
+    const { exceptions } = (await stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptions[0]!.reason).toBe('not_member');
+  });
+
   it('13 (= degraded-suite 8): folio.add_item queues while blocked and replays once', async () => {
     const actor = 'user_deg_folio13';
     const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
@@ -626,6 +654,45 @@ describe('degraded mode §4.6 fault injection', () => {
     await dispatchPendingBatch(sent);
     expect(await stub.countFolioLinesForReservation(reservationId)).toBe(1);
     expect(await stub.listOutboxEventTypes()).toContain('folio.line_posted');
+  });
+
+  it('X2b: folio.add_item replay after offboard → exception; no folio line', async () => {
+    const actor = 'user_deg_x2b';
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = 'res_deg_x2b';
+    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
+
+    const folioLineId = `${reservationId}:item:idem-x2b`;
+    const payload = {
+      reservationId,
+      folioLineId,
+      chargeCode: 'MISC',
+      amountMinor: 1500,
+    };
+    const msg: PendingCommandMessage = {
+      v: 1,
+      enqueuedAt: new Date().toISOString(),
+      provisional: {
+        idempotencyKey: 'idem-x2b',
+        requestFingerprint: (await idemForCommand('folio.add_item', 'idem-x2b', payload)).fingerprint,
+        propertyId,
+        orgId,
+        issuedAt: new Date().toISOString(),
+        businessDate: arrival,
+        actor: { userId: actor },
+        command: { type: 'folio.add_item', payload },
+        routeId: 'post_folio_line',
+      },
+    };
+
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
+    await org.removePropertyMemberForTest(actor, propertyId);
+    await stub.clearPermissionCacheForTest();
+
+    await dispatchPendingBatch([msg]);
+    expect(await stub.countProvisionalExceptions()).toBe(1);
+    expect(await stub.countFolioLinesForReservation(reservationId)).toBe(0);
   });
 
   it('14: folio.split_charge while blocked returns FAIL_CLOSED 503 and does not queue', async () => {

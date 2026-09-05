@@ -1,7 +1,7 @@
 import type { EventSource } from '@hospai/contracts';
 import { TENANT_ID_MAX_UTF8_BYTES } from '@hospai/contracts';
 import { describe, expect, it } from 'vitest';
-import { IdempotencyKeyReused, runIdempotent, scopeIdempotencyKey } from './idempotency.js';
+import { IdempotencyKeyReused, readIdempotentCacheSync, runIdempotent, scopeIdempotencyKey } from './idempotency.js';
 import {
   appendOutbox,
   drainOutbox,
@@ -268,6 +268,25 @@ describe('runIdempotent', () => {
     const sql = new OutboxMemorySql();
     expect(() => runIdempotent(sql, { key: '', fingerprint: 'fp' }, () => 1, testActor)).toThrow();
     expect(() => runIdempotent(sql, { key: 'k', fingerprint: '' }, () => 1, testActor)).toThrow();
+  });
+});
+
+describe('readIdempotentCacheSync (X2)', () => {
+  it('T12: returns cached response without executing', () => {
+    const sql = new OutboxMemorySql();
+    const idem = { key: 'K', fingerprint: 'fp1' };
+    const actor = { kind: 'user' as const, userId: 'u1' };
+    runIdempotent(sql, idem, () => ({ ok: true, n: 1 }), actor);
+    expect(readIdempotentCacheSync<{ ok: boolean; n: number }>(sql, idem, actor)).toEqual({ ok: true, n: 1 });
+  });
+
+  it('T12b: fingerprint mismatch throws IdempotencyKeyReused', () => {
+    const sql = new OutboxMemorySql();
+    const actor = { kind: 'user' as const, userId: 'u1' };
+    runIdempotent(sql, { key: 'K', fingerprint: 'fp1' }, () => ({ ok: true }), actor);
+    expect(() =>
+      readIdempotentCacheSync(sql, { key: 'K', fingerprint: 'fp2' }, actor),
+    ).toThrow(IdempotencyKeyReused);
   });
 });
 

@@ -179,7 +179,7 @@ Do not start Track 1 while R0.1–R0.6 are open (security + AR + desk freshness)
 - [x] **R0.3** Audit V3 — L1, L2, L3, L4, U8, G2, G10. city-ledger AR posts on transfer/checkout; honest toast; smoke AR step.
 - [x] **R0.4** Audit V4 — S2, S7. property-scoped guest and roster lists (two-property test).
 - [x] **R0.5** Audit V5 — N6. per-org HKDF master key + comment lie.
-- [ ] **R0.6** Audit V6 — U1, U2, U3, Q5, G6, P2, P4, G9. Board invalidate, terminal Check-in disabled, tape query key, guest batch chunk 50. G6/G9 are the SPA tests that would catch U1/P2/P4 — land them in this vertical.
+- [x] **R0.6** Audit V6 — U1, U2, U3, Q5, G6, P2, P4, G9. Board invalidate, terminal Check-in disabled, tape query key, guest batch chunk 50. G6/G9 are the SPA tests that would catch U1/P2/P4 — land them in this vertical.
 - [ ] **R0.7** Audit V7 — N1, L5, L7, L8, G3, P6. DST two-pass; per-reservation ROOM catch + rewrite case 17 in the same PR; `auto_no_show=false` must not post ROOM for confirmed-not-arrived (L7); pending expires on `confirmBy`, not arrival-only (L8).
 - [ ] **R0.8** Audit V8 — N3, X1, P5, N10, Q11, N2, S6, Q3. array caps (rates, rooms, split, roster `kinds`); JSON 400 helper; fingerprint `{ commandId, payload }`; catalog lane vs `touchInteractive()`; idempotency key prefixed with user; same object hashed as sent (virtual type constituents).
 - [ ] **R0.9** Audit V9 — S4, X2, N7, X3. kill-switch on cancel/purge; replay re-checks original actor; degraded allowlist + one module; missing R2 terminal-fail/DLQ (not infinite retry).

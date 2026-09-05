@@ -176,7 +176,7 @@ Do not start Track 1 while R0.1–R0.6 are open (security + AR + desk freshness)
 
 - [x] **R0.1** Audit V1 — S1/S3/G1 provision graft. `provision.ts` org match; 409 no foreign row; failing cross-org test first.
 - [x] **R0.2** Audit V2 — N4, N5, G12, S5, N12. azp, headers, Bearer-or-Origin, smoke JWT mask.
-- [ ] **R0.3** Audit V3 — L1, L2, L3, L4, U8, G2, G10. city-ledger AR posts on transfer/checkout; honest toast; smoke AR step.
+- [x] **R0.3** Audit V3 — L1, L2, L3, L4, U8, G2, G10. city-ledger AR posts on transfer/checkout; honest toast; smoke AR step.
 - [ ] **R0.4** Audit V4 — S2, S7. property-scoped guest and roster lists (two-property test).
 - [ ] **R0.5** Audit V5 — N6. per-org HKDF master key + comment lie.
 - [ ] **R0.6** Audit V6 — U1, U2, U3, Q5, G6, P2, P4, G9. Board invalidate, terminal Check-in disabled, tape query key, guest batch chunk 50. G6/G9 are the SPA tests that would catch U1/P2/P4 — land them in this vertical.

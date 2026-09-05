@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { zonedWallClockMs } from './zoned-wall-clock.js';
 import {
   ARCHIVE_BLOCKED,
   CONSTITUENT_IN_USE,
@@ -1049,26 +1050,7 @@ function isCancelPenaltyType(value: string): value is CancelPenaltyType {
 
 /** UTC instant of local midnight for `ymd` in `timeZone`. */
 function zonedMidnightMs(ymd: string, timeZone: string): number {
-  const [ys, ms, ds] = ymd.split('-');
-  const utcGuess = Date.UTC(Number(ys), Number(ms) - 1, Number(ds), 0, 0, 0);
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const asUtcFromZoned = (instant: number): number => {
-    const parts = dtf.formatToParts(new Date(instant));
-    const get = (type: Intl.DateTimeFormatPartTypes): number =>
-      Number(parts.find((p) => p.type === type)?.value);
-    return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
-  };
-  const guess = utcGuess - (asUtcFromZoned(utcGuess) - utcGuess);
-  return utcGuess - (asUtcFromZoned(guess) - guess);
+  return zonedWallClockMs(ymd, timeZone, 0, 0);
 }
 
 type RatePlanPolicyFields = {
@@ -1510,53 +1492,14 @@ export function reconcileHorizon(
   return { insertedCount, fromDate, toDate };
 }
 
-/**
- * Offset (ms) such that `atMs + offset` equals the wall-clock instant `atMs`
- * formatted in `timeZone`, reinterpreted as UTC. Standard technique for
- * converting a zoned wall-clock time to an epoch without a TZ database library.
- */
-function timeZoneOffsetMs(timeZone: string, atMs: number): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(new Date(atMs));
-  const map: Record<string, string> = {};
-  for (const part of parts) map[part.type] = part.value;
-  const hour = map.hour === '24' ? 0 : Number(map.hour);
-  const asIfUtc = Date.UTC(
-    Number(map.year),
-    Number(map.month) - 1,
-    Number(map.day),
-    hour,
-    Number(map.minute),
-    Number(map.second),
-  );
-  return asIfUtc - atMs;
-}
-
-/** Epoch ms for `HH:MM` wall-clock time on `dateStr` (YYYY-MM-DD) in `timeZone`. */
-function zonedWallTimeToEpochMs(timeZone: string, dateStr: string, hh: number, mm: number): number {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
-  if (!m) throw new Error(`invalid date: ${dateStr}`);
-  const asUtcGuess = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hh, mm, 0);
-  const offset = timeZoneOffsetMs(timeZone, asUtcGuess);
-  return asUtcGuess - offset;
-}
-
 /** Next occurrence at or after `instant` of `auditTime` ("HH:MM") in `timeZone`, as epoch ms. */
 function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): number {
   const [hh, mm] = auditTime.split(':').map(Number);
   const today = enumerateHorizonDates(timeZone, instant, 1)[0]!;
-  const candidate = zonedWallTimeToEpochMs(timeZone, today, hh!, mm!);
+  const candidate = zonedWallClockMs(today, timeZone, hh!, mm!);
   if (candidate > instant.getTime()) return candidate;
   const tomorrow = enumerateFromDate(today, 2)[1]!;
-  return zonedWallTimeToEpochMs(timeZone, tomorrow, hh!, mm!);
+  return zonedWallClockMs(tomorrow, timeZone, hh!, mm!);
 }
 
 /** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
@@ -3328,7 +3271,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT reservation_id, room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date
          FROM reservation
-         WHERE status = 'pending' AND (confirm_by <= ? OR arrival_date <= ?)`,
+         WHERE status = 'pending'
+           AND (
+             (confirm_by IS NOT NULL AND confirm_by <= ?)
+             OR (confirm_by IS NULL AND arrival_date <= ?)
+           )`,
         nowMs,
         businessDate,
       )
@@ -14961,15 +14908,41 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return folioLineIds;
   }
 
-  private postRoomChargesSync(businessDate: string): void {
+  private recordNightAuditRoomChargeExceptionSync(
+    reservationId: string,
+    businessDate: string,
+    stayDate: string,
+  ): void {
+    this.appendAuditLogSync({
+      actor: 'system:night_audit',
+      commandId: 'night_audit.run',
+      entityType: 'reservation',
+      entityId: reservationId,
+      reservationId,
+      afterJson: {
+        step: 'POST_ROOM_CHARGES',
+        reason: RATE_MISSING,
+        businessDate,
+        stayDate,
+      },
+    });
+  }
+
+  private postRoomChargesSync(businessDate: string): { postedCount: number; failedCount: number } {
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
     if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+
+    const autoNoShow = this.readConfigValueSync('pms.night_audit.auto_no_show');
+    const statusPredicate =
+      autoNoShow === false
+        ? `status = 'checked_in'`
+        : `status IN ('confirmed', 'checked_in')`;
 
     const reservations = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id, room_type_id, rate_plan_id
          FROM reservation
-         WHERE status IN ('confirmed', 'checked_in')
+         WHERE ${statusPredicate}
            AND COALESCE(no_post, 0) = 0
            AND arrival_date <= ? AND departure_date > ?`,
         businessDate,
@@ -14977,55 +14950,73 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ reservation_id: string; room_type_id: string; rate_plan_id: string }>;
 
+    this.assertChargeCodeSync('ROOM', { requireActive: true });
+
     let postedCount = 0;
+    let failedCount = 0;
+
     for (const reservation of reservations) {
-      const amountMinor = this.rateNightAmountSync(
-        reservation.reservation_id,
-        reservation.room_type_id,
-        reservation.rate_plan_id,
-        businessDate,
-      );
+      try {
+        const amountMinor = this.rateNightAmountSync(
+          reservation.reservation_id,
+          reservation.room_type_id,
+          reservation.rate_plan_id,
+          businessDate,
+        );
 
-      this.ensureGuestFolioWindowSync(reservation.reservation_id);
-      const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
-      const fxRateAt = Date.now();
-      const posted: PostedLineAmount = {
-        amountMinor,
-        txnCurrency: ledgerCurrency,
-        ledgerAmountMinor: amountMinor,
-        fxRate: '1',
-        fxRateAt,
-      };
+        this.ensureGuestFolioWindowSync(reservation.reservation_id);
+        const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
+        const fxRateAt = Date.now();
+        const posted: PostedLineAmount = {
+          amountMinor,
+          txnCurrency: ledgerCurrency,
+          ledgerAmountMinor: amountMinor,
+          fxRate: '1',
+          fxRateAt,
+        };
 
-      this.assertChargeCodeSync('ROOM', { requireActive: true });
-      this.insertFolioLineSync({
-        folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
-        folioWindowId,
-        reservationId: reservation.reservation_id,
-        chargeCode: 'ROOM',
-        posted,
-        source: 'NIGHT_AUDIT',
-        businessDate,
-      });
-      this.stampTaxForChargeSync({
-        parentLineId: `${reservation.reservation_id}:room:${businessDate}`,
-        parentAmountMinor: amountMinor,
-        parentSource: 'NIGHT_AUDIT',
-        chargeCode: 'ROOM',
-        reservationId: reservation.reservation_id,
-        folioWindowId,
-        postingDate: businessDate,
-        posted,
-      });
-      postedCount += 1;
+        this.insertFolioLineSync({
+          folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
+          folioWindowId,
+          reservationId: reservation.reservation_id,
+          chargeCode: 'ROOM',
+          posted,
+          source: 'NIGHT_AUDIT',
+          businessDate,
+        });
+        this.stampTaxForChargeSync({
+          parentLineId: `${reservation.reservation_id}:room:${businessDate}`,
+          parentAmountMinor: amountMinor,
+          parentSource: 'NIGHT_AUDIT',
+          chargeCode: 'ROOM',
+          reservationId: reservation.reservation_id,
+          folioWindowId,
+          postingDate: businessDate,
+          posted,
+        });
+        postedCount += 1;
 
-      if (
-        this.postRoomChargesFailureAfterCountForTest !== null &&
-        postedCount >= this.postRoomChargesFailureAfterCountForTest
-      ) {
-        throw new Error('simulated_post_room_charges_failure');
+        if (
+          this.postRoomChargesFailureAfterCountForTest !== null &&
+          postedCount >= this.postRoomChargesFailureAfterCountForTest
+        ) {
+          throw new Error('simulated_post_room_charges_failure');
+        }
+      } catch (e) {
+        if (e instanceof RateMissingError) {
+          this.recordNightAuditRoomChargeExceptionSync(
+            reservation.reservation_id,
+            businessDate,
+            e.date,
+          );
+          failedCount += 1;
+          continue;
+        }
+        throw e;
       }
     }
+
+    return { postedCount, failedCount };
   }
 
   async addFolioLine(

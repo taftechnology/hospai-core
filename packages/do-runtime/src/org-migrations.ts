@@ -183,6 +183,30 @@ export const ORG_GUEST_BLIND_INDEX_STATEMENTS: string[] = [
 
 export const ORG_GUEST_BLIND_INDEX_SQL = ORG_GUEST_BLIND_INDEX_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS = [
+  `CREATE TABLE guest_property (
+  guest_id      TEXT NOT NULL,
+  property_id   TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (guest_id, property_id),
+  FOREIGN KEY (guest_id) REFERENCES guest(guest_id)
+)`,
+  `CREATE INDEX guest_property_by_property
+  ON guest_property (property_id, guest_id)`,
+  `CREATE TABLE roster_property (
+  staff_id      TEXT NOT NULL,
+  property_id   TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (staff_id, property_id),
+  FOREIGN KEY (staff_id) REFERENCES roster(staff_id)
+)`,
+  `CREATE INDEX roster_property_by_property
+  ON roster_property (property_id, staff_id)`,
+] as const;
+
+export const ORG_PROPERTY_PII_ASSOCIATION_SQL =
+  ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -218,5 +242,10 @@ export const ORG_MIGRATIONS = [
     version: 7,
     name: '0007_guest_blind_index',
     statements: ORG_GUEST_BLIND_INDEX_STATEMENTS,
+  },
+  {
+    version: 8,
+    name: '0008_property_pii_association',
+    statements: ORG_PROPERTY_PII_ASSOCIATION_STATEMENTS,
   },
 ] as const;

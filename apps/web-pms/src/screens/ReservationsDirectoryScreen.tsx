@@ -165,7 +165,7 @@ export function ReservationsDirectoryScreen() {
     const seeded = propertyLocalToday(timeZone);
     seededRef.current = true;
     setDate(seeded);
-    navigate({ search: tabSearch(windowParam, seeded) }, { replace: true });
+    void navigate({ search: tabSearch(windowParam, seeded) }, { replace: true });
   }, [windowParam, dateParam, timeZone, navigate]);
 
   const searching = debounced.length > 0;
@@ -238,7 +238,7 @@ export function ReservationsDirectoryScreen() {
     if (next) sp.set('status', next);
     else sp.delete('status');
     setCursor(null);
-    navigate({ search: `?${sp.toString()}` }, { replace: true });
+    void navigate({ search: `?${sp.toString()}` }, { replace: true });
   }
 
   if (!searching && listQ.isError) {

@@ -118,7 +118,7 @@ function ClerkSignInForm() {
       const result = await signIn.create({ identifier, password });
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        navigate('/board');
+        void navigate('/board');
         return;
       }
       if (result.status === 'needs_second_factor') {
@@ -187,7 +187,7 @@ function PasswordGateForm({ acceptAny = false }: { acceptAny?: boolean }) {
       (email === demoGateEmail().trim().toLowerCase() && password === demoGatePassword())
     ) {
       sessionStorage.setItem(DEMO_UNLOCK_KEY, '1');
-      navigate('/board');
+      void navigate('/board');
       return;
     }
     setError('Email or password is wrong.');

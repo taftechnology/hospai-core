@@ -35,14 +35,20 @@
     "smoke:staging": "node scripts/smoke-staging.mjs"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^3.0.9",
+    "@eslint/js": "^9.39.5",
     "@typescript-eslint/parser": "^8.26.0",
+    "@vitest/coverage-v8": "^3.0.9",
     "eslint": "^9.22.0",
     "eslint-plugin-hospai": "workspace:*",
     "turbo": "^2.5.4",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.69.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "sharp"
+    ]
   }
 }

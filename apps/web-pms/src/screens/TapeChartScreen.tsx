@@ -251,7 +251,7 @@ export function TapeChartScreen() {
         setTo(clamped.to);
         setTapeWindowHint(clamped.clamped ? 'Room plan shows up to 14 days.' : null);
         if (clamped.clamped) {
-          navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
+          void navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
         }
       }
       return;
@@ -263,7 +263,7 @@ export function TapeChartScreen() {
     seededRef.current = true;
     setFrom(seededFrom);
     setTo(seededTo);
-    navigate({ search: windowSearch(seededFrom, seededTo, view) }, { replace: true });
+    void navigate({ search: windowSearch(seededFrom, seededTo, view) }, { replace: true });
   }, [fromParam, toParam, timeZone, navigate, view]);
 
   function windowSearch(nextFrom: string, nextTo: string, nextView: 'tape' | 'available'): string {
@@ -279,7 +279,7 @@ export function TapeChartScreen() {
     setFrom(clamped.from);
     setTo(clamped.to);
     setTapeWindowHint(clamped.clamped ? 'Room plan shows up to 14 days.' : null);
-    navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
+    void navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
   }
 
   const tapeQ = useQuery({

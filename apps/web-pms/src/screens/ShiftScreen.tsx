@@ -54,7 +54,7 @@ function ShiftCloseForm() {
         queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] }),
         queryClient.invalidateQueries({ queryKey: ['recent-shifts', propertyId] }),
       ]);
-      navigate(`/shift/${encodeURIComponent(shiftId)}`);
+      void navigate(`/shift/${encodeURIComponent(shiftId)}`);
     },
     onError: async (err, shiftId) => {
       const c = asClassified(err);
@@ -66,7 +66,7 @@ function ShiftCloseForm() {
           queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] }),
           queryClient.invalidateQueries({ queryKey: ['recent-shifts', propertyId] }),
         ]);
-        navigate(`/shift/${encodeURIComponent(shiftId)}`);
+        void navigate(`/shift/${encodeURIComponent(shiftId)}`);
         return;
       }
       if (c.class === 'forbidden') {

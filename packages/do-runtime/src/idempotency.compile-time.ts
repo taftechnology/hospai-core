@@ -9,6 +9,6 @@ declare const actor: ActorContext;
 function _compileTimeChecks(): void {
   runIdempotent(sql, idem, () => 1, actor);
   // @ts-expect-error async execute must not typecheck
-  runIdempotent(sql, idem, async () => 1, actor);
+  void runIdempotent(sql, idem, async () => 1, actor);
 }
 void _compileTimeChecks;

@@ -87,7 +87,7 @@ function useAutoSave(props: { dirty: boolean; reason: string; save: () => void }
   return [status, setStatus] as const;
 }
 
-function AutoSaveStatus(props: { status: AutoSaveStatus; dirty: boolean; reason: string }) {
+function AutoSaveStatusIndicator(props: { status: AutoSaveStatus; dirty: boolean; reason: string }) {
   let text: string | null = null;
   if (props.status === 'saving') text = 'Saving…';
   else if (props.status === 'saved') text = 'Saved.';
@@ -137,7 +137,7 @@ function DomainBool(props: {
         hint={props.hint}
         control={<Checkbox checked={on} onChange={(e) => setOn(e.target.checked)} />}
       />
-      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
     </div>
   );
 }
@@ -216,7 +216,7 @@ function DomainText(props: {
     <div className="stack">
       <Field label={props.label} hint={props.hint} control={control} />
       {props.readOnly ? null : (
-        <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+        <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
       )}
     </div>
   );
@@ -265,7 +265,7 @@ function DomainSelect(props: {
           </NativeSelect>
         }
       />
-      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
     </div>
   );
 }
@@ -333,7 +333,7 @@ function DomainCurrencies(props: {
         </Button>
         {props.hint ? <p className="ui-field__hint">{props.hint}</p> : null}
       </div>
-      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
       {open ? (
         <div
           className="app-modal"
@@ -418,7 +418,7 @@ function PropertyNameField(props: {
           <Input value={props.name} onChange={(e) => props.onChange(e.target.value)} autoComplete="off" />
         }
       />
-      <AutoSaveStatus status={status} dirty={dirty} reason={props.reason} />
+      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
     </div>
   );
 }

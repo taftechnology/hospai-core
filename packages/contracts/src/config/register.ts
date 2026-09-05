@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Permission } from '../permissions.js';
 
+/* eslint-disable no-redeclare -- zod schema const shares name with inferred type */
 export const ConfigClass = z.enum(['DOMAIN', 'OPERATIONAL', 'PRESENTATION', 'SECRET']);
 export type ConfigClass = z.infer<typeof ConfigClass>;
 

@@ -68,7 +68,7 @@ describe('PiiVault', () => {
     const store = new MemoryKeyStore();
     const vault = new PiiVault(await vaultMasters(MASTER_HEX), store);
     const created: StaffProfileCreate = { displayName: 'Ada', email: 'ada@example.com' };
-    const material = await vault.preparePiiRecord('staff', 'staff_ada', created);
+    const material = await vault.preparePiiRecord(created);
     store.insert({ piiKeyId: material.piiKeyId, scope: 'staff', subjectId: 'staff_ada', wrappedKey: material.wrappedKey });
     const opened = await vault.decryptProfile<StaffProfile>(material.piiKeyId, material.profileCipher, material.profileIv);
     expect(opened.displayName).toBe('Ada');

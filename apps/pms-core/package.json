@@ -8,7 +8,7 @@
     "test": "vitest run --shard=1/4 && vitest run --shard=2/4 && vitest run --shard=3/4 && vitest run --shard=4/4",
     "test:unsharded": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo ok",
+    "lint": "echo 'lint via root eslint'",
     "dev": "wrangler dev"
   },
   "dependencies": {

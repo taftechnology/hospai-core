@@ -147,8 +147,7 @@ function extractFromExpression(expr, baseIndex, found) {
 export function extractClassNames(src) {
   const found = [];
   const re = /className\s*=\s*/g;
-  let m;
-  while ((m = re.exec(src)) !== null) {
+  while (re.exec(src) !== null) {
     const i = re.lastIndex;
     const ch = src[i];
     if (ch === '"' || ch === "'") {
@@ -180,19 +179,6 @@ function parseRules(cssText) {
 
 function selectorClasses(selector) {
   return [...selector.matchAll(/\.(-?[_a-zA-Z][_a-zA-Z0-9-]*)/g)].map((m) => m[1]);
-}
-
-function selectorTargetsElement(selector, el) {
-  return selector.split(',').some((part) => {
-    let cleaned = part.replace(/\[[^\]]*\]/g, '');
-    let prev;
-    do {
-      prev = cleaned;
-      cleaned = cleaned.replace(/::?[a-zA-Z-]+\([^()]*\)/g, '');
-    } while (cleaned !== prev);
-    cleaned = cleaned.replace(/::?[a-zA-Z-]+/g, '').replace(/[.#][\w-]+/g, '');
-    return cleaned.split(/[\s>+~]+/).some((tok) => tok === el);
-  });
 }
 
 function collectDefinedClasses(rules) {

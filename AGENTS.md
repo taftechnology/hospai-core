@@ -182,6 +182,8 @@ Typed domain errors only in `catch`; unexpected throws → `INTERNAL_ERROR`, nev
 
 **When you add a `test` script**, also add `test:coverage` if CI’s `pnpm test:coverage` is how the package is reached. Packages without that script are **invisible** to CI coverage (this bit `@hospai/crypto-shredding`).
 
+Root **`pnpm lint`** runs **`eslint .`** on the full tree. Workspace package **`lint`** scripts are **coordination stubs** for turbo (`echo 'lint via root eslint'`) — they do not run standalone eslint. Confirm **17** `check:*` scripts unchanged (includes `check:resolve-property-prefetch` from R0.12).
+
 **Do not** set an 80% coverage gate on PropertyDO. **Do not** add Playwright as the first e2e layer — extend `scripts/smoke-staging.mjs` (book → check-in → check-out, plus COMPANY AR once that path exists). Staging deploy must not outrun a green CI SHA.
 
 **Dates in tests:** use `test/date-helpers.ts` (`addCalendarDays`). Do not copy `addDays` into the spec. Do not unscoped-assert on a shared console/outbox log without `property_id`.

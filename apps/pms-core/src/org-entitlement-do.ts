@@ -20,7 +20,8 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
-    ctx.blockConcurrencyWhile(async () => {
+    // DO constructor: blockConcurrencyWhile bootstraps schema before first request.
+    void ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...ORG_ENTITLEMENT_MIGRATIONS]);
     });
   }

@@ -129,7 +129,7 @@ function ReservationSearch() {
     searchQ.isError && asClassified(searchQ.error).class === 'fail_closed';
 
   function goFolio(id: string) {
-    navigate(`/folio/${encodeURIComponent(id)}`);
+    void navigate(`/folio/${encodeURIComponent(id)}`);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {

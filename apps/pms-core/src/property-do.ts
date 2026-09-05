@@ -1626,7 +1626,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
     this.scheduler = new AlarmScheduler(ctx.storage.sql, ctx.storage);
-    ctx.blockConcurrencyWhile(async () => {
+    // DO constructor: blockConcurrencyWhile bootstraps schema before first request.
+    void ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...PROPERTY_MIGRATIONS]);
       ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
       const rows = ctx.storage.sql

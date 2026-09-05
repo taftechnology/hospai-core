@@ -141,7 +141,7 @@ export function CityLedgerScreen() {
       setMessage(`Account "${body.name ?? createName}" created.`);
       void queryClient.invalidateQueries({ queryKey: ['city-ledger-accounts', propertyId] });
       if (typeof body.accountId === 'string') {
-        navigate(`/city-ledger/${encodeURIComponent(body.accountId)}`);
+        void navigate(`/city-ledger/${encodeURIComponent(body.accountId)}`);
       }
     },
     onError: (err) => {

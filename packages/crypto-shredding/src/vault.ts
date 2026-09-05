@@ -105,11 +105,7 @@ export class PiiVault {
   }
 
   /** Async material for a new PII row — caller persists inside `transactionSync`. */
-  async preparePiiRecord<T extends object>(
-    scope: KeyScope,
-    subjectId: string,
-    profile: T,
-  ): Promise<{
+  async preparePiiRecord<T extends object>(profile: T): Promise<{
     piiKeyId: string;
     wrappedKey: Uint8Array;
     profileCipher: Uint8Array;
@@ -141,7 +137,7 @@ export class PiiVault {
     subjectId: string,
     profile: GuestProfile,
   ) {
-    return this.preparePiiRecord(scope, subjectId, profile);
+    return this.preparePiiRecord(profile);
   }
 
   /** Async re-seal of an existing profile — caller updates row inside `transactionSync`. */

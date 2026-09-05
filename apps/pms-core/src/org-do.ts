@@ -289,7 +289,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
     this.scheduler = new AlarmScheduler(ctx.storage.sql, ctx.storage);
-    ctx.blockConcurrencyWhile(async () => {
+    // DO constructor: blockConcurrencyWhile bootstraps schema before first request.
+    void ctx.blockConcurrencyWhile(async () => {
       migrateSql(ctx.storage.sql, [...ORG_MIGRATIONS]);
       ctx.storage.sql.exec(`PRAGMA foreign_keys = ON`);
       ctx.storage.sql.exec(
@@ -1877,7 +1878,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
       const staffId = `staff_${crypto.randomUUID()}`;
       const vault = await this.vault();
-      const material = await vault.preparePiiRecord('staff', staffId, input.profile);
+      const material = await vault.preparePiiRecord(input.profile);
 
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {

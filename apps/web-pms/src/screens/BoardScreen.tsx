@@ -397,7 +397,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     const seeded = propertyLocalToday(timeZone);
     seededRef.current = true;
     setDate(seeded);
-    navigate({ search: `?date=${seeded}` }, { replace: true });
+    void navigate({ search: `?date=${seeded}` }, { replace: true });
   }, [dateParam, timeZone, navigate]);
 
   useEffect(() => {
@@ -405,7 +405,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     const id = state?.createdReservationId;
     if (!id) return;
     setCreatedBanner(id);
-    navigate('.', { replace: true, state: {} });
+    void navigate('.', { replace: true, state: {} });
   }, [location.state, navigate]);
 
   const listQ = useQuery({

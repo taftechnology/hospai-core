@@ -683,6 +683,98 @@ describe('FolioScreen wiring', () => {
     expect(values).not.toContain('res_1:MASTER');
   });
 
+  it('55: transfer to COMPANY with cityLedgerSynced shows Charge transferred.', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    transferFolioLine.mockResolvedValue({
+      ok: true,
+      reverseFolioLineId: 'rev',
+      destFolioLineId: 'dest',
+      cityLedgerSynced: true,
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('transfer-dest-line_room')).toBeTruthy());
+    advanced().open = true;
+    fireEvent.change(screen.getByTestId('transfer-dest-line_room'), {
+      target: { value: 'res_1:COMPANY' },
+    });
+    fireEvent.click(screen.getByTestId('transfer-line-line_room'));
+
+    await waitFor(() => expect(screen.getByText('Charge transferred.')).toBeTruthy());
+  });
+
+  it('56: transfer to COMPANY without cityLedgerSynced shows Moved to company folio.', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    transferFolioLine.mockResolvedValue({
+      ok: true,
+      reverseFolioLineId: 'rev',
+      destFolioLineId: 'dest',
+      cityLedgerSynced: false,
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('transfer-dest-line_room')).toBeTruthy());
+    advanced().open = true;
+    fireEvent.change(screen.getByTestId('transfer-dest-line_room'), {
+      target: { value: 'res_1:COMPANY' },
+    });
+    fireEvent.click(screen.getByTestId('transfer-line-line_room'));
+
+    await waitFor(() => expect(screen.getByText('Moved to company folio.')).toBeTruthy());
+  });
+
   it('54: void visible on authorized; refund hidden for staff', async () => {
     getMe.mockResolvedValue(staffMe);
     getFolio.mockResolvedValue({

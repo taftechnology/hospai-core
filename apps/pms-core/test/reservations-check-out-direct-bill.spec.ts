@@ -112,6 +112,18 @@ describe('check-out with company direct-bill (B1)', () => {
     );
     expect(result).toMatchObject({ ok: true });
 
+    const charge = await stub.readCityLedgerChargeForWindowForTest(opened.folioWindowId);
+    expect(charge).toMatchObject({
+      kind: 'charge',
+      amountMinor: receivableMinor,
+      source: 'check_out',
+    });
+    if (!account.ok) throw new Error('create account failed');
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBe(receivableMinor);
+
     const eventTypes = await stub.listOutboxEventTypes();
     expect(eventTypes).not.toContain('folio.balance_due');
 

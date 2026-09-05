@@ -432,6 +432,44 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     expect(await stub.getReservationStatus('res_fw11')).toBe('checked_in');
   });
 
+  it('15: close COMPANY with non-zero receivable succeeds when city ledger account exists', async () => {
+    const name = `fw-15-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    await stayCheckedIn(stub, guestRef, 'res_fw15', 'rm_fw15', arrival, addCalendarDays(arrival, 1));
+    await seedCityLedgerAccount(stub, 'Direct Bill Co', 'fw15');
+
+    const open = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_fw15', kind: 'COMPANY', billedParty: 'Direct Bill Co' },
+      await idemFor('open-fw15', { reservationId: 'res_fw15', kind: 'COMPANY', billedParty: 'Direct Bill Co' }),
+    );
+    expect(open).toMatchObject({ ok: true });
+    if (!open.ok) return;
+    const companyId = open.folioWindowId;
+
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId: companyId,
+      reservationId: 'res_fw15',
+      chargeCode: 'ROOM',
+      amountMinor: 7_500,
+      source: 'desk',
+      businessDate: (await stub.readBusinessDate())!,
+    });
+
+    expect(
+      await stub.tryCloseFolioWindow(
+        TEST_OWNER_ACTOR,
+        { folioWindowId: companyId },
+        await idemFor('close-fw15', { folioWindowId: companyId }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    expect((await stub.readFolioWindowForTest(companyId))?.status).toBe('CLOSED');
+  });
+
   it('12: cancel_check_in after check-in (GUEST OPEN) → confirmed, window OPEN', async () => {
     const name = `fw-12-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name);

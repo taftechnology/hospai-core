@@ -107,6 +107,17 @@ describe('folio transfer + split v2', () => {
     const after = await stub.readFolio(reservationId);
     expect(after.ok && after.balanceMinor).toBe(balanceBefore);
     expect(await stub.listOutboxEventTypes()).toContain('folio.charge_transferred');
+
+    const accounts = await stub.readCityLedgerAccounts({ status: 'active' });
+    expect(accounts.ok).toBe(true);
+    if (!accounts.ok) return;
+    const acme = accounts.accounts.find((a) => a.name === 'Acme');
+    expect(acme).toBeTruthy();
+    const detail = await stub.readCityLedgerAccount(acme!.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBeGreaterThan(0);
+    expect(detail.openBalanceMinor).toBe(11_000);
   });
 
   it('16: transfer into CLOSED dest → WINDOW_CLOSED, zero new lines', async () => {
@@ -361,5 +372,113 @@ describe('folio transfer + split v2', () => {
   it('25: PLATFORM_GAPS no longer contains folio.transfer_charge', () => {
     expect(PLATFORM_GAPS.map((g) => g.id)).not.toContain('folio.transfer_charge');
     expect(COMMAND_CATALOG.some((c) => c.id === 'folio.transfer_charge')).toBe(true);
+  });
+
+  it('26: second transfer of same source to different COMPANY window → line_already_transferred', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+
+    const sourceId = `${reservationId}:misc-l2`;
+    const line = { folioLineId: sourceId, reservationId, chargeCode: 'MISC', amountMinor: 4000 };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('misc-l2', line))).toMatchObject({
+      ok: true,
+    });
+
+    await seedCityLedgerAccount(stub, 'CoA', 'l2-a');
+    await seedCityLedgerAccount(stub, 'CoB', 'l2-b');
+
+    const openA = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      { reservationId, kind: 'COMPANY', billedParty: 'CoA' },
+      await idemFor('open-l2-a', { reservationId, kind: 'COMPANY', billedParty: 'CoA' }),
+    );
+    const openB = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      { reservationId, kind: 'COMPANY', billedParty: 'CoB' },
+      await idemFor('open-l2-b', { reservationId, kind: 'COMPANY', billedParty: 'CoB' }),
+    );
+    expect(openA).toMatchObject({ ok: true });
+    expect(openB).toMatchObject({ ok: true });
+    const destA = openA.ok ? openA.folioWindowId : '';
+    const destB = openB.ok ? openB.folioWindowId : '';
+
+    const xfer1 = { sourceFolioLineId: sourceId, destinationFolioWindowId: destA };
+    expect(
+      await stub.tryTransferCharge(TEST_OWNER_ACTOR, xfer1, await idemFor('xfer-l2-1', xfer1)),
+    ).toMatchObject({ ok: true });
+
+    const xfer2 = { sourceFolioLineId: sourceId, destinationFolioWindowId: destB };
+    expect(
+      await stub.tryTransferCharge(TEST_OWNER_ACTOR, xfer2, await idemFor('xfer-l2-2', xfer2)),
+    ).toMatchObject({ ok: false, error: 'line_already_transferred' });
+  });
+
+  it('27: transfer copies source tax amounts — does not restamp at new rule rate', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const arrival = await seedReservation(stub, reservationId);
+
+    const tax10 = {
+      taxRuleId: `tr_10_${crypto.randomUUID()}`,
+      ruleKey: `room_sales_10_${crypto.randomUUID()}`,
+      name: 'Room tax 10%',
+      ruleType: 'PERCENTAGE' as const,
+      rate: '0.10',
+      taxGroup: 'ROOM',
+      outputChargeCode: 'TAX',
+      validFrom: arrival,
+    };
+    expect(
+      await stub.tryCreateTaxRule(TEST_OWNER_ACTOR, tax10, await idemFor(`tax-10`, tax10)),
+    ).toMatchObject({ ok: true });
+
+    const sourceId = `${reservationId}:room-l4`;
+    const room = { folioLineId: sourceId, reservationId, chargeCode: 'ROOM', amountMinor: 10_000 };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, room, await idemFor('room-l4', room))).toMatchObject({
+      ok: true,
+    });
+
+    const sourceTax = (await stub.listFolioLinesForReservation(reservationId)).find(
+      (l) => l.source === 'TAX' && l.taxOf === sourceId,
+    );
+    expect(sourceTax?.amountMinor).toBe(1000);
+
+    const tax20 = {
+      taxRuleId: `tr_20_${crypto.randomUUID()}`,
+      ruleKey: `room_sales_20_${crypto.randomUUID()}`,
+      name: 'Room tax 20%',
+      ruleType: 'PERCENTAGE' as const,
+      rate: '0.20',
+      taxGroup: 'ROOM',
+      outputChargeCode: 'TAX',
+      validFrom: arrival,
+    };
+    expect(
+      await stub.tryCreateTaxRule(TEST_OWNER_ACTOR, tax20, await idemFor(`tax-20`, tax20)),
+    ).toMatchObject({ ok: true });
+
+    await seedCityLedgerAccount(stub, 'L4Co', 'l4');
+    const open = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      { reservationId, kind: 'COMPANY', billedParty: 'L4Co' },
+      await idemFor('open-l4', { reservationId, kind: 'COMPANY', billedParty: 'L4Co' }),
+    );
+    expect(open).toMatchObject({ ok: true });
+    const destWindowId = open.ok ? open.folioWindowId : '';
+
+    const xfer = { sourceFolioLineId: sourceId, destinationFolioWindowId: destWindowId };
+    expect(
+      await stub.tryTransferCharge(TEST_OWNER_ACTOR, xfer, await idemFor('xfer-l4', xfer)),
+    ).toMatchObject({ ok: true });
+
+    const lines = await stub.listFolioLinesForReservation(reservationId);
+    const dest = lines.find((l) => l.source === 'TRANSFER' && l.chargeCode === 'ROOM');
+    const destTaxLines = lines.filter((l) => l.source === 'TAX' && l.taxOf === dest?.folioLineId);
+    expect(destTaxLines).toHaveLength(1);
+    const destTax = destTaxLines[0];
+    expect(destTax?.amountMinor).toBe(sourceTax?.amountMinor);
+    expect(destTax?.amountMinor).toBe(1000);
+    expect(destTax?.amountMinor).not.toBe(2000);
   });
 });

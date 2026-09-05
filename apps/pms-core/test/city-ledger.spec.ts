@@ -14,7 +14,13 @@ import worker from '../src/index.js';
 import type { PropertyDO } from '../src/property-do';
 import { insertProperty } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers';
-import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './guest-helpers';
+import {
+  idemFor,
+  provisionedPropertyStub,
+  provisionedPropertyWithGuest,
+  seedBarRatesForHorizon,
+  TEST_OWNER_ACTOR,
+} from './guest-helpers';
 
 async function createCityLedgerAccount(
   stub: DurableObjectStub<PropertyDO>,
@@ -83,6 +89,69 @@ async function setupCompanyWindowAtZeroBalance(
   }
 
   return { account, folioWindowId: open.folioWindowId, businessDate };
+}
+
+async function readCityLedgerPostedMinorForWindowForTest(
+  stub: DurableObjectStub<PropertyDO>,
+  folioWindowId: string,
+): Promise<number> {
+  const charge = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
+  if (!charge) return 0;
+  const detail = await stub.readCityLedgerAccount(charge.accountId);
+  if (!detail.ok) return 0;
+  return detail.entries
+    .filter((e) => e.folioWindowId === folioWindowId && (e.kind === 'charge' || e.kind === 'adjustment'))
+    .reduce((sum, e) => sum + e.amountMinor, 0);
+}
+
+async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: string, roomCount: number) {
+  const input = {
+    roomTypeId,
+    code: 'KING',
+    name: 'King Room',
+    roomCount,
+    maxOccupancy: 2,
+    maxAdults: 2,
+  };
+  const result = await stub.tryAddRoomType(TEST_OWNER_ACTOR, input, await idemFor(`add-${roomTypeId}`, input));
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error('add room type failed');
+  await stub.flushOutbox();
+  await seedBarRatesForHorizon(stub, roomTypeId, result.fromDate);
+  return result;
+}
+
+async function stayCheckedIn(
+  stub: DurableObjectStub<PropertyDO>,
+  guestRef: string,
+  reservationId: string,
+  roomId: string,
+  arrival: string,
+  departure: string,
+) {
+  const room = { roomId, roomTypeId: 'rt_king', code: roomId.replace('rm_', '') };
+  expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`rm-${roomId}`, room))).toMatchObject({
+    ok: true,
+  });
+  const create = {
+    reservationId,
+    roomTypeId: 'rt_king',
+    guestRef,
+    arrivalDate: arrival,
+    departureDate: departure,
+  };
+  expect(
+    await stub.tryCreateReservation(TEST_OWNER_ACTOR, create, await idemFor(`c-${reservationId}`, create)),
+  ).toMatchObject({ ok: true });
+  expect(
+    await stub.tryCheckIn(
+      TEST_OWNER_ACTOR,
+      { reservationId, roomId },
+      await idemFor(`ci-${reservationId}`, { reservationId, roomId }),
+    ),
+  ).toMatchObject({ ok: true });
+  await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
+  await stub.flushOutbox();
 }
 
 async function seedReservation(
@@ -632,6 +701,166 @@ describe('city ledger charge posting', () => {
     const win = await stub.readFolioWindowForTest(folioWindowId);
     expect(win?.status).toBe('OPEN');
     expect(await stub.readCityLedgerChargeForWindowForTest(folioWindowId)).toBeNull();
+  });
+});
+
+describe('city ledger desk path (L1)', () => {
+  it('desk path: transfer ROOM to COMPANY then close posts AR without payment netting', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-desk-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const account = await createCityLedgerAccount(stub, { name: 'Desk Co', creditLimitMinor: 1_000_000 });
+    if (!account.ok) throw new Error(account.error);
+
+    const openFp = { reservationId, kind: 'COMPANY' as const, billedParty: 'Desk Co' };
+    const opened = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      openFp,
+      await idemFor('open-desk-co', openFp),
+    );
+    expect(opened).toMatchObject({ ok: true });
+    if (!opened.ok) return;
+    const companyWindowId = opened.folioWindowId;
+
+    const roomLineId = `${reservationId}:room-desk`;
+    const room = { folioLineId: roomLineId, reservationId, chargeCode: 'ROOM', amountMinor: 15_000 };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, room, await idemFor('room-desk', room))).toMatchObject({
+      ok: true,
+    });
+
+    const xfer = { sourceFolioLineId: roomLineId, destinationFolioWindowId: companyWindowId };
+    expect(
+      await stub.tryTransferCharge(TEST_OWNER_ACTOR, xfer, await idemFor('xfer-desk', xfer)),
+    ).toMatchObject({ ok: true });
+
+    const closeFp = { folioWindowId: companyWindowId };
+    const closed = await stub.tryCloseFolioWindow(
+      TEST_OWNER_ACTOR,
+      closeFp,
+      await idemFor('close-desk-co', closeFp),
+    );
+    expect(closed).toMatchObject({ ok: true });
+    expect(closed).not.toMatchObject({ error: 'window_balance_due' });
+
+    const charge = await stub.readCityLedgerChargeForWindowForTest(companyWindowId);
+    expect(charge).toMatchObject({
+      kind: 'charge',
+      amountMinor: 15_000,
+      accountId: account.accountId,
+    });
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBe(15_000);
+  });
+
+  it('reopen adds adjustment when receivable increases — AR not stuck at first close', async () => {
+    const { stub } = await provisionedPropertyStub(`cl-reopen-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedReservation(stub, reservationId, businessDate);
+
+    const firstReceivable = 10_000;
+    const deltaReceivable = 3_500;
+    const { account, folioWindowId } = await setupCompanyWindowAtZeroBalance(stub, {
+      reservationId,
+      accountName: 'Reopen Co',
+      receivableMinor: firstReceivable,
+    });
+
+    const closeFp = { folioWindowId };
+    expect(
+      await stub.tryCloseFolioWindow(
+        TEST_OWNER_ACTOR,
+        closeFp,
+        await idemFor('close-reopen-1', closeFp),
+      ),
+    ).toMatchObject({ ok: true });
+
+    expect(
+      await stub.tryReopenFolioWindow(
+        TEST_OWNER_ACTOR,
+        { folioWindowId },
+        await idemFor('reopen-co', { folioWindowId }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId,
+      reservationId,
+      chargeCode: 'MISC',
+      amountMinor: deltaReceivable,
+      source: 'desk',
+      businessDate,
+    });
+
+    expect(
+      await stub.tryCloseFolioWindow(
+        TEST_OWNER_ACTOR,
+        closeFp,
+        await idemFor('close-reopen-2', closeFp),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const detail = await stub.readCityLedgerAccount(account.accountId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.openBalanceMinor).toBe(firstReceivable + deltaReceivable);
+    expect(detail.entries.filter((e) => e.kind === 'charge')).toHaveLength(1);
+    expect(detail.entries.filter((e) => e.kind === 'adjustment')).toHaveLength(1);
+    expect(detail.entries.find((e) => e.kind === 'adjustment')?.amountMinor).toBe(deltaReceivable);
+  });
+
+  it('checkout catch-up posts AR for open COMPANY window without close', async () => {
+    const name = `cl-co-catch-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    await stayCheckedIn(stub, guestRef, 'res_cl_co', 'rm_cl_co', arrival, addCalendarDays(arrival, 1));
+    await stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
+
+    expect(
+      await stub.tryCreateCityLedgerAccount(
+        TEST_OWNER_ACTOR,
+        { name: 'Catch Co', creditLimitMinor: 1_000_000 },
+        await idemFor('cla-catch', { name: 'Catch Co' }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const openFp = { reservationId: 'res_cl_co', kind: 'COMPANY' as const, billedParty: 'Catch Co' };
+    const opened = await stub.tryOpenFolioWindow(
+      TEST_OWNER_ACTOR,
+      openFp,
+      await idemFor('open-catch', openFp),
+    );
+    expect(opened).toMatchObject({ ok: true });
+    if (!opened.ok) return;
+
+    const receivableMinor = 9_000;
+    await stub.insertFolioLineRawForTest({
+      folioLineId: crypto.randomUUID(),
+      folioWindowId: opened.folioWindowId,
+      reservationId: 'res_cl_co',
+      chargeCode: 'ROOM',
+      amountMinor: receivableMinor,
+      source: 'desk',
+      businessDate: (await stub.readBusinessDate())!,
+    });
+
+    expect(
+      await stub.tryCheckOut(
+        TEST_OWNER_ACTOR,
+        { reservationId: 'res_cl_co' },
+        await idemFor('co-catch', { reservationId: 'res_cl_co' }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const charge = await stub.readCityLedgerChargeForWindowForTest(opened.folioWindowId);
+    expect(charge).toMatchObject({ kind: 'charge', amountMinor: receivableMinor, source: 'check_out' });
   });
 });
 

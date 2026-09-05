@@ -1,5 +1,6 @@
 import { enumerateStayDates } from '@hospai/pms-reservations';
 import { describe, expect, it } from 'vitest';
+import { addCalendarDays } from './date-helpers.js';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
@@ -370,6 +371,144 @@ describe('night audit PROCESS_NO_SHOWS', () => {
     const lines = await stub.listFolioLinesForReservation('res_22a');
     expect(lines.some((l) => l.source === 'SPLIT_REVERSAL')).toBe(true);
     expect(lines.find((l) => l.chargeCode === 'NO_SHOW')).toMatchObject({ amountMinor: 5000 });
+  });
+
+  it('L7a: auto_no_show=false → confirmed-not-arrived gets zero ROOM lines', async () => {
+    const { stub } = await provisionedPropertyStub(`na-l7-conf-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
+      'pms.night_audit.auto_no_show',
+      false,
+      { reason: 'test' },
+      await idemFor('cfg-l7a', { key: 'pms.night_audit.auto_no_show', value: false, reason: 'test' }),
+    );
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const rate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'BAR',
+      stayDate: d,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r-l7a', rate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_l7_conf',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addCalendarDays(d, 2),
+      status: 'confirmed',
+    });
+
+    const result = await stub.runAuditStep(d, 'POST_ROOM_CHARGES');
+    expect(result.status).toBe('COMPLETED');
+    expect(await stub.countFolioLinesForReservation('res_l7_conf')).toBe(0);
+  });
+
+  it('L7b: auto_no_show=false → checked_in still posts ROOM', async () => {
+    const { stub } = await provisionedPropertyStub(`na-l7-ci-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await stub.tryPutDomainConfig(
+      TEST_OWNER_ACTOR,
+      'pms.night_audit.auto_no_show',
+      false,
+      { reason: 'test' },
+      await idemFor('cfg-l7b', { key: 'pms.night_audit.auto_no_show', value: false, reason: 'test' }),
+    );
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    const rate = {
+      roomTypeId: 'rt_a',
+      ratePlanId: 'BAR',
+      stayDate: d,
+      amountMinor: 10000,
+      currency: 'USD',
+    };
+    expect(await stub.tryUpsertRateDay(TEST_OWNER_ACTOR, rate, await idemFor('r-l7b', rate))).toMatchObject({
+      ok: true,
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_l7_ci',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addCalendarDays(d, 2),
+      status: 'checked_in',
+    });
+
+    const result = await stub.runAuditStep(d, 'POST_ROOM_CHARGES');
+    expect(result.status).toBe('COMPLETED');
+    expect(await stub.countFolioLinesForReservation('res_l7_ci')).toBe(1);
+  });
+
+  it('L8a: pending arrival=D with future confirmBy → not cancelled on PROCESS_NO_SHOWS', async () => {
+    const { stub } = await provisionedPropertyStub(`na-l8-future-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_l8_future',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addCalendarDays(d, 1),
+      status: 'pending',
+      confirmBy: Date.now() + 24 * 60 * 60 * 1000,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const res = await stub.readReservation('res_l8_future');
+    expect(res.ok && res.reservation.status).toBe('pending');
+  });
+
+  it('L8b: pending past confirmBy → cancelled', async () => {
+    const { stub } = await provisionedPropertyStub(`na-l8-past-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_l8_past',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addCalendarDays(d, 1),
+      status: 'pending',
+      confirmBy: Date.now() - 1,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const res = await stub.readReservation('res_l8_past');
+    expect(res.ok && res.reservation.status).toBe('cancelled');
+  });
+
+  it('L8c: pending null confirmBy, arrival=D → cancelled', async () => {
+    const { stub } = await provisionedPropertyStub(`na-l8-null-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const d = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await stub.insertReservationForTest({
+      reservationId: 'res_l8_null',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: d,
+      departureDate: addCalendarDays(d, 1),
+      status: 'pending',
+      confirmBy: null,
+    });
+    await stub.bumpSoldForTest('rt_a', d, 1);
+
+    const result = await stub.runAuditStep(d, 'PROCESS_NO_SHOWS');
+    expect(result.status).toBe('COMPLETED');
+    const res = await stub.readReservation('res_l8_null');
+    expect(res.ok && res.reservation.status).toBe('cancelled');
   });
 });
 

@@ -112,10 +112,13 @@ describe('night audit POST_ROOM_CHARGES', () => {
     expect(lines.map((l) => l.amountMinor).sort()).toEqual([10000, 15000]);
   });
 
-  it('17: missing BAR rate fails whole step with rate_missing and zero lines', async () => {
-    const { stub } = await provisionedPropertyStub(`na-missing-${crypto.randomUUID()}`, 'UTC', 'USD');
+  it('17: missing BAR rate skips row; sibling posts; step COMPLETED (G3)', async () => {
+    const { stub } = await provisionedPropertyStub(`na-mixed-${crypto.randomUUID()}`, 'UTC', 'USD');
     const businessDate = (await stub.readBusinessDate())!;
     await seedRoomType(stub, 'rt_a', 'RTA');
+    await seedRoomType(stub, 'rt_b', 'RTB');
+    await seedRate(stub, 'rt_b', businessDate, 15000);
+
     await stub.insertReservationForTest({
       reservationId: 'res_no_rate',
       roomTypeId: 'rt_a',
@@ -125,15 +128,68 @@ describe('night audit POST_ROOM_CHARGES', () => {
       departureDate: addDays(businessDate, 2),
       status: 'confirmed',
     });
+    await stub.insertReservationForTest({
+      reservationId: 'res_ok',
+      roomTypeId: 'rt_b',
+      guestRef: 'g2',
+      piiKeyId: 'p2',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 2),
+      status: 'checked_in',
+    });
 
     const result = await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES');
-    expect(result.status).toBe('FAILED');
-    expect(result.error).toContain('rate_missing');
-    expect(await stub.countFolioLines()).toBe(0);
+    expect(result.status).toBe('COMPLETED');
+    expect(result.error).toBeUndefined();
+
+    expect(await stub.countFolioLinesForReservation('res_no_rate')).toBe(0);
+    expect(await stub.countFolioLinesForReservation('res_ok')).toBe(1);
+    expect(
+      (await stub.listFolioLinesForReservation('res_ok')).find(
+        (l) => l.chargeCode === 'ROOM' && l.source === 'NIGHT_AUDIT',
+      ),
+    ).toMatchObject({ amountMinor: 15000, businessDate });
+
+    const auditNoRate = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_no_rate' });
+    expect(auditNoRate.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
 
     const roll = await stub.runAuditStep(businessDate, 'ROLL_BUSINESS_DATE');
     expect(roll.status).toBe('COMPLETED');
-    expect(await stub.readBusinessDate()).toBe(businessDate);
+  });
+
+  it('17b: all in-house missing rate → COMPLETED, zero lines, audit_log per skip', async () => {
+    const { stub } = await provisionedPropertyStub(`na-all-miss-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const businessDate = (await stub.readBusinessDate())!;
+    await seedRoomType(stub, 'rt_a', 'RTA');
+    await seedRoomType(stub, 'rt_b', 'RTB');
+
+    await stub.insertReservationForTest({
+      reservationId: 'res_miss_a',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      piiKeyId: 'p1',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 2),
+      status: 'checked_in',
+    });
+    await stub.insertReservationForTest({
+      reservationId: 'res_miss_b',
+      roomTypeId: 'rt_b',
+      guestRef: 'g2',
+      piiKeyId: 'p2',
+      arrivalDate: businessDate,
+      departureDate: addDays(businessDate, 2),
+      status: 'checked_in',
+    });
+
+    const result = await stub.runAuditStep(businessDate, 'POST_ROOM_CHARGES');
+    expect(result.status).toBe('COMPLETED');
+    expect(await stub.countFolioLines()).toBe(0);
+
+    for (const id of ['res_miss_a', 'res_miss_b'] as const) {
+      const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: id });
+      expect(audit.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
+    }
   });
 
   it('18: re-run COMPLETED POST_ROOM_CHARGES short-circuits without duplicate lines', async () => {

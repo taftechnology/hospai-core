@@ -73,10 +73,116 @@ describe('tenancy spine', () => {
     expect(second.ok).toBe(false);
     if (second.ok) return;
     expect(second.error).toBe('jurisdiction_conflict');
-    expect(second.existing?.jurisdiction).toBe('eu');
+    expect('existing' in second).toBe(false);
 
     const resolved = await resolvePropertyFromRegistry(env, propertyId);
     expect(resolved!.property.jurisdiction).toBe('eu');
+  });
+
+  it('cross-org re-provision returns property_exists and does not graft membership', async () => {
+    const victimPropertyId = `prop_victim_${crypto.randomUUID()}`;
+    const orgB = `org_b_${crypto.randomUUID()}`;
+    const orgA = `org_a_${crypto.randomUUID()}`;
+    const victimOwner = 'user_victim_owner';
+    const attacker = 'user_attacker';
+
+    const victimProvision = await provisionProperty(env, {
+      orgId: orgB,
+      propertyId: victimPropertyId,
+      name: 'Victim Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      currency: 'EUR',
+      actorUserId: victimOwner,
+    });
+    expect(victimProvision.ok).toBe(true);
+
+    const victimOrgBefore = resolveOrgStub(env.ORG_DO, { orgId: orgB }) as DurableObjectStub<OrgDO>;
+    const membersBefore = await victimOrgBefore.listMembers();
+    expect(membersBefore.some((m) => m.userId === victimOwner)).toBe(true);
+    expect(membersBefore.some((m) => m.userId === attacker)).toBe(false);
+
+    const crossOrg = await provisionProperty(env, {
+      orgId: orgA,
+      propertyId: victimPropertyId,
+      name: 'Attacker Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Berlin',
+      currency: 'EUR',
+      actorUserId: attacker,
+    });
+    expect(crossOrg.ok).toBe(false);
+    if (crossOrg.ok) return;
+    expect(crossOrg.error).toBe('property_exists');
+    expect('existing' in crossOrg).toBe(false);
+
+    const victimOrgAfter = resolveOrgStub(env.ORG_DO, { orgId: orgB }) as DurableObjectStub<OrgDO>;
+    const membersAfter = await victimOrgAfter.listMembers();
+    expect(membersAfter.some((m) => m.userId === attacker)).toBe(false);
+    expect(membersAfter).toEqual(membersBefore);
+  });
+
+  it('cross-org re-provision with jurisdiction mismatch still returns property_exists', async () => {
+    const victimPropertyId = `prop_victim_jx_${crypto.randomUUID()}`;
+    const orgB = `org_b_jx_${crypto.randomUUID()}`;
+    const orgA = `org_a_jx_${crypto.randomUUID()}`;
+
+    expect(
+      (
+        await provisionProperty(env, {
+          orgId: orgB,
+          propertyId: victimPropertyId,
+          name: 'Victim Hotel',
+          jurisdiction: 'eu',
+          timeZone: 'Europe/Berlin',
+          currency: 'EUR',
+          actorUserId: 'user_victim',
+        })
+      ).ok,
+    ).toBe(true);
+
+    const crossOrg = await provisionProperty(env, {
+      orgId: orgA,
+      propertyId: victimPropertyId,
+      name: 'Attacker Hotel',
+      jurisdiction: 'us',
+      timeZone: 'America/New_York',
+      currency: 'USD',
+      actorUserId: 'user_attacker',
+    });
+    expect(crossOrg.ok).toBe(false);
+    if (crossOrg.ok) return;
+    expect(crossOrg.error).toBe('property_exists');
+    expect('existing' in crossOrg).toBe(false);
+  });
+
+  it('same-org idempotent re-provision with matching jurisdiction succeeds', async () => {
+    const propertyId = `prop_idem_${crypto.randomUUID()}`;
+    const orgId = `org_idem_${crypto.randomUUID()}`;
+    const first = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Idem Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Paris',
+      currency: 'EUR',
+      actorUserId: 'user_owner',
+    });
+    expect(first.ok).toBe(true);
+
+    const second = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Idem Hotel',
+      jurisdiction: 'eu',
+      timeZone: 'Europe/Paris',
+      currency: 'EUR',
+      actorUserId: 'user_owner',
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.property.propertyId).toBe(propertyId);
+    expect(second.property.orgId).toBe(orgId);
   });
 
   it('storage trigger aborts jurisdiction UPDATE', async () => {

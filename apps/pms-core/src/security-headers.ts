@@ -15,6 +15,10 @@ function buildContentSecurityPolicy(): string {
 }
 
 export function applySecurityHeaders(response: Response, request: Request): Response {
+  // WebSocket upgrade (101) cannot be reconstructed via Response constructor.
+  if (response.status === 101) {
+    return response;
+  }
   const headers = new Headers(response.headers);
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Referrer-Policy', 'no-referrer');

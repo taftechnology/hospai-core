@@ -254,6 +254,154 @@ describe('Clerk path (mocked)', () => {
   });
 });
 
+describe('Clerk azp enforcement (mocked)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+  });
+
+  afterEach(() => {
+    __setAuthenticateRequestForTest(null);
+  });
+
+  it('staging-shaped empty CLERK_AUTHORIZED_PARTIES refuses Clerk auth (G12)', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({ userId: 'user_clerk_owner' }),
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const clerkEnv = {
+      ...env,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      HOSPAI_UNSAFE_LOCAL: undefined,
+      HOSPAI_JURISDICTION_MODE: undefined,
+      HOSPAI_PSP_MODE: undefined,
+      CLERK_SECRET_KEY: 'sk_test',
+      CLERK_PUBLISHABLE_KEY: 'pk_test',
+      CLERK_JWT_KEY: 'pem',
+      CLERK_AUTHORIZED_PARTIES: '',
+    };
+
+    const orgId = `org_empty_azp_${crypto.randomUUID()}`;
+    const res = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer session_jwt',
+        },
+        body: JSON.stringify({ orgId, name: 'Empty Parties Org' }),
+      }),
+      clerkEnv,
+    );
+    expect(res.status).toBe(401);
+    expect(authenticateRequest).not.toHaveBeenCalled();
+  });
+
+  it('wrong azp → 401 (regression guard)', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: false,
+      toAuth: () => null,
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const clerkEnv = {
+      ...env,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      CLERK_SECRET_KEY: 'sk_test',
+      CLERK_PUBLISHABLE_KEY: 'pk_test',
+      CLERK_JWT_KEY: 'pem',
+      CLERK_AUTHORIZED_PARTIES: 'https://allowed.example',
+    };
+
+    const res = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer session_jwt',
+        },
+        body: JSON.stringify({ orgId: `org_wrong_azp_${crypto.randomUUID()}`, name: 'Wrong Azp' }),
+      }),
+      clerkEnv,
+    );
+    expect(res.status).toBe(401);
+    expect(authenticateRequest).toHaveBeenCalledTimes(1);
+    expect(authenticateRequest.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ authorizedParties: ['https://allowed.example'] }),
+    );
+  });
+
+  it('matching azp → 201 and passes authorizedParties to Clerk', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({ userId: 'user_clerk_match' }),
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const clerkEnv = {
+      ...env,
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      CLERK_SECRET_KEY: 'sk_test',
+      CLERK_PUBLISHABLE_KEY: 'pk_test',
+      CLERK_JWT_KEY: 'pem',
+      CLERK_AUTHORIZED_PARTIES: 'http://localhost',
+    };
+
+    const orgId = `org_match_azp_${crypto.randomUUID()}`;
+    const res = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer session_jwt',
+        },
+        body: JSON.stringify({ orgId, name: 'Match Azp Org' }),
+      }),
+      clerkEnv,
+    );
+    expect(res.status).toBe(201);
+    expect(authenticateRequest).toHaveBeenCalledTimes(1);
+    expect(authenticateRequest.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ authorizedParties: ['http://localhost'] }),
+    );
+  });
+
+  it('HOSPAI_UNSAFE_LOCAL=1 empty parties may authenticate (local only)', async () => {
+    const authenticateRequest = vi.fn().mockResolvedValue({
+      isAuthenticated: true,
+      toAuth: () => ({ userId: 'user_unsafe_local' }),
+    });
+    __setAuthenticateRequestForTest(authenticateRequest);
+
+    const clerkEnv = {
+      ...env,
+      HOSPAI_UNSAFE_LOCAL: '1',
+      HOSPAI_ALLOW_DEV_ACTOR: undefined,
+      CLERK_SECRET_KEY: 'sk_test',
+      CLERK_PUBLISHABLE_KEY: 'pk_test',
+      CLERK_JWT_KEY: 'pem',
+      CLERK_AUTHORIZED_PARTIES: '',
+    };
+
+    const orgId = `org_unsafe_${crypto.randomUUID()}`;
+    const res = await worker.fetch(
+      new Request('http://localhost/v1/orgs', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer session_jwt',
+        },
+        body: JSON.stringify({ orgId, name: 'Unsafe Local Org' }),
+      }),
+      clerkEnv,
+    );
+    expect(res.status).toBe(201);
+    expect(authenticateRequest).toHaveBeenCalled();
+  });
+});
+
 describe('Clerk WebSocket protocol (mocked)', () => {
   const clerkEnv = {
     ...env,

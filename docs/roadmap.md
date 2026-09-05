@@ -187,7 +187,7 @@ Do not start Track 1 while R0.1–R0.6 are open (security + AR + desk freshness)
 - [x] **R0.11** Audit V11 — U4–U17, I1–I15, E3, Q4, Q18, Q19, L12. RateCell `VisuallyHidden`, one h1, Dialog, print CSS, hide unread Booking settings, Alerts, live hotel name, checkout remaining-nights **warning** (do not release `sold` — that is L6 / R0.14).
 - [x] **R0.12** Audit V12 — P1, N8, P3, P7–P13. `resolvePropertyContext(..., ctx.tenantProperty)` everywhere (do not skip `assertTenantActive`); name search not decrypt-200; folio mount deferral; lazy admin routes; queue poll only while non-empty; P8/P11 **keep**; tape UI cap-14 if the picker is touched (P13).
 - [x] **R0.13** Audit V13 — G4, G5, G7, G8, G11, N9. deploy needs green CI SHA; web-pms `*.tsx` coverage; crypto-shredding `test:coverage`; eslint recommended; no Playwright; shard topology unchanged. G10 smoke lives in R0.3.
-- [ ] **R0.14** Audit V14 — L6, L9–L11, L13, N11, N13, N14, Q12–Q22 (B3 `noPost` HTTP + X4 invite collapse if those files are touched). named early-departure command (do not silently release `sold` in checkout); cash/FX/OOO; `freeAvailability` single import; architecture write-down.
+- [x] **R0.14** Audit V14 — L6, L9–L11, L13, N13, N14, Q12–Q22 (B3 `noPost` HTTP). named early-departure command; cash/FX/OOO; `freeAvailability` single import; architecture write-down.
 
 When R0.1–R0.6 are `[x]`, the 8-minute demo path is **honest** (AR, board, azp). Then Track 1.
 
@@ -380,7 +380,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 - [ ] **R3.3 Rate-plan inclusions**
   - Deferred with R3.2. Do not add a JSON column nobody posts.
 
-- [ ] **R3.4 Early-departure command**
+- [x] **R3.4 Early-departure command**
   - Same as audit L6 / R0.14. If R0.14 is done, tick both.
 
 - [ ] **R3.5 B3 HTTP `noPost` on guest PATCH**

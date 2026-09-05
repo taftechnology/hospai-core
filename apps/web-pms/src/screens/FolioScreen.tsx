@@ -1287,7 +1287,7 @@ export function FolioScreen() {
             {showRemainingNightsWarn ? (
               <Button
                 type="button"
-                intent="secondary"
+                intent="default"
                 data-testid="early-depart"
                 disabled={earlyDepart.isPending}
                 onClick={() => setEarlyDepartOpen(true)}

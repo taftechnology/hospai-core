@@ -209,4 +209,12 @@ describe('ReservationsDirectoryScreen', () => {
     );
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
   });
+
+  it('T-P3d: directory search placeholder is reservation id only', async () => {
+    renderDirectory();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Reservations' })).toBeTruthy());
+    const input = screen.getByRole('searchbox') as HTMLInputElement;
+    expect(input.placeholder).toMatch(/reservation id/i);
+    expect(input.placeholder).not.toMatch(/guest name/i);
+  });
 });

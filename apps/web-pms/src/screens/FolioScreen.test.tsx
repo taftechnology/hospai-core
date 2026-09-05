@@ -260,6 +260,29 @@ describe('FolioScreen wiring', () => {
     cleanup();
   });
 
+  it('T-P7a: mount does not fetch rooms, charge codes, fx, domain config, or city ledger', async () => {
+    listRooms.mockClear();
+    listChargeCodes.mockClear();
+    listFxRates.mockClear();
+    listDomainConfig.mockClear();
+    fetchCityLedgerAccounts.mockClear();
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(getFolio).toHaveBeenCalled());
+    expect(listRooms).not.toHaveBeenCalled();
+    expect(listChargeCodes).not.toHaveBeenCalled();
+    expect(listFxRates).not.toHaveBeenCalled();
+    expect(listDomainConfig).not.toHaveBeenCalled();
+    expect(fetchCityLedgerAccounts).not.toHaveBeenCalled();
+  });
+
   it('T15: shows remaining-nights warning when departure after business date', async () => {
     businessDateMock('2026-08-12');
     reservationMock({

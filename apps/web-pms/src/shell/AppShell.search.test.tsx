@@ -119,7 +119,7 @@ describe('AppShell reservation search', () => {
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
     expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).toMatch(
-      /guest name/i,
+      /reservation id/i,
     );
     fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Ada' } });
     await waitFor(() => expect(searchReservations).toHaveBeenCalled());
@@ -166,6 +166,18 @@ describe('AppShell reservation search', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Maria/ })).toBeTruthy());
     expect(screen.getByRole('button', { name: /Maria/ }).textContent).toMatch(/In house/);
     expect(screen.getByRole('button', { name: /Maria/ }).textContent).not.toMatch(/checked_in/);
+  });
+
+  it('T-P3c: placeholder says reservation id not guest name', async () => {
+    getMe.mockResolvedValue(liveMe);
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).toMatch(
+      /reservation id/i,
+    );
+    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).not.toMatch(
+      /guest name/i,
+    );
   });
 
   it('24: fail_closed copy', async () => {

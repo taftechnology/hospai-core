@@ -25,10 +25,17 @@ export type WrappedKeyRecord = {
   subjectId: string;
   wrappedKey: Uint8Array;
   shredded: boolean;
+  keyVersion: 0 | 1;
 };
 
 export interface KeyStore {
   get(piiKeyId: string): WrappedKeyRecord | null;
-  insert(record: { piiKeyId: string; scope: KeyScope; subjectId: string; wrappedKey: Uint8Array }): void;
+  insert(record: {
+    piiKeyId: string;
+    scope: KeyScope;
+    subjectId: string;
+    wrappedKey: Uint8Array;
+    keyVersion?: 0 | 1;
+  }): void;
   shred(piiKeyId: string): boolean;
 }

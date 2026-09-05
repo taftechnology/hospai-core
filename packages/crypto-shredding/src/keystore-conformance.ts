@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KeyShreddedError } from './errors.js';
+import { deriveOrgWrapKeyHex } from './org-derive.js';
 import { importMasterKeyHex } from './master-key.js';
 import type { KeyStore } from './types.js';
 import { PiiVault } from './vault.js';
@@ -12,7 +13,9 @@ export function describeKeyStoreConformance(name: string, createStore: () => Key
   describe(`KeyStore conformance (${name})`, () => {
     it('encrypt/decrypt round-trip', async () => {
       const store = createStore();
-      const vault = new PiiVault(await importMasterKeyHex(MASTER_HEX), store);
+      const legacy = await importMasterKeyHex(MASTER_HEX);
+      const orgWrap = await deriveOrgWrapKeyHex(MASTER_HEX, 'conformance-org');
+      const vault = new PiiVault({ legacyPlatformWrap: legacy, orgWrap }, store);
       const piiKeyId = await vault.provisionKey('guest', 'guest_1');
       const profile = { displayName: 'Ada Lovelace' };
       const sealed = await vault.encryptGuestProfile(piiKeyId, profile);
@@ -24,7 +27,9 @@ export function describeKeyStoreConformance(name: string, createStore: () => Key
 
     it('shred destroys material and blocks decrypt', async () => {
       const store = createStore();
-      const vault = new PiiVault(await importMasterKeyHex(MASTER_HEX), store);
+      const legacy = await importMasterKeyHex(MASTER_HEX);
+      const orgWrap = await deriveOrgWrapKeyHex(MASTER_HEX, 'conformance-org');
+      const vault = new PiiVault({ legacyPlatformWrap: legacy, orgWrap }, store);
       const piiKeyId = await vault.provisionKey('guest', 'guest_1');
       const sealed = await vault.encryptGuestProfile(piiKeyId, { displayName: 'Guest' });
 

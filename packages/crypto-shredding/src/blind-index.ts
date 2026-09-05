@@ -1,26 +1,19 @@
+import { deriveOrgBlindIndexKeyHex as deriveOrgBlindIndexKeyHexImpl, importPlatformIkmHex } from './org-derive.js';
 import type { GuestProfile } from './types.js';
 
-const HEX_RE = /^[0-9a-fA-F]{64}$/;
 const BLIND_INDEX_INFO = new TextEncoder().encode('hospai.guest-blind-index.v1');
 const KIND_SEP = 0x1f;
 
 export type BlindIndexKind = 'name' | 'name_token' | 'email' | 'phone';
 
-function hexToBytes(hex: string): Uint8Array {
-  if (!HEX_RE.test(hex)) {
-    throw new Error('HOSPAI_ORG_MASTER_KEY must be 64 hex characters (32 bytes)');
-  }
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+/** Org-scoped blind-index HMAC key (HKDF over platform IKM). */
+export async function deriveOrgBlindIndexKeyHex(hex: string, orgId: string): Promise<CryptoKey> {
+  return deriveOrgBlindIndexKeyHexImpl(hex, orgId);
 }
 
+/** @deprecated Platform-wide blind key — use `deriveOrgBlindIndexKeyHex(hex, orgId)` for OrgDO paths. */
 export async function importBlindIndexKeyHex(hex: string): Promise<CryptoKey> {
-  const ikm = await crypto.subtle.importKey('raw', hexToBytes(hex) as BufferSource, 'HKDF', false, [
-    'deriveKey',
-  ]);
+  const ikm = await importPlatformIkmHex(hex);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',

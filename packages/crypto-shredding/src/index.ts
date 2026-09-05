@@ -9,10 +9,16 @@ export type {
 export { KeyNotFoundError, KeyShreddedError } from './errors.js';
 export { generatePiiKeyId, importMasterKeyHex } from './master-key.js';
 export {
+  HKDF_SALT,
+  deriveOrgBlindIndexKeyHex,
+  deriveOrgWrapKeyHex,
+  importPlatformIkmHex,
+} from './org-derive.js';
+export {
   type BlindIndexKind,
   blindIndexHash,
   blindIndexRows,
   importBlindIndexKeyHex,
   normalizeBlindIndexValue,
 } from './blind-index.js';
-export { PiiVault } from './vault.js';
+export { PiiVault, type VaultMasters } from './vault.js';

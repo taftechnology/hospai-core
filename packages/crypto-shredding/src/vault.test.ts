@@ -20,7 +20,9 @@ class MemoryKeyStore implements KeyStore {
   private readonly rows = new Map<string, WrappedKeyRecord>();
 
   get(piiKeyId: string): WrappedKeyRecord | null {
-    return this.rows.get(piiKeyId) ?? null;
+    const row = this.rows.get(piiKeyId);
+    if (!row) return null;
+    return { ...row, keyVersion: row.keyVersion ?? 0 };
   }
 
   insert(record: {
@@ -79,28 +81,46 @@ describe('PiiVault', () => {
   });
 
   it('T3: new profile seal uses AAD — wrong piiKeyId AAD fails decrypt', async () => {
+    const masters = await vaultMasters(MASTER_HEX);
     const store = new MemoryKeyStore();
-    const vault = new PiiVault(await vaultMasters(MASTER_HEX), store);
+    const vault = new PiiVault(masters, store);
     const piiKeyId = await vault.provisionKey('guest', 'guest_aad');
     const sealed = await vault.encryptGuestProfile(piiKeyId, { displayName: 'AAD Guest' });
+    expect(await vault.decryptGuestProfile(piiKeyId, sealed.ciphertext, sealed.iv)).toEqual({
+      displayName: 'AAD Guest',
+    });
+
+    const record = store.get(piiKeyId)!;
+    const dataKey = await crypto.subtle.unwrapKey(
+      'raw',
+      record.wrappedKey.slice(12),
+      masters.orgWrap,
+      { name: 'AES-GCM', iv: record.wrappedKey.slice(0, 12) },
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt'],
+    );
+    const wrongAad = new TextEncoder().encode(crypto.randomUUID());
     await expect(
-      vault.decrypt(piiKeyId, sealed.ciphertext, sealed.iv /* wrong-AAD path exercised inside decrypt */),
-    ).resolves.toBeDefined();
-    // After Task 3: decrypt with tampered wrong-key-id AAD must fail at subtle layer —
-    // assert decryptGuestProfile round-trip succeeds; unit test for wrong AAD uses direct subtle call in vault.test if needed.
+      crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: sealed.iv, additionalData: wrongAad },
+        dataKey,
+        sealed.ciphertext,
+      ),
+    ).rejects.toThrow();
   });
 
   it('T4: legacy cipher without AAD still decrypts via fallback', async () => {
-    const legacy = await importMasterKeyHex(MASTER_HEX);
+    const masters = await vaultMasters(MASTER_HEX);
     const store = new MemoryKeyStore();
-    const legacyVault = new PiiVault({ legacyPlatformWrap: legacy, orgWrap: legacy }, store);
+    const legacyVault = new PiiVault(masters, store);
     const piiKeyId = await legacyVault.provisionKey('guest', 'guest_legacy');
     const record = store.get(piiKeyId)!;
     // Manually seal without AAD (simulates pre-N14 blob)
     const dataKey = await crypto.subtle.unwrapKey(
       'raw',
       record.wrappedKey.slice(12),
-      legacy,
+      masters.orgWrap,
       { name: 'AES-GCM', iv: record.wrappedKey.slice(0, 12) },
       { name: 'AES-GCM', length: 256 },
       false,
@@ -114,7 +134,7 @@ describe('PiiVault', () => {
         new TextEncoder().encode(JSON.stringify({ displayName: 'Legacy' })),
       ),
     );
-    const vault = new PiiVault(await vaultMasters(MASTER_HEX), store);
+    const vault = new PiiVault(masters, store);
     const opened = await vault.decryptGuestProfile(piiKeyId, ciphertext, iv);
     expect(opened.displayName).toBe('Legacy');
   });
@@ -146,11 +166,15 @@ describe('PiiVault', () => {
       wrappedKey: new Uint8Array([...wrapIv, ...wrapped]),
       keyVersion: 0,
     });
-    const plain = await vault.decrypt(v0Id, new Uint8Array(await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: crypto.getRandomValues(new Uint8Array(12)) },
-      dataKey,
-      new TextEncoder().encode('v0'),
-    )), crypto.getRandomValues(new Uint8Array(12)));
+    const dataIv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: dataIv },
+        dataKey,
+        new TextEncoder().encode('v0'),
+      ),
+    );
+    const plain = await vault.decrypt(v0Id, ciphertext, dataIv);
     expect(new TextDecoder().decode(plain)).toBe('v0');
   });
 });

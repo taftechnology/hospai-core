@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { importMasterKeyHex } from './master-key.js';
+import { deriveOrgBlindIndexKeyHex } from './org-derive.js';
 import {
   blindIndexHash,
   blindIndexRows,
@@ -8,6 +9,9 @@ import {
 } from './blind-index.js';
 
 const MASTER_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff';
+const TEST_ORG = 'blind-test-org';
+const ORG_A = 'org_a_blind_test';
+const ORG_B = 'org_b_blind_test';
 
 function hexOf(bytes: Uint8Array): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -15,7 +19,7 @@ function hexOf(bytes: Uint8Array): string {
 
 describe('blind-index', () => {
   it('same normalized email yields the same 32-byte hash', async () => {
-    const key = await importBlindIndexKeyHex(MASTER_HEX);
+    const key = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const a = normalizeBlindIndexValue('email', 'Ada@Ex.com');
     const b = normalizeBlindIndexValue('email', 'ada@ex.com');
     expect(a).toBe('ada@ex.com');
@@ -27,7 +31,7 @@ describe('blind-index', () => {
   });
 
   it('name vs email for the same payload do not collide', async () => {
-    const key = await importBlindIndexKeyHex(MASTER_HEX);
+    const key = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const payload = 'a@b.c';
     const nameHash = await blindIndexHash(key, 'name', payload);
     const emailHash = await blindIndexHash(key, 'email', payload);
@@ -35,7 +39,7 @@ describe('blind-index', () => {
   });
 
   it('blindIndexRows emits name, two tokens, email, and digit-stripped phone', async () => {
-    const key = await importBlindIndexKeyHex(MASTER_HEX);
+    const key = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const rows = await blindIndexRows(key, {
       displayName: 'Ada Lovelace',
       email: 'ada@ex.com',
@@ -51,7 +55,7 @@ describe('blind-index', () => {
   });
 
   it('omits missing email/phone and one-letter name tokens', async () => {
-    const key = await importBlindIndexKeyHex(MASTER_HEX);
+    const key = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const rows = await blindIndexRows(key, { displayName: 'A' });
     expect(rows.map((r) => r.kind)).toEqual(['name']);
     const empty = await blindIndexRows(key, { displayName: 'Ada' });
@@ -60,16 +64,25 @@ describe('blind-index', () => {
     expect(empty.some((r) => r.kind === 'email' || r.kind === 'phone')).toBe(false);
   });
 
-  it('two imports of the same hex sign identically', async () => {
-    const a = await importBlindIndexKeyHex(MASTER_HEX);
-    const b = await importBlindIndexKeyHex(MASTER_HEX);
+  it('same orgId derives identically', async () => {
+    const a = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
+    const b = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const ha = await blindIndexHash(a, 'name', 'ada lovelace');
     const hb = await blindIndexHash(b, 'name', 'ada lovelace');
     expect(hexOf(ha)).toBe(hexOf(hb));
   });
 
+  it('different orgId yields different email hash', async () => {
+    const keyA = await deriveOrgBlindIndexKeyHex(MASTER_HEX, ORG_A);
+    const keyB = await deriveOrgBlindIndexKeyHex(MASTER_HEX, ORG_B);
+    const email = normalizeBlindIndexValue('email', 'same@example.com')!;
+    const ha = await blindIndexHash(keyA, 'email', email);
+    const hb = await blindIndexHash(keyB, 'email', email);
+    expect(hexOf(ha)).not.toBe(hexOf(hb));
+  });
+
   it('HMAC key is not the AES-GCM wrap key', async () => {
-    const hmac = await importBlindIndexKeyHex(MASTER_HEX);
+    const hmac = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
     const aes = await importMasterKeyHex(MASTER_HEX);
     expect(hmac.algorithm.name).toBe('HMAC');
     expect(aes.algorithm.name).toBe('AES-GCM');

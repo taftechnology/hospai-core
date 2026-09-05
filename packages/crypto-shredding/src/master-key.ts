@@ -1,6 +1,6 @@
 const HEX_RE = /^[0-9a-fA-F]{64}$/;
 
-/** Import a 32-byte AES-256 master key from 64 hex chars (local / org binding). */
+/** Import platform IKM as AES-GCM-256 for legacy (`key_version === 0`) data-key wrap/unwrap. */
 export async function importMasterKeyHex(hex: string): Promise<CryptoKey> {
   if (!HEX_RE.test(hex)) {
     throw new Error('HOSPAI_ORG_MASTER_KEY must be 64 hex characters (32 bytes)');

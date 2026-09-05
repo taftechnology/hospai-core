@@ -5,6 +5,11 @@ import type { GuestProfile, KeyScope, KeyStore } from './types.js';
 const WRAP_IV_BYTES = 12;
 const DATA_IV_BYTES = 12;
 
+export type VaultMasters = {
+  legacyPlatformWrap: CryptoKey;
+  orgWrap: CryptoKey;
+};
+
 async function generateAesKey(): Promise<CryptoKey> {
   return (await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
     'encrypt',
@@ -19,9 +24,13 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
+function profileAad(piiKeyId: string): Uint8Array {
+  return new TextEncoder().encode(piiKeyId);
+}
+
 export class PiiVault {
   constructor(
-    private readonly masterKey: CryptoKey,
+    private readonly masters: VaultMasters,
     private readonly store: KeyStore,
   ) {}
 
@@ -30,13 +39,14 @@ export class PiiVault {
     const dataKey = await generateAesKey();
     const wrapIv = crypto.getRandomValues(new Uint8Array(WRAP_IV_BYTES));
     const wrapped = new Uint8Array(
-      await crypto.subtle.wrapKey('raw', dataKey, this.masterKey, { name: 'AES-GCM', iv: wrapIv }),
+      await crypto.subtle.wrapKey('raw', dataKey, this.masters.orgWrap, { name: 'AES-GCM', iv: wrapIv }),
     );
     this.store.insert({
       piiKeyId,
       scope,
       subjectId,
       wrappedKey: concat(wrapIv, wrapped),
+      keyVersion: 1,
     });
     return piiKeyId;
   }
@@ -44,21 +54,33 @@ export class PiiVault {
   async encrypt(piiKeyId: string, plaintext: Uint8Array): Promise<{ ciphertext: Uint8Array; iv: Uint8Array }> {
     const dataKey = await this.unwrapDataKey(piiKeyId);
     const iv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
+    const aad = profileAad(piiKeyId);
     const ciphertext = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, dataKey, plaintext as BufferSource),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, dataKey, plaintext as BufferSource),
     );
     return { ciphertext, iv };
   }
 
   async decrypt(piiKeyId: string, ciphertext: Uint8Array, iv: Uint8Array): Promise<Uint8Array> {
     const dataKey = await this.unwrapDataKey(piiKeyId);
-    return new Uint8Array(
-      await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: iv as BufferSource },
-        dataKey,
-        ciphertext as BufferSource,
-      ),
-    );
+    const aad = profileAad(piiKeyId);
+    try {
+      return new Uint8Array(
+        await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad },
+          dataKey,
+          ciphertext as BufferSource,
+        ),
+      );
+    } catch {
+      return new Uint8Array(
+        await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv as BufferSource },
+          dataKey,
+          ciphertext as BufferSource,
+        ),
+      );
+    }
   }
 
   async encryptGuestProfile(
@@ -97,12 +119,13 @@ export class PiiVault {
     const dataKey = await generateAesKey();
     const wrapIv = crypto.getRandomValues(new Uint8Array(WRAP_IV_BYTES));
     const wrapped = new Uint8Array(
-      await crypto.subtle.wrapKey('raw', dataKey, this.masterKey, { name: 'AES-GCM', iv: wrapIv }),
+      await crypto.subtle.wrapKey('raw', dataKey, this.masters.orgWrap, { name: 'AES-GCM', iv: wrapIv }),
     );
     const profileIv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
     const encoded = new TextEncoder().encode(JSON.stringify(profile));
+    const aad = profileAad(piiKeyId);
     const profileCipher = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv }, dataKey, encoded),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad }, dataKey, encoded),
     );
     return {
       piiKeyId,
@@ -129,8 +152,9 @@ export class PiiVault {
     const dataKey = await this.unwrapDataKey(piiKeyId);
     const profileIv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
     const encoded = new TextEncoder().encode(JSON.stringify(profile));
+    const aad = profileAad(piiKeyId);
     const profileCipher = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv }, dataKey, encoded),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad }, dataKey, encoded),
     );
     return { profileCipher, profileIv };
   }
@@ -144,12 +168,13 @@ export class PiiVault {
     const record = this.store.get(piiKeyId);
     if (!record) throw new KeyNotFoundError(piiKeyId);
     if (record.shredded) throw new KeyShreddedError(piiKeyId);
+    const wrapKey = record.keyVersion === 0 ? this.masters.legacyPlatformWrap : this.masters.orgWrap;
     const wrapIv = record.wrappedKey.slice(0, WRAP_IV_BYTES);
     const wrapped = record.wrappedKey.slice(WRAP_IV_BYTES);
     return crypto.subtle.unwrapKey(
       'raw',
       wrapped,
-      this.masterKey,
+      wrapKey,
       { name: 'AES-GCM', iv: wrapIv },
       { name: 'AES-GCM', length: 256 },
       false,

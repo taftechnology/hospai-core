@@ -282,6 +282,18 @@ describe('BoardScreen folio links', () => {
     expect(getArrivals).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['arrivals', 'Arrivals'],
+    ['departures', 'Departures'],
+    ['in-house', 'In house'],
+  ] as const)('T4: %s PageHeader h1 is %s', async (mode, title) => {
+    renderBoard(mode);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy(),
+    );
+    expect(screen.queryByRole('heading', { level: 1, name: 'Front Desk' })).toBeNull();
+  });
+
   it('shows Front Desk page title and Title Case section heading', async () => {
     getArrivals.mockResolvedValue({ ok: true, items: [item], nextCursor: null });
     postGuestsBatch.mockResolvedValue({ states: { g1: { kind: 'named', displayName: 'Ada' } } });

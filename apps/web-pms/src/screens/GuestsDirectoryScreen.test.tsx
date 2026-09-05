@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listGuests = vi.fn();
 const searchGuests = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -16,6 +17,7 @@ vi.mock('../client.js', () => ({
   api: {
     listGuests: (...args: unknown[]) => listGuests(...args),
     searchGuests: (...args: unknown[]) => searchGuests(...args),
+    getProperty: (...args: unknown[]) => getProperty(...args),
   },
 }));
 
@@ -43,6 +45,9 @@ function renderDirectory(initial = '/guests') {
 describe('GuestsDirectoryScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+    });
     listGuests.mockResolvedValue({ ok: true, items: [], nextCursor: null });
     searchGuests.mockResolvedValue({
       classified: { class: 'live' },
@@ -51,6 +56,18 @@ describe('GuestsDirectoryScreen', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('T7: subtitle uses live property name not hardcoded Meridian', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+    });
+    renderDirectory();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Guests' })).toBeTruthy(),
+    );
+    expect(screen.getByText(/Harbor Inn/)).toBeTruthy();
+    expect(screen.queryByText(/Meridian Seattle/)).toBeNull();
+  });
 
   it('empty state when no guests', async () => {
     renderDirectory();

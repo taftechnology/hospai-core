@@ -8,6 +8,7 @@ const listRoster = vi.fn();
 const addRoster = vi.fn();
 const setRosterStatus = vi.fn();
 const exitRoster = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -17,6 +18,7 @@ vi.mock('../client.js', () => ({
     addRoster: (...a: unknown[]) => addRoster(...a),
     setRosterStatus: (...a: unknown[]) => setRosterStatus(...a),
     exitRoster: (...a: unknown[]) => exitRoster(...a),
+    getProperty: (...a: unknown[]) => getProperty(...a),
   },
   asClassified: () => ({
     class: 'server_error' as const,
@@ -68,6 +70,9 @@ function renderRoster(me: typeof writerMe | typeof compensationMe = writerMe) {
 describe('RosterScreen (not E2E)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+    });
     listRoster.mockResolvedValue({ ok: true, staff: [] });
     addRoster.mockResolvedValue({ ok: true, staffId: 'staff_new', piiKeyId: 'k1' });
     setRosterStatus.mockResolvedValue({ ok: true });
@@ -76,6 +81,18 @@ describe('RosterScreen (not E2E)', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('T6: subtitle uses live property name not hardcoded Meridian', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+    });
+    renderRoster();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Roster' })).toBeTruthy(),
+    );
+    expect(screen.getByText(/Harbor Inn/)).toBeTruthy();
+    expect(screen.queryByText(/Meridian Seattle/)).toBeNull();
   });
 
   it('empty state: Add someone to the roster', async () => {

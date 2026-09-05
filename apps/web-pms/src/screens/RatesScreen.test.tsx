@@ -125,6 +125,13 @@ describe('RatesScreen', () => {
     expect(await screen.findByText('Create a room type first.')).toBeTruthy();
   });
 
+  it('T1: rate matrix cells have no visible Rate for label text', async () => {
+    renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
+    await screen.findAllByLabelText(/Rate for KNG on/i);
+    expect(screen.queryByText(/^Rate for KNG$/)).toBeNull();
+    expect(document.querySelector('.ui-visually-hidden, .ui-visually-hidden *')).toBeTruthy();
+  });
+
   it('fill one cell sends integer amountMinor and ledger currency', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26&plan=BAR');
     const cells = await screen.findAllByLabelText('Rate for KNG');

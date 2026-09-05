@@ -148,6 +148,16 @@ describe('me authority helpers', () => {
     );
   });
 
+  it('T27: roster:read without write shows Roster nav', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      permissions: ['reservations:read', 'roster:read'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).some((e) => e.id === 'roster')).toBe(
+      true,
+    );
+  });
+
   it('filterNavEntries: admin write/configure grants show Inventory, Rates, Settings', () => {
     const me: PropertyMe = {
       ...baseMe,

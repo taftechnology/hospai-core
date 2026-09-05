@@ -12,6 +12,7 @@ const assignProvisionalException = vi.fn();
 const addProvisionalExceptionNote = vi.fn();
 const postGuestsBatch = vi.fn();
 const listPropertyMembers = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -25,6 +26,7 @@ vi.mock('../client.js', () => ({
     addProvisionalExceptionNote: (...a: unknown[]) => addProvisionalExceptionNote(...a),
     postGuestsBatch: (...a: unknown[]) => postGuestsBatch(...a),
     listPropertyMembers: (...a: unknown[]) => listPropertyMembers(...a),
+    getProperty: (...a: unknown[]) => getProperty(...a),
   },
   asClassified: () => ({
     class: 'server_error' as const,
@@ -92,6 +94,9 @@ function renderScreen(path = '/exceptions') {
 describe('ExceptionsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+    });
     getProvisionalExceptions.mockResolvedValue({ ok: true, exceptions: [checkInRow], nextCursor: null });
     getProvisionalException.mockResolvedValue({
       ok: true,
@@ -108,6 +113,19 @@ describe('ExceptionsScreen', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('T8: subtitle uses live property name not hardcoded Meridian', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+    });
+    getMe.mockResolvedValue(ownerMe);
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Exceptions' })).toBeTruthy(),
+    );
+    expect(screen.getByText(/Harbor Inn/)).toBeTruthy();
+    expect(screen.queryByText(/Meridian Seattle/)).toBeNull();
+  });
 
   it('filters write ?resolution=', async () => {
     getMe.mockResolvedValue(ownerMe);

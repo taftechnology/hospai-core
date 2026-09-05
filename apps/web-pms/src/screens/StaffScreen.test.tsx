@@ -13,6 +13,7 @@ const updatePropertyMember = vi.fn();
 const updateOrgMember = vi.fn();
 const deletePropertyMember = vi.fn();
 const deleteOrgMember = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -26,9 +27,7 @@ vi.mock('../client.js', () => ({
     updateOrgMember: (...a: unknown[]) => updateOrgMember(...a),
     deletePropertyMember: (...a: unknown[]) => deletePropertyMember(...a),
     deleteOrgMember: (...a: unknown[]) => deleteOrgMember(...a),
-    getProperty: async () => ({
-      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
-    }),
+    getProperty: (...a: unknown[]) => getProperty(...a),
     getOpenShift: async () => ({ ok: true, shift: null }),
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
@@ -99,6 +98,9 @@ function renderStaff(me: typeof ownerMe | typeof adminMe = ownerMe) {
 describe('StaffScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+    });
     listPropertyMembers.mockResolvedValue({
       ok: true,
       members: [
@@ -140,6 +142,18 @@ describe('StaffScreen', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('T5: subtitle uses live property name not hardcoded Meridian', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+    });
+    renderStaff();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Staff' })).toBeTruthy(),
+    );
+    expect(screen.getByText(/Harbor Inn/)).toBeTruthy();
+    expect(screen.queryByText(/Meridian Seattle/)).toBeNull();
   });
 
   it('#9 admin: Org disabled with reason; property usable', async () => {

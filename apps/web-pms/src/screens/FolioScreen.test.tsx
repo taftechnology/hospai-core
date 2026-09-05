@@ -40,7 +40,7 @@ const listDomainConfig = vi.fn();
 const fetchCityLedgerAccounts = vi.fn();
 const validateCityLedgerBilledParty = vi.fn();
 
-const { queuedStore } = vi.hoisted(() => ({
+const { queuedStore, businessDateForTest } = vi.hoisted(() => ({
   queuedStore: {
     entries: [] as Array<{
       commandId: string;
@@ -50,6 +50,11 @@ const { queuedStore } = vi.hoisted(() => ({
       reservationId?: string;
     }>,
   },
+  businessDateForTest: { current: '2026-08-12' as string },
+}));
+
+vi.mock('../status/property-local-today.js', () => ({
+  propertyLocalToday: () => businessDateForTest.current,
 }));
 
 vi.mock('../client.js', () => ({
@@ -122,6 +127,14 @@ function renderFolio() {
     </QueryClientProvider>,
   );
   return { client, invalidateSpy };
+}
+
+function reservationMock(overrides: Partial<typeof liveReservation> = {}) {
+  getReservation.mockResolvedValue({ ...liveReservation, ...overrides });
+}
+
+function businessDateMock(date: string) {
+  businessDateForTest.current = date;
 }
 
 /**
@@ -245,6 +258,28 @@ describe('FolioScreen wiring', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('T15: shows remaining-nights warning when departure after business date', async () => {
+    businessDateMock('2026-08-12');
+    reservationMock({
+      status: 'checked_in',
+      arrivalDate: '2026-08-10',
+      departureDate: '2026-08-15',
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Checkout does not release remaining nights — shorten the stay first/i),
+      ).toBeTruthy(),
+    );
   });
 
   it('policy C: charge submit does not issue a request when folio fail_closed', async () => {

@@ -20,6 +20,7 @@ vi.mock('../client.js', () => ({
 }));
 
 import { PermissionRoute } from './PermissionRoute.js';
+import { NAV_ENTRIES } from '../shell/nav.js';
 
 type GateCase = {
   permission: PropertyScopedPermission;
@@ -173,3 +174,10 @@ describe.each(GATE_CASES)(
     });
   },
 );
+
+it('T26: roster:read can render /roster outlet', async () => {
+  expect(NAV_ENTRIES.find((e) => e.id === 'roster')?.permission).toBe('roster:read');
+  getMe.mockResolvedValue(meFixture(['roster:read', 'reservations:read']));
+  renderGate('/roster', 'roster:read', 'roster-outlet');
+  await waitFor(() => expect(screen.getByTestId('roster-outlet')).toBeTruthy());
+});

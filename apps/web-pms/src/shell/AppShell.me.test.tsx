@@ -130,6 +130,14 @@ describe('AppShell /me states', () => {
     expect(chip.textContent).toContain(propertyLocalToday('UTC'));
   });
 
+  it('T3: sidebar brand is p not h1', async () => {
+    getMe.mockResolvedValue(liveOwner);
+    renderShell('/arrivals');
+    await waitFor(() => expect(screen.getByText('board-outlet')).toBeTruthy());
+    expect(document.querySelector('.app-sidebar-brand h1')).toBeNull();
+    expect(document.querySelector('.app-sidebar-brand p.app-sidebar-title')).toBeTruthy();
+  });
+
   it('fail_closed getProperty omits name and chip; wordmark remains', async () => {
     tzForTest.current = null;
     getMe.mockResolvedValue(liveOwner);

@@ -63,6 +63,17 @@ const occupying = {
   roomId: 'rm_101',
 };
 
+function blocksWithGuestRefs(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    reservationId: `res_${i}`,
+    guestRef: `g_${i}`,
+    status: 'checked_in' as const,
+    roomId: 'rm_101',
+    arrivalDate: '2026-08-13',
+    departureDate: '2026-08-15',
+  }));
+}
+
 function emptyTape(fromDate: string, toDate: string) {
   return {
     ok: true as const,
@@ -383,5 +394,31 @@ describe('TapeChartScreen', () => {
     expect(screen.getByTestId('tape-from')).toBeTruthy();
     expect(screen.getByTestId('tape-to')).toBeTruthy();
     await waitFor(() => expect(document.querySelector('.tape-scroller')).toBeTruthy());
+  });
+
+  it('63: 51 guest refs chunk postGuestsBatch at 50', async () => {
+    const blocks = blocksWithGuestRefs(51);
+    getFrontOfficeTape.mockResolvedValue({
+      ...emptyTape('2026-08-13', '2026-08-19'),
+      rooms: [room],
+      blocks,
+    });
+    postGuestsBatch.mockImplementation((_pid: string, refs: string[]) =>
+      Promise.resolve({
+        ok: true,
+        guests: {},
+        states: Object.fromEntries(
+          refs.map((ref) => [ref, { kind: 'resolved' as const, displayName: `Guest ${ref}` }]),
+        ),
+      }),
+    );
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    await waitFor(() => expect(postGuestsBatch.mock.calls.length).toBeGreaterThanOrEqual(2));
+    for (const call of postGuestsBatch.mock.calls) {
+      expect((call[1] as string[]).length).toBeLessThanOrEqual(50);
+    }
+    await waitFor(() => {
+      expect(screen.queryAllByText('Name pending').length).toBe(0);
+    });
   });
 });

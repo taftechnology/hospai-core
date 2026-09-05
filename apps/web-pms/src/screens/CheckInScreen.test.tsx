@@ -42,6 +42,7 @@ function renderCheckIn() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/check-in/res_1']}>
@@ -51,6 +52,7 @@ function renderCheckIn() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { client, invalidateSpy };
 }
 
 describe('CheckInScreen', () => {
@@ -266,5 +268,69 @@ describe('CheckInScreen', () => {
     fireEvent.click(screen.getByTestId('print-reg-card'));
     expect(print).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it('57: check-in success invalidates board prefix', async () => {
+    const { invalidateSpy } = renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    screen.getByTestId('check-in').click();
+    await waitFor(() => expect(checkIn).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+    });
+  });
+
+  it('58: assign-room success invalidates board prefix', async () => {
+    assignRoom.mockResolvedValue({ ok: true });
+    const { invalidateSpy } = renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in-room')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /assign room/i })).toBeTruthy());
+    screen.getByRole('button', { name: /assign room/i }).click();
+    await waitFor(() => expect(assignRoom).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+    });
+  });
+
+  it('59: checked_in reservation disables check-in with reason', async () => {
+    getReservation.mockResolvedValue({
+      reservationId: 'res_1',
+      roomTypeId: 'rt',
+      guestRef: 'g1',
+      piiKeyId: 'k',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      status: 'checked_in',
+      roomId: 'rm_1',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/already in house/i)).toBeTruthy();
+  });
+
+  it('60: terminal reservation disables check-in with status label', async () => {
+    getReservation.mockResolvedValue({
+      reservationId: 'res_1',
+      roomTypeId: 'rt',
+      guestRef: 'g1',
+      piiKeyId: 'k',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      status: 'cancelled',
+      roomId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/cancelled/i)).toBeTruthy();
+    expect(screen.getByText(/check-in is not available/i)).toBeTruthy();
   });
 });

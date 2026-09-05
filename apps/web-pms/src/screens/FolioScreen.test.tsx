@@ -558,6 +558,28 @@ describe('FolioScreen wiring', () => {
     confirm.mockRestore();
   });
 
+  it('62: checkout success invalidates board and reservation', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+
+    const { invalidateSpy } = renderFolio();
+    await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
+    screen.getByTestId('check-out').click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+      expect(keys.some((k) => k.includes('"reservation"'))).toBe(true);
+    });
+  });
+
   it('negative balance skips confirm and checks out without overrideBalance', async () => {
     getFolio.mockResolvedValue({
       ok: true,

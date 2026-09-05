@@ -200,6 +200,48 @@ describe('BoardScreen folio links', () => {
     expect(row?.className).toMatch(/status-attention/);
   });
 
+  it('61: confirm pending invalidates board not arrivals', async () => {
+    getArrivals.mockResolvedValue({
+      ok: true,
+      items: [{ ...item, reservationId: 'res_pend', status: 'pending' as const }],
+      nextCursor: null,
+    });
+    getDepartures.mockResolvedValue({ ok: true, items: [], nextCursor: null });
+    getInHouse.mockResolvedValue({ ok: true, items: [], nextCursor: null });
+    postGuestsBatch.mockResolvedValue({ states: {} });
+    getFrontOfficeSummary.mockResolvedValue({
+      ok: true,
+      date: '2026-08-13',
+      asOf: 1,
+      arrivals: 1,
+      departuresDue: 0,
+      departed: 0,
+      inHouse: 0,
+      overstay: 0,
+      occupancy: { occupiedRooms: 0, sellableRooms: 1 },
+    });
+    listRooms.mockResolvedValue({ ok: true, rooms: [] });
+    confirmReservation.mockResolvedValue({ reservationId: 'res_pend', status: 'confirmed' });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/arrivals?date=2026-08-13']}>
+          <BoardScreen mode="arrivals" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy());
+    screen.getByRole('button', { name: /^Confirm$/i }).click();
+    await waitFor(() => expect(confirmReservation).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
+      expect(keys).toContainEqual(['board']);
+      expect(keys).not.toContainEqual(['arrivals']);
+    });
+  });
+
   it('seeds property-local today when Pacific date differs from UTC', async () => {
     tzState.current = 'America/Los_Angeles';
     vi.useFakeTimers({

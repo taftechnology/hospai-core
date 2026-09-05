@@ -120,17 +120,16 @@ describe('FrontOfficeLive', () => {
 
   it('snapshot then close shows watermark and keeps tape cache', async () => {
     const socket = createFakeSocket();
-    const { client } = renderLive({
-      createSocket: () => socket,
-    });
+    const { client } = renderLive({ createSocket: () => socket });
     await waitForOpenHandler(socket);
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(snapshot) });
     await waitFor(() => expect(screen.queryByTestId('stale-watermark')).toBeNull());
-    expect(client.getQueryData(['front-desk-tape'])).toMatchObject({ rooms: snapshot.rooms });
+    const tapeKey = ['front-desk-tape', 'prop_demo', snapshot.fromDate, snapshot.toDate] as const;
+    expect(client.getQueryData(tapeKey)).toMatchObject({ rooms: snapshot.rooms });
     socket.close();
     await waitFor(() => expect(screen.getByTestId('stale-watermark')).toBeTruthy());
-    expect(client.getQueryData(['front-desk-tape'])).toMatchObject({ rooms: snapshot.rooms });
+    expect(client.getQueryData(tapeKey)).toMatchObject({ rooms: snapshot.rooms });
   });
 
   it('snapshot after reconnect hides watermark', async () => {
@@ -167,29 +166,67 @@ describe('FrontOfficeLive', () => {
     expect(screen.queryByTestId('stale-watermark')).toBeNull();
   });
 
-  it('delta and snapshot invalidate front-office query keys', async () => {
+  it('snapshot and delta invalidate board only; snapshot uses full tape key', async () => {
     const socket = createFakeSocket();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const spy = vi.spyOn(client, 'invalidateQueries');
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    const setDataSpy = vi.spyOn(client, 'setQueryData');
     renderLive({ createSocket: () => socket, client });
     await waitForOpenHandler(socket);
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(snapshot) });
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
-    expect(keys).toContainEqual(['board']);
-    expect(keys).toContainEqual(['front-desk-summary']);
-    expect(keys).toContainEqual(['front-desk-directory']);
-    expect(keys).toContainEqual(['front-desk-available']);
-    expect(keys).toContainEqual(['front-desk-tape']);
-    spy.mockClear();
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
+    expect(setDataSpy).toHaveBeenCalledWith(
+      ['front-desk-tape', 'prop_demo', snapshot.fromDate, snapshot.toDate],
+      expect.objectContaining({ ok: true, rooms: snapshot.rooms }),
+    );
+    const snapKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
+    expect(snapKeys).toContainEqual(['board']);
+    expect(snapKeys).not.toContainEqual(['front-desk-tape']);
+    expect(snapKeys).not.toContainEqual(['front-desk-summary']);
+    expect(snapKeys).not.toContainEqual(['front-desk-directory']);
+    expect(snapKeys).not.toContainEqual(['front-desk-available']);
+    invalidateSpy.mockClear();
+
     socket.onmessage?.({
       data: JSON.stringify({ type: 'delta', asOf: 2, removedBlockIds: ['res_x'] }),
     });
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    const deltaKeys = spy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
-    expect(deltaKeys).toContainEqual(['board']);
-    expect(deltaKeys).toContainEqual(['front-desk-tape']);
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
+    const deltaKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
+    expect(deltaKeys).toEqual([['board']]);
+  });
+
+  it('delta merges removedBlockIds into cached tape without tape invalidation', async () => {
+    const socket = createFakeSocket();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tapeKey = ['front-desk-tape', 'prop_demo', snapshot.fromDate, snapshot.toDate] as const;
+    client.setQueryData(tapeKey, {
+      ok: true,
+      fromDate: snapshot.fromDate,
+      toDate: snapshot.toDate,
+      asOf: 1,
+      rooms: snapshot.rooms,
+      blocks: [
+        { reservationId: 'res_x', guestRef: 'g_x', status: 'checked_in', roomId: 'rm_101' },
+        { reservationId: 'res_y', guestRef: 'g_y', status: 'confirmed', roomId: 'rm_101' },
+      ],
+      ooo: [],
+    });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    renderLive({ createSocket: () => socket, client });
+    await waitForOpenHandler(socket);
+    socket.onopen?.();
+    invalidateSpy.mockClear();
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'delta', asOf: 3, removedBlockIds: ['res_x'] }),
+    });
+    await waitFor(() => {
+      const cached = client.getQueryData(tapeKey) as { blocks: Array<{ reservationId: string }> };
+      expect(cached.blocks.map((b) => b.reservationId)).toEqual(['res_y']);
+    });
+    const deltaKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
+    expect(deltaKeys).toEqual([['board']]);
+    expect(deltaKeys).not.toContainEqual(['front-desk-tape']);
   });
 
   it('does not connect without live reservations:read', () => {

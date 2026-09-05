@@ -35,6 +35,7 @@ import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { api, asClassified, tenant } from '../client.js';
+import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
@@ -128,7 +129,7 @@ function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
         `confirm:${reservationId}`,
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['arrivals'] });
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
     },
   });
   return (
@@ -457,7 +458,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
   const batchQ = useQuery({
     queryKey: ['guests-batch', tenant.propertyId, refs.join('|')],
-    queryFn: () => api.postGuestsBatch(tenant.propertyId, refs),
+    queryFn: () => fetchGuestStatesChunked(api.postGuestsBatch, tenant.propertyId, refs),
     enabled:
       refs.length > 0 && (listQ.isSuccess || departuresQ.isSuccess || inHouseQ.isSuccess),
     retry: false,

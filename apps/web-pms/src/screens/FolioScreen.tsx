@@ -772,6 +772,9 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
       });
+      if (result.classified.class !== 'provisional') {
+        void queryClient.invalidateQueries({ queryKey: ['board'] });
+      }
     },
   });
 

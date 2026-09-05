@@ -28,6 +28,7 @@ import {
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -227,7 +228,7 @@ export function ReservationsDirectoryScreen() {
 
   const batchQ = useQuery({
     queryKey: ['guests-batch', tenant.propertyId, refs.join('|')],
-    queryFn: () => api.postGuestsBatch(tenant.propertyId, refs),
+    queryFn: () => fetchGuestStatesChunked(api.postGuestsBatch, tenant.propertyId, refs),
     enabled: refs.length > 0 && listQ.isSuccess && !searching,
     retry: false,
   });

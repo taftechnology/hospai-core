@@ -309,9 +309,8 @@ describe('CheckInScreen', () => {
       updatedAt: 1,
     });
     renderCheckIn();
-    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/already in house/i)).toBeTruthy());
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/already in house/i)).toBeTruthy();
   });
 
   it('60: terminal reservation disables check-in with status label', async () => {
@@ -328,9 +327,8 @@ describe('CheckInScreen', () => {
       updatedAt: 1,
     });
     renderCheckIn();
-    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/check-in is not available/i)).toBeTruthy());
     expect((screen.getByTestId('check-in') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/cancelled/i)).toBeTruthy();
-    expect(screen.getByText(/check-in is not available/i)).toBeTruthy();
+    expect(screen.getAllByText(/cancelled/i).length).toBeGreaterThan(0);
   });
 });

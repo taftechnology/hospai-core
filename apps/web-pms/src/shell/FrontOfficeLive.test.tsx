@@ -199,11 +199,12 @@ describe('FrontOfficeLive', () => {
   it('delta merges removedBlockIds into cached tape without tape invalidation', async () => {
     const socket = createFakeSocket();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const tapeKey = ['front-desk-tape', 'prop_demo', snapshot.fromDate, snapshot.toDate] as const;
+    const subscribedTo = addCalendarDays(propertyLocalToday('UTC'), 6);
+    const tapeKey = ['front-desk-tape', 'prop_demo', snapshot.fromDate, subscribedTo] as const;
     client.setQueryData(tapeKey, {
       ok: true,
       fromDate: snapshot.fromDate,
-      toDate: snapshot.toDate,
+      toDate: subscribedTo,
       asOf: 1,
       rooms: snapshot.rooms,
       blocks: [
@@ -213,7 +214,11 @@ describe('FrontOfficeLive', () => {
       ooo: [],
     });
     const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
-    renderLive({ createSocket: () => socket, client });
+    renderLive({
+      createSocket: () => socket,
+      client,
+      path: `/board?from=${snapshot.fromDate}&to=${snapshot.toDate}`,
+    });
     await waitForOpenHandler(socket);
     socket.onopen?.();
     invalidateSpy.mockClear();

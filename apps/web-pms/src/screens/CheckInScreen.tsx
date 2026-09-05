@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -59,6 +59,7 @@ function nightsBetween(arrival: string, departure: string): number {
 }
 
 export function CheckInScreen() {
+  const queryClient = useQueryClient();
   const { reservationId = '' } = useParams();
   const [roomId, setRoomId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -121,7 +122,10 @@ export function CheckInScreen() {
       }
       setMessage(classifiedUserMessage(c, { fallback: 'Assign failed' }));
     },
-    onSuccess: () => setMessage('Room assigned'),
+    onSuccess: () => {
+      setMessage('Room assigned');
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
+    },
   });
 
   const checkIn = useMutation({
@@ -158,10 +162,15 @@ export function CheckInScreen() {
         return;
       }
       setMessage('Checked in');
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
     },
   });
 
-  const canCheckIn = !checkIn.isPending;
+  const status = reservationQ.data?.status;
+  const terminalOrInHouse =
+    status != null &&
+    (TERMINAL_STATUSES.has(status) || status === 'checked_in');
+  const canCheckIn = !checkIn.isPending && !terminalOrInHouse;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const guestResolved = guestState?.kind === 'resolved';
   const canPrint = reservationQ.isSuccess && guestResolved;
@@ -190,6 +199,13 @@ export function CheckInScreen() {
 
   return (
     <>
+      {status === 'checked_in' ? (
+        <Alert>Guest is already in house.</Alert>
+      ) : status != null && TERMINAL_STATUSES.has(status) ? (
+        <Alert>
+          This reservation is {reservationStatusLabel(status)} — check-in is not available.
+        </Alert>
+      ) : null}
       <PageHeader
         back={<Link to="/arrivals">← Arrivals</Link>}
         title={`Check in ${displayName ?? 'guest'}`}

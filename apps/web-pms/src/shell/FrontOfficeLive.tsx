@@ -6,9 +6,12 @@ import {
   frontOfficeStreamUrl,
   parseFrontOfficeStreamMessage,
   serializeSubscribe,
+  type FrontOfficeDelta,
+  type FrontOfficeSnapshot,
 } from '@hospai/client-core';
 import { hasPropertyPermission, type Authority } from '../auth/me.js';
 import { tenant } from '../client.js';
+import { frontDeskTapeKey } from '../front-office-query-keys.js';
 import { getClerkSessionToken } from '../providers/clerk-credentials.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from './PropertyTimeZone.js';
@@ -31,13 +34,47 @@ export function nextReconnectMs(attempt: number): number {
   return Math.min(10_000, 250 * 2 ** Math.max(0, attempt));
 }
 
-const INVALIDATE_KEYS = [
-  ['board'],
-  ['front-desk-summary'],
-  ['front-desk-directory'],
-  ['front-desk-available'],
-  ['front-desk-tape'],
-] as const;
+type TapeCache = {
+  ok: true;
+  fromDate: string;
+  toDate: string;
+  asOf: number;
+  rooms: FrontOfficeSnapshot['rooms'];
+  blocks: Array<Record<string, unknown>>;
+  ooo: FrontOfficeSnapshot['ooo'];
+};
+
+function mergeTapeDelta(existing: TapeCache, msg: FrontOfficeDelta): TapeCache {
+  const removedBlocks = new Set(msg.removedBlockIds ?? []);
+  const removedOoo = new Set(msg.removedOooIds ?? []);
+  let blocks = existing.blocks.filter(
+    (b) => !removedBlocks.has(String((b as { reservationId?: string }).reservationId ?? '')),
+  );
+  let rooms = existing.rooms.filter((r) => true);
+  let ooo = existing.ooo.filter((o) => !removedOoo.has(o.oooId));
+
+  const upsertById = <T extends { roomId?: string; oooId?: string; reservationId?: string }>(
+    list: T[],
+    incoming: T[],
+    idKey: keyof T,
+  ) => {
+    const map = new Map(list.map((row) => [String(row[idKey]), row]));
+    for (const row of incoming) map.set(String(row[idKey]), row);
+    return [...map.values()];
+  };
+
+  if (msg.rooms?.length) rooms = upsertById(rooms, msg.rooms, 'roomId');
+  if (msg.blocks?.length) {
+    blocks = upsertById(
+      blocks as Array<{ reservationId: string } & Record<string, unknown>>,
+      msg.blocks as Array<{ reservationId: string } & Record<string, unknown>>,
+      'reservationId',
+    );
+  }
+  if (msg.ooo?.length) ooo = upsertById(ooo, msg.ooo, 'oooId');
+
+  return { ...existing, asOf: msg.asOf, rooms, blocks, ooo };
+}
 
 function dateParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -78,12 +115,6 @@ function productionCreateSocket(url: string, protocols?: string | string[]): Fro
     return ws as unknown as FrontOfficeSocket;
   } catch {
     return null;
-  }
-}
-
-function invalidateFrontOffice(queryClient: ReturnType<typeof useQueryClient>) {
-  for (const queryKey of INVALIDATE_KEYS) {
-    void queryClient.invalidateQueries({ queryKey });
   }
 }
 
@@ -131,8 +162,10 @@ export function FrontOfficeLive({
         seenSnapshot.current = true;
         setAsOf(msg.asOf);
         setStale(false);
+
         if (msg.type === 'snapshot') {
-          queryClient.setQueryData(['front-desk-tape'], {
+          const key = frontDeskTapeKey(tenant.propertyId, msg.fromDate, msg.toDate);
+          queryClient.setQueryData(key, {
             ok: true,
             fromDate: msg.fromDate,
             toDate: msg.toDate,
@@ -141,8 +174,16 @@ export function FrontOfficeLive({
             blocks: msg.blocks,
             ooo: msg.ooo,
           });
+        } else {
+          const { fromDate, toDate } = windowRef.current;
+          const key = frontDeskTapeKey(tenant.propertyId, fromDate, toDate);
+          const cached = queryClient.getQueryData<TapeCache>(key);
+          if (cached) {
+            queryClient.setQueryData(key, mergeTapeDelta(cached, msg));
+          }
         }
-        invalidateFrontOffice(queryClient);
+
+        void queryClient.invalidateQueries({ queryKey: ['board'] });
       };
       socket.onclose = () => {
         if (cancelled) return;

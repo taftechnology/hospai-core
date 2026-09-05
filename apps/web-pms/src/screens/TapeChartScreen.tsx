@@ -33,6 +33,7 @@ import {
   type StatusRung,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
@@ -282,7 +283,7 @@ export function TapeChartScreen() {
 
   const batchQ = useQuery({
     queryKey: ['guests-batch', tenant.propertyId, refs.join('|')],
-    queryFn: () => api.postGuestsBatch(tenant.propertyId, refs),
+    queryFn: () => fetchGuestStatesChunked(api.postGuestsBatch, tenant.propertyId, refs),
     enabled: refs.length > 0 && tapeQ.isSuccess,
     retry: false,
   });

@@ -318,6 +318,50 @@ export class OrgDO extends DurableObject<PmsEnv> {
     this.ctx.storage.sql.exec(`DELETE FROM guest_blind_index WHERE guest_id = ?`, guestId);
   }
 
+  private upsertGuestPropertySync(guestId: string, propertyId: string, now: number): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO guest_property (guest_id, property_id, created_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT (guest_id, property_id) DO NOTHING`,
+      guestId,
+      propertyId,
+      now,
+    );
+  }
+
+  private upsertRosterPropertySync(staffId: string, propertyId: string, now: number): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO roster_property (staff_id, property_id, created_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT (staff_id, property_id) DO NOTHING`,
+      staffId,
+      propertyId,
+      now,
+    );
+  }
+
+  private isGuestLinkedToPropertySync(guestId: string, propertyId: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM guest_property WHERE guest_id = ? AND property_id = ? LIMIT 1`,
+        guestId,
+        propertyId,
+      )
+      .toArray();
+    return rows.length > 0;
+  }
+
+  private isStaffLinkedToPropertySync(staffId: string, propertyId: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM roster_property WHERE staff_id = ? AND property_id = ? LIMIT 1`,
+        staffId,
+        propertyId,
+      )
+      .toArray();
+    return rows.length > 0;
+  }
+
   private async hashesForSearchQuery(
     q: string,
   ): Promise<Array<{ kind: BlindIndexKind; hash: Uint8Array }>> {
@@ -1507,6 +1551,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             now,
           );
           this.replaceGuestBlindIndexSync(input.guestId, indexRows);
+          this.upsertGuestPropertySync(input.guestId, propertyId, now);
 
           this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
@@ -1580,6 +1625,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             input.guestId,
           );
           this.replaceGuestBlindIndexSync(input.guestId, indexRows);
+          this.upsertGuestPropertySync(input.guestId, propertyId, now);
 
           this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
@@ -1596,6 +1642,44 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };
     }
+  }
+
+  async upsertGuestPropertyAssociation(
+    actor: ActorContext,
+    propertyId: string,
+    guestId: string,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof GUEST_NOT_FOUND }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const resDenied = await this.gatePermission(actor, propertyId, 'reservations:write');
+    if (resDenied) {
+      const guestDenied = await this.gatePermission(actor, propertyId, 'guests:write');
+      if (guestDenied) return guestDenied;
+    }
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const guest = this.ctx.storage.sql
+      .exec(`SELECT erased_at FROM guest WHERE guest_id = ?`, guestId)
+      .toArray() as Array<{ erased_at: number | null }>;
+    if (!guest[0] || guest[0].erased_at != null) {
+      return { ok: false, error: GUEST_NOT_FOUND };
+    }
+
+    this.ctx.storage.transactionSync(() => {
+      this.upsertGuestPropertySync(guestId, propertyId, Date.now());
+    });
+    return { ok: true };
   }
 
   async tryEraseGuest(
@@ -1771,6 +1855,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             now,
           );
           this.replaceRosterKinds(staffId, input.kinds);
+          this.upsertRosterPropertySync(staffId, propertyId, now);
 
           this.appendOrgOutbox({
             eventId: crypto.randomUUID(),
@@ -2082,6 +2167,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
+    if (!this.isStaffLinkedToPropertySync(staffId, propertyId)) {
+      return { ok: false, error: STAFF_NOT_FOUND };
+    }
+
     const row = this.loadRosterRow(staffId);
     if (!row) return { ok: false, error: STAFF_NOT_FOUND };
     const vault = await this.vault();
@@ -2128,7 +2217,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT staff_id, pii_key_id, profile_cipher, profile_iv, status, exited_at FROM roster ORDER BY staff_id`,
+        `SELECT r.staff_id, r.pii_key_id, r.profile_cipher, r.profile_iv, r.status, r.exited_at
+         FROM roster r
+         INNER JOIN roster_property rp ON rp.staff_id = r.staff_id AND rp.property_id = ?
+         ORDER BY r.staff_id`,
+        propertyId,
       )
       .toArray() as unknown as RosterRow[];
     const vault = await this.vault();
@@ -2172,6 +2265,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
+
+    if (!this.isGuestLinkedToPropertySync(guestId, propertyId)) {
+      return { ok: false, error: GUEST_NOT_FOUND };
+    }
 
     const entry = await this.readGuestEntry(guestId);
     if (entry.ok === false && entry.error === GUEST_NOT_FOUND) {
@@ -2221,6 +2318,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
       | { ok: false; guestId: string; error: typeof DECRYPT_UNRESOLVED }
     > = {};
     for (const guestId of [...new Set(guestIds)]) {
+      if (!this.isGuestLinkedToPropertySync(guestId, propertyId)) {
+        guests[guestId] = { ok: false, guestId, error: GUEST_NOT_FOUND };
+        continue;
+      }
       guests[guestId] = await this.readGuestEntry(guestId);
     }
     return { ok: true, guests };
@@ -2258,20 +2359,26 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const rows = (
       cursor
         ? this.ctx.storage.sql.exec(
-            `SELECT guest_id, created_at FROM guest
-             WHERE erased_at IS NULL
-               AND (created_at, guest_id) < (?, ?)
-             ORDER BY created_at DESC, guest_id DESC
+            `SELECT g.guest_id, g.created_at
+             FROM guest g
+             INNER JOIN guest_property gp ON gp.guest_id = g.guest_id AND gp.property_id = ?
+             WHERE g.erased_at IS NULL
+               AND (g.created_at, g.guest_id) < (?, ?)
+             ORDER BY g.created_at DESC, g.guest_id DESC
              LIMIT ?`,
+            propertyId,
             cursor.createdAt,
             cursor.guestId,
             limit,
           )
         : this.ctx.storage.sql.exec(
-            `SELECT guest_id, created_at FROM guest
-             WHERE erased_at IS NULL
-             ORDER BY created_at DESC, guest_id DESC
+            `SELECT g.guest_id, g.created_at
+             FROM guest g
+             INNER JOIN guest_property gp ON gp.guest_id = g.guest_id AND gp.property_id = ?
+             WHERE g.erased_at IS NULL
+             ORDER BY g.created_at DESC, g.guest_id DESC
              LIMIT ?`,
+            propertyId,
             limit,
           )
     ).toArray() as Array<{ guest_id: string; created_at: number }>;
@@ -2338,8 +2445,15 @@ export class OrgDO extends DurableObject<PmsEnv> {
       for (const hit of found) hitIds.add(hit.guest_id);
     }
 
-    const liveIds: string[] = [];
+    const associatedIds: string[] = [];
     for (const guestId of hitIds) {
+      if (this.isGuestLinkedToPropertySync(guestId, propertyId)) {
+        associatedIds.push(guestId);
+      }
+    }
+
+    const liveIds: string[] = [];
+    for (const guestId of associatedIds) {
       const guest = this.ctx.storage.sql
         .exec(`SELECT erased_at FROM guest WHERE guest_id = ?`, guestId)
         .toArray() as Array<{ erased_at: number | null }>;

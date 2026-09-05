@@ -4,6 +4,7 @@ import {
   NO_AVAILABILITY,
   NOT_FOUND,
   OOO_INVALID_RANGE,
+  OOO_BEYOND_HORIZON,
   OOO_RANGE_OVERLAP,
   OOO_ROOM_ASSIGNED,
   OOO_VIA_RANGE,
@@ -470,25 +471,22 @@ describe('rooms.set_ooo_range', () => {
     ).toMatchObject({ ok: true });
   });
 
-  it('18. past-horizon create is not UNBOOKABLE; roll inserts born-blocked', async () => {
+  it('18. OOO range past horizon returns ooo_beyond_horizon; no blocked increment on far nights', async () => {
     const name = `ooo-18-${crypto.randomUUID()}`;
     const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
     const today = (await stub.readBusinessDate())!;
     const open = addCalendarDays(today, -1);
     await stub.setBusinessDateForTest(open);
-    const added = await addRoomType(stub, 'rt_king', 5);
-    expect(added.fromDate).toBe(open);
+    await addRoomType(stub, 'rt_king', 5);
     await createRoom(stub, 'rm_1', '101');
     const horizonEnd = addCalendarDays(open, HORIZON_DAYS - 1);
     const endDate = addCalendarDays(horizonEnd, 3);
-    expect(await setOoo(stub, { roomId: 'rm_1', startDate: open, endDate }, 'ooo-18')).toMatchObject({ ok: true });
-    expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(1);
-    expect((await stub.readAvailabilityDay('rt_king', horizonEnd))?.blocked).toBe(1);
+    expect(
+      await setOoo(stub, { roomId: 'rm_1', startDate: open, endDate }, 'ooo-18'),
+    ).toMatchObject({ ok: false, error: OOO_BEYOND_HORIZON });
+    expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(0);
+    expect((await stub.readAvailabilityDay('rt_king', horizonEnd))?.blocked).toBe(0);
     expect(await stub.readAvailabilityDay('rt_king', addCalendarDays(horizonEnd, 1))).toBeNull();
-    expect(NIGHT_AUDIT_STEPS).toHaveLength(8);
-    expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toMatchObject({ ok: true });
-    const born = await stub.readAvailabilityDay('rt_king', addCalendarDays(horizonEnd, 1));
-    expect(born?.blocked).toBe(1);
   });
 
   it('19. roll into a future-start range flips status without a second OOO command', async () => {

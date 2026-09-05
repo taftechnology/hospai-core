@@ -95,6 +95,7 @@ import {
   ORG_ID_UNSET,
   ORG_UNREACHABLE,
   OOO_INVALID_RANGE,
+  OOO_BEYOND_HORIZON,
   OOO_RANGE_OVERLAP,
   OOO_ROOM_ASSIGNED,
   OOO_VIA_RANGE,
@@ -275,6 +276,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case OOO_ROOM_ASSIGNED:
     case OOO_RANGE_OVERLAP:
     case OOO_INVALID_RANGE:
+    case OOO_BEYOND_HORIZON:
     case OCCUPANCY_EXCEEDED:
     case VIRTUAL_TYPE_NO_ROOMS:
     case FRONT_OFFICE_COMMENT_TOO_LONG:

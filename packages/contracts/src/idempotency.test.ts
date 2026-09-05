@@ -95,6 +95,7 @@ import {
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
   OOO_INVALID_RANGE,
+  OOO_BEYOND_HORIZON,
   ROOM_TYPE_KIND_IMMUTABLE,
   VIRTUAL_CONSTITUENT_NOT_PHYSICAL,
   VIRTUAL_CONSTITUENTS_DUPLICATE,
@@ -237,6 +238,7 @@ describe('fingerprintPayload', () => {
     expect(OOO_ROOM_ASSIGNED).toBe('ooo_room_assigned');
     expect(OOO_RANGE_OVERLAP).toBe('ooo_range_overlap');
     expect(OOO_INVALID_RANGE).toBe('ooo_invalid_range');
+    expect(OOO_BEYOND_HORIZON).toBe('ooo_beyond_horizon');
   });
 
   it('folio money-ops wire codes', () => {

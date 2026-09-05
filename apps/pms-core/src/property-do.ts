@@ -51,6 +51,7 @@ import {
   OOO_ROOM_ASSIGNED,
   OOO_RANGE_OVERLAP,
   OOO_INVALID_RANGE,
+  OOO_BEYOND_HORIZON,
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
   ROOM_UNITS_EXCEED_COUNT,
@@ -808,6 +809,13 @@ class OooRoomAssignedError extends Error {
   }
 }
 
+class OooBeyondHorizonError extends Error {
+  constructor() {
+    super(OOO_BEYOND_HORIZON);
+    this.name = 'OooBeyondHorizonError';
+  }
+}
+
 class RoomRequiredError extends Error {
   constructor() {
     super(ROOM_REQUIRED);
@@ -1132,6 +1140,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof INVALID_CANCEL_POLICY }
   | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
   | { ok: false; error: typeof OOO_INVALID_RANGE }
+  | { ok: false; error: typeof OOO_BEYOND_HORIZON }
   | { ok: false; error: typeof OOO_RANGE_OVERLAP }
   | { ok: false; error: typeof OOO_ROOM_ASSIGNED; reservationId?: string }
   | { ok: false; error: typeof ROOM_REQUIRED }
@@ -1185,6 +1194,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof InvalidCancelPolicyError) return { ok: false, error: INVALID_CANCEL_POLICY };
   if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
   if (e instanceof OooInvalidRangeError) return { ok: false, error: OOO_INVALID_RANGE };
+  if (e instanceof OooBeyondHorizonError) return { ok: false, error: OOO_BEYOND_HORIZON };
   if (e instanceof OooRangeOverlapError) return { ok: false, error: OOO_RANGE_OVERLAP };
   if (e instanceof OooRoomAssignedError) {
     return { ok: false, error: OOO_ROOM_ASSIGNED, reservationId: e.reservationId };
@@ -6682,7 +6692,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const touched: string[] = [];
     for (const d of nightsToAdd) {
       if (d < openDate) throw new OooInvalidRangeError();
-      if (d > horizonEnd) continue;
       const row = this.ctx.storage.sql
         .exec(
           `SELECT blocked FROM availability_day WHERE room_type_id = ? AND stay_date = ?`,
@@ -6818,6 +6827,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; roomId: string; oooId: string; alreadyApplied?: true }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof OOO_INVALID_RANGE }
+    | { ok: false; error: typeof OOO_BEYOND_HORIZON }
     | { ok: false; error: typeof OOO_RANGE_OVERLAP }
     | { ok: false; error: typeof OOO_ROOM_ASSIGNED; reservationId?: string }
     | { ok: false; error: typeof LEDGER_INCONSISTENT; date: string }
@@ -6971,6 +6981,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               )
               .toArray() as Array<{ reservation_id: string }>;
             if (assigned[0]) throw new OooRoomAssignedError(assigned[0].reservation_id);
+          }
+
+          if (!isRelease && newNights.length > 0) {
+            for (const d of newNights) {
+              const row = this.ctx.storage.sql
+                .exec(
+                  `SELECT 1 FROM availability_day WHERE room_type_id = ? AND stay_date = ? LIMIT 1`,
+                  room.room_type_id,
+                  d,
+                )
+                .toArray();
+              if (row.length === 0) throw new OooBeyondHorizonError();
+            }
           }
 
           const span = this.applyBlockedDeltaSync(room.room_type_id, nightsToAdd, nightsToRemove);
@@ -16344,11 +16367,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         refundLineId = `${event.payload.paymentId}:refund:${n}`;
       }
 
-      const ledgerRatio =
-        Math.abs(capture.amount_minor) > 0
-          ? Math.abs(capture.ledger_amount_minor) / Math.abs(capture.amount_minor)
-          : 1;
-      const ledgerRefundMinor = Math.round(refundTxn * ledgerRatio);
+      const remainingTxn = capturedBase - refundedBase;
+      const captureLedgerAbs = Math.abs(capture.ledger_amount_minor);
+      const priorRefundLedgerRows = this.ctx.storage.sql
+        .exec(
+          `SELECT COALESCE(SUM(ABS(ledger_amount_minor)), 0) AS total
+           FROM folio_line
+           WHERE source = 'PAYMENT_REFUND' AND split_of = ?`,
+          capture.folio_line_id,
+        )
+        .toArray() as Array<{ total: number }>;
+      const priorRefundLedger = Number(priorRefundLedgerRows[0]?.total ?? 0);
+      const remainingLedger = captureLedgerAbs - priorRefundLedger;
+
+      const leftoverTxn = remainingTxn - refundTxn;
+      const ledgerRefundMinor =
+        leftoverTxn === 0
+          ? remainingLedger
+          : allocate(remainingLedger, [refundTxn, leftoverTxn], { policy: 'LAST' })[0]!;
 
       this.assertChargeCodeSync('PAYMENT', { requireActive: true });
       this.insertFolioLineSync({

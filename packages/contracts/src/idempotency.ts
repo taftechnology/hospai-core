@@ -122,6 +122,7 @@ export const OOO_VIA_RANGE = 'ooo_via_range' as const;
 export const OOO_ROOM_ASSIGNED = 'ooo_room_assigned' as const;
 export const OOO_RANGE_OVERLAP = 'ooo_range_overlap' as const;
 export const OOO_INVALID_RANGE = 'ooo_invalid_range' as const;
+export const OOO_BEYOND_HORIZON = 'ooo_beyond_horizon' as const;
 
 export const RATE_PLAN_NOT_FOUND = 'rate_plan_not_found' as const;
 export const RATE_PLAN_CODE_EXISTS = 'rate_plan_code_exists' as const;

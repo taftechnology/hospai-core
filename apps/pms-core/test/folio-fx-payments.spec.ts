@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FX_RATE_MISSING, fingerprintPayload } from '@hospai/contracts';
+import { allocate } from '@hospai/money';
 import { addCalendarDays } from './date-helpers';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures';
 
@@ -364,5 +365,60 @@ describe('folio FX payments — authorize / capture / cash / refund', () => {
     expect(stay.ok && stay.payment.status).toBe('captured');
     const damage = await stub.readPayment(damageId);
     expect(damage.ok && damage.payment.status).toBe('authorized');
+  });
+
+  it('22: partial FX refunds allocate remaining ledger with LAST; legs sum to capture ledger', async () => {
+    const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
+    const reservationId = `res_${crypto.randomUUID()}`;
+    await seedReservation(stub, reservationId);
+    await createEurRate(stub, '1.333');
+    const paymentId = `pay_${crypto.randomUUID()}`;
+    expect(await authorizeEur(stub, reservationId, paymentId, 10000)).toMatchObject({ ok: true });
+    expect(
+      await stub.tryCapturePayment(TEST_OWNER_ACTOR, {
+        paymentId,
+        amountMinor: 10000,
+        idempotencyKey: `cap-${paymentId}`,
+        captureFingerprint: await fingerprintPayload({ paymentId, amountMinor: 10000 }),
+      }),
+    ).toMatchObject({ ok: true });
+
+    const folioAfterCapture = await stub.readFolio(reservationId);
+    expect(folioAfterCapture.ok).toBe(true);
+    if (!folioAfterCapture.ok) throw new Error('folio');
+    const capture = folioAfterCapture.lines.find((l) => l.folioLineId === `${paymentId}:capture`);
+    expect(capture).toBeDefined();
+    const captureLedgerAbs = Math.abs(capture!.ledgerAmountMinor);
+
+    const firstPartial = 3333;
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: firstPartial },
+        await idemFor(`ref1-${paymentId}`, { paymentId, amountMinor: firstPartial }),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const secondPartial = 6667;
+    expect(
+      await stub.tryRefundPayment(
+        TEST_OWNER_ACTOR,
+        { paymentId, amountMinor: secondPartial },
+        await idemFor(`ref2-${paymentId}`, { paymentId, amountMinor: secondPartial }),
+      ),
+    ).toMatchObject({ ok: true, status: 'refunded' });
+
+    const folio = await stub.readFolio(reservationId);
+    expect(folio.ok).toBe(true);
+    if (!folio.ok) throw new Error('folio');
+    const refunds = folio.lines.filter((l) => l.source === 'PAYMENT_REFUND');
+    expect(refunds).toHaveLength(2);
+    const refundLedgerSum = refunds.reduce((sum, l) => sum + Math.abs(l.ledgerAmountMinor), 0);
+    expect(refundLedgerSum).toBe(captureLedgerAbs);
+    const expectedFirst = allocate(captureLedgerAbs, [firstPartial, secondPartial], { policy: 'LAST' })[0]!;
+    expect(refunds[0]!.ledgerAmountMinor).toBe(expectedFirst);
+    expect(refunds[1]!.ledgerAmountMinor).toBe(captureLedgerAbs - expectedFirst);
+    const naiveRatio = captureLedgerAbs / Math.abs(capture!.amountMinor);
+    expect(refunds[0]!.ledgerAmountMinor).not.toBe(Math.round(firstPartial * naiveRatio));
   });
 });

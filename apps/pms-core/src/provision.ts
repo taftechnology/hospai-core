@@ -57,8 +57,11 @@ export async function provisionProperty(
 
   const existing = await getProperty(env, input.propertyId);
   if (existing) {
+    if (existing.orgId !== input.orgId) {
+      return { ok: false, error: 'property_exists' };
+    }
     if (existing.jurisdiction !== input.jurisdiction) {
-      return { ok: false, error: 'jurisdiction_conflict', existing };
+      return { ok: false, error: 'jurisdiction_conflict' };
     }
     await syncOrgAndPropertyDo(env, existing, locationHint, input.actorUserId, ledgerCurrency);
     return { ok: true, property: existing, locationHint };

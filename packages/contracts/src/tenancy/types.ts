@@ -39,6 +39,12 @@ export type ProvisionPropertyResult =
   | { ok: true; property: PropertyRecord; locationHint: string }
   | {
       ok: false;
-      error: 'jurisdiction_conflict' | 'invalid_timezone' | 'invalid_currency' | 'invalid_tenant_id' | string;
-      existing?: PropertyRecord;
+      error:
+        | 'property_exists'
+        | 'jurisdiction_conflict'
+        | 'invalid_timezone'
+        | 'invalid_currency'
+        | 'invalid_tenant_id'
+        | 'tenant_not_active'
+        | string;
     };

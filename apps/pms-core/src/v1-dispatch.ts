@@ -1328,8 +1328,11 @@ async function handlePostOrgProperties(ctx: V1DispatchContext): Promise<Response
   };
   const result = await provisionProperty(ctx.env, input);
   if (!result.ok) {
+    if (result.error === 'property_exists') {
+      return json({ error: 'property_exists' }, 409);
+    }
     if (result.error === 'jurisdiction_conflict') {
-      return json({ error: result.error, existing: result.existing }, 409);
+      return json({ error: 'jurisdiction_conflict' }, 409);
     }
     if (result.error === 'tenant_not_active') {
       return json({ error: 'tenant_not_active' }, 409);

@@ -16563,11 +16563,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private countUnattributedCashForBusinessDateSync(businessDate: string): number {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT COUNT(*) AS n FROM payment
-         WHERE tender_type = 'CASH'
-           AND status = 'captured'
-           AND shift_id IS NULL
-           AND date(created_at / 1000, 'unixepoch') = ?`,
+        `SELECT COUNT(*) AS n
+         FROM payment p
+         JOIN folio_line fl ON fl.payment_id = p.payment_id AND fl.charge_code = 'PAYMENT'
+         WHERE p.tender_type = 'CASH'
+           AND p.status = 'captured'
+           AND p.shift_id IS NULL
+           AND fl.business_date = ?`,
         businessDate,
       )
       .toArray() as Array<{ n: number }>;
@@ -16577,8 +16579,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private computeShiftExpectedCashSync(shiftId: string, openingFloat: number): number {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT COALESCE(SUM(amount_minor), 0) AS total FROM payment
-         WHERE shift_id = ? AND tender_type = 'CASH' AND status = 'captured'`,
+        `SELECT COALESCE(SUM(ABS(fl.ledger_amount_minor)), 0) AS total
+         FROM payment p
+         JOIN folio_line fl ON fl.payment_id = p.payment_id AND fl.charge_code = 'PAYMENT'
+         WHERE p.shift_id = ?
+           AND p.tender_type = 'CASH'
+           AND p.status = 'captured'`,
         shiftId,
       )
       .toArray() as Array<{ total: number }>;

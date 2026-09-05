@@ -1,6 +1,11 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fingerprintPayload, PAYMENT_NOT_CAPTURABLE, SHIFT_ALREADY_OPEN } from '@hospai/contracts';
+import {
+  fingerprintPayload,
+  PAYMENT_NOT_CAPTURABLE,
+  SHIFT_ALREADY_OPEN,
+} from '@hospai/contracts';
+import { addCalendarDays } from './date-helpers.js';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
@@ -10,7 +15,7 @@ import {
   setKillSwitch,
 } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
-import { seedBarRatesForHorizon } from './fixtures.js';
+import { idemFor, seedBarRatesForHorizon } from './fixtures.js';
 
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -133,7 +138,7 @@ async function postCash(
   propertyId: string,
   actor: string,
   reservationId: string,
-  body: { paymentId: string; amountMinor: number; idempotencyKey?: string },
+  body: { paymentId: string; amountMinor: number; currency?: string; idempotencyKey?: string },
 ) {
   return worker.fetch(
     new Request(
@@ -571,27 +576,79 @@ describe('cashiering matrix', () => {
 
   it('Test 16: close reports unattributed cash count for business date', async () => {
     const owner = 'user_cash_16';
-    const { propertyId, arrival, guestRef } = await provisionHotel(owner);
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
     const reservationId = 'res_cash_16';
     expect(
       (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
         .status,
     ).toBe(201);
 
+    const paymentId = `pay_unattr_${crypto.randomUUID()}`;
     expect(
       (
         await postCash(propertyId, owner, reservationId, {
-          paymentId: `pay_unattr_${crypto.randomUUID()}`,
+          paymentId,
           amountMinor: 300,
         })
       ).status,
     ).toBe(201);
+
+    const businessDate = (await stub.readBusinessDate())!;
+    const utcNextDay = addCalendarDays(businessDate, 1);
+    await stub.setPaymentCreatedAtForTest(paymentId, Date.parse(`${utcNextDay}T00:30:00.000Z`));
 
     const shiftId = `shift_16_${crypto.randomUUID()}`;
     expect((await postShift(propertyId, owner, { shiftId, openingFloat: 0 })).status).toBe(201);
     const closed = await putCloseShift(propertyId, owner, shiftId, { closingCount: 0 });
     expect(closed.status).toBe(200);
     expect(await closed.json()).toMatchObject({ unattributedCashCount: 1 });
+  });
+
+  it('L9: shift expected cash sums ledger amount for foreign-currency cash', async () => {
+    const owner = 'user_cash_l9';
+    const { propertyId, arrival, guestRef, stub } = await provisionHotel(owner);
+    const reservationId = 'res_cash_l9';
+    expect(
+      (await postReservation(propertyId, owner, reservationId, arrival, addDays(arrival, 2), guestRef))
+        .status,
+    ).toBe(201);
+
+    const fxInput = {
+      quoteId: crypto.randomUUID(),
+      fromCurrency: 'EUR',
+      toCurrency: 'USD',
+      rate: '1.10',
+      effectiveFrom: Date.now(),
+    };
+    expect(
+      await stub.tryCreateFxRate(
+        { kind: 'user', userId: owner },
+        fxInput,
+        await idemFor(`fx-${fxInput.quoteId}`, fxInput),
+      ),
+    ).toMatchObject({ ok: true });
+
+    const openingFloat = 5000;
+    const shiftId = `shift_l9_${crypto.randomUUID()}`;
+    expect((await postShift(propertyId, owner, { shiftId, openingFloat })).status).toBe(201);
+
+    const txnMinor = 10_000;
+    const ledgerMinor = 11_000;
+    expect(
+      (
+        await postCash(propertyId, owner, reservationId, {
+          paymentId: `pay_l9_${crypto.randomUUID()}`,
+          amountMinor: txnMinor,
+          currency: 'EUR',
+        })
+      ).status,
+    ).toBe(201);
+
+    const closed = await putCloseShift(propertyId, owner, shiftId, {
+      closingCount: openingFloat + ledgerMinor,
+    });
+    expect(closed.status).toBe(200);
+    expect(await closed.json()).toMatchObject({ variance: 0 });
   });
 
   it('readRecentShiftsForActor: non-user actor returns empty list', async () => {

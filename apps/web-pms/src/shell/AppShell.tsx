@@ -148,7 +148,7 @@ function ReservationSearch() {
         data-testid="reservation-search"
         type="search"
         aria-label="Search reservations"
-        placeholder="Guest name or reservation"
+        placeholder="Reservation id"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={onKeyDown}

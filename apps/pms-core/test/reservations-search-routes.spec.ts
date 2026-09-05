@@ -135,7 +135,7 @@ describe('reservation search HTTP [105]', () => {
     expect(await res.json()).toMatchObject({ ok: true, items: [] });
   });
 
-  it('20. name substring matches in-house; erased guest excluded', async () => {
+  it('20. name substring → empty list (exact id only)', async () => {
     const actor = 'user_search_20';
     const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
     const org = testOrgStub(orgId);
@@ -185,9 +185,7 @@ describe('reservation search HTTP [105]', () => {
 
     const res = await search(propertyId, actor, 'alice');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: true; items: Array<{ reservationId: string; displayName?: string }> };
-    expect(body.items.map((i) => i.reservationId)).toEqual([liveId]);
-    expect(body.items[0]!.displayName?.toLowerCase()).toContain('alice');
+    expect(await res.json()).toMatchObject({ ok: true, items: [] });
   });
 
   it('21. single-char q that is not an exact id → empty', async () => {
@@ -212,7 +210,7 @@ describe('reservation search HTTP [105]', () => {
     expect(await res.json()).toMatchObject({ ok: true, items: [] });
   });
 
-  it('22. OrgDO transport failure on name path → 503 FAIL_CLOSED', async () => {
+  it('22. OrgDO transport failure on exact id path → 503 FAIL_CLOSED', async () => {
     const actor = 'user_search_22';
     const { orgId, propertyId, arrival, stub } = await provisionHotel(actor);
     const org = testOrgStub(orgId);
@@ -220,8 +218,9 @@ describe('reservation search HTTP [105]', () => {
       kind: 'user',
       userId: actor,
     });
+    const reservationId = `res_transport_${crypto.randomUUID()}`;
     await stub.insertReservationForTest({
-      reservationId: `res_${crypto.randomUUID()}`,
+      reservationId,
       roomTypeId: 'rt_king',
       guestRef: guest.guestRef,
       piiKeyId: guest.piiKeyId,
@@ -231,7 +230,7 @@ describe('reservation search HTTP [105]', () => {
     });
     const orgDo = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
     await orgDo.setTransportBlockedForTest(true);
-    const res = await search(propertyId, actor, 'name');
+    const res = await search(propertyId, actor, reservationId);
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ degraded: 'FAIL_CLOSED' });
     await orgDo.setTransportBlockedForTest(false);

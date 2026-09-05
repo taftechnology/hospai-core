@@ -399,7 +399,7 @@ export function ReservationsDirectoryScreen() {
                 <Input
                   type="search"
                   autoComplete="off"
-                  placeholder="Reservation id or guest name…"
+                  placeholder="Reservation id"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                 />

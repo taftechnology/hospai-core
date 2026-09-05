@@ -839,7 +839,7 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const sortedConstituents =
@@ -911,7 +911,7 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const sortedConstituents =
@@ -972,7 +972,7 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('inventory.delete_room_type', { roomTypeId });
@@ -1019,7 +1019,7 @@ async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('rooms.delete', { roomId });
@@ -1064,7 +1064,7 @@ async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Respo
   const body = bodyParsed;
   if (!body?.name || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const updated = await updatePropertyName(ctx.env, propertyId, body.name);
@@ -1122,7 +1122,7 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
 
   const { key, value, reason, idempotencyKey, effectiveFrom } = body;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -1191,7 +1191,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1242,7 +1242,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1288,7 +1288,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1482,7 +1482,7 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1540,7 +1540,7 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1596,7 +1596,7 @@ async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1639,7 +1639,7 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -1838,7 +1838,7 @@ async function handleGetReservation(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -1877,7 +1877,7 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('reservations.modify', {
@@ -1964,7 +1964,7 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('reservations.cancel', { reservationId });
@@ -2010,7 +2010,7 @@ async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Res
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -2063,7 +2063,7 @@ async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Respon
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -2119,7 +2119,7 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -2167,7 +2167,7 @@ async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Respo
     return json({ error: 'invalid_query' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
@@ -2179,50 +2179,16 @@ async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Respo
       return json({ ok: true, items: [] }, 200);
     }
 
-    const refs = [...new Set(found.items.map((row) => row.guestRef))];
-    const guests: Record<
-      string,
-      | { ok: true; guestId: string; erased: false; profile: { displayName?: string } }
-      | { ok: true; guestId: string; erased: true; profile: null }
-      | { ok: false; guestId: string; error: string }
-    > = {};
+    const row = found.items[0]!;
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
-    for (let i = 0; i < refs.length; i += 50) {
-      const chunk = refs.slice(i, i + 50);
-      const hydrated = await org.readGuests(actor, propertyId, chunk);
-      if (!hydrated.ok) {
-        return degradedFailClosedReadResponse();
-      }
-      Object.assign(guests, hydrated.guests);
+    const hydrated = await org.readGuests(actor, propertyId, [row.guestRef]);
+    if (!hydrated.ok) {
+      return degradedFailClosedReadResponse();
     }
-
-    if (found.mode === 'exact') {
-      const row = found.items[0]!;
-      const entry = guests[row.guestRef];
-      const displayName =
-        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
-      return json({ ok: true, items: [{ ...row, displayName }] }, 200);
-    }
-
-    const needle = q.toLowerCase();
-    const matched: Array<(typeof found.items)[number] & { displayName: string | null }> = [];
-    for (const row of found.items) {
-      const entry = guests[row.guestRef];
-      if (!entry || !entry.ok) {
-        if (entry && !entry.ok && entry.error === 'decrypt_unresolved') {
-          logError(ctx.observability, { msg: 'guests.read.decrypt_incident', guestId: row.guestRef });
-        }
-        continue;
-      }
-      if (entry.erased || !entry.profile?.displayName) continue;
-      if (!entry.profile.displayName.toLowerCase().includes(needle)) continue;
-      matched.push({ ...row, displayName: entry.profile.displayName });
-    }
-    matched.sort((a, b) => {
-      if (a.arrivalDate !== b.arrivalDate) return a.arrivalDate < b.arrivalDate ? 1 : -1;
-      return a.reservationId < b.reservationId ? -1 : a.reservationId > b.reservationId ? 1 : 0;
-    });
-    return json({ ok: true, items: matched.slice(0, 20) }, 200);
+    const entry = hydrated.guests[row.guestRef];
+    const displayName =
+      entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
+    return json({ ok: true, items: [{ ...row, displayName }] }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env) || isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
@@ -2248,7 +2214,7 @@ async function handlePostReservationStatusAction(
   const idempotencyKey = requireIdempotencyHeader(ctx.request);
   if (idempotencyKey instanceof Response) return idempotencyKey;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId };
@@ -2296,7 +2262,7 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
   const roomId = typeof extra?.roomId === 'string' ? extra.roomId : undefined;
   const overrideCleanliness = typeof extra?.overrideCleanliness === 'boolean' ? extra.overrideCleanliness : undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, ...(roomId !== undefined ? { roomId } : {}), ...(overrideCleanliness !== undefined ? { overrideCleanliness } : {}) };
@@ -2337,7 +2303,7 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   if (extra instanceof Response) return extra;
   const overrideBalance = typeof extra?.overrideBalance === 'boolean' ? extra.overrideBalance : undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, ...(overrideBalance !== undefined ? { overrideBalance } : {}) };
@@ -2444,7 +2410,7 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
   const reason = ctx.url.searchParams.get('reason');
   const assignedTo = ctx.url.searchParams.get('assignedTo');
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -2477,7 +2443,7 @@ async function handleGetProvisionalExceptionCount(ctx: V1DispatchContext): Promi
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -2500,7 +2466,7 @@ async function handleGetFrontDeskArrivals(ctx: V1DispatchContext): Promise<Respo
   const decoded = decodeFrontDeskCursor<{ reservationId: string }>(cursorRaw);
   if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -2534,7 +2500,7 @@ async function handleGetFrontDeskDepartures(ctx: V1DispatchContext): Promise<Res
   const decoded = decodeFrontDeskCursor<{ status: string; reservationId: string }>(cursorRaw);
   if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -2566,7 +2532,7 @@ async function handleGetFrontDeskInHouse(ctx: V1DispatchContext): Promise<Respon
   const decoded = decodeFrontDeskCursor<{ departureDate: string; reservationId: string }>(cursorRaw);
   if (decoded === 'invalid') return json({ error: 'invalid_cursor' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -2593,7 +2559,7 @@ async function handleGetFrontDeskShift(ctx: V1DispatchContext): Promise<Response
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -2610,7 +2576,7 @@ async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<R
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -2730,7 +2696,7 @@ async function handleDeleteOrgMember(ctx: V1DispatchContext): Promise<Response> 
 async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const org = resolveOrgStub(ctx.env.ORG_DO, {
     orgId: resolvedCtx.property.orgId,
@@ -2771,7 +2737,7 @@ async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Respo
     if (looked.error === 'clerk_unreachable') return clerkUnreachableResponse();
     return json({ error: looked.error }, 422);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const org = resolveOrgStub(ctx.env.ORG_DO, {
     orgId: resolvedCtx.property.orgId,
@@ -2809,7 +2775,7 @@ async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Respo
   if (!isPropertyWriteRole(body.role)) {
     return json({ error: 'invalid_body' }, 422);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const org = resolveOrgStub(ctx.env.ORG_DO, {
     orgId: resolvedCtx.property.orgId,
@@ -2841,7 +2807,7 @@ async function handleDeletePropertyMember(ctx: V1DispatchContext): Promise<Respo
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const targetUserId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const org = resolveOrgStub(ctx.env.ORG_DO, {
     orgId: resolvedCtx.property.orgId,
@@ -2984,7 +2950,7 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const cell = normalizeRateDayCell(body);
@@ -3039,7 +3005,7 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const ratePlanId = body.ratePlanId ?? TYPE_WIDE_RATE_PLAN;
@@ -3104,7 +3070,7 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const folioLineId = `${reservationId}:item:${body.idempotencyKey}`;
@@ -3149,7 +3115,7 @@ async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -3184,7 +3150,7 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload: { roomId: string; roomTypeId: string; code: string; floor?: string } = {
@@ -3241,7 +3207,7 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload: { roomId: string; code?: string; floor?: string } = { roomId };
@@ -3276,7 +3242,7 @@ async function handleGetRooms(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const url = new URL(ctx.request.url);
@@ -3306,7 +3272,7 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { roomId, status: body.status };
@@ -3357,7 +3323,7 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload: {
@@ -3422,7 +3388,7 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const updates = [...body.updates].sort((a, b) => a.roomId.localeCompare(b.roomId));
@@ -3464,7 +3430,7 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, roomId: body.roomId };
@@ -3509,7 +3475,7 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -3563,7 +3529,7 @@ async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise
     return json({ error: 'invalid_body', detail: 'businessDate_required' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -3603,7 +3569,7 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -3678,7 +3644,7 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -3730,7 +3696,7 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { ratePlanId };
@@ -3778,7 +3744,7 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { code: body.code, name: body.name };
@@ -3824,7 +3790,7 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -3873,7 +3839,7 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { code, status: body.status };
@@ -3912,7 +3878,7 @@ async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
   const status =
     statusParam === 'archived' || statusParam === 'all' ? statusParam : ('active' as const);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -3935,7 +3901,7 @@ async function handleGetFolioRoutingRules(ctx: V1DispatchContext): Promise<Respo
   const status =
     statusParam === 'archived' || statusParam === 'all' ? statusParam : ('active' as const);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -3969,7 +3935,7 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4015,7 +3981,7 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { ruleId };
@@ -4077,7 +4043,7 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4148,7 +4114,7 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4196,7 +4162,7 @@ async function handleGetTaxRules(ctx: V1DispatchContext): Promise<Response> {
   const taxGroup = url.searchParams.get('taxGroup') ?? undefined;
   const effectiveDate = url.searchParams.get('effectiveDate') ?? undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -4225,7 +4191,7 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { shiftId: body.shiftId, openingFloat: body.openingFloat };
@@ -4269,7 +4235,7 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { shiftId, closingCount: body.closingCount };
@@ -4315,7 +4281,7 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const requestFingerprint = await commandFingerprint('folio.record_cash_payment', {
@@ -4357,7 +4323,7 @@ async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
   const shiftId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -4393,7 +4359,7 @@ async function handleGetAuditLog(ctx: V1DispatchContext): Promise<Response> {
     limit: parseOptionalInt('limit'),
   };
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -4418,7 +4384,7 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -4435,7 +4401,7 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
 async function handleGetRatePromos(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   try {
     const promos = await resolvedCtx.resolved.stub.listRatePromos();
@@ -4470,7 +4436,7 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
   if (!promoCodeCharsetOk(normalized)) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     promoId: body.promoId,
@@ -4544,7 +4510,7 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4593,7 +4559,7 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { promoId };
@@ -4636,7 +4602,7 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
   if (!body?.idempotencyKey || !body.reservationId) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const resolvedWindow = body.folioWindowId ?? `${body.reservationId}:GUEST`;
   const commandPayload = {
@@ -4673,7 +4639,7 @@ async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const invoiceId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   try {
     const index = await resolvedCtx.resolved.stub.readInvoiceIndex(invoiceId);
@@ -4696,7 +4662,7 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     invoiceId,
@@ -4746,7 +4712,7 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
   if (!body?.idempotencyKey || !body.name) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4776,7 +4742,7 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
 async function handleGetCityLedgerAccounts(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const url = new URL(ctx.request.url);
@@ -4821,7 +4787,7 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -4898,7 +4864,7 @@ async function handlePostCityLedgerAccountPayment(ctx: V1DispatchContext): Promi
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = {
@@ -4936,7 +4902,7 @@ async function handleGetCityLedgerStatement(ctx: V1DispatchContext): Promise<Res
   const accountId = decodeURIComponent(ctx.match[2]!);
   const statementId = decodeURIComponent(ctx.match[3]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5014,7 +4980,7 @@ async function handleGetRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_query' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5040,7 +5006,7 @@ async function handleGetRateDays(ctx: V1DispatchContext): Promise<Response> {
   const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
   const ratePlanId = ctx.url.searchParams.get('ratePlanId') ?? undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5075,7 +5041,7 @@ async function handleGetRestrictionDays(ctx: V1DispatchContext): Promise<Respons
 
   const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5097,7 +5063,7 @@ async function handleGetDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5123,7 +5089,7 @@ async function handleGetFrontDeskTape(ctx: V1DispatchContext): Promise<Response>
   if (rangeErr) return rangeErr;
   const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5169,7 +5135,7 @@ async function handleGetFrontDeskDirectory(ctx: V1DispatchContext): Promise<Resp
     return json({ error: 'invalid_cursor' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5207,7 +5173,7 @@ async function handleGetFrontDeskAvailableRooms(ctx: V1DispatchContext): Promise
   if (rangeErr) return rangeErr;
   const roomTypeId = ctx.url.searchParams.get('roomTypeId') ?? undefined;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5231,7 +5197,7 @@ async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Respon
     return json({ error: 'invalid_date' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5251,7 +5217,7 @@ async function handleGetFrontOfficeStream(ctx: V1DispatchContext): Promise<Respo
     return json({ error: 'expected_websocket' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const headers = new Headers(ctx.request.headers);
@@ -5284,7 +5250,7 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const cell = normalizeRateDayCell({
@@ -5347,7 +5313,7 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const normalized = body.updates
@@ -5404,7 +5370,7 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { sourceFolioLineId, splits: body.splits };
@@ -5444,7 +5410,7 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.kind || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { reservationId, kind: body.kind, billedParty: body.billedParty };
   const fingerprint = await commandFingerprint('folio.open_window', commandPayload);
@@ -5477,7 +5443,7 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { folioWindowId };
   const fingerprint = await commandFingerprint('folio.close_window', commandPayload);
@@ -5510,7 +5476,7 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { folioWindowId };
   const fingerprint = await commandFingerprint('folio.reopen_window', commandPayload);
@@ -5546,7 +5512,7 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.destinationFolioWindowId || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { sourceFolioLineId, destinationFolioWindowId: body.destinationFolioWindowId };
   const fingerprint = await commandFingerprint('folio.transfer_charge', commandPayload);
@@ -5579,7 +5545,7 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId };
   const fingerprint = await commandFingerprint('folio.void', commandPayload);
@@ -5621,7 +5587,7 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprintInput =
@@ -5672,7 +5638,7 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   ) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId, amountMinor: body.amountMinor };
   const fingerprint = await commandFingerprint('folio.refund', commandPayload);
@@ -5714,7 +5680,7 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
   if (!body?.kind || !body.folioLineId || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     sourceFolioLineId,
@@ -5769,7 +5735,7 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
   if (!body?.kind || !body.folioLineId || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     reservationId,
@@ -5815,7 +5781,7 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { reservationId };
   const fingerprint = await commandFingerprint('folio.capture_due', commandPayload);
@@ -5857,7 +5823,7 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const requestFingerprint = await commandFingerprint('folio.authorize', {
@@ -5909,7 +5875,7 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const captureFingerprint = await commandFingerprint('folio.capture', {
@@ -5947,7 +5913,7 @@ async function handleGetFolioPayment(ctx: V1DispatchContext): Promise<Response> 
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5970,7 +5936,7 @@ async function handleGetFolioPayments(ctx: V1DispatchContext): Promise<Response>
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -5991,7 +5957,7 @@ async function handleGetFolioPayments(ctx: V1DispatchContext): Promise<Response>
 async function handleGetNightAudit(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   try {
     const status = await resolvedCtx.resolved.stub.readNightAuditStatus();
@@ -6009,7 +5975,7 @@ async function handleGetNightAuditReport(ctx: V1DispatchContext): Promise<Respon
   const businessDate = decodeURIComponent(ctx.match[2]!);
   const reportId = decodeURIComponent(ctx.match[3]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   try {
     const index = await resolvedCtx.resolved.stub.readNightAuditReportIndex(businessDate, reportId);
@@ -6034,7 +6000,7 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const status = await resolvedCtx.resolved.stub.readNightAuditStatus();
@@ -6107,7 +6073,7 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
     return json({ error: 'invalid_body' }, 400);
   }
   const step = body.step as NightAuditStep;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('night_audit.retry_step', {
@@ -6154,7 +6120,7 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   if (!body?.idempotencyKey || !body.businessDate) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('night_audit.resolve_halt', { propertyId, businessDate: body.businessDate });
@@ -6194,7 +6160,7 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('provisional.resolve_exception', { propertyId, exceptionId });
@@ -6231,7 +6197,7 @@ async function handleGetProvisionalException(ctx: V1DispatchContext): Promise<Re
   const exceptionId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -6269,7 +6235,7 @@ async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Prom
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('provisional.retry_exception', { exceptionId });
@@ -6316,7 +6282,7 @@ async function handlePostProvisionalExceptionAssign(ctx: V1DispatchContext): Pro
     return json({ error: 'invalid_body' }, 400);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('provisional.assign_exception', { exceptionId, assignedTo: body.assignedTo });
@@ -6360,7 +6326,7 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) return json({ error: 'invalid_body' }, 400);
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const fingerprint = await commandFingerprint('provisional.add_exception_note', { exceptionId, noteId: body.noteId });
@@ -6513,7 +6479,7 @@ async function handleGetGuestStays(ctx: V1DispatchContext): Promise<Response> {
     return json({ error: 'invalid_cursor' }, 400, GUEST_HEADERS);
   }
 
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   try {
@@ -6562,7 +6528,7 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   ) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     quoteId: body.quoteId,
@@ -6612,7 +6578,7 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
   if (!body?.quoteId || !body.rate || body.effectiveFrom == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     quoteId: body.quoteId,
@@ -6649,7 +6615,7 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
 async function handleGetFxRates(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   try {
     const pair = new URL(ctx.request.url).searchParams.get('pair');
@@ -6684,7 +6650,7 @@ async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Respon
   if (body?.feeLedgerMinor == null || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId, feeLedgerMinor: body.feeLedgerMinor, reason: body.reason };
   const fingerprint = await commandFingerprint('folio.record_chargeback', commandPayload);
@@ -6727,7 +6693,7 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
   if (!body?.folioWindowId || !body.kind || body.amountMinor == null || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
-  const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = {
     reservationId,

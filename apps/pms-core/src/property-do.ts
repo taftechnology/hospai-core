@@ -10604,7 +10604,6 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   async searchReservations(q: string): Promise<{
     ok: true;
     items: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
-    mode: 'exact' | 'name';
   }> {
     this.assertRpcAvailable();
     const trimmed = q.trim();
@@ -10614,30 +10613,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT ${frontDeskSelect} FROM reservation WHERE reservation_id = ?`, trimmed)
       .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
     if (exact[0]) {
-      return { ok: true, items: exact.map((row) => this.mapFrontDeskListRow(row)), mode: 'exact' };
+      return { ok: true, items: exact.map((row) => this.mapFrontDeskListRow(row)) };
     }
-    if (trimmed.length < 2) {
-      return { ok: true, items: [], mode: 'name' };
-    }
-    const openDate = this.readBusinessDateSync();
-    const rows = (
-      openDate
-        ? this.ctx.storage.sql.exec(
-            `SELECT ${frontDeskSelect} FROM reservation
-             WHERE status IN ('inquiry','pending','confirmed','checked_in')
-                OR (status IN ('checked_out','cancelled','no_show') AND departure_date >= date(?, '-7 days'))
-             ORDER BY arrival_date DESC, reservation_id
-             LIMIT 200`,
-            openDate,
-          )
-        : this.ctx.storage.sql.exec(
-            `SELECT ${frontDeskSelect} FROM reservation
-             WHERE status IN ('inquiry','pending','confirmed','checked_in')
-             ORDER BY arrival_date DESC, reservation_id
-             LIMIT 200`,
-          )
-    ).toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
-    return { ok: true, items: rows.map((row) => this.mapFrontDeskListRow(row)), mode: 'name' };
+    return { ok: true, items: [] };
   }
 
   async listReservationsByGuestRef(

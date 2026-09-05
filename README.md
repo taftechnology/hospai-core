@@ -42,8 +42,11 @@ These fail in CI with little context unless you know they exist:
 
 ## Where design lives
 
+- **[AGENTS.md](AGENTS.md)** — coding contract for humans and AI agents (tenancy, money, HTTP, SPA, tests). Follow it for every change.
+- **[docs/roadmap.md](docs/roadmap.md)** — ordered slices to finish the PMS against `hospai-pms-prototype`. Agents: first `- [ ]`, then the next.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — storage topology, DO boundaries, build phases, lint rules.
 - **[docs/superpowers/specs/](docs/superpowers/specs/)** — decision records for each slice (auth, entitlements, queues, LaneGuard, inventory stack seam, cloneability lint, etc.). Read these when the code looks arbitrary; the argument is usually there.
+- **[docs/audit/2026-09-04-full-codebase-audit.md](docs/audit/2026-09-04-full-codebase-audit.md)** — open remediations; do not reintroduce those defect classes.
 
 Workspace layout: [`pnpm-workspace.yaml`](pnpm-workspace.yaml) (`apps/*`, `packages/*`, `modules/pms/*`, `tooling/*`).
 

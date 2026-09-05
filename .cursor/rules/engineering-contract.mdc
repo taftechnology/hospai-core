@@ -1,0 +1,17 @@
+---
+description: Engineering contract — tenancy, money, HTTP, SPA cache keys, catalog pins. Full text in /AGENTS.md.
+alwaysApply: true
+---
+
+# Follow `AGENTS.md`
+
+The root [`AGENTS.md`](../../AGENTS.md) is mandatory for every change (new features and edits). Do not reintroduce the 2026-09 audit classes. Short form:
+
+- **Tenant:** URL org/property owns the operation. Global `getProperty`/`getOrg` require an org match. 409 bodies must not leak another tenant’s row. Property-URL reads of OrgDO PII are property-scoped.
+- **Authn:** never omit Clerk `authorizedParties` in staging/prod. Security headers on every response. Mutating `/v1` is Bearer or validated Origin. Replay re-checks the original actor.
+- **Money / inventory:** integer minor units + `allocate`. Availability is a ledger (`freeAvailability` from contracts). COMPANY receivable posts AR; do not use close-at-zero as the only AR gate. Do not silently release `sold` in checkout. Fingerprint `{ commandId, payload }`; cap every request array at HTTP and RPC.
+- **HTTP / DO:** `resolvePropertyContext(ctx, id, ctx.tenantProperty)`. No `await` in `transactionSync`. One error-status table (`entitlement_required` → 402, `not_member` → 404). Catalog lane must match runtime lane. JSON parse helper → 400.
+- **SPA:** invalidate/`setQueryData` the **full** query key the screen uses (`['board', …]`, tape includes `propertyId`+range). `classifiedUserMessage` + ui-kit. Live `property.name`. No Settings control unless pms-core reads it.
+- **Verify:** `pnpm test:local` (8 shards, no `--` before `--shard`). Update catalog/schema pins in the same commit. Characterization tests for tenancy and money — do not encode the bug as expected.
+
+Do not extract PropertyDO, add Playwright/Redis/Storybook, or restyle tokens. SPA chrome: `spa-page-chrome.mdc`. Product queue: `docs/roadmap.md` (first unchecked slice). Open defects: `docs/audit/2026-09-04-full-codebase-audit.md`.

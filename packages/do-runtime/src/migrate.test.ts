@@ -230,6 +230,9 @@ class MemorySql implements SqlStorageLike {
     ) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE data_key ADD COLUMN key_version')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
@@ -648,6 +651,8 @@ describe('freeze DDL single source', () => {
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
     expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(9);
+    expect(sql.schemaVersion).toHaveLength(9);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });

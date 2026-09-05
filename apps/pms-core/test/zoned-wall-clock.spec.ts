@@ -107,7 +107,7 @@ describe('zonedWallClockMs (N1)', () => {
       },
     },
     {
-      name: 'Lord Howe 30-min DST 2026-10-04 02:00',
+      name: 'Lord Howe 30-min DST 2026-10-04 02:00 → 02:30 gap-forward',
       zone: 'Australia/Lord_Howe',
       date: '2026-10-04',
       hh: 2,
@@ -116,7 +116,7 @@ describe('zonedWallClockMs (N1)', () => {
         const p = localParts(ms, 'Australia/Lord_Howe');
         expect(ymdFromParts(p)).toBe('2026-10-04');
         expect(p.hour).toBe(2);
-        expect(p.minute).toBe(0);
+        expect(p.minute).toBe(30);
       },
     },
     {

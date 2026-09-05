@@ -85,6 +85,46 @@ async function provisionHotel(actor: string) {
   return { orgId, propertyId, actor, arrival: roomTypeData.fromDate, stub: resolved!.stub };
 }
 
+async function provisionTwoHotels(actor: string) {
+  const orgId = `org_guests2_${crypto.randomUUID()}`;
+  const propertyA = `prop_guests_a_${crypto.randomUUID()}`;
+  const propertyB = `prop_guests_b_${crypto.randomUUID()}`;
+  expect((await postOrg(orgId, 'Two Hotel Org', actor)).status).toBe(201);
+  expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
+
+  const roomTypeResA = await postRoomType(propertyA, actor);
+  expect(roomTypeResA.status).toBe(201);
+  const roomTypeDataA = (await roomTypeResA.json()) as { fromDate: string };
+
+  const roomTypeResB = await postRoomType(propertyB, actor);
+  expect(roomTypeResB.status).toBe(201);
+
+  const resolvedA = await resolvePropertyFromRegistry(env, propertyA);
+  const resolvedB = await resolvePropertyFromRegistry(env, propertyB);
+  if (resolvedA) {
+    await resolvedA.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolvedA.stub, 'rt_king', roomTypeDataA.fromDate);
+  }
+  if (resolvedB) {
+    await resolvedB.stub.flushOutbox();
+    await seedBarRatesForHorizon(resolvedB.stub, 'rt_king', roomTypeDataA.fromDate);
+  }
+
+  return { orgId, propertyA, propertyB, actor, arrival: roomTypeDataA.fromDate };
+}
+
+async function postGuestsBatch(propertyId: string, actor: string, refs: string[]) {
+  return worker.fetch(
+    new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/guests/batch`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+      body: JSON.stringify({ refs }),
+    }),
+    env,
+  );
+}
+
 async function postGuest(
   propertyId: string,
   actor: string,
@@ -652,5 +692,133 @@ describe('guest HTTP routes', () => {
 
     await cancelSubscription(env, orgId);
     expect((await getGuests(propertyId, actor)).status).toBe(402);
+  });
+});
+
+describe('property-scoped guest lists (S2)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  it('T1: guest created at B only — absent from A list/search/GET/batch', async () => {
+    const actor = 'user_guests_s2_t1';
+    const { propertyA, propertyB } = await provisionTwoHotels(actor);
+    const guestId = 'guest_b_only';
+    await postGuest(propertyB, actor, {
+      guestId,
+      displayName: 'Hotel B Guest',
+      email: 'bonly@ex.com',
+    });
+
+    const listA = (await (await getGuests(propertyA, actor)).json()) as {
+      items: Array<{ guestId: string; profile?: { displayName: string } }>;
+    };
+    expect(listA.items.map((g) => g.guestId)).not.toContain(guestId);
+    expect(listA.items.every((g) => g.guestId !== guestId)).toBe(true);
+
+    const searchA = (await (
+      await postGuestsSearch(propertyA, actor, { q: 'bonly@ex.com' })
+    ).json()) as { items: Array<{ guestId: string }> };
+    expect(searchA.items).toEqual([]);
+
+    expect((await getGuest(propertyA, actor, guestId)).status).toBe(404);
+    expect(await (await getGuest(propertyA, actor, guestId)).json()).toMatchObject({
+      ok: false,
+      error: GUEST_NOT_FOUND,
+    });
+
+    const batchA = (await (await postGuestsBatch(propertyA, actor, [guestId])).json()) as {
+      ok: true;
+      guests: Record<string, { ok: boolean; error?: string; profile?: unknown }>;
+    };
+    expect(batchA.guests[guestId]).toMatchObject({ ok: false, error: GUEST_NOT_FOUND });
+    expect(batchA.guests[guestId]?.profile).toBeUndefined();
+  });
+
+  it('T2: same guest — present at B list/search/GET', async () => {
+    const actor = 'user_guests_s2_t2';
+    const { propertyB } = await provisionTwoHotels(actor);
+    const guestId = 'guest_b_present';
+    await postGuest(propertyB, actor, {
+      guestId,
+      displayName: 'Present At B',
+      email: 'present@ex.com',
+    });
+
+    const listB = (await (await getGuests(propertyB, actor)).json()) as {
+      items: Array<{ guestId: string }>;
+    };
+    expect(listB.items.map((g) => g.guestId)).toContain(guestId);
+
+    const searchB = (await (
+      await postGuestsSearch(propertyB, actor, { q: 'present@ex.com' })
+    ).json()) as { items: Array<{ guestId: string }> };
+    expect(searchB.items.map((g) => g.guestId)).toContain(guestId);
+
+    expect((await getGuest(propertyB, actor, guestId)).status).toBe(200);
+  });
+
+  it('T3: create at A then book at B — absent from B before book; linked at both after', async () => {
+    const actor = 'user_guests_s2_t3';
+    const { propertyA, propertyB, arrival } = await provisionTwoHotels(actor);
+    const departure = addDays(arrival, 2);
+    const guestId = 'guest_cross_book';
+
+    await postGuest(propertyA, actor, {
+      guestId,
+      displayName: 'Cross Property Guest',
+      email: 'cross@ex.com',
+    });
+
+    const listBBefore = (await (await getGuests(propertyB, actor)).json()) as {
+      items: Array<{ guestId: string }>;
+    };
+    expect(listBBefore.items.map((g) => g.guestId)).not.toContain(guestId);
+
+    const bookRes = await postReservation(
+      propertyB,
+      actor,
+      'res_cross_book',
+      arrival,
+      departure,
+      guestId,
+    );
+    expect(bookRes.status).toBe(201);
+
+    const listA = (await (await getGuests(propertyA, actor)).json()) as {
+      items: Array<{ guestId: string }>;
+    };
+    expect(listA.items.map((g) => g.guestId)).toContain(guestId);
+
+    const listBAfter = (await (await getGuests(propertyB, actor)).json()) as {
+      items: Array<{ guestId: string }>;
+    };
+    expect(listBAfter.items.map((g) => g.guestId)).toContain(guestId);
+  });
+
+  it('T7: search q matching guest at B returns empty at A', async () => {
+    const actor = 'user_guests_s2_t7';
+    const { propertyA, propertyB } = await provisionTwoHotels(actor);
+    await postGuest(propertyB, actor, {
+      guestId: 'guest_search_b',
+      displayName: 'Searchable B',
+      email: 'searchable-b@ex.com',
+    });
+
+    const hitB = (await (
+      await postGuestsSearch(propertyB, actor, { q: 'searchable-b@ex.com' })
+    ).json()) as { items: Array<{ guestId: string }> };
+    expect(hitB.items.map((g) => g.guestId)).toContain('guest_search_b');
+
+    const hitA = (await (
+      await postGuestsSearch(propertyA, actor, { q: 'searchable-b@ex.com' })
+    ).json()) as { items: unknown[] };
+    expect(hitA.items).toEqual([]);
   });
 });

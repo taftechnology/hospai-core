@@ -48,6 +48,16 @@ async function provisionHotel(actor: string) {
   return { orgId, propertyId, actor, stub: resolved!.stub };
 }
 
+async function provisionTwoHotels(actor: string) {
+  const orgId = `org_roster2_${crypto.randomUUID()}`;
+  const propertyA = `prop_roster_a_${crypto.randomUUID()}`;
+  const propertyB = `prop_roster_b_${crypto.randomUUID()}`;
+  expect((await postOrg(orgId, 'Two Roster Org', actor)).status).toBe(201);
+  expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
+  return { orgId, propertyA, propertyB, actor };
+}
+
 function rosterUrl(propertyId: string, suffix = '') {
   return `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/roster${suffix}`;
 }
@@ -353,5 +363,55 @@ describe('roster HTTP routes', () => {
     });
     expect(res.status).toBe(503);
     expect(await res.text()).toBe('');
+  });
+});
+
+describe('property-scoped roster lists (S7)', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  afterEach(async () => {
+    __setRosterGrantsForTest(null);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  it('T4: staff added at B only — absent from A list/GET', async () => {
+    const actor = 'user_roster_s7_t4';
+    const { propertyA, propertyB } = await provisionTwoHotels(actor);
+
+    const created = (await (
+      await postRoster(propertyB, actor, { displayName: 'Staff B', kinds: ['housekeeper'] })
+    ).json()) as { ok: true; staffId: string };
+    expect(created.ok).toBe(true);
+    const { staffId } = created;
+
+    const listA = (await (await getRosterList(propertyA, actor)).json()) as {
+      ok: true;
+      staff: Array<{ staffId: string; profile?: { displayName: string } }>;
+    };
+    expect(listA.staff.map((s) => s.staffId)).not.toContain(staffId);
+
+    expect((await getRosterOne(propertyA, actor, staffId)).status).toBe(404);
+  });
+
+  it('T5: same staff — present at B list/GET', async () => {
+    const actor = 'user_roster_s7_t5';
+    const { propertyB } = await provisionTwoHotels(actor);
+
+    const created = (await (
+      await postRoster(propertyB, actor, { displayName: 'Staff Present B', kinds: ['housekeeper'] })
+    ).json()) as { ok: true; staffId: string };
+    const { staffId } = created;
+
+    const listB = (await (await getRosterList(propertyB, actor)).json()) as {
+      ok: true;
+      staff: Array<{ staffId: string }>;
+    };
+    expect(listB.staff.map((s) => s.staffId)).toContain(staffId);
+
+    expect((await getRosterOne(propertyB, actor, staffId)).status).toBe(200);
   });
 });

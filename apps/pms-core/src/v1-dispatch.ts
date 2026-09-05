@@ -242,7 +242,8 @@ type MembershipDoError =
   | 'already_member'
   | 'role_escalation'
   | 'last_owner'
-  | 'invalid_role';
+  | 'invalid_role'
+  | typeof INTERNAL_ERROR;
 
 function membershipErrorResponse(
   error: MembershipDoError,
@@ -261,6 +262,8 @@ function membershipErrorResponse(
       return json({ error: 'not_member' }, 404);
     case 'forbidden':
       return json({ error: 'forbidden', permission }, 403);
+    case INTERNAL_ERROR:
+      return json({ ok: false, error: INTERNAL_ERROR }, 500);
   }
 }
 
@@ -1343,19 +1346,16 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.readGuest(actor, propertyId, guestId);
     if (!result.ok) {
+      if ('guestId' in result && result.error === DECRYPT_UNRESOLVED) {
+        logError(ctx.observability, { msg: 'guests.read.decrypt_incident', guestId: result.guestId });
+        return commandFailureResponse(DECRYPT_UNRESOLVED, 'guests:read');
+      }
       return commandErrorResponse(result.error, 'guests:read');
     }
     return json(result, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
-    }
-    if (e instanceof Error) {
-      logError(ctx.observability, {
-        msg: 'guests.read.decrypt_incident',
-        error: e.message,
-      });
-      return json({ error: 'internal_error' }, 500);
     }
     throw e;
   }

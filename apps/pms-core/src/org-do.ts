@@ -80,6 +80,8 @@ type MembershipError =
   | 'last_owner'
   | 'invalid_role';
 
+type MembershipMutationError = MembershipError | typeof INTERNAL_ERROR;
+
 const ROLE_RANK: Record<OrgRole, number> = { owner: 3, admin: 2, staff: 1 };
 
 function isOrgRole(role: string): role is OrgRole {
@@ -937,26 +939,26 @@ export class OrgDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
     | { ok: false; error: 'already_member'; role: OrgRole }
-    | { ok: false; error: Exclude<MembershipError, 'already_member'> }
+    | { ok: false; error: Exclude<MembershipError, 'already_member'> | typeof INTERNAL_ERROR }
   > {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
     if (!isOrgRole(input.role)) return { ok: false, error: 'invalid_role' };
 
-    const gate = await this.assertPermission({
-      userId: actor.userId,
-      propertyId: null,
-      permission: 'org:manage',
-    });
-    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
-
-    const callerRole = await this.getMemberRole(actor.userId);
-    if (!callerRole) return { ok: false, error: 'not_member' };
-
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'forbidden' };
-
     try {
+      const gate = await this.assertPermission({
+        userId: actor.userId,
+        propertyId: null,
+        permission: 'org:manage',
+      });
+      if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+      const callerRole = await this.getMemberRole(actor.userId);
+      if (!callerRole) return { ok: false, error: 'not_member' };
+
+      const orgId = this.getOrgIdSync();
+      if (!orgId) return { ok: false, error: 'forbidden' };
+
       return this.ctx.storage.transactionSync(() => {
         const existing = this.ctx.storage.sql
           .exec(`SELECT role FROM member WHERE user_id = ?`, input.targetUserId)
@@ -1048,32 +1050,36 @@ export class OrgDO extends DurableObject<PmsEnv> {
           previousRole,
         };
       });
-    } catch {
-      return { ok: false, error: 'forbidden' };
+    } catch (e) {
+      const mapped = mapOrgCommandError(e);
+      if (mapped) {
+        return mapped as { ok: false; error: Exclude<MembershipError, 'already_member'> | typeof INTERNAL_ERROR };
+      }
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
   async removeOrgMember(
     actor: ActorContext,
     targetUserId: string,
-  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipError }> {
+  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipMutationError }> {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
 
-    const gate = await this.assertPermission({
-      userId: actor.userId,
-      propertyId: null,
-      permission: 'org:manage',
-    });
-    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
-
-    const callerRole = await this.getMemberRole(actor.userId);
-    if (!callerRole) return { ok: false, error: 'not_member' };
-
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'forbidden' };
-
     try {
+      const gate = await this.assertPermission({
+        userId: actor.userId,
+        propertyId: null,
+        permission: 'org:manage',
+      });
+      if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+      const callerRole = await this.getMemberRole(actor.userId);
+      if (!callerRole) return { ok: false, error: 'not_member' };
+
+      const orgId = this.getOrgIdSync();
+      if (!orgId) return { ok: false, error: 'forbidden' };
+
       return this.ctx.storage.transactionSync(() => {
         const existing = this.ctx.storage.sql
           .exec(`SELECT role FROM member WHERE user_id = ?`, targetUserId)
@@ -1132,8 +1138,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
         }
         return { ok: true as const, userId: targetUserId };
       });
-    } catch {
-      return { ok: false, error: 'forbidden' };
+    } catch (e) {
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped as { ok: false; error: MembershipMutationError };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1198,27 +1206,27 @@ export class OrgDO extends DurableObject<PmsEnv> {
   ): Promise<
     | { ok: true; userId: string; role: OrgRole; previousRole?: OrgRole }
     | { ok: false; error: 'already_member'; role: OrgRole }
-    | { ok: false; error: Exclude<MembershipError, 'already_member'> }
+    | { ok: false; error: Exclude<MembershipError, 'already_member'> | typeof INTERNAL_ERROR }
   > {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
     // admin|staff only — `owner` (and any other value) → invalid_role
     if (input.role !== 'admin' && input.role !== 'staff') return { ok: false, error: 'invalid_role' };
 
-    const gate = await this.assertPermission({
-      userId: actor.userId,
-      propertyId,
-      permission: 'staff:write',
-    });
-    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
-
-    const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
-    if (!callerRole) return { ok: false, error: 'not_member' };
-
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'forbidden' };
-
     try {
+      const gate = await this.assertPermission({
+        userId: actor.userId,
+        propertyId,
+        permission: 'staff:write',
+      });
+      if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+      const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
+      if (!callerRole) return { ok: false, error: 'not_member' };
+
+      const orgId = this.getOrgIdSync();
+      if (!orgId) return { ok: false, error: 'forbidden' };
+
       return this.ctx.storage.transactionSync(() => {
         const existing = this.ctx.storage.sql
           .exec(
@@ -1314,8 +1322,12 @@ export class OrgDO extends DurableObject<PmsEnv> {
           previousRole,
         };
       });
-    } catch {
-      return { ok: false, error: 'forbidden' };
+    } catch (e) {
+      const mapped = mapOrgCommandError(e);
+      if (mapped) {
+        return mapped as { ok: false; error: Exclude<MembershipError, 'already_member'> | typeof INTERNAL_ERROR };
+      }
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -1323,24 +1335,24 @@ export class OrgDO extends DurableObject<PmsEnv> {
     actor: ActorContext,
     propertyId: string,
     targetUserId: string,
-  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipError }> {
+  ): Promise<{ ok: true; userId: string } | { ok: false; error: MembershipMutationError }> {
     this.assertRpcAvailable();
     if (actor.kind !== 'user') return { ok: false, error: 'not_member' };
 
-    const gate = await this.assertPermission({
-      userId: actor.userId,
-      propertyId,
-      permission: 'staff:write',
-    });
-    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
-
-    const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
-    if (!callerRole) return { ok: false, error: 'not_member' };
-
-    const orgId = this.getOrgIdSync();
-    if (!orgId) return { ok: false, error: 'forbidden' };
-
     try {
+      const gate = await this.assertPermission({
+        userId: actor.userId,
+        propertyId,
+        permission: 'staff:write',
+      });
+      if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? 'forbidden' : gate.error };
+
+      const callerRole = await this.getEffectiveRole(actor.userId, propertyId);
+      if (!callerRole) return { ok: false, error: 'not_member' };
+
+      const orgId = this.getOrgIdSync();
+      if (!orgId) return { ok: false, error: 'forbidden' };
+
       return this.ctx.storage.transactionSync(() => {
         const existing = this.ctx.storage.sql
           .exec(
@@ -1381,8 +1393,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
         });
         return { ok: true as const, userId: targetUserId };
       });
-    } catch {
-      return { ok: false, error: 'forbidden' };
+    } catch (e) {
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped as { ok: false; error: MembershipMutationError };
+      return { ok: false, error: INTERNAL_ERROR };
     }
   }
 
@@ -2291,6 +2305,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     | { ok: true; guestId: string; erased: false; profile: GuestProfile }
     | { ok: true; guestId: string; erased: true; profile: null }
     | { ok: false; error: typeof GUEST_NOT_FOUND }
+    | { ok: false; guestId: string; error: typeof DECRYPT_UNRESOLVED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -2311,11 +2326,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }
 
     const entry = await this.readGuestEntry(guestId);
-    if (entry.ok === false && entry.error === GUEST_NOT_FOUND) {
-      return { ok: false, error: GUEST_NOT_FOUND };
-    }
-    if (entry.ok === false && entry.error === DECRYPT_UNRESOLVED) {
-      throw new Error('guests.read.decrypt_incident');
+    if (entry.ok === false) {
+      if (entry.error === GUEST_NOT_FOUND) return { ok: false, error: GUEST_NOT_FOUND };
+      if (entry.error === DECRYPT_UNRESOLVED) {
+        return { ok: false, guestId, error: DECRYPT_UNRESOLVED };
+      }
     }
     return entry;
   }

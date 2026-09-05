@@ -93,7 +93,7 @@ describe('HTTP error contracts (R0.10)', () => {
     const actor = 'user_hec_get_decrypt';
     const { propertyId, org } = await provisionHttpHotel(actor);
     const guestId = 'guest_hec_decrypt';
-    const refs = await createGuest(org, propertyId, guestId, 'Live Guest', TEST_OWNER_ACTOR);
+    const refs = await createGuest(org, propertyId, guestId, 'Live Guest', { kind: 'user', userId: actor });
     expect(await org.testShredGuestKey(refs.piiKeyId)).toBe(true);
 
     const res = await getGuestHttp(propertyId, actor, guestId);
@@ -106,7 +106,7 @@ describe('HTTP error contracts (R0.10)', () => {
     const actor = 'user_hec_batch_decrypt';
     const { propertyId, org } = await provisionHttpHotel(actor);
     const guestId = 'guest_hec_batch';
-    const refs = await createGuest(org, propertyId, guestId, 'Live Guest', TEST_OWNER_ACTOR);
+    const refs = await createGuest(org, propertyId, guestId, 'Live Guest', { kind: 'user', userId: actor });
     expect(await org.testShredGuestKey(refs.piiKeyId)).toBe(true);
 
     const res = await postGuestsBatch(propertyId, actor, [guestId]);

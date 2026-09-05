@@ -16,6 +16,8 @@ import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 const BASELINE_ME_PREPARE_TOTAL = 5;
 const BASELINE_ME_ELAPSED_MS = 3;
 const POST_F1_ME_PREPARE_TOTAL = 2;
+/** pms.core entitlement routes add one snapshot prepare beyond /me. */
+const POST_F1_ENTITLED_PROPERTY_PREPARE_TOTAL = POST_F1_ME_PREPARE_TOTAL + 1;
 
 function countPrepareCalls(
   spy: { mock: { calls: unknown[][] } },
@@ -209,6 +211,6 @@ describe('dispatch registry dedup — GET folio (mutating-family read)', () => {
 
     expect(res.status).toBe(200);
     expect(propertyPrepares).toBe(1);
-    expect(totalPrepares).toBe(POST_F1_ME_PREPARE_TOTAL);
+    expect(totalPrepares).toBe(POST_F1_ENTITLED_PROPERTY_PREPARE_TOTAL);
   });
 });

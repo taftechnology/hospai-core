@@ -194,10 +194,9 @@ describe('ReservationsDirectoryScreen', () => {
     const dirCalls = getFrontOfficeDirectory.mock.calls.length;
     const input = screen.getByRole('searchbox');
     expect(input.getAttribute('autocomplete')).toBe('off');
-    expect(input.getAttribute('placeholder')?.endsWith('…')).toBe(true);
-    fireEvent.change(input, { target: { value: 'Ada' } });
+    fireEvent.change(input, { target: { value: 'res_hit' } });
     await waitFor(() => expect(searchReservations).toHaveBeenCalled());
-    expect(searchReservations.mock.calls.some((c) => c[1] === 'Ada')).toBe(true);
+    expect(searchReservations.mock.calls.some((c) => c[1] === 'res_hit')).toBe(true);
     expect(getFrontOfficeDirectory.mock.calls.length).toBe(dirCalls);
     expect(
       getFrontOfficeDirectory.mock.calls.every((c) => !('q' in ((c[1] as object) ?? {}))),

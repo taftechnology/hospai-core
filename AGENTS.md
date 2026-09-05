@@ -222,7 +222,7 @@ At `461d391` (update this table when you bump them):
 | `PROPERTY_SCHEMA_HEAD` | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` |
 
-There are **16** `check:*` scripts in CI (not 17). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
+There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
 
 ---
 
@@ -247,6 +247,6 @@ There are **16** `check:*` scripts in CI (not 17). Local pms-core shards **inclu
 Do not duplicate them in ad-hoc scripts. Do not disable them.
 
 - `eslint-plugin-hospai` (11 rules): `idFromName` only in `packages/tenant-router`; no DOMAIN config from KV; no entitlement/platform imports in `domain/`; bookability must not import reservation modules; pms must not import add-ons; cloneable boundary types; no DOM in client-core; no fetch in components; no inline styles / raw controls in web-pms.
-- `check:ddl`, `check:entitlements`, `check:permissions`, `check:degraded`, `check:forbidden-bodies`, `check:do-transport-guards`, `check:module-manifests`, `check:purge`, SPA chrome/colors/class-denylist/ui-kit/me-gating, `check:pms-core-test-dates`.
+- `check:ddl`, `check:entitlements`, `check:permissions`, `check:degraded`, `check:forbidden-bodies`, `check:do-transport-guards`, `check:module-manifests`, `check:purge`, `check:resolve-property-prefetch`, SPA chrome/colors/class-denylist/ui-kit/me-gating, `check:pms-core-test-dates`.
 
 If a new class of bug is not catchable by review, **add a `check:*` or a characterization spec** in the same change — that is how the 2026-09 defects recurred (green CI, wrong threat model).

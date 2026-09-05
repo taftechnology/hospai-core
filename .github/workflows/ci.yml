@@ -34,6 +34,7 @@ jobs:
       - run: pnpm check:module-manifests
       - run: pnpm check:purge
       - run: pnpm check:error-mapper-singleton
+      - run: pnpm check:resolve-property-prefetch
       - run: node scripts/module-manifests-check.mjs --self-test
       - run: node scripts/purge-check.mjs --self-test
       - run: node scripts/forbidden-body-check.mjs --self-test

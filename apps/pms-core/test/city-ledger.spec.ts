@@ -91,19 +91,6 @@ async function setupCompanyWindowAtZeroBalance(
   return { account, folioWindowId: open.folioWindowId, businessDate };
 }
 
-async function readCityLedgerPostedMinorForWindowForTest(
-  stub: DurableObjectStub<PropertyDO>,
-  folioWindowId: string,
-): Promise<number> {
-  const charge = await stub.readCityLedgerChargeForWindowForTest(folioWindowId);
-  if (!charge) return 0;
-  const detail = await stub.readCityLedgerAccount(charge.accountId);
-  if (!detail.ok) return 0;
-  return detail.entries
-    .filter((e) => e.folioWindowId === folioWindowId && (e.kind === 'charge' || e.kind === 'adjustment'))
-    .reduce((sum, e) => sum + e.amountMinor, 0);
-}
-
 async function addRoomType(stub: DurableObjectStub<PropertyDO>, roomTypeId: string, roomCount: number) {
   const input = {
     roomTypeId,

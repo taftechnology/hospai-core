@@ -82,6 +82,7 @@ import {
   TRANSFER_CROSS_RESERVATION,
   TRANSFER_SAME_WINDOW,
   LINE_NOT_TRANSFERABLE,
+  LINE_ALREADY_TRANSFERRED,
   LINE_NOT_DISCOUNTABLE,
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
@@ -247,6 +248,7 @@ describe('fingerprintPayload', () => {
     expect(TRANSFER_CROSS_RESERVATION).toBe('transfer_cross_reservation');
     expect(TRANSFER_SAME_WINDOW).toBe('transfer_same_window');
     expect(LINE_NOT_TRANSFERABLE).toBe('line_not_transferable');
+    expect(LINE_ALREADY_TRANSFERRED).toBe('line_already_transferred');
     expect(LINE_NOT_DISCOUNTABLE).toBe('line_not_discountable');
     expect(PAYMENT_NOT_VOIDABLE).toBe('payment_not_voidable');
     expect(PAYMENT_NOT_REFUNDABLE).toBe('payment_not_refundable');
@@ -285,6 +287,6 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(158);
+    expect(count).toBe(159);
   });
 });

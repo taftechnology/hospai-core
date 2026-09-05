@@ -89,6 +89,7 @@ import {
   TRANSFER_CROSS_RESERVATION,
   TRANSFER_SAME_WINDOW,
   LINE_NOT_TRANSFERABLE,
+  LINE_ALREADY_TRANSFERRED,
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
   LINE_NOT_DISCOUNTABLE,
@@ -471,6 +472,7 @@ function mapReservationConcreteCommandErrorStatus(error: ConcreteCommandError): 
     case TRANSFER_CROSS_RESERVATION:
     case TRANSFER_SAME_WINDOW:
     case LINE_NOT_TRANSFERABLE:
+    case LINE_ALREADY_TRANSFERRED:
     case PAYMENT_NOT_VOIDABLE:
     case PAYMENT_NOT_REFUNDABLE:
     case LINE_NOT_DISCOUNTABLE:
@@ -656,6 +658,7 @@ function mapPersonEntityCommandErrorStatus(error: ConcreteCommandError): number 
     case TRANSFER_CROSS_RESERVATION:
     case TRANSFER_SAME_WINDOW:
     case LINE_NOT_TRANSFERABLE:
+    case LINE_ALREADY_TRANSFERRED:
     case LINE_NOT_DISCOUNTABLE:
     case PAYMENT_NOT_VOIDABLE:
     case PAYMENT_NOT_REFUNDABLE:
@@ -862,6 +865,7 @@ function mapConfigConcreteCommandErrorStatus(error: ConcreteCommandError): numbe
     case TRANSFER_CROSS_RESERVATION:
     case TRANSFER_SAME_WINDOW:
     case LINE_NOT_TRANSFERABLE:
+    case LINE_ALREADY_TRANSFERRED:
     case LINE_NOT_DISCOUNTABLE:
     case PAYMENT_NOT_VOIDABLE:
     case PAYMENT_NOT_REFUNDABLE:

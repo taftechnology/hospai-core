@@ -60,7 +60,7 @@ async function seedRoomTax(
 }
 
 describe('folio transfer + split v2', () => {
-  it('15: transfer ROOM from GUEST to COMPANY — reverse + dest, tax restamped, balance unchanged', async () => {
+  it('15: transfer ROOM from GUEST to COMPANY — reverse + dest, tax copied, balance unchanged', async () => {
     const { stub } = await provisionedPropertyStub(crypto.randomUUID(), 'UTC', 'USD');
     const reservationId = `res_${crypto.randomUUID()}`;
     const arrival = await seedReservation(stub, reservationId);

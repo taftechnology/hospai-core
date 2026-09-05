@@ -92,6 +92,7 @@ export const GUEST_WINDOW_NOT_OPENABLE = 'guest_window_not_openable' as const;
 export const TRANSFER_CROSS_RESERVATION = 'transfer_cross_reservation' as const;
 export const TRANSFER_SAME_WINDOW = 'transfer_same_window' as const;
 export const LINE_NOT_TRANSFERABLE = 'line_not_transferable' as const;
+export const LINE_ALREADY_TRANSFERRED = 'line_already_transferred' as const;
 export const LINE_NOT_DISCOUNTABLE = 'line_not_discountable' as const;
 export const PAYMENT_NOT_VOIDABLE = 'payment_not_voidable' as const;
 export const PAYMENT_NOT_REFUNDABLE = 'payment_not_refundable' as const;

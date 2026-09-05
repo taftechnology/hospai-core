@@ -610,20 +610,23 @@ describe('degraded mode §4.6 fault injection', () => {
   });
 
   it('X2a: first replay after offboard before apply → not_member exception; not checked in', async () => {
-    const actor = 'user_deg_x2a';
-    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const owner = 'user_deg_x2a_owner';
+    const clerkId = 'user_deg_x2a_clerk';
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(owner);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
+    await org.upsertPropertyMember(clerkId, propertyId, 'staff');
+
     const departure = addDays(arrival, 2);
-    expect((await postReservation(propertyId, actor, 'res_deg_x2a', arrival, departure, guestRef)).status).toBe(201);
-    await assignCleanRoom(stub, actor, 'res_deg_x2a', 'rm_deg_x2a', '317');
+    expect((await postReservation(propertyId, owner, 'res_deg_x2a', arrival, departure, guestRef)).status).toBe(201);
+    await assignCleanRoom(stub, owner, 'res_deg_x2a', 'rm_deg_x2a', '317');
 
     const sent: PendingCommandMessage[] = [];
     mockQueueSendCapture(sent);
     await stub.setTransportBlockedForTest(true);
-    expect((await postCheckIn(propertyId, actor, 'res_deg_x2a', 'idem-x2a')).status).toBe(202);
+    expect((await postCheckIn(propertyId, clerkId, 'res_deg_x2a', 'idem-x2a')).status).toBe(202);
     await stub.setTransportBlockedForTest(false);
 
-    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
-    await org.removePropertyMemberForTest(actor, propertyId);
+    await org.removePropertyMemberForTest(clerkId, propertyId);
     await stub.clearPermissionCacheForTest();
 
     await dispatchPendingBatch(sent);
@@ -657,11 +660,15 @@ describe('degraded mode §4.6 fault injection', () => {
   });
 
   it('X2b: folio.add_item replay after offboard → exception; no folio line', async () => {
-    const actor = 'user_deg_x2b';
-    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(actor);
+    const owner = 'user_deg_x2b_owner';
+    const clerkId = 'user_deg_x2b_clerk';
+    const { orgId, propertyId, arrival, stub, guestRef } = await provisionHotel(owner);
+    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
+    await org.upsertPropertyMember(clerkId, propertyId, 'staff');
+
     const departure = addDays(arrival, 2);
     const reservationId = 'res_deg_x2b';
-    expect((await postReservation(propertyId, actor, reservationId, arrival, departure, guestRef)).status).toBe(201);
+    expect((await postReservation(propertyId, owner, reservationId, arrival, departure, guestRef)).status).toBe(201);
 
     const folioLineId = `${reservationId}:item:idem-x2b`;
     const payload = {
@@ -680,14 +687,13 @@ describe('degraded mode §4.6 fault injection', () => {
         orgId,
         issuedAt: new Date().toISOString(),
         businessDate: arrival,
-        actor: { userId: actor },
+        actor: { userId: clerkId },
         command: { type: 'folio.add_item', payload },
         routeId: 'post_folio_line',
       },
     };
 
-    const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<import('../src/org-do.js').OrgDO>;
-    await org.removePropertyMemberForTest(actor, propertyId);
+    await org.removePropertyMemberForTest(clerkId, propertyId);
     await stub.clearPermissionCacheForTest();
 
     await dispatchPendingBatch([msg]);

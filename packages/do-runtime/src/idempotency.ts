@@ -55,3 +55,23 @@ export function runIdempotent<T>(
   );
   return result;
 }
+
+/** Sync probe — same key/fingerprint rules as runIdempotent, no mutation. */
+export function readIdempotentCacheSync<T>(
+  sql: SqlStorageLike,
+  idem: IdempotencyKey,
+  actor: ActorContext,
+): T | null {
+  if (!idem.key || !idem.fingerprint) {
+    throw new Error('IdempotencyKey requires non-empty key and fingerprint');
+  }
+  const storageKey = scopeIdempotencyKey(actor, idem.key);
+  const prior = sql
+    .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
+    .toArray() as Array<{ request_fingerprint: string; response: string }>;
+  if (prior.length === 0) return null;
+  if (prior[0]!.request_fingerprint !== idem.fingerprint) {
+    throw new IdempotencyKeyReused(idem.key);
+  }
+  return JSON.parse(prior[0]!.response) as T;
+}

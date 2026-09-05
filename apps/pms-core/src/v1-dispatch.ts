@@ -9103,7 +9103,11 @@ export async function dispatchV1(
     return route.handler({ request, env, observability, actor, url: new URL(request.url), match });
   }
 
-  if (feature && (await killSwitchPromise)) {
+  const lifecycleKillSwitch =
+    (route.id === 'post_org_cancel' || route.id === 'post_org_purge') &&
+    (await checkKillSwitch(env, 'pms.core'));
+
+  if ((feature && (await killSwitchPromise)) || lifecycleKillSwitch) {
     return new Response(null, { status: 503 });
   }
 

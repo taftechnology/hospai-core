@@ -208,6 +208,7 @@ import {
   migrateSql,
   outboxBacklogSnapshot,
   runIdempotent,
+  readIdempotentCacheSync,
   scopeIdempotencyKey,
   IdempotencyKeyReused,
   TYPE_WIDE_RATE_PLAN,
@@ -1792,6 +1793,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: FORBIDDEN };
     }
     return null;
+  }
+
+  private replayPrecheckSync<T>(
+    actor: ActorContext,
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): T | null {
+    if (!provisional) return null;
+    try {
+      return readIdempotentCacheSync<T>(this.ctx.storage.sql, idem, actor);
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) {
+        return { ok: false, error: IDEM_KEY_REUSED } as T;
+      }
+      throw e;
+    }
   }
 
   private async gateOrgRef<T>(
@@ -7073,6 +7090,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryUpdateRoomStatus>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
+
     const permDenied = await this.gatePermission(actor, 'housekeeping:write');
     if (permDenied) return permDenied;
 
@@ -7147,6 +7169,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryBulkUpdateRoomStatus>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
 
     const permDenied = await this.gatePermission(actor, 'housekeeping:write');
     if (permDenied) return permDenied;
@@ -7413,6 +7440,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryAssignHousekeeping>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
 
     const permDenied = await this.gatePermission(actor, 'housekeeping:write');
     if (permDenied) return permDenied;
@@ -9452,6 +9484,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryCheckIn>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
+
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
 
@@ -9648,6 +9685,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryCheckOut>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
 
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
@@ -9878,6 +9920,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryCancelCheckIn>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
+
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
 
@@ -10104,6 +10151,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryUpdateFrontOffice>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
 
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
@@ -15120,6 +15172,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<
+      Awaited<ReturnType<typeof this.tryAddFolioLine>>
+    >(actor, idem, provisional);
+    if (cached !== null) return cached;
 
     const permDenied = await this.gatePermission(actor, 'folio:post');
     if (permDenied) return permDenied;

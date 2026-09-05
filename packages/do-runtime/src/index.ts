@@ -204,4 +204,9 @@ export {
   outboxBacklogSnapshot,
 } from './outbox.js';
 
-export { IdempotencyKeyReused, runIdempotent, scopeIdempotencyKey } from './idempotency.js';
+export {
+  IdempotencyKeyReused,
+  readIdempotentCacheSync,
+  runIdempotent,
+  scopeIdempotencyKey,
+} from './idempotency.js';

@@ -10,7 +10,7 @@ export type ProvisionalCommand = {
   /** YYYY-MM-DD — business date the operator believed was open when they acted. */
   businessDate: string;
   actor: {
-    /** Authenticated user at admission time — audit anchor; replay uses system actor (§7.1). */
+    /** Authenticated user at admission time — audit anchor; replay permission re-checks userId. */
     userId: string;
   };
   command: {
@@ -32,7 +32,7 @@ export type PendingCommandMessage = {
 export type ProvisionalContext = {
   issuedAt: string;
   businessDate: string;
-  /** Admission-time operator — audit rows only; permission actor stays REPLAY_ACTOR. */
+  /** Admission-time operator — audit rows via auditUserId; replay permission re-checks actor.userId. */
   auditUserId?: string;
 };
 

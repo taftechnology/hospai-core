@@ -4386,7 +4386,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: { propertyId, exceptionId: input.exceptionId, businessDate: row.business_date },
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -4626,7 +4626,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             afterJson: { action: 'retry_failed', reason, detail: inner },
           });
           return { ok: false as const, error: reason, retried: false as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -4694,7 +4694,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: { propertyId, exceptionId: input.exceptionId, assignedTo: input.assignedTo },
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -4762,7 +4762,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             payload: { propertyId, exceptionId: input.exceptionId, noteId: input.noteId },
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -4850,7 +4850,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           return result.status === 'FAILED'
             ? { ok: true as const, status: 'FAILED' as const, error: result.error }
             : { ok: true as const, status: 'COMPLETED' as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -4951,7 +4951,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               payload: { propertyId, businessDate: input.businessDate },
             });
             return payload;
-          }),
+          }, actor),
         );
       } catch (e) {
         const mapped = mapPropertyCommandError(e);
@@ -5143,7 +5143,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             afterJson: { businessDate, started: true },
           });
           return { ok: true as const, businessDate };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -5271,7 +5271,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             events.push('availability.changed');
           }
           return { ok: true as const, key, version, events, rescheduled };
-        }),
+        }, actor),
       );
       if (result.ok && result.rescheduled) {
         await this.scheduler.armFromTable();
@@ -5820,7 +5820,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -6077,7 +6077,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion, fromDate, toDate };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -6242,7 +6242,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomTypeId: input.roomTypeId, ariVersion };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -6381,7 +6381,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomId: input.roomId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -6502,7 +6502,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomId: input.roomId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -6603,7 +6603,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomId: input.roomId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -7026,7 +7026,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, roomId: input.roomId, oooId: oooId! };
-        });
+        }, actor);
       });
     } catch (e) {
       if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
@@ -7095,7 +7095,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             afterJson: { status: input.status },
           });
           return result;
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -7181,7 +7181,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             });
           }
           return result;
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -7354,7 +7354,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
             roomId: input.roomId,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -7437,7 +7437,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
           return result;
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -8299,7 +8299,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             fromDate,
             toDate,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof NoAvailabilityError) {
@@ -8452,7 +8452,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
           return { ok: true as const, reservationId: input.reservationId, ariVersion, fromDate, toDate };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof NoAvailabilityError) {
@@ -8590,7 +8590,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
           return { ok: true as const, reservationId: input.reservationId, ariVersion, fromDate, toDate };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof NoAvailabilityError) {
@@ -8757,7 +8757,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             fromDate,
             toDate,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -9340,7 +9340,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             fromDate: unionFrom,
             toDate: unionTo,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof NoAvailabilityError) {
@@ -9602,7 +9602,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, reservationId: input.reservationId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -9779,7 +9779,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           return { ok: true as const, reservationId: input.reservationId };
-        }),
+        }, actor),
       );
       if (!result.ok) return result;
       const autoCapture = await this.resolveCheckOutAutoCapture({
@@ -9911,7 +9911,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, reservationId: input.reservationId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -10056,7 +10056,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             fromDate,
             toDate,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -10182,7 +10182,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
           return { ok: true as const, reservationId: input.reservationId };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -11437,7 +11437,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             },
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -11861,7 +11861,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, promoId: input.promoId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -11974,7 +11974,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, promoId: input.promoId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12040,7 +12040,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, promoId: input.promoId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12214,7 +12214,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           return { ok: true as const, ratePlanId: input.ratePlanId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12406,7 +12406,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           return { ok: true as const, ratePlanId: input.ratePlanId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12508,7 +12508,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, ratePlanId: input.ratePlanId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12810,7 +12810,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, code: input.code };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12901,7 +12901,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, code: input.code };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -12988,7 +12988,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, code: input.code, status: input.status };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -13172,7 +13172,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, ruleId: input.ruleId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -13265,7 +13265,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, ruleId: input.ruleId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -13490,7 +13490,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, taxRuleId: input.taxRuleId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -13640,7 +13640,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, taxRuleId: input.taxRuleId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -13895,7 +13895,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, quoteId: input.quoteId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14017,7 +14017,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, quoteId: input.quoteId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14137,7 +14137,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             input.stayDate,
           );
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14278,7 +14278,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           return { ok: true as const, count: normalized.length };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14532,7 +14532,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
           return { ok: true as const, folioWindowId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14608,7 +14608,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: window.reservationId,
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -14670,7 +14670,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: window.reservationId,
           });
           return { ok: true as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -15174,7 +15174,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             folioLineId: input.folioLineId,
             ledgerAmountMinor: moneyCheck.posted.ledgerAmountMinor,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
@@ -15419,7 +15419,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: source.reservation_id,
           });
           return { ok: true as const, folioLineId: input.folioLineId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -15516,7 +15516,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: source.reservation_id,
           });
           return { ok: true as const, folioLineIds };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -15830,7 +15830,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             destFolioLineId: xfer.destFolioLineId,
             cityLedgerSynced: xfer.cityLedgerSynced,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -16919,7 +16919,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: 'declined' as const,
             gatewayReference: row.gateway_reference,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -17578,7 +17578,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status: terminalStatus,
             refundedAmountMinor: newRefundedAmountMinor,
           };
-        });
+        }, actor);
       });
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -17683,7 +17683,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: current.reservation_id,
           });
           return { ok: true as const, paymentId: input.paymentId, status: 'chargeback' as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -17800,7 +17800,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             reservationId: input.reservationId,
           });
           return { ok: true as const, folioLineId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -17847,7 +17847,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       const captured = await this.captureDueHoldsInner(actor, input.reservationId);
       return this.ctx.storage.transactionSync(() =>
-        runIdempotent(this.ctx.storage.sql, idem, () => ({ ok: true as const, captured })),
+        runIdempotent(this.ctx.storage.sql, idem, () => ({ ok: true as const, captured }), actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -18021,7 +18021,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             shiftId: input.shiftId,
           });
           return { ok: true as const, shiftId: input.shiftId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -18133,7 +18133,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             variance,
             unattributedCashCount,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -18865,7 +18865,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             sha256: put.sha256,
             generatedAt,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -18965,7 +18965,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, invoiceId: row.invoice_id, voidedAt };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -19942,7 +19942,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             creditLimitMinor,
             termsDays,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -20071,7 +20071,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             creditLimitMinor: nextCreditLimitMinor,
             termsDays: nextTermsDays,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -20143,7 +20143,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, accountId: input.accountId, status: 'archived' as const };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -20251,7 +20251,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, entryId, openBalanceMinor: nextOpenBalanceMinor };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);
@@ -20358,7 +20358,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             sha256: put.sha256,
             snapshot,
           };
-        }),
+        }, actor),
       );
     } catch (e) {
       const mapped = mapReservationPreconditionError(e) ?? mapPropertyCommandError(e);

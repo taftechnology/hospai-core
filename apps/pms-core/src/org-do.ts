@@ -46,6 +46,7 @@ import {
   type LaneGuardOptions,
   outboxBacklogSnapshot,
   runIdempotent,
+  scopeIdempotencyKey,
   IdempotencyKeyReused,
   toQueueBatchEntry,
   OUTBOX_BACKLOG_DELAY_MS,
@@ -256,9 +257,14 @@ function mapOrgCommandError(e: unknown): { ok: false; error: CommandError } | nu
  * `runIdempotent`'s in-transaction check finds the prior row. `runIdempotent` remains the sole
  * source of truth for not-inserting-twice; this is a latency/CPU optimization, not a substitute.
  */
-function readIdempotentReplay<T>(sql: DurableObjectState['storage']['sql'], idem: IdempotencyKey): T | null {
+function readIdempotentReplay<T>(
+  sql: DurableObjectState['storage']['sql'],
+  idem: IdempotencyKey,
+  actor: ActorContext,
+): T | null {
+  const storageKey = scopeIdempotencyKey(actor, idem.key);
   const prior = sql
-    .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+    .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
     .toArray() as Array<{ request_fingerprint: string; response: string }>;
   if (prior.length === 0) return null;
   if (prior[0]!.request_fingerprint !== idem.fingerprint) {
@@ -1459,7 +1465,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
             payload: { orgId, propertyId, name: input.name },
           });
           return { ok: true as const, propertyId, name: input.name };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -1531,7 +1537,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     try {
       const replay = readIdempotentReplay<
         { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
-      >(this.ctx.storage.sql, idem);
+      >(this.ctx.storage.sql, idem, actor);
       if (replay) return replay;
 
       const existing = this.ctx.storage.sql
@@ -1581,7 +1587,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, guestId: input.guestId, piiKeyId: material.piiKeyId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -1621,7 +1627,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     try {
       const replay = readIdempotentReplay<
         { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
-      >(this.ctx.storage.sql, idem);
+      >(this.ctx.storage.sql, idem, actor);
       if (replay) return replay;
 
       const rows = this.ctx.storage.sql
@@ -1655,7 +1661,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, guestId: input.guestId, piiKeyId: guest.pii_key_id };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -1760,7 +1766,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, guestId: input.guestId, piiKeyId: guest.pii_key_id };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -1851,6 +1857,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
+        actor,
       );
       if (replay) return replay;
 
@@ -1890,7 +1897,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, staffId, piiKeyId: material.piiKeyId };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -1938,6 +1945,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
+        actor,
       );
       if (replay) return replay;
 
@@ -1995,7 +2003,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -2032,6 +2040,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
+        actor,
       );
       if (replay) return replay;
 
@@ -2060,7 +2069,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
@@ -2097,6 +2106,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
         this.ctx.storage.sql,
         idem,
+        actor,
       );
       if (replay) return replay;
 
@@ -2141,7 +2151,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           });
 
           return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
-        }),
+        }, actor),
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };

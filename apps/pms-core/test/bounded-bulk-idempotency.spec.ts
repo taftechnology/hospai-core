@@ -363,7 +363,10 @@ describe('bounded bulk + idempotency + JSON (R0.8)', () => {
 
   // T8 — user A check-in key K; user B same key → fresh execution (not A's cache)
   it('T8: user A check-in key K success; user B same key → not A cached 200', async () => {
-    const { stub } = await provisionedPropertyStub(`bb-scope-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const { stub, orgId } = await provisionedPropertyStub(`bb-scope-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const org = orgStub(orgId);
+    await org.ensureMember(ACTOR_A, 'staff');
+    await org.ensureMember(ACTOR_B, 'staff');
     const arrival = (await stub.readBusinessDate())!;
     const reservationId = 'res_scope';
     await stub.tryAddRoomType(

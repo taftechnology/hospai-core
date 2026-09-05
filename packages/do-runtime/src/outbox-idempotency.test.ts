@@ -1,7 +1,7 @@
 import type { EventSource } from '@hospai/contracts';
 import { TENANT_ID_MAX_UTF8_BYTES } from '@hospai/contracts';
 import { describe, expect, it } from 'vitest';
-import { IdempotencyKeyReused, runIdempotent } from './idempotency.js';
+import { IdempotencyKeyReused, runIdempotent, scopeIdempotencyKey } from './idempotency.js';
 import {
   appendOutbox,
   drainOutbox,
@@ -232,6 +232,8 @@ describe('outbox helpers', () => {
 });
 
 describe('runIdempotent', () => {
+  const testActor = { kind: 'user' as const, userId: 'test_user' };
+
   it('returns sync result and does not re-execute on replay', () => {
     const sql = new OutboxMemorySql();
     let runs = 0;
@@ -240,7 +242,7 @@ describe('runIdempotent', () => {
       runs += 1;
       appendOutbox(sql, { eventId: 'e1', eventType: 't', payload: { n: 1 }, source: TEST_SOURCE });
       return { ok: true as const, n: 1 };
-    });
+    }, testActor);
     expect(first).toEqual({ ok: true, n: 1 });
     expect(runs).toBe(1);
     expect(first).not.toBeInstanceOf(Promise);
@@ -248,7 +250,7 @@ describe('runIdempotent', () => {
     const second = runIdempotent(sql, idem, () => {
       runs += 1;
       throw new Error('must not run');
-    });
+    }, testActor);
     expect(second).toEqual({ ok: true, n: 1 });
     expect(runs).toBe(1);
     expect(drainOutbox(sql, { source: TEST_SOURCE }).rows).toHaveLength(1);
@@ -256,15 +258,44 @@ describe('runIdempotent', () => {
 
   it('throws IdempotencyKeyReused on fingerprint mismatch', () => {
     const sql = new OutboxMemorySql();
-    runIdempotent(sql, { key: 'k1', fingerprint: 'fp1' }, () => ({ ok: true }));
+    runIdempotent(sql, { key: 'k1', fingerprint: 'fp1' }, () => ({ ok: true }), testActor);
     expect(() =>
-      runIdempotent(sql, { key: 'k1', fingerprint: 'fp2' }, () => ({ ok: true })),
+      runIdempotent(sql, { key: 'k1', fingerprint: 'fp2' }, () => ({ ok: true }), testActor),
     ).toThrow(IdempotencyKeyReused);
   });
 
   it('rejects empty key or fingerprint', () => {
     const sql = new OutboxMemorySql();
-    expect(() => runIdempotent(sql, { key: '', fingerprint: 'fp' }, () => 1)).toThrow();
-    expect(() => runIdempotent(sql, { key: 'k', fingerprint: '' }, () => 1)).toThrow();
+    expect(() => runIdempotent(sql, { key: '', fingerprint: 'fp' }, () => 1, testActor)).toThrow();
+    expect(() => runIdempotent(sql, { key: 'k', fingerprint: '' }, () => 1, testActor)).toThrow();
+  });
+});
+
+describe('scopeIdempotencyKey (S6)', () => {
+  it('user keys are prefixed with userId', () => {
+    expect(scopeIdempotencyKey({ kind: 'user', userId: 'u1' }, 'K')).toBe('u1:K');
+    expect(scopeIdempotencyKey({ kind: 'user', userId: 'u2' }, 'K')).toBe('u2:K');
+  });
+
+  it('system keys use system: prefix', () => {
+    expect(scopeIdempotencyKey({ kind: 'system', reason: 'night_audit' }, 'K')).toBe('system:K');
+  });
+
+  it('same client key, different users → independent idempotency rows', () => {
+    const sql = new OutboxMemorySql();
+    const idem = { key: 'shared', fingerprint: 'fp1' };
+    runIdempotent(sql, idem, () => ({ ok: true, who: 'A' }), { kind: 'user', userId: 'user_a' });
+    let runs = 0;
+    const second = runIdempotent(
+      sql,
+      idem,
+      () => {
+        runs += 1;
+        return { ok: true, who: 'B' };
+      },
+      { kind: 'user', userId: 'user_b' },
+    );
+    expect(second).toEqual({ ok: true, who: 'B' });
+    expect(runs).toBe(1);
   });
 });

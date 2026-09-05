@@ -1,4 +1,4 @@
-import type { IdempotencyKey, Sync } from '@hospai/contracts';
+import type { ActorContext, IdempotencyKey, Sync } from '@hospai/contracts';
 import type { SqlStorageLike } from './index.js';
 
 /**
@@ -12,6 +12,11 @@ export class IdempotencyKeyReused extends Error {
   }
 }
 
+export function scopeIdempotencyKey(actor: ActorContext, clientKey: string): string {
+  if (actor.kind === 'user') return `${actor.userId}:${clientKey}`;
+  return `system:${clientKey}`;
+}
+
 /**
  * Lookup → execute (sync) → insert idempotency row.
  * MUST NOT await. Mutation + outbox + idempotency insert share one DO I/O gate (§10.1).
@@ -21,13 +26,16 @@ export function runIdempotent<T>(
   sql: SqlStorageLike,
   idem: IdempotencyKey,
   execute: () => Sync<T>,
+  actor: ActorContext,
 ): T {
   if (!idem.key || !idem.fingerprint) {
     throw new Error('IdempotencyKey requires non-empty key and fingerprint');
   }
 
+  const storageKey = scopeIdempotencyKey(actor, idem.key);
+
   const prior = sql
-    .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+    .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
     .toArray() as Array<{ request_fingerprint: string; response: string }>;
 
   if (prior.length > 0) {
@@ -40,7 +48,7 @@ export function runIdempotent<T>(
   const result = execute();
   sql.exec(
     `INSERT INTO idempotency (key, request_fingerprint, response, created_at) VALUES (?, ?, ?, ?)`,
-    idem.key,
+    storageKey,
     idem.fingerprint,
     JSON.stringify(result),
     Date.now(),

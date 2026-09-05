@@ -112,7 +112,7 @@ import {
   CITY_LEDGER_STATEMENT_NOT_FOUND,
   CITY_LEDGER_R2_UNBOUND,
   CITY_LEDGER_CHARGE_ALREADY_POSTED,
-  fingerprintPayload,
+  commandFingerprint,
   requireCatalogEntry,
   requiredPermissionForKey,
   RESERVATION_STATUSES,
@@ -1470,28 +1470,10 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fpInput =
+  const sortedConstituents =
     kind === 'virtual'
-      ? {
-          roomTypeId: body.roomTypeId,
-          code: body.code,
-          name: body.name,
-          kind: 'virtual' as const,
-          roomCount: 0,
-          maxOccupancy: body.maxOccupancy,
-          maxAdults: body.maxAdults,
-          constituentRoomTypeIds: [...body.constituentRoomTypeIds!].sort((a, b) => a.localeCompare(b)),
-        }
-      : {
-          roomTypeId: body.roomTypeId,
-          code: body.code,
-          name: body.name,
-          roomCount: body.roomCount!,
-          maxOccupancy: body.maxOccupancy,
-          maxAdults: body.maxAdults,
-        };
-  const fingerprint = await fingerprintPayload(fpInput);
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+      ? [...body.constituentRoomTypeIds!].sort((a, b) => a.localeCompare(b))
+      : undefined;
   const commandPayload =
     kind === 'virtual'
       ? {
@@ -1502,7 +1484,7 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
           roomCount: 0,
           maxOccupancy: body.maxOccupancy,
           maxAdults: body.maxAdults,
-          constituentRoomTypeIds: body.constituentRoomTypeIds,
+          constituentRoomTypeIds: sortedConstituents!,
         }
       : {
           roomTypeId: body.roomTypeId,
@@ -1512,6 +1494,8 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
           maxOccupancy: body.maxOccupancy,
           maxAdults: body.maxAdults,
         };
+  const fingerprint = await commandFingerprint('inventory.add_room_type', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddRoomType']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -1564,18 +1548,10 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const payload: Record<string, unknown> = { roomTypeId };
-  if (body.code !== undefined) payload.code = body.code;
-  if (body.name !== undefined) payload.name = body.name;
-  if (body.roomCount !== undefined) payload.roomCount = body.roomCount;
-  if (body.maxOccupancy !== undefined) payload.maxOccupancy = body.maxOccupancy;
-  if (body.maxAdults !== undefined) payload.maxAdults = body.maxAdults;
-  if (body.constituentRoomTypeIds !== undefined) {
-    payload.constituentRoomTypeIds = [...body.constituentRoomTypeIds].sort((a, b) => a.localeCompare(b));
-  }
-
-  const fingerprint = await fingerprintPayload(payload);
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const sortedConstituents =
+    body.constituentRoomTypeIds !== undefined
+      ? [...body.constituentRoomTypeIds].sort((a, b) => a.localeCompare(b))
+      : undefined;
   const commandPayload = {
     roomTypeId,
     code: body.code,
@@ -1583,8 +1559,10 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     roomCount: body.roomCount,
     maxOccupancy: body.maxOccupancy,
     maxAdults: body.maxAdults,
-    constituentRoomTypeIds: body.constituentRoomTypeIds,
+    constituentRoomTypeIds: sortedConstituents,
   };
+  const fingerprint = await commandFingerprint('inventory.update_room_type', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateRoomType']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -1632,7 +1610,7 @@ async function handleDeleteRoomType(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ roomTypeId });
+  const fingerprint = await commandFingerprint('inventory.delete_room_type', { roomTypeId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { roomTypeId };
 
@@ -1682,7 +1660,7 @@ async function handleDeleteRoom(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ roomId });
+  const fingerprint = await commandFingerprint('rooms.delete', { roomId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { roomId };
 
@@ -1735,7 +1713,7 @@ async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Respo
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const fingerprint = await fingerprintPayload({ propertyId, name: body.name });
+  const fingerprint = await commandFingerprint('property.update_details', { propertyId, name: body.name });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -1789,7 +1767,7 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('config.put_domain', {
     key,
     value,
     reason,
@@ -1862,7 +1840,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
   if (body.email !== undefined) profile.email = body.email;
   if (body.phone !== undefined) profile.phone = body.phone;
-  const fingerprint = await fingerprintPayload({ guestId: body.guestId, ...profile });
+  const fingerprint = await commandFingerprint('guests.create', { guestId: body.guestId, ...profile });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -1913,7 +1891,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
   const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
   if (body.email !== undefined) profile.email = body.email;
   if (body.phone !== undefined) profile.phone = body.phone;
-  const fingerprint = await fingerprintPayload({ guestId, ...profile });
+  const fingerprint = await commandFingerprint('guests.update', { guestId, ...profile });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -1956,7 +1934,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const fingerprint = await fingerprintPayload({ guestId });
+  const fingerprint = await commandFingerprint('guests.erase', { guestId });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -2162,7 +2140,7 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
   const profile = parseRosterProfile(body);
   if (profile instanceof Response) return profile;
   const kinds = [...body.kinds].sort();
-  const fingerprint = await fingerprintPayload({ profile, kinds });
+  const fingerprint = await commandFingerprint('roster.add', { profile, kinds });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -2220,7 +2198,7 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
   const profile = parseRosterProfile(body);
   if (profile instanceof Response) return profile;
   const kinds = body.kinds ? [...body.kinds].sort() : undefined;
-  const fingerprint = await fingerprintPayload({ staffId, profile, kinds });
+  const fingerprint = await commandFingerprint('roster.update', { staffId, profile, kinds });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -2267,7 +2245,7 @@ async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response>
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const fingerprint = await fingerprintPayload({ staffId, status: body.status });
+  const fingerprint = await commandFingerprint('roster.status', { staffId, status: body.status });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -2310,7 +2288,7 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const fingerprint = await fingerprintPayload({ staffId });
+  const fingerprint = await commandFingerprint('roster.exit', { staffId });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
@@ -2377,7 +2355,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
       ? normalizePromoCode(body.promoCode)
       : null;
 
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('reservations.create', {
     reservationId: body.reservationId,
     roomTypeId: body.roomTypeId,
     arrivalDate: body.arrivalDate,
@@ -2546,7 +2524,7 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('reservations.modify', {
     reservationId,
     roomTypeId: body.roomTypeId,
     arrivalDate: body.arrivalDate,
@@ -2633,7 +2611,7 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ reservationId });
+  const fingerprint = await commandFingerprint('reservations.cancel', { reservationId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { reservationId };
 
@@ -2684,7 +2662,7 @@ async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Res
     reservationId,
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('reservations.confirm', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryConfirm']>>>({
@@ -2738,7 +2716,7 @@ async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Respon
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
     ...(body.confirmBy !== undefined ? { confirmBy: body.confirmBy } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('reservations.hold', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryHold']>>>({
@@ -2796,7 +2774,7 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
     ...(body.dndFlag !== undefined ? { dndFlag: body.dndFlag } : {}),
     ...(body.noPost !== undefined ? { noPost: body.noPost } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('reservations.update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateFrontOffice']>>>({
@@ -2918,10 +2896,10 @@ async function handlePostReservationStatusAction(
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ reservationId });
+  const commandPayload = { reservationId };
+  const fingerprint = await commandFingerprint(commandId, commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
-  const commandPayload = { reservationId };
 
   const invoked = await invokePropertyDo({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -2966,7 +2944,7 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, ...(roomId !== undefined ? { roomId } : {}), ...(overrideCleanliness !== undefined ? { overrideCleanliness } : {}) };
-  const fingerprint = await fingerprintPayload({ reservationId, roomId, overrideCleanliness });
+  const fingerprint = await commandFingerprint('reservations.check_in', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
@@ -3008,7 +2986,7 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, ...(overrideBalance !== undefined ? { overrideBalance } : {}) };
-  const fingerprint = await fingerprintPayload({ reservationId, overrideBalance });
+  const fingerprint = await commandFingerprint('reservations.check_out', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
@@ -3657,9 +3635,9 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const cell = normalizeRateDayCell(body);
-  const fingerprint = await fingerprintPayload(cell);
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { ...cell, auditCommandId: 'rates.upsert_day' as const };
+  const fingerprint = await commandFingerprint('rates.upsert_day', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -3713,7 +3691,7 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const ratePlanId = body.ratePlanId ?? TYPE_WIDE_RATE_PLAN;
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('restrictions.upsert_day', {
     roomTypeId: body.roomTypeId,
     ratePlanId,
     stayDate: body.stayDate,
@@ -3786,7 +3764,7 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
     chargeCode: body.chargeCode,
     amountMinor: body.amountMinor,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.add_item', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -3867,7 +3845,7 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
     code: body.code,
   };
   if (body.floor !== undefined) commandPayload.floor = body.floor;
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rooms.create', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -3922,7 +3900,7 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
   const commandPayload: { roomId: string; code?: string; floor?: string } = { roomId };
   if (body.code !== undefined) commandPayload.code = body.code;
   if (body.floor !== undefined) commandPayload.floor = body.floor;
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rooms.update', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -3986,7 +3964,7 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { roomId, status: body.status };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rooms.update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4046,7 +4024,7 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
   } = { roomId, startDate: body.startDate, endDate: body.endDate };
   if (body.oooId !== undefined) commandPayload.oooId = body.oooId;
   if (body.reason !== undefined) commandPayload.reason = body.reason;
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('rooms.set_ooo_range', {
     roomId,
     startDate: body.startDate,
     endDate: body.endDate,
@@ -4103,7 +4081,7 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
 
   const updates = [...body.updates].sort((a, b) => a.roomId.localeCompare(b.roomId));
   const commandPayload = { updates };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rooms.bulk_update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4145,7 +4123,7 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { reservationId, roomId: body.roomId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('reservations.assign_room', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4195,7 +4173,7 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     businessDate: body.businessDate,
     assigneeRef: body.assigneeRef,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('housekeeping.assign', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4298,7 +4276,7 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
     ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.create_plan', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4373,7 +4351,7 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
     ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.update_plan', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4414,7 +4392,7 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { ratePlanId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.delete_plan', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
@@ -4462,7 +4440,7 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { code: body.code, name: body.name };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.create_charge_code', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4512,7 +4490,7 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
     ...(body.name !== undefined ? { name: body.name } : {}),
     ...(body.taxGroup !== undefined ? { taxGroup: body.taxGroup } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.update_charge_code', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4557,7 +4535,7 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { code, status: body.status };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.set_charge_code_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4657,7 +4635,7 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
     chargeCode: body.chargeCode,
     destWindowKind: body.destWindowKind as 'COMPANY' | 'MASTER',
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.upsert_routing_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4699,7 +4677,7 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { ruleId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.archive_routing_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4771,7 +4749,7 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
     validFrom: body.validFrom,
     validTo: body.validTo ?? null,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.create_tax_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4842,7 +4820,7 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
     validFrom: body.validFrom,
     validTo: body.validTo ?? null,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.supersede_tax_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4909,7 +4887,7 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { shiftId: body.shiftId, openingFloat: body.openingFloat };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.open_shift', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4954,7 +4932,7 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { shiftId, closingCount: body.closingCount };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.close_shift', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -5000,7 +4978,7 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const requestFingerprint = await fingerprintPayload({
+  const requestFingerprint = await commandFingerprint('folio.record_cash_payment', {
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
@@ -5169,7 +5147,7 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
     ...(body.validTo !== undefined ? { validTo: body.validTo } : {}),
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.create_promo', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreatePromo']>>>({
@@ -5242,7 +5220,7 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     ...(body.validTo !== undefined ? { validTo: body.validTo } : {}),
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.update_promo', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -5283,7 +5261,7 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { promoId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('rates.archive_promo', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: idempotencyKey, fingerprint };
 
@@ -5329,7 +5307,7 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     reservationId: body.reservationId,
     ...(body.folioWindowId ? { folioWindowId: body.folioWindowId } : {}),
   };
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('invoice.generate', {
     reservationId: body.reservationId,
     folioWindowId: resolvedWindow,
   });
@@ -5389,7 +5367,7 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
     invoiceId,
     ...(body.reason ? { reason: body.reason } : {}),
   };
-  const fingerprint = await fingerprintPayload({ invoiceId });
+  const fingerprint = await commandFingerprint('invoice.void', { invoiceId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidInvoice']>>>({
@@ -5444,7 +5422,7 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
     ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
     ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
   };
-  const fingerprint = await fingerprintPayload({ name: body.name.trim() });
+  const fingerprint = await commandFingerprint('city_ledger.create_account', { name: body.name.trim() });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateCityLedgerAccount']>>>({
@@ -5518,7 +5496,7 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
 
   if (body.status === 'archived') {
     const commandPayload = { accountId };
-    const fingerprint = await fingerprintPayload({ accountId });
+    const fingerprint = await commandFingerprint('city_ledger.archive_account', { accountId });
     const idem = { key: body.idempotencyKey, fingerprint };
     const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryArchiveCityLedgerAccount']>>>({
       ...commandEnvelope(ctx, resolvedCtx, {
@@ -5550,7 +5528,7 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
     ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
     ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
   };
-  const fingerprint = await fingerprintPayload(
+  const fingerprint = await commandFingerprint('city_ledger.archive_account', 
     Object.fromEntries(
       Object.entries(commandPayload).sort(([a], [b]) => a.localeCompare(b)),
     ),
@@ -5597,7 +5575,7 @@ async function handlePostCityLedgerAccountPayment(ctx: V1DispatchContext): Promi
     ...(body.businessDate !== undefined ? { businessDate: body.businessDate } : {}),
     ...(body.reference !== undefined ? { reference: body.reference } : {}),
   };
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('city_ledger.receive_payment', {
     accountId,
     amountMinor: body.amountMinor,
     businessDate: body.businessDate ?? null,
@@ -5984,7 +5962,7 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
     amountMinor: body.amountMinor,
     currency: body.currency,
   });
-  const fingerprint = await fingerprintPayload(cell);
+  const fingerprint = await commandFingerprint('rates.update_room_type_rate', cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { ...cell, auditCommandId: 'rates.update_room_type_rate' as const };
 
@@ -6050,7 +6028,7 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
       if (c2 !== 0) return c2;
       return a.stayDate.localeCompare(b.stayDate);
     });
-  const fingerprint = await fingerprintPayload({ updates: normalized });
+  const fingerprint = await commandFingerprint('rates.bulk_update', { updates: normalized });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { updates: normalized };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -6099,7 +6077,7 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const commandPayload = { sourceFolioLineId, splits: body.splits };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.split_charge', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -6141,7 +6119,7 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { reservationId, kind: body.kind, billedParty: body.billedParty };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.open_window', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOpenFolioWindow']>>>({
@@ -6176,7 +6154,7 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { folioWindowId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.close_window', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCloseFolioWindow']>>>({
@@ -6211,7 +6189,7 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { folioWindowId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.reopen_window', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReopenFolioWindow']>>>({
@@ -6249,7 +6227,7 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { sourceFolioLineId, destinationFolioWindowId: body.destinationFolioWindowId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.transfer_charge', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryTransferCharge']>>>({
@@ -6284,7 +6262,7 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.void', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidPayment']>>>({
@@ -6332,7 +6310,7 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
     body.gatewayReference != null
       ? { paymentId, outcome: body.outcome, gatewayReference: body.gatewayReference }
       : { paymentId, outcome: body.outcome };
-  const fingerprint = await fingerprintPayload(fingerprintInput);
+  const fingerprint = await commandFingerprint('folio.reconcile_payment', fingerprintInput);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
     paymentId,
@@ -6381,7 +6359,7 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId, amountMinor: body.amountMinor };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.refund', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRefundPayment']>>>({
@@ -6432,7 +6410,7 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
     reason: body.reason,
     folioLineId: body.folioLineId,
   };
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('folio.post_discount', {
     sourceFolioLineId,
     kind: body.kind,
     bps: body.bps,
@@ -6489,7 +6467,7 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
     reason: body.reason,
     folioLineId: body.folioLineId,
   };
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('folio.post_discount', {
     reservationId,
     kind: body.kind,
     bps: body.bps,
@@ -6530,7 +6508,7 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { reservationId };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.capture_due', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCaptureDueHolds']>>>({
@@ -6574,7 +6552,7 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const requestFingerprint = await fingerprintPayload({
+  const requestFingerprint = await commandFingerprint('folio.authorize', {
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
@@ -6630,7 +6608,7 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const captureFingerprint = await fingerprintPayload({
+  const captureFingerprint = await commandFingerprint('folio.capture', {
     paymentId,
     amountMinor: body.amountMinor,
   });
@@ -6762,7 +6740,7 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
   const status = await resolvedCtx.resolved.stub.readNightAuditStatus();
   if (!status.ok) return json({ ok: false, error: status.error }, 422);
   const businessDate = status.businessDate;
-  const fingerprint = await fingerprintPayload({ propertyId, businessDate });
+  const fingerprint = await commandFingerprint('night_audit.run', { propertyId, businessDate });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryStartNightAudit']>>>({
@@ -6836,7 +6814,7 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({
+  const fingerprint = await commandFingerprint('night_audit.retry_step', {
     propertyId,
     businessDate: body.businessDate,
     step,
@@ -6887,7 +6865,7 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ propertyId, businessDate: body.businessDate });
+  const fingerprint = await commandFingerprint('night_audit.resolve_halt', { propertyId, businessDate: body.businessDate });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const census = { pendingOpenCount: await countPendingOpen(ctx.env.PLATFORM_DB, propertyId) };
 
@@ -6931,7 +6909,7 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ propertyId, exceptionId });
+  const fingerprint = await commandFingerprint('provisional.resolve_exception', { propertyId, exceptionId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<
@@ -7013,7 +6991,7 @@ async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Prom
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ exceptionId });
+  const fingerprint = await commandFingerprint('provisional.retry_exception', { exceptionId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<
@@ -7060,7 +7038,7 @@ async function handlePostProvisionalExceptionAssign(ctx: V1DispatchContext): Pro
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ exceptionId, assignedTo: body.assignedTo });
+  const fingerprint = await commandFingerprint('provisional.assign_exception', { exceptionId, assignedTo: body.assignedTo });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<
@@ -7104,7 +7082,7 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await fingerprintPayload({ exceptionId, noteId: body.noteId });
+  const fingerprint = await commandFingerprint('provisional.add_exception_note', { exceptionId, noteId: body.noteId });
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryAddExceptionNote']>>>({
@@ -7319,7 +7297,7 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
     rate: body.rate,
     effectiveFrom: body.effectiveFrom,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.create_fx_rate', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateFxRate']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -7369,7 +7347,7 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
     rate: body.rate,
     effectiveFrom: body.effectiveFrom,
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.supersede_fx_rate', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySupersedeFxRate']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -7437,7 +7415,7 @@ async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Respon
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const commandPayload = { paymentId, feeLedgerMinor: body.feeLedgerMinor, reason: body.reason };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.record_chargeback', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordChargeback']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -7491,7 +7469,7 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
     reason: body.reason,
     ...(body.sourcePaymentId ? { sourcePaymentId: body.sourcePaymentId } : {}),
   };
-  const fingerprint = await fingerprintPayload(commandPayload);
+  const fingerprint = await commandFingerprint('folio.post_fx_adjustment', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPostFxAdjustment']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {

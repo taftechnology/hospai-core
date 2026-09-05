@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { fingerprintPayload } from '@hospai/contracts';
+import { commandFingerprint, fingerprintPayload } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID } from '@hospai/do-runtime';
 import { resolveOrgStub, resolvePropertyStub } from '@hospai/tenant-router';
 import type { OrgDO } from '../src/org-do';
@@ -27,6 +27,10 @@ export function propertyStub(name: string, orgId = DEFAULT_TEST_ORG) {
 
 export async function idemFor(key: string, payload: unknown) {
   return { key, fingerprint: await fingerprintPayload(payload) };
+}
+
+export async function idemForCommand(commandId: string, key: string, payload: unknown) {
+  return { key, fingerprint: await commandFingerprint(commandId, payload) };
 }
 
 export async function provisionedOrg(orgId = DEFAULT_TEST_ORG): Promise<DurableObjectStub<OrgDO>> {

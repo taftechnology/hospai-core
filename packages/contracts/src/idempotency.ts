@@ -214,3 +214,11 @@ export async function fingerprintPayload(input: unknown): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/** Idempotency fingerprint for a catalog command + the exact payload sent to try*. */
+export async function commandFingerprint(
+  commandId: string,
+  payload: unknown,
+): Promise<string> {
+  return fingerprintPayload({ commandId, payload });
+}

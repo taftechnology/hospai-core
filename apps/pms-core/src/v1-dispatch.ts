@@ -3635,8 +3635,8 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const cell = normalizeRateDayCell(body);
+  const fingerprint = await commandFingerprint('rates.upsert_day', cell);
   const commandPayload = { ...cell, auditCommandId: 'rates.upsert_day' as const };
-  const fingerprint = await commandFingerprint('rates.upsert_day', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpsertRateDay']>>>({
@@ -5962,7 +5962,7 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
     amountMinor: body.amountMinor,
     currency: body.currency,
   });
-  const fingerprint = await commandFingerprint('rates.update_room_type_rate', cell);
+  const fingerprint = await commandFingerprint('rates.upsert_day', cell);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = { ...cell, auditCommandId: 'rates.update_room_type_rate' as const };
 

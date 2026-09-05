@@ -1,5 +1,5 @@
 import { env, createMessageBatch } from 'cloudflare:test';
-import { fingerprintPayload, type PendingCommandMessage, type ProvisionalExceptionRow } from '@hospai/contracts';
+import { fingerprintPayload, commandFingerprint, type PendingCommandMessage, type ProvisionalExceptionRow } from '@hospai/contracts';
 import { describe, expect, it } from 'vitest';
 import { handlePendingCommandsBatch } from '../src/pending-commands-consumer.js';
 import { enqueueProvisionalCommand } from '../src/provisional-queue.js';
@@ -127,7 +127,7 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
     const idempotencyKey = `idem_${crypto.randomUUID()}`;
     await enqueueProvisionalCommand(env, {
       idempotencyKey,
-      requestFingerprint: await fingerprintPayload(payload),
+      requestFingerprint: await commandFingerprint('folio.add_item', payload),
       propertyId,
       orgId,
       issuedAt: new Date().toISOString(),
@@ -141,7 +141,7 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
       v: 1,
       provisional: {
         idempotencyKey,
-        requestFingerprint: await fingerprintPayload(payload),
+        requestFingerprint: await commandFingerprint('folio.add_item', payload),
         propertyId,
         orgId,
         issuedAt: new Date().toISOString(),

@@ -6,6 +6,7 @@ import {
   TAX_OUTPUT_CODE_TAXABLE,
   TAX_RULE_KEY_EXISTS,
   TAX_RULE_TYPE_UNSUPPORTED,
+  commandFingerprint,
   fingerprintPayload,
   type PendingCommandMessage,
 } from '@hospai/contracts';
@@ -832,7 +833,7 @@ describe('tax posting matrix', () => {
       chargeCode: 'MISC',
       amountMinor: 1000,
     };
-    const fingerprint = await fingerprintPayload(payload);
+    const fingerprint = await commandFingerprint('folio.add_item', payload);
     const msg: PendingCommandMessage = {
       v: 1,
       enqueuedAt: new Date().toISOString(),
@@ -890,7 +891,7 @@ describe('tax posting matrix', () => {
       chargeCode: 'MISC',
       amountMinor: 1000,
     };
-    const fingerprint = await fingerprintPayload(payload);
+    const fingerprint = await commandFingerprint('folio.add_item', payload);
     const msg: PendingCommandMessage = {
       v: 1,
       enqueuedAt: new Date().toISOString(),

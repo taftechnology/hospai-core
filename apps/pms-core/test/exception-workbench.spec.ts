@@ -1,5 +1,6 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import {
+  commandFingerprint,
   fingerprintPayload,
   ROOM_ALREADY_ASSIGNED,
   type PendingCommandMessage,
@@ -446,7 +447,7 @@ describe('exception-queue workbench HTTP', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: originalKey,
-        requestFingerprint: (await idemFor(originalKey, payload)).fingerprint,
+        requestFingerprint: await commandFingerprint('reservations.check_in', payload),
         propertyId,
         orgId,
         issuedAt: new Date().toISOString(),
@@ -506,7 +507,7 @@ describe('exception-queue workbench HTTP', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: originalKey,
-        requestFingerprint: (await fingerprintPayload(payload)),
+        requestFingerprint: await commandFingerprint('reservations.check_in', payload),
         propertyId,
         orgId,
         issuedAt: new Date().toISOString(),
@@ -712,7 +713,7 @@ describe('exception-queue workbench HTTP', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: originalKey,
-        requestFingerprint: await fingerprintPayload(folioPayload),
+        requestFingerprint: await commandFingerprint('folio.add_item', folioPayload),
         propertyId,
         orgId,
         issuedAt: new Date().toISOString(),

@@ -6825,8 +6825,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     try {
       return this.ctx.storage.transactionSync(() => {
+        const storageKey = scopeIdempotencyKey(actor, idem.key);
         const prior = this.ctx.storage.sql
-          .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+          .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
           .toArray() as Array<{ request_fingerprint: string; response: string }>;
         if (prior.length > 0) {
           if (prior[0]!.request_fingerprint !== idem.fingerprint) {
@@ -9651,8 +9652,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
 
+    const storageKey = scopeIdempotencyKey(actor, idem.key);
     const prior = this.ctx.storage.sql
-      .exec(`SELECT request_fingerprint FROM idempotency WHERE key = ?`, idem.key)
+      .exec(`SELECT request_fingerprint FROM idempotency WHERE key = ?`, storageKey)
       .toArray() as Array<{ request_fingerprint: string }>;
     const cacheHit = Boolean(prior[0] && prior[0].request_fingerprint === idem.fingerprint);
 
@@ -17843,8 +17845,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'folio:post');
     if (permDenied) return permDenied;
 
+    const storageKey = scopeIdempotencyKey(actor, idem.key);
     const prior = this.ctx.storage.sql
-      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
       .toArray() as Array<{ request_fingerprint: string; response: string }>;
     if (prior[0]) {
       if (prior[0].request_fingerprint !== idem.fingerprint) {

@@ -197,6 +197,17 @@ function profileHasCompensation(profile: Partial<StaffProfileCreate> | undefined
   );
 }
 
+/** DO SQL returns BLOB columns as ArrayBuffer — normalize before byte-length checks. */
+function blobToBytes(buf: unknown): Uint8Array {
+  if (buf == null) return new Uint8Array(0);
+  if (buf instanceof Uint8Array) return buf;
+  if (buf instanceof ArrayBuffer) return new Uint8Array(buf);
+  if (ArrayBuffer.isView(buf)) {
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  }
+  return new Uint8Array(0);
+}
+
 type RosterRow = {
   staff_id: string;
   pii_key_id: string;
@@ -2513,6 +2524,41 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async execSqlForTest(sql: string, ...binds: unknown[]): Promise<void> {
     this.assertUnsafeLocal('execSqlForTest');
     this.ctx.storage.sql.exec(sql, ...(binds as Array<string | number | Uint8Array | null>));
+  }
+
+  async readGuestCryptoMaterialForTest(
+    guestId: string,
+  ): Promise<{ profileCipher: Uint8Array; profileIv: Uint8Array } | null> {
+    this.assertUnsafeLocal('readGuestCryptoMaterialForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT profile_cipher, profile_iv FROM guest WHERE guest_id = ?`,
+        guestId,
+      )
+      .toArray() as Array<{ profile_cipher: unknown; profile_iv: unknown }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      profileCipher: blobToBytes(row.profile_cipher),
+      profileIv: blobToBytes(row.profile_iv),
+    };
+  }
+
+  async readGuestBlindIndexHashForTest(
+    guestId: string,
+    kind: 'email',
+  ): Promise<Uint8Array | null> {
+    this.assertUnsafeLocal('readGuestBlindIndexHashForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT index_hash FROM guest_blind_index WHERE guest_id = ? AND kind = ? LIMIT 1`,
+        guestId,
+        kind,
+      )
+      .toArray() as Array<{ index_hash: unknown }>;
+    const row = rows[0];
+    if (!row) return null;
+    return blobToBytes(row.index_hash);
   }
 
   async countDataKeysForSubject(scope: string, subjectId: string): Promise<number> {

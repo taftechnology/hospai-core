@@ -1,5 +1,6 @@
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
+import { applySecurityHeaders } from './security-headers.js';
 
 /** RPC payload for `NightAuditWorkflow` — registry-resolved `propertyId` only, never a raw DO id. */
 export type NightAuditWorkflowParams = { propertyId: string };
@@ -96,36 +97,45 @@ export function isDevActorAllowed(env: PmsEnv): boolean {
  * Refuse to serve if dangerous flags are set without the local marker.
  * Prevents a mis-deployed `simulate` / `ALLOW_DEV_ACTOR` from going live.
  */
-export function assertEnvSafeForRequest(env: PmsEnv): Response | null {
+export function assertEnvSafeForRequest(env: PmsEnv, request: Request): Response | null {
   const unsafe = env.HOSPAI_UNSAFE_LOCAL === '1';
   if (env.HOSPAI_JURISDICTION_MODE === 'simulate' && !unsafe) {
-    return Response.json(
-      {
-        error: 'misconfigured',
-        message:
-          'HOSPAI_JURISDICTION_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
-      },
-      { status: 500 },
+    return applySecurityHeaders(
+      Response.json(
+        {
+          error: 'misconfigured',
+          message:
+            'HOSPAI_JURISDICTION_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
+        },
+        { status: 500 },
+      ),
+      request,
     );
   }
   if (env.HOSPAI_PSP_MODE === 'simulate' && !unsafe) {
-    return Response.json(
-      {
-        error: 'misconfigured',
-        message:
-          'HOSPAI_PSP_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
-      },
-      { status: 500 },
+    return applySecurityHeaders(
+      Response.json(
+        {
+          error: 'misconfigured',
+          message:
+            'HOSPAI_PSP_MODE=simulate requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
+        },
+        { status: 500 },
+      ),
+      request,
     );
   }
   if (env.HOSPAI_ALLOW_DEV_ACTOR === '1' && !unsafe) {
-    return Response.json(
-      {
-        error: 'misconfigured',
-        message:
-          'HOSPAI_ALLOW_DEV_ACTOR=1 requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
-      },
-      { status: 500 },
+    return applySecurityHeaders(
+      Response.json(
+        {
+          error: 'misconfigured',
+          message:
+            'HOSPAI_ALLOW_DEV_ACTOR=1 requires HOSPAI_UNSAFE_LOCAL=1 (local only). Refusing to serve.',
+        },
+        { status: 500 },
+      ),
+      request,
     );
   }
   return null;

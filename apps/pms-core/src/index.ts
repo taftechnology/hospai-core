@@ -21,6 +21,7 @@ import {
 import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
 import { archiveBySource, hasEventLogR2 } from './event-log.js';
 import { handleV1 } from './v1-handler.js';
+import { applySecurityHeaders } from './security-headers.js';
 
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
@@ -55,7 +56,7 @@ function logHttpRequest(
 
 export default {
   async fetch(request: Request, env: PmsEnv): Promise<Response> {
-    const misconfigured = assertEnvSafeForRequest(env);
+    const misconfigured = assertEnvSafeForRequest(env, request);
     if (misconfigured) return misconfigured;
 
     const url = new URL(request.url);
@@ -89,7 +90,7 @@ export default {
           { moduleId: 'pms.core', requestId: crypto.randomUUID() },
           { msg: 'assets.missing', pathname },
         );
-        return json({ error: 'not_found' }, 404);
+        return applySecurityHeaders(json({ error: 'not_found' }, 404), request);
       }
 
       let assetRes = await env.ASSETS.fetch(request);
@@ -108,11 +109,14 @@ export default {
       if (contentType.includes('text/html')) {
         const headers = new Headers(assetRes.headers);
         headers.set('cache-control', 'no-cache');
-        return new Response(assetRes.body, {
-          status: assetRes.status,
-          statusText: assetRes.statusText,
-          headers,
-        });
+        return applySecurityHeaders(
+          new Response(assetRes.body, {
+            status: assetRes.status,
+            statusText: assetRes.statusText,
+            headers,
+          }),
+          request,
+        );
       }
       if (pathname.includes('/assets/') || /\.[a-f0-9]{8,}\./i.test(pathname)) {
         const headers = new Headers(assetRes.headers);

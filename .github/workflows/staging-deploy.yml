@@ -64,6 +64,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{}')
           JWT=$(printf '%s' "$TOKEN" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).jwt))")
+          echo "::add-mask::$JWT"
           echo "CLERK_SESSION_JWT=$JWT" >> "$GITHUB_OUTPUT"
       - name: Smoke test (optional)
         if: inputs.smoke_user_id != ''

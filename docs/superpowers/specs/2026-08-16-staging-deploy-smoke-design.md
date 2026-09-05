@@ -337,7 +337,7 @@ flowchart TD
 - [x] Lock 1: Real resources created; placeholder IDs replaced in `env.staging`
 - [x] Lock 2: Clerk vars committed; secrets **not** committed; dev-actor flags **absent**
 - [x] Lock 3: D1 name `hospai-platform-staging`; remote migrations applied
-- [x] Lock 4: Deploy sequence followed; `CLERK_AUTHORIZED_PARTIES` matches live origin
+- [ ] Lock 4: Deploy sequence followed; `CLERK_AUTHORIZED_PARTIES` matches live origin — Reopened by R0.2 spec 2026-09-04; recheck after staging deploy verifies var.
 - [x] Lock 5: `scripts/smoke-staging.mjs` committed; `pnpm smoke:staging` works with `BASE` + `CLERK_SESSION_JWT`
 - [x] Lock 6: `.github/workflows/staging-deploy.yml` is **`workflow_dispatch` only**; four GitHub secrets documented
 - [x] Lock 7: Teardown steps documented (§2 Lock 7)

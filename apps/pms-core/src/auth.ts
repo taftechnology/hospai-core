@@ -25,10 +25,14 @@ function clerkClient(env: PmsEnv) {
   });
 }
 
-function authorizedParties(env: PmsEnv): string[] {
+export function authorizedParties(env: PmsEnv): string[] {
   const raw = env.CLERK_AUTHORIZED_PARTIES?.trim();
   if (!raw) return [];
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function azpEnforcementEnabled(env: PmsEnv): boolean {
+  return env.HOSPAI_UNSAFE_LOCAL !== '1';
 }
 
 type AuthenticateRequestFn = ReturnType<typeof createClerkClient>['authenticateRequest'];
@@ -45,10 +49,12 @@ async function authenticateClerkSession(
   env: PmsEnv,
 ): Promise<Awaited<ReturnType<AuthenticateRequestFn>>> {
   const parties = authorizedParties(env);
-  const options = {
+  const options: Parameters<AuthenticateRequestFn>[1] = {
     jwtKey: env.CLERK_JWT_KEY,
-    ...(parties.length > 0 ? { authorizedParties: parties } : {}),
   };
+  if (parties.length > 0) {
+    options.authorizedParties = parties;
+  }
   if (authenticateRequestOverride) {
     return authenticateRequestOverride(request, options);
   }
@@ -73,6 +79,11 @@ export async function resolveActor(request: Request, env: PmsEnv): Promise<Actor
     return unauthorized(
       'Authentication unavailable. Configure Clerk secrets or enable local dev actor (HOSPAI_UNSAFE_LOCAL + HOSPAI_ALLOW_DEV_ACTOR).',
     );
+  }
+
+  const parties = authorizedParties(env);
+  if (azpEnforcementEnabled(env) && parties.length === 0) {
+    return unauthorized('Authorized parties not configured.');
   }
 
   const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');

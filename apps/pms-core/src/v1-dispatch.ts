@@ -191,7 +191,8 @@ import {
 } from '@hospai/entitlement-client';
 import { logError, logWarn, type ObservabilityContext } from '@hospai/observability';
 import { resolveOrgStub } from '@hospai/tenant-router';
-import { resolveActor, requirePermission, type Actor } from './auth.js';
+import { authorizedParties, resolveActor, requirePermission, type Actor } from './auth.js';
+import { applySecurityHeaders } from './security-headers.js';
 import {
   clerkUnreachableResponse,
   lookupDirectoryByUserIds,
@@ -8944,20 +8945,56 @@ export async function dispatchV1(
   });
 }
 
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function csrfUnauthorized(message: string): Response {
+  return Response.json({ error: 'unauthenticated', message }, { status: 401 });
+}
+
+function requireMutatingV1Credential(request: Request, env: PmsEnv): Response | null {
+  if (!MUTATING_METHODS.has(request.method)) return null;
+
+  const parties = authorizedParties(env);
+  if (parties.length === 0 && env.HOSPAI_UNSAFE_LOCAL === '1') {
+    return null;
+  }
+  if (parties.length === 0) {
+    return csrfUnauthorized('Authorized parties not configured.');
+  }
+
+  const authorization = request.headers.get('Authorization');
+  if (authorization && /^Bearer\s+\S+/i.test(authorization)) {
+    return null;
+  }
+
+  const origin = request.headers.get('Origin')?.trim();
+  if (origin && parties.includes(origin)) {
+    return null;
+  }
+
+  return csrfUnauthorized(
+    'Mutating requests require Bearer authorization or a permitted Origin.',
+  );
+}
+
 export async function handleV1(
   request: Request,
   env: PmsEnv,
   observability: ObservabilityContext,
 ): Promise<Response> {
+  const secured = (response: Response) => applySecurityHeaders(response, request);
   const url = new URL(request.url);
   const found = findRoute(request.method, url.pathname);
-  if (!found) return json({ error: 'not_found' }, 404);
+  if (!found) return secured(json({ error: 'not_found' }, 404));
 
   if (found.route.scope === 'dev') {
     if (!isDevActorAllowed(env) || request.method !== 'POST') {
-      return json({ error: 'not_found' }, 404);
+      return secured(json({ error: 'not_found' }, 404));
     }
   }
 
-  return dispatchV1(request, env, observability, found.route, found.match);
+  const csrfDenied = requireMutatingV1Credential(request, env);
+  if (csrfDenied) return secured(csrfDenied);
+
+  return secured(await dispatchV1(request, env, observability, found.route, found.match));
 }

@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import {
   CONFIG_CLASS_NOT_DOMAIN,
+  ENTITLEMENT_REQUIRED,
   NO_AVAILABILITY,
   NOT_MEMBER,
 } from '@hospai/contracts';
@@ -275,8 +276,11 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Mock invokePropertyDo for a route so worker.fetch hits dispatch not_member handling. */
-function mockRouteCommandError(routeId: string, error: typeof NOT_MEMBER | typeof NO_AVAILABILITY) {
+/** Mock invokePropertyDo for a route so worker.fetch hits dispatch error handling. */
+function mockRouteCommandError(
+  routeId: string,
+  error: typeof NOT_MEMBER | typeof NO_AVAILABILITY | typeof ENTITLEMENT_REQUIRED,
+) {
   const original = invokePropertyDoModule.invokePropertyDo;
   return vi.spyOn(invokePropertyDoModule, 'invokePropertyDo').mockImplementation(async (opts) => {
     if (opts.routeId === routeId) {
@@ -284,6 +288,66 @@ function mockRouteCommandError(routeId: string, error: typeof NOT_MEMBER | typeo
     }
     return original(opts);
   });
+}
+
+async function postReservationCancel(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/cancel`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-cancel-${crypto.randomUUID()}` }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postReservationConfirm(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/confirm`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-confirm-${crypto.randomUUID()}` }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postReservationHold(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/hold`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({ idempotencyKey: `idem-hold-${crypto.randomUUID()}` }),
+      },
+    ),
+    env,
+  );
+}
+
+async function postFolioLine(propertyId: string, actor: string, reservationId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/lines`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: JSON.stringify({
+          chargeCode: 'ROOM',
+          amountMinor: 10000,
+          idempotencyKey: `idem-folio-${crypto.randomUUID()}`,
+        }),
+      },
+    ),
+    env,
+  );
 }
 
 describe('D1 error channel behaviour', () => {
@@ -533,5 +597,70 @@ describe('D1 error channel behaviour', () => {
     );
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ ok: false, error: NO_AVAILABILITY });
+  });
+
+  // T1 — reservation cancel not_member (today 422 via mapReservationCommandErrorStatus)
+  it('T1: POST reservation cancel with not_member → 404 not_found', async () => {
+    const actor = 'user_d1_cancel_nm';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('post_reservation_cancel', NOT_MEMBER);
+    const res = await postReservationCancel(propertyId, actor, 'res_cancel_nm');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  // T2
+  it('T2: POST reservation confirm with not_member → 404 not_found', async () => {
+    const actor = 'user_d1_confirm_nm';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('post_reservation_confirm', NOT_MEMBER);
+    const res = await postReservationConfirm(propertyId, actor, 'res_confirm_nm');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  // T3
+  it('T3: POST reservation hold with not_member → 404 not_found', async () => {
+    const actor = 'user_d1_hold_nm';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('post_reservation_hold', NOT_MEMBER);
+    const res = await postReservationHold(propertyId, actor, 'res_hold_nm');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  // T4 — folio line (routeId post_folio_lines, command folio.add_item)
+  it('T4: POST folio line with not_member → 404 not_found', async () => {
+    const actor = 'user_d1_folio_nm';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('post_folio_lines', NOT_MEMBER);
+    const res = await postFolioLine(propertyId, actor, 'res_folio_nm');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  // T5 — entitlement_required on reservation path (today 422)
+  it('T5: POST reservation cancel with entitlement_required → 402 + feature', async () => {
+    const actor = 'user_d1_cancel_ent';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('post_reservation_cancel', ENTITLEMENT_REQUIRED);
+    const res = await postReservationCancel(propertyId, actor, 'res_cancel_ent');
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' });
+  });
+
+  // T6 — config PUT entitlement (today 503 via mapConfigErrorStatus)
+  it('T6: PUT domain config with entitlement_required → 402 + feature', async () => {
+    const actor = 'user_d1_cfg_ent';
+    const { propertyId } = await provisionHotel(actor);
+    mockRouteCommandError('put_domain_config', ENTITLEMENT_REQUIRED);
+    const res = await putDomainConfig(propertyId, actor, {
+      key: 'pms.domain.same_day_cutoff',
+      value: '14:00',
+      reason: 'ops',
+      idempotencyKey: `idem-cfg-ent-${crypto.randomUUID()}`,
+    });
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: ENTITLEMENT_REQUIRED, feature: 'pms.core' });
   });
 });

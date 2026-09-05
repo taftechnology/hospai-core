@@ -216,9 +216,11 @@ describe('OrgDO guests + crypto-shredding', () => {
     const propertyId = 'prop_m4';
     const refs = await createGuest(org, propertyId, 'guest_m4', 'Live');
     expect(await org.testShredGuestKey(refs.piiKeyId)).toBe(true);
-    await expect(org.readGuest(TEST_OWNER_ACTOR, propertyId, 'guest_m4')).rejects.toThrow(
-      /guests\.read\.decrypt_incident|PII key shredded|shred/i,
-    );
+    expect(await org.readGuest(TEST_OWNER_ACTOR, propertyId, 'guest_m4')).toEqual({
+      ok: false,
+      guestId: 'guest_m4',
+      error: 'decrypt_unresolved',
+    });
   });
 });
 

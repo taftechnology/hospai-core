@@ -14,6 +14,7 @@ describe('events queue missing R2 (R0.9 X3)', () => {
       payload: { key: 'k', version: 1, consumers: {}, actor: 'test' },
       seq: 1,
       source: { do: 'property', id: 'prop_r2_unbound' },
+      createdAt: Date.now(),
     };
 
     const batch = createMessageBatch('hospai-events', [

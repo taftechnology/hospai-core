@@ -6,7 +6,7 @@
 
 **Closes:** ARCHITECTURE.md §14 Phase 1 / §16.3 item 3 for the **staff-facing guest CRM** (org-wide directory + profile + stay history at this property). Prototype-holes leftover **2** (stored blind-index guest discovery). Tape-chart leftovers **15** (blind-index) and **21** (guest CRM directory). Exception-queue leftover **3** (guest CRM page; chips become profile links). Booking-wizard destination “C-with-equality-lookup via blind index”. Guests-PII scope-out “Guest list / CRM beyond `GuestProfile`”.
 
-**Amends:** [prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) leftover 2 (this chunk **closes** it); [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md) leftovers 15 and 21; [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md) leftover 3 and §11 `guestRef` “no CRM href”; [booking wizard](./2026-08-11-booking-wizard-design.md) §2.2 “No search box” / destination C. Bidirectional pointer: one sentence in those specs when this chunk lands. Do **not** rewrite ARCHITECTURE §16.1 tags / LTV as shipped — those stay deferred (§1.3). **Amended by [2026-09-05 property-scoped lists](./2026-09-05-property-scoped-guest-roster-lists-design.md):** `GET …/guests` and `POST …/guests-search` on a property URL return only guests associated with that property via `guest_property`, not the org-wide vault.
+**Amends:** [prototype holes sweep](./2026-08-13-prototype-holes-sweep-design.md) leftover 2 (this chunk **closes** it); [tape chart + live board](./2026-08-13-tape-chart-live-board-design.md) leftovers 15 and 21; [exception-queue workbench](./2026-08-13-exception-queue-workbench-design.md) leftover 3 and §11 `guestRef` “no CRM href”; [booking wizard](./2026-08-11-booking-wizard-design.md) §2.2 “No search box” / destination C. Bidirectional pointer: one sentence in those specs when this chunk lands. Do **not** rewrite ARCHITECTURE §16.1 tags / LTV as shipped — those stay deferred (§1.3). **Amended by [2026-09-05 property-scoped lists](./2026-09-05-property-scoped-guest-roster-lists-design.md):** `GET …/guests` and `POST …/guests-search` on a property URL return only guests associated with that property via `guest_property`, not the org-wide vault. **Amended by [2026-09-05 per-org HKDF master key](./2026-09-05-per-org-master-key-hkdf-design.md):** blind-index HMAC key is HKDF-derived per org, not platform-wide.
 
 ---
 
@@ -260,6 +260,8 @@ New helpers in `packages/crypto-shredding` (functions, not a new `export class`)
 ```
 
 Domain separator `0x1f` (unit separator) between `kind` and payload so `name:"a@b"` cannot collide with `email:"a@b"` under a naive concat.
+
+> **Amended by [2026-09-05 per-org HKDF master key](./2026-09-05-per-org-master-key-hkdf-design.md):** blind-index HMAC key is HKDF-derived per org (`hospai/v1/org-blind/${orgId}`, 32-zero-byte salt), not platform-wide `hospai.guest-blind-index.v1`.
 
 OrgDO constructs the HMAC key once per instance from `env.HOSPAI_ORG_MASTER_KEY` (same binding as the vault). Do not persist the HMAC key. Do not wrap it in `data_key` this chunk (scope CHECK is `'guest' | 'staff'` only — do not widen).
 

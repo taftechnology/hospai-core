@@ -29,7 +29,7 @@ export async function invokePropertyDo<T extends { ok: boolean }>(opts: {
     const result = await opts.invoke();
     return { kind: 'ok', result };
   } catch (e) {
-    if (!isPropertyDoTransportFailure(e)) {
+    if (!isPropertyDoTransportFailure(e, opts.env)) {
       if (opts.observability) {
         logError(opts.observability, {
           msg: 'property_do.invoke_error',

@@ -1271,7 +1271,7 @@ async function handlePostDemoSeed(ctx: V1DispatchContext): Promise<Response> {
     });
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e) || isOrgDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env) || isOrgDoTransportFailure(e, ctx.env)) {
       return json({ error: 'unavailable', degraded: 'FAIL_CLOSED' }, 503, { 'Retry-After': '30' });
     }
     throw e;
@@ -1379,7 +1379,7 @@ async function handleGetOrgProperties(ctx: V1DispatchContext): Promise<Response>
   try {
     return json({ orgId, properties: await org.listPropertyRefs() });
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -1402,7 +1402,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
       schemaVersion,
     });
   } catch (e) {
-    if (!isPropertyDoTransportFailure(e)) throw e;
+    if (!isPropertyDoTransportFailure(e, ctx.env)) throw e;
     return json({
       property: resolved.property,
       locationHint: resolved.locationHint,
@@ -1733,7 +1733,7 @@ async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Respo
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'property.update_details' },
         503,
@@ -1855,7 +1855,7 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.create' },
         503,
@@ -1906,7 +1906,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.update' },
         503,
@@ -1958,7 +1958,7 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
       200,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.erase' },
         503,
@@ -1988,7 +1988,7 @@ async function handleGetGuest(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     if (e instanceof Error) {
@@ -2074,7 +2074,7 @@ async function handleGetRoster(ctx: V1DispatchContext): Promise<Response> {
       .map((row) => stripRosterRow(grants, row));
     return rosterGetJson({ ok: true, staff }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return rosterGetDegraded();
+    if (isOrgDoTransportFailure(e, ctx.env)) return rosterGetDegraded();
     throw e;
   }
 }
@@ -2104,7 +2104,7 @@ async function handleGetRosterOne(ctx: V1DispatchContext): Promise<Response> {
     const grants = await rosterGrants(org, ctx.actor.userId, propertyId, ctx.env);
     return rosterGetJson({ ok: true, ...stripRosterRow(grants, result) }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return rosterGetDegraded();
+    if (isOrgDoTransportFailure(e, ctx.env)) return rosterGetDegraded();
     throw e;
   }
 }
@@ -2155,7 +2155,7 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.add' },
         503,
@@ -2217,7 +2217,7 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.update' },
         503,
@@ -2260,7 +2260,7 @@ async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response>
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.status' },
         503,
@@ -2303,7 +2303,7 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.exit' },
         503,
@@ -2463,7 +2463,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
       });
     }
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       logError(ctx.observability, {
         msg: 'guest_property.link_transport_failed',
         propertyId,
@@ -2493,7 +2493,7 @@ async function handleGetReservation(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result.reservation, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -2869,7 +2869,7 @@ async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Respo
     });
     return json({ ok: true, items: matched.slice(0, 20) }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e) || isPropertyDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env) || isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -3114,7 +3114,7 @@ async function handleGetProvisionalExceptions(ctx: V1DispatchContext): Promise<R
       200,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3130,7 +3130,7 @@ async function handleGetProvisionalExceptionCount(ctx: V1DispatchContext): Promi
     const exceptionCount = await resolvedCtx.resolved.stub.countProvisionalExceptions();
     return json({ propertyId, exceptionCount }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3164,7 +3164,7 @@ async function handleGetFrontDeskArrivals(ctx: V1DispatchContext): Promise<Respo
       200,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3198,7 +3198,7 @@ async function handleGetFrontDeskDepartures(ctx: V1DispatchContext): Promise<Res
       200,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3230,7 +3230,7 @@ async function handleGetFrontDeskInHouse(ctx: V1DispatchContext): Promise<Respon
       200,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3247,7 +3247,7 @@ async function handleGetFrontDeskShift(ctx: V1DispatchContext): Promise<Response
     const result = await resolvedCtx.resolved.stub.readCurrentOpenShift(actor);
     return json({ ok: true, shift: result.shift }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3264,7 +3264,7 @@ async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<R
     const result = await resolvedCtx.resolved.stub.readRecentShiftsForActor(actor, { limit: 5 });
     return json({ ok: true, shifts: result.shifts }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3282,7 +3282,7 @@ async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
     const enriched = await enrichMembersDirectory(ctx.env, result.members);
     return json({ ok: true, ...enriched }, 200, ME_HEADERS);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3318,7 +3318,7 @@ async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> 
     }
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3352,7 +3352,7 @@ async function handleUpdateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       200,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3368,7 +3368,7 @@ async function handleDeleteOrgMember(ctx: V1DispatchContext): Promise<Response> 
     if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3388,7 +3388,7 @@ async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Respon
     const enriched = await enrichMembersDirectory(ctx.env, result.members);
     return json({ ok: true, ...enriched }, 200, ME_HEADERS);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3437,7 +3437,7 @@ async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Respo
     }
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3478,7 +3478,7 @@ async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       200,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3498,7 +3498,7 @@ async function handleDeletePropertyMember(ctx: V1DispatchContext): Promise<Respo
     if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedOrgReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -3535,7 +3535,7 @@ async function handleGetPropertyMe(ctx: V1DispatchContext): Promise<Response> {
       ME_HEADERS,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
       const degraded = degradedFailClosedOrgReadResponse();
       const headers = new Headers(degraded.headers);
       headers.set('Cache-Control', 'private, no-store');
@@ -3588,7 +3588,7 @@ async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> 
     }
     return json({ ok: true, guests: result.guests }, 200);
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -3812,7 +3812,7 @@ async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -3941,7 +3941,7 @@ async function handleGetRooms(ctx: V1DispatchContext): Promise<Response> {
     const result = await resolvedCtx.resolved.stub.listRooms({ roomTypeId, status });
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -4231,7 +4231,7 @@ async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -4577,7 +4577,7 @@ async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
     const codes = await resolvedCtx.resolved.stub.listChargeCodes(status);
     return json({ ok: true, codes }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -4600,7 +4600,7 @@ async function handleGetFolioRoutingRules(ctx: V1DispatchContext): Promise<Respo
     const rules = await resolvedCtx.resolved.stub.listFolioRoutingRules(status);
     return json({ ok: true, rules }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -4861,7 +4861,7 @@ async function handleGetTaxRules(ctx: V1DispatchContext): Promise<Response> {
     const rules = await resolvedCtx.resolved.stub.listTaxRules({ taxGroup, effectiveDate });
     return json({ ok: true, rules }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5029,7 +5029,7 @@ async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
     if (!result.ok) return json({ ok: false, error: result.error }, 404);
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5071,7 +5071,7 @@ async function handleGetAuditLog(ctx: V1DispatchContext): Promise<Response> {
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5089,7 +5089,7 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
     const plans = await resolvedCtx.resolved.stub.listRatePlans();
     return json({ ok: true, plans }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5105,7 +5105,7 @@ async function handleGetRatePromos(ctx: V1DispatchContext): Promise<Response> {
     const promos = await resolvedCtx.resolved.stub.listRatePromos();
     return json({ ok: true, promos }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5348,7 +5348,7 @@ async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
     const snapshot = JSON.parse(await obj.text()) as Record<string, unknown>;
     return json({ ...index, snapshot }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5469,7 +5469,7 @@ async function handleGetCityLedgerAccounts(ctx: V1DispatchContext): Promise<Resp
     if (!list.ok) return json({ ok: false, error: list.error }, 422);
     return json({ accounts: list.accounts }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5649,7 +5649,7 @@ async function handleGetCityLedgerStatement(ctx: V1DispatchContext): Promise<Res
     }
     return json({ ok: false, error: result.error }, 422);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5689,7 +5689,7 @@ async function handleGetRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     const roomTypes = await resolvedCtx.resolved.stub.listRoomTypes(status);
     return json({ ok: true, roomTypes }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5720,7 +5720,7 @@ async function handleGetRateDays(ctx: V1DispatchContext): Promise<Response> {
     });
     return json({ ok: true, days }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5754,7 +5754,7 @@ async function handleGetRestrictionDays(ctx: V1DispatchContext): Promise<Respons
     });
     return json({ ok: true, days }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5772,7 +5772,7 @@ async function handleGetDomainConfig(ctx: V1DispatchContext): Promise<Response> 
     const keys = await resolvedCtx.resolved.stub.listDomainConfig();
     return json({ ok: true, keys }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -5798,7 +5798,7 @@ async function handleGetFrontDeskTape(ctx: V1DispatchContext): Promise<Response>
     const result = await resolvedCtx.resolved.stub.readFrontOfficeTape(fromDate!, toDate!, roomTypeId);
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5861,7 +5861,7 @@ async function handleGetFrontDeskDirectory(ctx: V1DispatchContext): Promise<Resp
       200,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5886,7 +5886,7 @@ async function handleGetFrontDeskAvailableRooms(ctx: V1DispatchContext): Promise
     });
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5906,7 +5906,7 @@ async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Respon
     const result = await resolvedCtx.resolved.stub.readFrontOfficeSummary(date);
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -5929,7 +5929,7 @@ async function handleGetFrontOfficeStream(ctx: V1DispatchContext): Promise<Respo
   try {
     return await resolvedCtx.resolved.stub.fetch(forward);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -6658,7 +6658,7 @@ async function handleGetFolioPayment(ctx: V1DispatchContext): Promise<Response> 
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -6681,7 +6681,7 @@ async function handleGetFolioPayments(ctx: V1DispatchContext): Promise<Response>
     }
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
     }
     throw e;
@@ -6699,7 +6699,7 @@ async function handleGetNightAudit(ctx: V1DispatchContext): Promise<Response> {
     const pendingOpenCount = await countPendingOpen(ctx.env.PLATFORM_DB, propertyId);
     return json({ ...status, pendingOpenCount }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -6721,7 +6721,7 @@ async function handleGetNightAuditReport(ctx: V1DispatchContext): Promise<Respon
       headers: { 'content-type': 'application/json' },
     });
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -6958,7 +6958,7 @@ async function handleGetProvisionalException(ctx: V1DispatchContext): Promise<Re
     if (!result.ok) return json({ error: NOT_FOUND }, 404);
     return json(result, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -7161,7 +7161,7 @@ async function handleGetGuests(ctx: V1DispatchContext): Promise<Response> {
       GUEST_HEADERS,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -7215,7 +7215,7 @@ async function handlePostGuestsSearch(ctx: V1DispatchContext): Promise<Response>
       GUEST_HEADERS,
     );
   } catch (e) {
-    if (isOrgDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -7260,7 +7260,7 @@ async function handleGetGuestStays(ctx: V1DispatchContext): Promise<Response> {
       GUEST_HEADERS,
     );
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -7393,7 +7393,7 @@ async function handleGetFxRates(ctx: V1DispatchContext): Promise<Response> {
     }
     return json({ ledgerCurrency, rates: listed }, 200);
   } catch (e) {
-    if (isPropertyDoTransportFailure(e)) return degradedFailClosedReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
   }
 }
@@ -9052,7 +9052,7 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
       items,
     });
   } catch (e) {
-    if (!isPropertyDoTransportFailure(e)) throw e;
+    if (!isPropertyDoTransportFailure(e, ctx.env)) throw e;
     if (roomTypeId) {
       const stale = await serveStaleKvAvailability(ctx, propertyId, fromDate, toDate, roomTypeId);
       if (stale) return stale;

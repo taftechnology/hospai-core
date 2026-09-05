@@ -141,7 +141,7 @@ export async function handlePendingCommandsBatch(
       });
       await ackTerminal(env, msg);
     } catch (e) {
-      if (isPropertyDoTransportFailure(e)) {
+      if (isPropertyDoTransportFailure(e, env)) {
         msg.retry();
         continue;
       }

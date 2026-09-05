@@ -16,16 +16,12 @@ describe('events queue missing R2 (R0.9 X3)', () => {
       source: { do: 'property', id: 'prop_r2_unbound' },
     };
 
-    const ackSpy = vi.fn();
-    const retrySpy = vi.fn();
     const batch = createMessageBatch('hospai-events', [
       {
         id: 'msg-r2-unbound',
         timestamp: new Date(),
         attempts: 1,
         body,
-        ack: ackSpy,
-        retry: retrySpy,
       },
     ]);
 
@@ -39,10 +35,10 @@ describe('events queue missing R2 (R0.9 X3)', () => {
     const logSpy = vi.spyOn(observability, 'logWarn');
     const ctx = createExecutionContext();
     await worker.queue(batch as MessageBatch<DomainEventMessage>, queueEnv);
-    await getQueueResult(batch, ctx);
+    const result = await getQueueResult(batch, ctx);
 
-    expect(retrySpy).not.toHaveBeenCalled();
-    expect(ackSpy).toHaveBeenCalledTimes(1);
+    expect(result.retryMessages).toEqual([]);
+    expect(result.explicitAcks).toContain('msg-r2-unbound');
     expect(logSpy.mock.calls.some(([, fields]) => (fields as { msg?: string }).msg === 'event_log.r2_unbound')).toBe(
       true,
     );

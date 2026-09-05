@@ -1,5 +1,5 @@
 import type { DomainEventMessage, PendingCommandMessage } from '@hospai/contracts';
-import { logError, logInfo, type ObservabilityContext } from '@hospai/observability';
+import { logError, logInfo, logWarn, type ObservabilityContext } from '@hospai/observability';
 import {
   assertEnvSafeForRequest,
   type PmsEnv,
@@ -167,7 +167,13 @@ export default {
     if (survivors.length === 0) return;
 
     if (!hasEventLogR2(env) || !env.EVENT_LOG_R2) {
-      for (const msg of survivors) msg.retry();
+      logWarn({ moduleId: 'pms.events' }, {
+        msg: 'event_log.r2_unbound',
+        survivorCount: survivors.length,
+      });
+      for (const msg of survivors) {
+        msg.ack();
+      }
       return;
     }
 

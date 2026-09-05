@@ -1819,7 +1819,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const org = resolveOrgStub(this.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
       return await invoke(org);
     } catch (e) {
-      if (isOrgDoTransportFailure(e)) return { ok: false, error: 'org_unreachable' };
+      if (isOrgDoTransportFailure(e, this.env)) return { ok: false, error: 'org_unreachable' };
       throw e;
     }
   }

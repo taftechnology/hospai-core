@@ -113,6 +113,7 @@ import {
   CITY_LEDGER_R2_UNBOUND,
   CITY_LEDGER_CHARGE_ALREADY_POSTED,
   commandFingerprint,
+  freeAvailability,
   requireCatalogEntry,
   requiredPermissionForKey,
   RESERVATION_STATUSES,
@@ -760,6 +761,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
+  // Bootstrap/degraded partial read — tenant-active intentionally skipped; orgId from registry row.
   const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
   if (!resolved) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = resolved.property.orgId;
@@ -789,6 +791,7 @@ async function handleGetRegistryProperty(ctx: V1DispatchContext): Promise<Respon
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
+  // Global registry lookup for routing/bootstrap — no property DO sync or tenant-active gate.
   const property = await getProperty(ctx.env, propertyId);
   if (!property) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = property.orgId;
@@ -1870,6 +1873,7 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     adults?: number;
     children?: number;
     ratePlanId?: string;
+    noPost?: boolean;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -1880,16 +1884,6 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const fingerprint = await commandFingerprint('reservations.modify', {
-    reservationId,
-    roomTypeId: body.roomTypeId,
-    arrivalDate: body.arrivalDate,
-    departureDate: body.departureDate,
-    adults: body.adults,
-    children: body.children,
-    ratePlanId: body.ratePlanId,
-  });
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
     reservationId,
     roomTypeId: body.roomTypeId,
@@ -1898,7 +1892,10 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     ...(body.adults !== undefined ? { adults: body.adults } : {}),
     ...(body.children !== undefined ? { children: body.children } : {}),
     ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+    ...(body.noPost !== undefined ? { noPost: body.noPost } : {}),
   };
+  const fingerprint = await commandFingerprint('reservations.modify', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryModifyReservation']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -8207,6 +8204,7 @@ async function serveStaleKvAvailability(
 
 async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
   const fromDate = ctx.url.searchParams.get('fromDate');
   const toDate = ctx.url.searchParams.get('toDate');
   const roomTypeId = ctx.url.searchParams.get('roomTypeId') || undefined;
@@ -8222,6 +8220,9 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
   if (toDate > horizonCapDate) {
     return json({ error: 'date_range_exceeds_max' }, 400);
   }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
 
   // Branch 1: roomTypeId supplied -> Attempt KV Bulk Read (Pure KV path - zero D1 reads)
   if (roomTypeId) {
@@ -8301,13 +8302,12 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
   }
 
   // Branch 2: roomTypeId omitted OR KV cache miss/expired -> Fallback to PropertyDO
-  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
-  if (!resolved) {
-    return json({ error: 'not_found' }, 404);
-  }
-
   try {
-    const { ariVersion, rows } = await resolved.stub.readAvailabilityRange(fromDate, toDate, roomTypeId);
+    const { ariVersion, rows } = await resolvedCtx.resolved.stub.readAvailabilityRange(
+      fromDate,
+      toDate,
+      roomTypeId,
+    );
 
     const items = rows.map((row) => ({
       roomTypeId: row.roomTypeId,
@@ -8317,9 +8317,7 @@ async function handleGetAvailability(ctx: V1DispatchContext): Promise<Response> 
       held: row.held,
       sold: row.sold,
       oversell: row.oversell,
-      free:
-        row.free ??
-        row.physical - row.blocked - row.held - row.sold + row.oversell,
+      free: row.free ?? freeAvailability(row),
     }));
 
     return json({

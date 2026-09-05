@@ -70,7 +70,7 @@ When adding or changing any path that accepts a `propertyId` / `orgId` in the **
 - Fingerprint **must** include `commandId` (or `routeId`) plus payload. Payload-only fingerprints alias distinct commands that share a shape (`{ reservationId }` on cancel vs no-show vs check-in).
 - Keys are **per user** at the DO boundary, not only per property.
 - The object you fingerprint **is** the object you send to the DO. If you sort an array for the hash, send that same sorted array (virtual room-type `constituentRoomTypeIds`).
-- Document per route whether the key is JSON `idempotencyKey` or `x-idempotency-key`. Do not invent a third place. First-party client and public API must match.
+- Document per route whether the key is JSON `idempotencyKey` or `x-idempotency-key`. Do not invent a third place. First-party client and public API must match. Representative routes (including `post_reservation_early_depart` → header **`x-idempotency-key`**, same as check-out) are listed in `docs/superpowers/specs/2026-09-05-early-depart-cash-fx-hygiene-design.md` §Q16.
 
 ---
 
@@ -183,6 +183,8 @@ Typed domain errors only in `catch`; unexpected throws → `INTERNAL_ERROR`, nev
 **When you add a `test` script**, also add `test:coverage` if CI’s `pnpm test:coverage` is how the package is reached. Packages without that script are **invisible** to CI coverage (this bit `@hospai/crypto-shredding`).
 
 Root **`pnpm lint`** runs **`eslint .`** on the full tree. Workspace package **`lint`** scripts are **coordination stubs** for turbo (`echo 'lint via root eslint'`) — they do not run standalone eslint. Confirm **17** `check:*` scripts unchanged (includes `check:resolve-property-prefetch` from R0.12).
+
+**Supply chain:** `pnpm audit --audit-level high` blocking CI is **deferred** until the tree is clean (9 high on 2026-09-05); see ARCHITECTURE.md §11 footnote.
 
 **Do not** set an 80% coverage gate on PropertyDO. **Do not** add Playwright as the first e2e layer — extend `scripts/smoke-staging.mjs` (book → check-in → check-out, plus COMPANY AR once that path exists). Staging deploy must not outrun a green CI SHA.
 

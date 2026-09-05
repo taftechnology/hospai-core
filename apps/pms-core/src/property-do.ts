@@ -1603,6 +1603,9 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
   return Number(row[0]?.n ?? 0);
 }
 
+const FRONT_DESK_LIST_SELECT = `reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
+  adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id`;
+
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
@@ -10582,14 +10585,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          ? `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE arrival_date = ? AND status IN ('confirmed', 'pending') AND reservation_id > ?
              ORDER BY reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          : `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE arrival_date = ? AND status IN ('confirmed', 'pending')
              ORDER BY reservation_id ASC
@@ -10652,15 +10653,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          ? `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE departure_date = ?
                AND (status > ? OR (status = ? AND reservation_id > ?))
              ORDER BY status ASC, reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          : `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE departure_date = ?
              ORDER BY status ASC, reservation_id ASC
@@ -10723,15 +10722,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         cursor
-          ? `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          ? `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE status = 'checked_in'
                AND (departure_date > ? OR (departure_date = ? AND reservation_id > ?))
              ORDER BY departure_date ASC, reservation_id ASC
              LIMIT ?`
-          : `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+          : `SELECT ${FRONT_DESK_LIST_SELECT}
              FROM reservation
              WHERE status = 'checked_in'
              ORDER BY departure_date ASC, reservation_id ASC
@@ -10772,10 +10769,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }> {
     this.assertRpcAvailable();
     const trimmed = q.trim();
-    const frontDeskSelect = `reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                    adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id`;
     const exact = this.ctx.storage.sql
-      .exec(`SELECT ${frontDeskSelect} FROM reservation WHERE reservation_id = ?`, trimmed)
+      .exec(`SELECT ${FRONT_DESK_LIST_SELECT} FROM reservation WHERE reservation_id = ?`, trimmed)
       .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
     if (exact[0]) {
       return { ok: true, items: exact.map((row) => this.mapFrontDeskListRow(row)) };
@@ -11354,8 +11349,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private selectFrontDeskReservationSync(reservationId: string): Parameters<PropertyDO['mapFrontDeskListRow']>[0] | null {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+        `SELECT ${FRONT_DESK_LIST_SELECT}
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )

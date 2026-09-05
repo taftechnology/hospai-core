@@ -1180,6 +1180,43 @@ describe('reservations vertical HTTP routes', () => {
     expect(await folioRes.json()).toMatchObject({ noPost: true });
   });
 
+  it('PATCH modify with noPost: true sets noPost flag', async () => {
+    const actor = 'user_res_patch_nopost';
+    const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+    const departure = addDays(arrival, 2);
+    const reservationId = `res_patch_np_${crypto.randomUUID()}`;
+
+    expect(
+      (await postReservation(propertyId, actor, {
+        reservationId,
+        roomTypeId: 'rt_king',
+        guestRef,
+        arrivalDate: arrival,
+        departureDate: departure,
+        idempotencyKey: `idem-patch-np-book-${crypto.randomUUID()}`,
+      })).status,
+    ).toBe(201);
+
+    const patchRes = await patchReservation(propertyId, actor, reservationId, {
+      roomTypeId: 'rt_king',
+      arrivalDate: arrival,
+      departureDate: departure,
+      noPost: true,
+      idempotencyKey: `idem-patch-np-${crypto.randomUUID()}`,
+    });
+    expect(patchRes.status).toBe(200);
+
+    const folioRes = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,
+        { method: 'GET', headers: { 'x-dev-actor': actor } },
+      ),
+      env,
+    );
+    expect(folioRes.status).toBe(200);
+    expect(await folioRes.json()).toMatchObject({ noPost: true });
+  });
+
   it('PATCH modify: same idempotency key, different ratePlanId → idempotency_key_reused', async () => {
     const actor = `user_mod_rp_idem_${crypto.randomUUID()}`;
     const { propertyId, arrival, guestRef } = await provisionHotel(actor);

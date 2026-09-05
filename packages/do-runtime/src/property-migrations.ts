@@ -1,4 +1,4 @@
-/** Single source of truth for the Phase 0 PropertyDO freeze-gate DDL. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 34. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 

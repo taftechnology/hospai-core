@@ -1,5 +1,4 @@
 import {
-  COMMAND_CATALOG,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   type EntitlementSnapshot,
@@ -162,9 +161,4 @@ export async function assertEntitled(
   }
 }
 
-export function mapCommandEntitlement(commandId: string): FeatureKey | undefined {
-  return COMMAND_CATALOG.find((c) => c.id === commandId)?.entitlement;
-}
-
-export { killKvKey, snapshotKvKey };
 export { PermissionDoCache } from './permission-cache.js';

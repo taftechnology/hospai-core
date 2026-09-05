@@ -1737,8 +1737,7 @@ Either way: ship OAuth + public API first. This is the moat, not the MVP.
 ```
 hospai-pms/
 ├── apps/
-│   ├── edge/                        wrangler.jsonc — routes, authn, tenant resolution, kill-switch
-│   ├── pms-core/                    PropertyDO + OrgDO + OrgEntitlementDO + core PMS modules
+│   ├── pms-core/                    PropertyDO + OrgDO + OrgEntitlementDO + HTTP routing (no separate edge app)
 │   ├── payments/                    isolated bindings → PCI scope containment
 │   ├── booking-engine/              Workers + Static Assets, SSR
 │   ├── workflows/                   night audit, activation, reconciliation, dunning,
@@ -1767,7 +1766,7 @@ hospai-pms/
 │   ├── entitlement-client/          version-keyed KV snapshot, guards, meters, kill-switch
 │   ├── crypto-shredding/            per-guest data keys, envelope encryption, erasure
 │   ├── money/                       currency, rounding, allocation, tax primitives
-│   ├── temporal-utils/              StayDate, BusinessDate, Nights, timezone math
+│   ├── temporal-utils/              StayDate, BusinessDate, Nights, timezone math (unused — next date slice imports or deletes)
 │   ├── observability/               tracing, structured logs, tenant-tagged metrics
 │   ├── ui-kit/                      design system
 │   ├── ui-shell/                    nav registry, slot system, entitlement-aware routing
@@ -1784,8 +1783,9 @@ hospai-pms/
 - A module's public surface is its `index.ts`. Importing internals is a lint error.
 - `modules/pms/*` may not import `modules/addons/*` — core never depends on add-ons.
 - `modules/addons/*` may import `modules/pms/*` public API only.
-- `domain/` imports nothing but `packages/money`, `packages/temporal-utils`, and stdlib.
+- `domain/` imports nothing but `packages/money`, `packages/temporal-utils`, `@hospai/contracts`, and stdlib.
   No platform imports (Cloudflare APIs) and no entitlement client in domain code.
+- **PropertyDO extraction** stays in `apps/pms-core` until a named trigger lands in this document — do not split folio/payments/reservations for speed alone.
 - Every type crossing a module boundary must be structured-cloneable and declared in
   `packages/contracts` (§3).
 
@@ -1812,6 +1812,8 @@ for tests with isolated DO storage per test and `runDurableObjectAlarm()`.
 - No platform imports (`cloudflare:*`, DO runtime) inside `domain/` (Rule 11).
 - `modules/pms/*` may not import `modules/addons/*`.
 - No module-boundary type that is not structured-cloneable (§3).
+
+**Supply chain (deferred):** As of 2026-09-05, `pnpm audit --audit-level high` reports **9 high** on this tree (e.g. transitive `nanoid`, `js-yaml`). A blocking CI gate is **deferred** until the audit is clean — track as follow-up; do not ship a red gate in R0.14.
 
 ---
 

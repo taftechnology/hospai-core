@@ -22,12 +22,3 @@ export function logFields(
   if (extra) Object.assign(fields, extra);
   return fields;
 }
-
-export function mergeContext(
-  ctx: ObservabilityContext,
-  patch: Partial<Pick<ObservabilityContext, 'userId' | 'orgId' | 'propertyId'>>,
-): void {
-  if (patch.userId !== undefined) ctx.userId = patch.userId;
-  if (patch.orgId !== undefined) ctx.orgId = patch.orgId;
-  if (patch.propertyId !== undefined) ctx.propertyId = patch.propertyId;
-}

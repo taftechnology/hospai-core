@@ -1,4 +1,5 @@
 import type { DomainEventMessage } from '@hospai/contracts';
+import { freeAvailability } from '@hospai/contracts';
 import { logInfo, type ObservabilityContext } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
 import { guestPurgeWorkflowId } from './purge-certificate.js';
@@ -284,7 +285,7 @@ export async function handleAvailabilityChanged(
       held: row.held,
       sold: row.sold,
       oversell: row.oversell,
-      free: row.physical - row.blocked - row.held - row.sold + row.oversell,
+      free: freeAvailability(row),
       ariVersion: currentAriVersion,
       writtenAt: now,
     } satisfies AriProjectionEntry),

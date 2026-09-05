@@ -196,7 +196,7 @@ export const PROPERTY_REF_NOT_FOUND = 'property_ref_not_found' as const;
 export const DECRYPT_UNRESOLVED = 'decrypt_unresolved' as const;
 export const KEY_SHRED_FAILED = 'key_shred_failed' as const;
 
-/** Sorted-key canonical JSON. Client/edge only — never call from a DO command path. */
+/** Sorted-key canonical JSON. Prefer `commandFingerprint` at HTTP; DO may use `fingerprintPayload` for nested payloads. */
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value);

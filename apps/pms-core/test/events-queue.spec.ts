@@ -27,7 +27,10 @@ async function configIdem(key: string, value: unknown, meta: { reason: string })
 }
 
 /** Miniflare does not auto-dispatch consumers for DO-originated sendBatch — invoke explicitly in tests. */
-async function dispatchQueueConsumer(rows: OutboxRow[], source: EventSource): Promise<void> {
+async function dispatchQueueConsumer(
+  rows: OutboxRow[],
+  source: EventSource,
+): Promise<Awaited<ReturnType<typeof getQueueResult>>> {
   const batch = createMessageBatch(
     'hospai-events',
     rows.map((row) => ({
@@ -37,29 +40,40 @@ async function dispatchQueueConsumer(rows: OutboxRow[], source: EventSource): Pr
       body: toQueueMessage(row, source),
     })),
   );
-  await worker.queue(batch as MessageBatch<DomainEventMessage>, env);
+  const ctx = createExecutionContext();
+  const runQueue = worker.queue as (
+    batch: MessageBatch<DomainEventMessage>,
+    queueEnv: PmsEnv,
+    ctx: ExecutionContext,
+  ) => Promise<void>;
+  await runQueue(batch as MessageBatch<DomainEventMessage>, env, ctx);
+  return getQueueResult(batch, ctx);
 }
 
 async function flushPropertyWithConsumer(
   stub: DurableObjectStub<PropertyDO>,
   source: EventSource,
   drainOpts?: { maxMessages?: number; maxBytes?: number },
-): Promise<{ flushed: number; backlog: boolean }> {
-  return stub.flushOutbox(async (batch) => {
+): Promise<{ flushed: number; backlog: boolean; queueResult: Awaited<ReturnType<typeof getQueueResult>> }> {
+  let queueResult!: Awaited<ReturnType<typeof getQueueResult>>;
+  const flushed = await stub.flushOutbox(async (batch) => {
     await env.EVENTS_QUEUE.sendBatch(batch.map((row) => ({ body: toQueueMessage(row, source) })));
-    await dispatchQueueConsumer(batch, source);
+    queueResult = await dispatchQueueConsumer(batch, source);
   }, drainOpts);
+  return { ...flushed, queueResult };
 }
 
 async function flushOrgWithConsumer(
   stub: DurableObjectStub<OrgDO>,
   source: EventSource,
   drainOpts?: { maxMessages?: number; maxBytes?: number },
-): Promise<{ flushed: number; backlog: boolean }> {
-  return stub.flushOutbox(async (batch) => {
+): Promise<{ flushed: number; backlog: boolean; queueResult: Awaited<ReturnType<typeof getQueueResult>> }> {
+  let queueResult!: Awaited<ReturnType<typeof getQueueResult>>;
+  const flushed = await stub.flushOutbox(async (batch) => {
     await env.EVENTS_QUEUE.sendBatch(batch.map((row) => ({ body: toQueueMessage(row, source) })));
-    await dispatchQueueConsumer(batch, source);
+    queueResult = await dispatchQueueConsumer(batch, source);
   }, drainOpts);
+  return { ...flushed, queueResult };
 }
 
 describe('Queues consumer (Phase 0)', () => {
@@ -80,10 +94,11 @@ describe('Queues consumer (Phase 0)', () => {
     const preview = await stub.drainOutboxBatch();
     const target = preview.find((r) => r.eventType === 'config.changed')!;
 
-    await flushPropertyWithConsumer(stub, source);
+    const { queueResult } = await flushPropertyWithConsumer(stub, source);
 
     expect(await env.EVENT_DEDUPE_KV.get(`seen:${target.eventId}`)).toBe('1');
     expect(await stub.outboxUnackedCount()).toBe(0);
+    expect(queueResult.retryMessages).toEqual([]);
   });
 
   it('org guest create → flush → consumer receives guest.created without PII', async () => {

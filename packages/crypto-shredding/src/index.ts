@@ -7,7 +7,7 @@ export type {
   WrappedKeyRecord,
 } from './types.js';
 export { KeyNotFoundError, KeyShreddedError } from './errors.js';
-export { generatePiiKeyId, importMasterKeyHex } from './master-key.js';
+export { importMasterKeyHex } from './master-key.js';
 export {
   HKDF_SALT,
   deriveOrgBlindIndexKeyHex,

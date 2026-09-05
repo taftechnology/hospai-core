@@ -156,6 +156,10 @@ import {
   ORG_UNREACHABLE,
   INTERNAL_ERROR,
   DOMAIN_ERROR,
+  LIMIT_EXCEEDED,
+  RATES_BULK_UPDATE_MAX,
+  ROOMS_BULK_STATUS_MAX,
+  FOLIO_SPLIT_MAX,
   configUndeclared,
   isCommandError,
   type CommandError,
@@ -7121,6 +7125,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
     | { ok: false; error: typeof OOO_VIA_RANGE }
@@ -7138,6 +7143,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.updates.length > ROOMS_BULK_STATUS_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
 
     for (const u of input.updates) {
       if (!isRoomStatus(u.status)) {
@@ -14164,6 +14173,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
     | { ok: false; error: typeof ORG_ID_UNSET }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
@@ -14181,6 +14191,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.updates.length > RATES_BULK_UPDATE_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -15432,6 +15446,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
@@ -15443,6 +15458,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const permDenied = await this.gatePermission(actor, 'folio:adjust');
     if (permDenied) return permDenied;
+
+    if (input.splits.length > FOLIO_SPLIT_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
 
     try {
       return this.ctx.storage.transactionSync(() =>

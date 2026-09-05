@@ -147,6 +147,10 @@ import {
   KEY_SHRED_FAILED,
   LAST_OWNER,
   LIMIT_EXCEEDED,
+  RATES_BULK_UPDATE_MAX,
+  ROOMS_BULK_STATUS_MAX,
+  FOLIO_SPLIT_MAX,
+  ROSTER_KINDS_MAX,
   NIGHT_AUDIT_NOT_DUE,
   NIGHT_AUDIT_STEP_NOT_FAILED,
   NIGHT_AUDIT_WORKFLOW_EXISTS,
@@ -194,6 +198,7 @@ import { logError, logWarn, type ObservabilityContext } from '@hospai/observabil
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { authorizedParties, resolveActor, requirePermission, type Actor } from './auth.js';
 import { applySecurityHeaders } from './security-headers.js';
+import { parseRequestJson } from './parse-request-json.js';
 import {
   clerkUnreachableResponse,
   lookupDirectoryByUserIds,
@@ -1029,9 +1034,9 @@ function requireIdempotencyHeader(request: Request): string | Response {
   return key;
 }
 
-async function readOptionalJsonBody(request: Request): Promise<Record<string, unknown> | null> {
-  const contentType = request.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json')) return null;
+async function readOptionalJsonBody(
+  request: Request,
+): Promise<Record<string, unknown> | null | Response> {
   const text = await request.text();
   if (!text.trim()) return null;
   try {
@@ -1039,10 +1044,17 @@ async function readOptionalJsonBody(request: Request): Promise<Record<string, un
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
+    return json({ error: 'invalid_json' }, 400);
   } catch {
-    return null;
+    return json({ error: 'invalid_json' }, 400);
   }
-  return null;
+}
+
+async function parseJsonBody<T>(request: Request): Promise<T | Response> {
+  const raw = await parseRequestJson(request);
+  if (raw instanceof Response) return raw;
+  if (raw === null) return json({ error: 'invalid_body' }, 400);
+  return raw as T;
 }
 
 function logAriRejectOnCommit(
@@ -1185,7 +1197,9 @@ function entitlementForRoute(route: V1RouteDef): FeatureKey | undefined {
 }
 
 async function handlePostOrgs(ctx: V1DispatchContext): Promise<Response> {
-  const body = (await ctx.request.json()) as { orgId: string; name: string };
+    const bodyParsed = await parseJsonBody<{ orgId: string; name: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body.orgId || !body.name) return json({ error: 'invalid_body' }, 400);
   try {
     validateTenantId(body.orgId);
@@ -1215,12 +1229,10 @@ async function handlePostMigrationSweep(ctx: V1DispatchContext): Promise<Respons
 async function handlePostDemoSeed(ctx: V1DispatchContext): Promise<Response> {
   if (!isDevActorAllowed(ctx.env)) return json({ error: 'not_found' }, 404);
 
-  let body: { orgId?: string; propertyId?: string };
-  try {
-    body = (await ctx.request.json()) as { orgId?: string; propertyId?: string };
-  } catch {
-    return json({ error: 'invalid_body' }, 400);
-  }
+  const demoSeedRaw = await parseRequestJson(ctx.request);
+  if (demoSeedRaw instanceof Response) return demoSeedRaw;
+  if (demoSeedRaw === null) return json({ error: 'invalid_body' }, 400);
+  const body = demoSeedRaw as { orgId?: string; propertyId?: string };
   if (!body?.orgId || !body.propertyId) return json({ error: 'invalid_body' }, 400);
 
   try {
@@ -1269,7 +1281,9 @@ async function handlePostDemoSeed(ctx: V1DispatchContext): Promise<Response> {
 async function handlePostOrgCancel(ctx: V1DispatchContext): Promise<Response> {
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
-  const body = (await ctx.request.json()) as { action?: string };
+    const bodyParsed = await parseJsonBody<{ action?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body.action !== 'close' && body.action !== 'reopen') {
     return json({ error: 'invalid_body' }, 422);
   }
@@ -1286,7 +1300,9 @@ async function handlePostOrgCancel(ctx: V1DispatchContext): Promise<Response> {
 async function handlePostOrgPurge(ctx: V1DispatchContext): Promise<Response> {
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
-  const body = (await ctx.request.json()) as { orgId?: string; confirm?: boolean };
+    const bodyParsed = await parseJsonBody<{ orgId?: string; confirm?: boolean }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body.confirm !== true || body.orgId !== orgId) {
     return json({ error: 'invalid_body' }, 422);
   }
@@ -1308,14 +1324,16 @@ async function handlePostOrgProperties(ctx: V1DispatchContext): Promise<Response
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     propertyId: string;
     name: string;
     jurisdiction?: Jurisdiction | null;
     timeZone: string;
     currency: string;
     orgName?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body.propertyId || !body.name || !body.timeZone || !body.currency) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -1409,7 +1427,7 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomTypeId: string;
     code: string;
     name: string;
@@ -1419,7 +1437,9 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     maxAdults: number;
     constituentRoomTypeIds?: string[];
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   const kind = body.kind ?? 'physical';
 
   if (kind === 'virtual') {
@@ -1526,7 +1546,7 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
   const roomTypeId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     code?: string;
     name?: string;
     roomCount?: number;
@@ -1534,7 +1554,9 @@ async function handlePutRoomType(ctx: V1DispatchContext): Promise<Response> {
     maxAdults?: number;
     constituentRoomTypeIds?: string[];
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -1700,7 +1722,9 @@ async function handlePatchPropertyDetails(ctx: V1DispatchContext): Promise<Respo
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { name?: string; idempotencyKey?: string };
+    const bodyParsed = await parseJsonBody<{ name?: string; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.name || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -1746,13 +1770,15 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     key?: string;
     value?: unknown;
     reason?: string;
     effectiveFrom?: string;
     idempotencyKey?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.key || body.value === undefined || !body.reason || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -1815,13 +1841,15 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     guestId: string;
     displayName: string;
     email?: string;
     phone?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.guestId || !body.displayName || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -1865,12 +1893,14 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
   const guestId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     displayName: string;
     email?: string;
     phone?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.displayName || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -1914,7 +1944,9 @@ async function handlePostGuestErase(ctx: V1DispatchContext): Promise<Response> {
   const guestId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -2103,12 +2135,17 @@ async function handlePostRoster(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as RosterHttpBody & { staffId?: unknown };
+    const bodyParsed = await parseJsonBody<RosterHttpBody & { staffId?: unknown }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body || typeof body !== 'object' || Array.isArray(body) || 'staffId' in body) {
     return json({ error: 'invalid_body' }, 400);
   }
   if (!body.displayName || !Array.isArray(body.kinds) || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.kinds.length > ROSTER_KINDS_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2156,12 +2193,17 @@ async function handlePatchRoster(ctx: V1DispatchContext): Promise<Response> {
   const staffId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as RosterHttpBody;
+    const bodyParsed = await parseJsonBody<RosterHttpBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
   if (body.kinds !== undefined && !Array.isArray(body.kinds)) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.kinds !== undefined && body.kinds.length > ROSTER_KINDS_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2213,7 +2255,9 @@ async function handlePostRosterStatus(ctx: V1DispatchContext): Promise<Response>
   const staffId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as RosterHttpBody;
+    const bodyParsed = await parseJsonBody<RosterHttpBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || (body.status !== 'active' && body.status !== 'inactive')) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -2254,7 +2298,9 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
   const staffId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as RosterHttpBody;
+    const bodyParsed = await parseJsonBody<RosterHttpBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -2294,7 +2340,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     reservationId: string;
     roomTypeId: string;
     guestRef: string;
@@ -2309,7 +2355,9 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     promoCode?: string;
     confirmBy?: number;
     expiresAt?: number;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body.reservationId ||
     !body.roomTypeId ||
@@ -2479,7 +2527,7 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomTypeId: string;
     arrivalDate: string;
     departureDate: string;
@@ -2488,7 +2536,9 @@ async function handlePatchReservation(ctx: V1DispatchContext): Promise<Response>
     adults?: number;
     children?: number;
     ratePlanId?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body.roomTypeId || !body.arrivalDate || !body.departureDate || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -2575,7 +2625,9 @@ async function handlePostReservationCancel(ctx: V1DispatchContext): Promise<Resp
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2620,7 +2672,9 @@ async function handlePostReservationConfirm(ctx: V1DispatchContext): Promise<Res
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { idempotencyKey: string; ratePlanId?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string; ratePlanId?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2667,11 +2721,13 @@ async function handlePostReservationHold(ctx: V1DispatchContext): Promise<Respon
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     ratePlanId?: string;
     confirmBy?: number;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2719,13 +2775,15 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     frontOfficeComment?: string;
     vipFlag?: boolean;
     dndFlag?: boolean;
     noPost?: boolean;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -2900,6 +2958,7 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
   if (idempotencyKey instanceof Response) return idempotencyKey;
 
   const extra = await readOptionalJsonBody(ctx.request);
+  if (extra instanceof Response) return extra;
   const roomId = typeof extra?.roomId === 'string' ? extra.roomId : undefined;
   const overrideCleanliness = typeof extra?.overrideCleanliness === 'boolean' ? extra.overrideCleanliness : undefined;
 
@@ -2942,6 +3001,7 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   if (idempotencyKey instanceof Response) return idempotencyKey;
 
   const extra = await readOptionalJsonBody(ctx.request);
+  if (extra instanceof Response) return extra;
   const overrideBalance = typeof extra?.overrideBalance === 'boolean' ? extra.overrideBalance : undefined;
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -3252,7 +3312,9 @@ async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
 async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> {
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
-  const body = (await ctx.request.json()) as { email?: string; role?: string };
+    const bodyParsed = await parseJsonBody<{ email?: string; role?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   const email = typeof body.email === 'string' ? body.email.trim() : '';
   if (!email || !isOrgRole(body.role)) {
     return json({ error: 'invalid_body' }, 422);
@@ -3287,7 +3349,9 @@ async function handleUpdateOrgMember(ctx: V1DispatchContext): Promise<Response> 
   const orgId = decodeURIComponent(ctx.match[1]!);
   const targetUserId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.orgId = orgId;
-  const body = (await ctx.request.json()) as { role?: string };
+    const bodyParsed = await parseJsonBody<{ role?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!isOrgRole(body.role)) {
     return json({ error: 'invalid_body' }, 422);
   }
@@ -3354,7 +3418,9 @@ async function handleListPropertyMembers(ctx: V1DispatchContext): Promise<Respon
 async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { email?: string; role?: string };
+    const bodyParsed = await parseJsonBody<{ email?: string; role?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   // Body email wins over any query param (person-identifier hygiene).
   const queryEmail = ctx.url.searchParams.get('email');
   void queryEmail;
@@ -3402,7 +3468,9 @@ async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Respo
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const targetUserId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { role?: string };
+    const bodyParsed = await parseJsonBody<{ role?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body.role === 'owner') {
     return json({ error: 'invalid_role' }, 422);
   }
@@ -3503,7 +3571,9 @@ async function handlePostGuestsBatch(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { refs?: string[] };
+    const bodyParsed = await parseJsonBody<{ refs?: string[] }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!Array.isArray(body?.refs) || body.refs.length === 0) {
     return json({ error: 'invalid_body', detail: 'refs_required' }, 400);
   }
@@ -3563,14 +3633,16 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomTypeId: string;
     ratePlanId?: string;
     stayDate: string;
     amountMinor: number;
     currency: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body.roomTypeId ||
     !body.stayDate ||
@@ -3620,7 +3692,7 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomTypeId: string;
     ratePlanId?: string;
     stayDate: string;
@@ -3630,7 +3702,9 @@ async function handlePutRestrictionDays(ctx: V1DispatchContext): Promise<Respons
     ctd?: boolean;
     stopSell?: boolean;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body.roomTypeId || !body.stayDate || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3691,11 +3765,13 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     chargeCode: string;
     amountMinor: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.chargeCode || body.amountMinor == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3769,13 +3845,15 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomId: string;
     roomTypeId: string;
     code: string;
     floor?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.roomId || !body.roomTypeId || !body.code || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3820,12 +3898,14 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
   const roomId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     code?: string;
     floor?: string;
     roomTypeId?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3895,7 +3975,9 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
   const roomId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { status: string; idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ status: string; idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.status || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -3935,14 +4017,16 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
   const roomId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomId?: string;
     startDate: string;
     endDate: string;
     oooId?: string;
     reason?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.startDate || !body.endDate || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4001,12 +4085,17 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     updates: Array<{ roomId: string; status: string }>;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.updates?.length || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.updates.length > ROOMS_BULK_STATUS_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -4045,7 +4134,9 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { roomId: string; idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ roomId: string; idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.roomId || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4084,12 +4175,14 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     roomId: string;
     businessDate: string;
     assigneeRef: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.roomId || !body.businessDate || !body.assigneeRef || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4171,7 +4264,7 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     ratePlanId: string;
     code: string;
     name: string;
@@ -4183,7 +4276,9 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     cancelPolicyText?: string | null;
     parentRatePlanId?: string | null;
     deriveBps?: number | null;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.ratePlanId || !body.code || !body.name || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4234,7 +4329,7 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
   const ratePlanId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     code?: string;
     name?: string;
     idempotencyKey: string;
@@ -4245,7 +4340,9 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     cancelPolicyText?: string | null;
     parentRatePlanId?: string | null;
     deriveBps?: number | null;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.idempotencyKey ||
     (body.code === undefined &&
@@ -4350,11 +4447,13 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     code: string;
     name: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.code || !body.name || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4394,11 +4493,13 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
   const code = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     name?: string;
     taxGroup?: string | null;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || (body.name === undefined && body.taxGroup === undefined)) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4442,10 +4543,12 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
   const code = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     status: 'active' | 'archived';
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.status || !body.idempotencyKey || (body.status !== 'active' && body.status !== 'archived')) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4531,11 +4634,13 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
   const ruleId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     chargeCode: string;
     destWindowKind: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.chargeCode ||
     !body.idempotencyKey ||
@@ -4583,7 +4688,9 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
   const ruleId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4622,7 +4729,7 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     taxRuleId: string;
     ruleKey: string;
     name: string;
@@ -4633,7 +4740,9 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
     validFrom: string;
     validTo?: string | null;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.taxRuleId ||
     !body.ruleKey ||
@@ -4693,7 +4802,7 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
   const ruleKey = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     taxRuleId: string;
     name: string;
     ruleType: string;
@@ -4703,7 +4812,9 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
     validFrom: string;
     validTo?: string | null;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.taxRuleId ||
     !body.name ||
@@ -4783,11 +4894,13 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     shiftId: string;
     openingFloat: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.shiftId || body.openingFloat == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4827,10 +4940,12 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
   const shiftId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     closingCount: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body?.closingCount == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -4870,12 +4985,14 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     paymentId: string;
     amountMinor: number;
     currency?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5018,7 +5135,7 @@ async function handleGetRatePromos(ctx: V1DispatchContext): Promise<Response> {
 async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     promoId: string;
     code: string;
     name: string;
@@ -5029,7 +5146,9 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
     validTo?: string | null;
     ratePlanId?: string | null;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.promoId || !body.code || !body.name || !body.kind || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5081,7 +5200,7 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
   const promoId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     name?: string;
     bps?: number;
     amountMinor?: number;
@@ -5091,7 +5210,9 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     code?: string;
     kind?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5191,11 +5312,13 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
 async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     reservationId: string;
     folioWindowId?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || !body.reservationId) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5256,7 +5379,9 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const invoiceId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string; reason?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string; reason?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -5300,12 +5425,14 @@ function mapCityLedgerCommandFailure(
 async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     name: string;
     creditLimitMinor?: number;
     termsDays?: number;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || !body.name) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5373,13 +5500,15 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const accountId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     name?: string;
     creditLimitMinor?: number;
     termsDays?: number;
     status?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -5447,12 +5576,14 @@ async function handlePostCityLedgerAccountPayment(ctx: V1DispatchContext): Promi
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const accountId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     amountMinor: number;
     businessDate?: string;
     reference?: string | null;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || body.amountMinor === undefined) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5830,13 +5961,15 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
   const roomTypeId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     ratePlanId?: string;
     stayDate: string;
     amountMinor: number;
     currency: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body.stayDate || typeof body.amountMinor !== 'number' || !body.currency || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -5886,7 +6019,7 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     updates: Array<{
       roomTypeId: string;
       ratePlanId?: string;
@@ -5895,9 +6028,14 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
       currency: string;
     }>;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!Array.isArray(body.updates) || body.updates.length === 0 || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.updates.length > RATES_BULK_UPDATE_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -5944,12 +6082,17 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
   const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     splits: Array<{ folioLineId: string; amountMinor: number; folioWindowId?: string }>;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.splits?.length || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.splits.length > FOLIO_SPLIT_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -5987,11 +6130,13 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     kind: 'GUEST' | 'COMPANY' | 'MASTER';
     billedParty?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.kind || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6024,7 +6169,9 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const folioWindowId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6057,7 +6204,9 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const folioWindowId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6090,10 +6239,12 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     destinationFolioWindowId: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.destinationFolioWindowId || !body.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6126,7 +6277,9 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6160,11 +6313,13 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     outcome?: string;
     gatewayReference?: string;
     idempotencyKey?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   if (body.outcome !== 'authorized' && body.outcome !== 'declined') {
     return json({ error: 'invalid_body' }, 400);
@@ -6212,7 +6367,9 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { amountMinor?: number; idempotencyKey?: string };
+    const bodyParsed = await parseJsonBody<{ amountMinor?: number; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.idempotencyKey ||
     typeof body.amountMinor !== 'number' ||
@@ -6252,14 +6409,16 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const sourceFolioLineId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     kind: 'percent' | 'fixed';
     bps?: number;
     amountMinor?: number;
     reason: string;
     folioLineId: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.kind || !body.folioLineId || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6307,14 +6466,16 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     kind: 'percent' | 'fixed';
     bps?: number;
     amountMinor?: number;
     reason: string;
     folioLineId: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.kind || !body.folioLineId || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6362,7 +6523,9 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
   if (resolvedCtx instanceof Response) return resolvedCtx;
@@ -6396,12 +6559,14 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     paymentId: string;
     amountMinor: number;
     currency?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6452,10 +6617,12 @@ async function handlePostFolioCapture(ctx: V1DispatchContext): Promise<Response>
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     amountMinor: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body?.amountMinor == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6584,7 +6751,9 @@ async function handleGetNightAuditReport(ctx: V1DispatchContext): Promise<Respon
 async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -6650,11 +6819,13 @@ async function handlePostNightAuditRun(ctx: V1DispatchContext): Promise<Response
 async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey?: string;
     businessDate?: string;
     step?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || !body.businessDate || !body.step) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6707,7 +6878,9 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
 async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey?: string; businessDate?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey?: string; businessDate?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || !body.businessDate) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -6750,7 +6923,9 @@ async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Pr
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const exceptionId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -6830,7 +7005,9 @@ async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Prom
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const exceptionId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey?: string };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId);
@@ -6871,7 +7048,9 @@ async function handlePostProvisionalExceptionAssign(ctx: V1DispatchContext): Pro
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const exceptionId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as { idempotencyKey?: string; assignedTo?: string | null };
+    const bodyParsed = await parseJsonBody<{ idempotencyKey?: string; assignedTo?: string | null }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
   if (!('assignedTo' in body)) return json({ error: 'invalid_body' }, 400);
   if (body.assignedTo !== null && (typeof body.assignedTo !== 'string' || body.assignedTo === '')) {
@@ -6911,11 +7090,13 @@ async function handlePostProvisionalExceptionNote(ctx: V1DispatchContext): Promi
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const exceptionId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     idempotencyKey?: string;
     noteId?: string;
     text?: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.idempotencyKey || !body.noteId) return json({ error: 'invalid_body' }, 400);
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) return json({ error: 'invalid_body' }, 400);
@@ -7011,7 +7192,9 @@ async function handlePostGuestsSearch(ctx: V1DispatchContext): Promise<Response>
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-  const body = (await ctx.request.json().catch(() => null)) as {
+  const guestSearchRaw = await parseRequestJson(ctx.request);
+  if (guestSearchRaw instanceof Response) return guestSearchRaw;
+  const body = (guestSearchRaw ?? null) as {
     q?: unknown;
     cursor?: unknown;
     limit?: unknown;
@@ -7107,14 +7290,16 @@ async function handleGetGuestStays(ctx: V1DispatchContext): Promise<Response> {
 async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     quoteId: string;
     fromCurrency: string;
     toCurrency: string;
     rate: string;
     effectiveFrom: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (
     !body?.quoteId ||
     !body.fromCurrency ||
@@ -7165,12 +7350,14 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const supersedeQuoteId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     quoteId: string;
     rate: string;
     effectiveFrom: number;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.quoteId || !body.rate || body.effectiveFrom == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -7237,11 +7424,13 @@ async function handlePostFolioChargeback(ctx: V1DispatchContext): Promise<Respon
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     feeLedgerMinor: number;
     reason: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (body?.feeLedgerMinor == null || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
@@ -7279,14 +7468,16 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-  const body = (await ctx.request.json()) as {
+    const bodyParsed = await parseJsonBody<{
     folioWindowId: string;
     kind: 'gain' | 'loss';
     amountMinor: number;
     reason: string;
     sourcePaymentId?: string;
     idempotencyKey: string;
-  };
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
   if (!body?.folioWindowId || !body.kind || body.amountMinor == null || body.reason == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }

@@ -7,6 +7,8 @@ import {
   GUEST_NOT_FOUND,
   IDEM_KEY_REUSED,
   INVALID_KINDS,
+  LIMIT_EXCEEDED,
+  ROSTER_KINDS_MAX,
   ENTITLEMENT_REQUIRED,
   ENTITLEMENT_UNAVAILABLE,
   ROLE_GRANTS,
@@ -1820,7 +1822,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | RosterWriteOk
-    | { ok: false; error: typeof EMPTY_KINDS | typeof INVALID_KINDS | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof EMPTY_KINDS | typeof INVALID_KINDS | typeof LIMIT_EXCEEDED | typeof IDEM_KEY_REUSED }
     | RosterGateError
   > {
     this.assertRpcAvailable();
@@ -1837,6 +1839,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
+
+    if (input.kinds.length > ROSTER_KINDS_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
 
     const kindsErr = rosterKindsError(input.kinds);
     if (kindsErr) return { ok: false, error: kindsErr };
@@ -1908,6 +1914,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           | typeof STAFF_EXITED
           | typeof EMPTY_KINDS
           | typeof INVALID_KINDS
+          | typeof LIMIT_EXCEEDED
           | typeof IDEM_KEY_REUSED;
       }
     | RosterGateError
@@ -1939,6 +1946,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
 
       if (input.kinds) {
+        if (input.kinds.length > ROSTER_KINDS_MAX) {
+          return { ok: false, error: LIMIT_EXCEEDED };
+        }
         const kindsErr = rosterKindsError(input.kinds);
         if (kindsErr) return { ok: false, error: kindsErr };
       }

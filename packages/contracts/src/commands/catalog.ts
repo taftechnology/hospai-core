@@ -241,7 +241,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
   {
     id: 'rooms.bulk_update_status',
     prototypeAction: 'BULK_UPDATE_ROOM_STATUS',
-    lane: 'BULK',
+    lane: 'INTERACTIVE',
     degraded: 'QUEUE_PROVISIONAL',
     idempotent: true,
     events: ['room.status_changed'],
@@ -533,7 +533,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
   {
     id: 'night_audit.run',
     prototypeAction: 'RUN_NIGHT_AUDIT',
-    lane: 'BACKGROUND',
+    lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['night_audit.started', 'night_audit.completed'],
@@ -704,7 +704,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
   {
     id: 'rates.bulk_update',
     prototypeAction: 'UPDATE_BULK_RATES',
-    lane: 'BULK',
+    lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['rate.changed'],

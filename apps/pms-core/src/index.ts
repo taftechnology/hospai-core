@@ -72,6 +72,11 @@ export default {
         logHttpRequest(ctx, request, response.status, started);
         return response;
       } catch (e) {
+        if (e instanceof SyntaxError) {
+          const response = applySecurityHeaders(json({ error: 'invalid_json' }, 400), request);
+          logHttpRequest(ctx, request, 400, started);
+          return response;
+        }
         logError(ctx, {
           msg: 'http.request',
           method: request.method,

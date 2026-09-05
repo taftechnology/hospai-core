@@ -1018,6 +1018,21 @@ export function createClient(opts: {
         { reservationId },
       );
     },
+    async earlyDepart(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/early-depart`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify({}),
+        },
+        { reservationId },
+      );
+    },
 
     /**
      * Deliberately no roomTypeId — booking quotes must use DO ariVersion (Branch 2), not KV min.

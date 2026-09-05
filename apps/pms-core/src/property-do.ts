@@ -40,6 +40,7 @@ import {
   ALREADY_CANCELLED,
   LEDGER_INCONSISTENT,
   NOT_MODIFIABLE,
+  NOT_EARLY_DEPARTABLE,
   INVALID_STATUS_TRANSITION,
   NO_SHOW_BEFORE_ARRIVAL,
   RESTRICTION_VIOLATED,
@@ -1307,6 +1308,7 @@ export function affectedFromPayload(commandType: string, payload: unknown): Affe
     switch (commandType) {
       case 'reservations.check_in':
       case 'reservations.check_out':
+      case 'reservations.early_depart':
       case 'reservations.cancel_check_in':
       case 'reservations.update_status':
         return {
@@ -9655,6 +9657,145 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Shorten an in-house stay to the current business date and release sold on remaining nights.
+   * Implements catalog `reservations.early_depart`. Fingerprint: `{ reservationId }`.
+   */
+  async tryEarlyDepart(
+    actor: ActorContext,
+    input: { reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; reservationId: string }
+    | { ok: false; error: typeof NOT_EARLY_DEPARTABLE }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const businessDate = this.readBusinessDateSync();
+          if (!businessDate) return { ok: false as const, error: BUSINESS_DATE_UNSET };
+
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, allocated_room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            allocated_room_type_id: string;
+            guest_ref: string;
+            pii_key_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (reservation.status !== 'checked_in' || reservation.departure_date <= businessDate) {
+            return { ok: false as const, error: NOT_EARLY_DEPARTABLE };
+          }
+
+          const oldDeparture = reservation.departure_date;
+          const releaseNights = enumerateStayDates(businessDate, oldDeparture);
+          const ledgerId = reservation.allocated_room_type_id || reservation.room_type_id;
+          if (ledgerId && releaseNights.length > 0) {
+            this.releaseSoldNightsSync(ledgerId, releaseNights);
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET departure_date = ?, updated_at = ? WHERE reservation_id = ?`,
+            businessDate,
+            now,
+            input.reservationId,
+          );
+
+          const ariVersion = this.bumpAriVersionSync();
+          const fromDate = releaseNights[0] ?? businessDate;
+          const toDate = releaseNights[releaseNights.length - 1] ?? businessDate;
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.modified',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              from: {
+                roomTypeId: reservation.room_type_id,
+                arrivalDate: reservation.arrival_date,
+                departureDate: oldDeparture,
+              },
+              to: {
+                roomTypeId: reservation.room_type_id,
+                arrivalDate: reservation.arrival_date,
+                departureDate: businessDate,
+              },
+            },
+          });
+
+          if (ledgerId && releaseNights.length > 0) {
+            this.appendPropertyOutbox({
+              eventId: crypto.randomUUID(),
+              eventType: 'availability.changed',
+              payload: {
+                propertyId,
+                roomTypeId: ledgerId,
+                fromDate,
+                toDate,
+                version: ariVersion,
+              },
+            });
+          }
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.early_depart',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: {
+              status: reservation.status,
+              departureDate: oldDeparture,
+              roomTypeId: reservation.room_type_id,
+            },
+            afterJson: {
+              status: reservation.status,
+              departureDate: businessDate,
+              roomTypeId: reservation.room_type_id,
+            },
+            reservationId: input.reservationId,
+          });
+
+          return { ok: true as const, reservationId: input.reservationId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };

@@ -12,6 +12,7 @@ const getOpenShift = vi.fn();
 const getMe = vi.fn();
 const authorizePayment = vi.fn();
 const checkOut = vi.fn();
+const earlyDepart = vi.fn();
 const postGuestsBatch = vi.fn();
 const recordCashPayment = vi.fn();
 const splitFolioLine = vi.fn();
@@ -79,6 +80,7 @@ vi.mock('../client.js', () => ({
     addFolioLine: (...args: unknown[]) => addFolioLine(...args),
     authorizePayment: (...args: unknown[]) => authorizePayment(...args),
     checkOut: (...args: unknown[]) => checkOut(...args),
+    earlyDepart: (...args: unknown[]) => earlyDepart(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     capturePayment: vi.fn(),
@@ -795,6 +797,38 @@ describe('FolioScreen wiring', () => {
       const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
       expect(keys.some((k) => k.includes('"board"'))).toBe(true);
       expect(keys.some((k) => k.includes('"reservation"'))).toBe(true);
+    });
+  });
+
+  it('early depart: button visible when remaining nights; confirm calls API not checkout', async () => {
+    businessDateMock('2026-08-08');
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    earlyDepart.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true, reservationId: 'res_1' } });
+
+    const { invalidateSpy } = renderFolio();
+    await waitFor(() => expect(screen.getByTestId('early-depart')).toBeTruthy());
+    expect(screen.getByTestId('checkout-remaining-nights-warn')).toBeTruthy();
+
+    screen.getByTestId('early-depart').click();
+    expect(await screen.findByRole('dialog', { name: /Early depart today/i })).toBeTruthy();
+    expect(checkOut).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => expect(earlyDepart).toHaveBeenCalled());
+    expect(checkOut).not.toHaveBeenCalled();
+    expect(earlyDepart.mock.calls[0]).toEqual(['prop_demo', 'res_1', 'early-depart:res_1']);
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"folio"'))).toBe(true);
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
     });
   });
 

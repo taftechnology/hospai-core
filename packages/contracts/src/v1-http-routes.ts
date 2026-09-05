@@ -861,6 +861,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_reservation_early_depart',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.early_depart',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

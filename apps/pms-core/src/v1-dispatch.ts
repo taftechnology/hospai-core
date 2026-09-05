@@ -2332,6 +2332,44 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   });
 }
 
+async function handlePostReservationEarlyDepart(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const extra = await readOptionalJsonBody(ctx.request);
+  if (extra instanceof Response) return extra;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId };
+  const fingerprint = await commandFingerprint('reservations.early_depart', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryEarlyDepart']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.early_depart',
+      routeId: 'post_reservation_early_depart',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryEarlyDepart(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 200,
+    onFailure: () => null,
+  });
+}
+
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   return handlePostReservationStatusAction(
@@ -6865,6 +6903,16 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:write',
     commandId: 'reservations.check_out',
     handler: handlePostReservationCheckOut,
+  },
+  {
+    id: 'post_reservation_early_depart',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/early-depart$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.early_depart',
+    entitlement: 'pms.core',
+    handler: handlePostReservationEarlyDepart,
   },
   {
     id: 'post_reservation_no_show',

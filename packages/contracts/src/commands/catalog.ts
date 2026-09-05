@@ -103,6 +103,16 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'reservations:write',
   },
   {
+    id: 'reservations.early_depart',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.modified', 'availability.changed'],
+    permission: 'reservations:write',
+    entitlement: 'pms.core',
+  },
+  {
     id: 'reservations.cancel',
     prototypeAction: null,
     lane: 'INTERACTIVE',

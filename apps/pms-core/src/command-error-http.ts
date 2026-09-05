@@ -88,6 +88,7 @@ import {
   NOT_FOUND,
   NOT_MEMBER,
   NOT_MODIFIABLE,
+  NOT_EARLY_DEPARTABLE,
   NOTE_LIMIT,
   NOTE_TOO_LONG,
   OCCUPANCY_EXCEEDED,
@@ -241,6 +242,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case UNBOOKABLE:
     case RESTRICTION_VIOLATED:
     case NOT_MODIFIABLE:
+    case NOT_EARLY_DEPARTABLE:
     case INVALID_STATUS_TRANSITION:
     case NO_SHOW_BEFORE_ARRIVAL:
     case CURRENCY_UNSET:

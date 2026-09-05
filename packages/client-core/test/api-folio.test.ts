@@ -73,6 +73,20 @@ describe('folio API', () => {
     expect(queued.entries()[0]?.reservationId).toBe('res_9');
   });
 
+  it('earlyDepart sends x-idempotency-key with empty body', async () => {
+    let headers: Headers | undefined;
+    let body = '';
+    const { client } = clientWith(async (_path, init) => {
+      headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true, reservationId: 'res_9' }), { status: 200 });
+    });
+    await client.earlyDepart('p', 'res_9', 'op-ed');
+    expect(headers?.get('x-idempotency-key')).toBeTruthy();
+    expect(body).toBe('{}');
+    expect(headers?.has('x-idempotency-key')).toBe(true);
+  });
+
   it('authorizePayment 501 psp_unavailable is not_configured', async () => {
     const { client } = clientWith(
       () =>

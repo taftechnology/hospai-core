@@ -255,6 +255,7 @@ export function FolioScreen() {
   const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
   const [checkoutOverrideOpen, setCheckoutOverrideOpen] = useState(false);
+  const [earlyDepartOpen, setEarlyDepartOpen] = useState(false);
   const [closeWindowId, setCloseWindowId] = useState<string | null>(null);
   const [chargeCodesRequested, setChargeCodesRequested] = useState(false);
   const [fxRatesEditorOpen, setFxRatesEditorOpen] = useState(false);
@@ -1106,6 +1107,31 @@ export function FolioScreen() {
     businessDate != null &&
     reservationQ.data.departureDate > businessDate &&
     policy.canCheckout;
+
+  const earlyDepart = useFolioActionMutation({
+    fallback: 'Early depart failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_early_depart') {
+        setMessage('Early depart unavailable.');
+        return true;
+      }
+      return false;
+    },
+    mutationFn: () => {
+      if (!showRemainingNightsWarn) throw new Error('policy_blocked_early_depart');
+      return api.earlyDepart(propertyId, reservationId, `early-depart:${reservationId}`);
+    },
+    onSuccess: () => {
+      setMessage('Stay shortened to today. Guest remains in house until checkout.');
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['reservation', propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
+    },
+  });
+
   const roomCode = (() => {
     const roomId = reservationQ.data?.roomId;
     if (!roomId) return undefined;
@@ -1256,6 +1282,17 @@ export function FolioScreen() {
                 }}
               >
                 Check out
+              </Button>
+            ) : null}
+            {showRemainingNightsWarn ? (
+              <Button
+                type="button"
+                intent="secondary"
+                data-testid="early-depart"
+                disabled={earlyDepart.isPending}
+                onClick={() => setEarlyDepartOpen(true)}
+              >
+                Early depart
               </Button>
             ) : null}
           </>
@@ -2271,6 +2308,18 @@ export function FolioScreen() {
           onConfirm={() => {
             setCheckoutOverrideOpen(false);
             checkOut.mutate(true);
+          }}
+        />
+      ) : null}
+      {earlyDepartOpen ? (
+        <ConfirmDialog
+          title="Early depart today?"
+          description="Shorten the stay to today's business date. Remaining nights are released from inventory. The guest stays in house until checkout."
+          confirmLabel="Early depart"
+          onCancel={() => setEarlyDepartOpen(false)}
+          onConfirm={() => {
+            setEarlyDepartOpen(false);
+            earlyDepart.mutate();
           }}
         />
       ) : null}

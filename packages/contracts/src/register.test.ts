@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(63);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(64);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -746,9 +746,11 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[141]?.id).toBe('patch_city_ledger_account');
     expect(V1_HTTP_ROUTE_AUDIT[142]?.id).toBe('post_city_ledger_account_payment');
     expect(V1_HTTP_ROUTE_AUDIT[143]?.id).toBe('get_city_ledger_statement');
+    expect(V1_HTTP_ROUTE_AUDIT[144]?.id).toBe('post_reservation_early_depart');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(145);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(63);
-    expect(COMMAND_CATALOG).toHaveLength(89);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(64);
+    expect(COMMAND_CATALOG).toHaveLength(90);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

@@ -59,6 +59,7 @@ export const UNBOOKABLE = 'unbookable' as const;
 export const ALREADY_CANCELLED = 'already_cancelled' as const;
 export const LEDGER_INCONSISTENT = 'ledger_inconsistent' as const;
 export const NOT_MODIFIABLE = 'not_modifiable' as const;
+export const NOT_EARLY_DEPARTABLE = 'not_early_departable' as const;
 export const INVALID_STATUS_TRANSITION = 'invalid_status_transition' as const;
 export const NO_SHOW_BEFORE_ARRIVAL = 'no_show_before_arrival' as const;
 export const RESTRICTION_VIOLATED = 'restriction_violated' as const;

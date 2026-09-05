@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  DECRYPT_UNRESOLVED,
   GUEST_ALREADY_ERASED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
@@ -499,9 +500,8 @@ describe('guest HTTP routes', () => {
     expect(await org.testShredGuestKey(created.piiKeyId)).toBe(true);
 
     const res = await getGuest(propertyId, actor, 'guest_m4');
-    expect(res.status).toBeGreaterThanOrEqual(500);
-    const body = (await res.json()) as { erased?: boolean };
-    expect(body.erased).not.toBe(true);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ ok: false, error: DECRYPT_UNRESOLVED });
   });
 
   it('19: OrgDO transport blocked on create → org_unreachable FAIL_CLOSED 503', async () => {

@@ -222,7 +222,7 @@ At `461d391` (update this table when you bump them):
 | `PROPERTY_SCHEMA_HEAD` | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` |
 
-There are **15** `check:*` scripts in CI (not 17). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
+There are **16** `check:*` scripts in CI (not 17). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
 
 ---
 

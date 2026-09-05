@@ -214,6 +214,10 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CITY_LEDGER_ACCOUNT_ARCHIVED:
     case CITY_LEDGER_CHARGE_ALREADY_POSTED:
     case NO_AVAILABILITY:
+    case GUEST_ALREADY_ERASED:
+    case GUEST_EXISTS:
+    case STAFF_EXITED:
+    case PAYMENT_NOT_RECONCILABLE:
       return 409;
     case RATE_PLAN_NOT_FOUND:
     case PROMO_NOT_FOUND:
@@ -224,6 +228,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CITY_LEDGER_ACCOUNT_NOT_FOUND:
     case CITY_LEDGER_STATEMENT_NOT_FOUND:
     case NOT_FOUND:
+    case GUEST_NOT_FOUND:
+    case STAFF_NOT_FOUND:
       return 404;
     case BUSINESS_DATE_UNSET:
     case ORG_ID_UNSET:
@@ -304,7 +310,6 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CITY_LEDGER_BILLED_PARTY_INVALID:
     case CITY_LEDGER_PAYMENT_EXCEEDS_BALANCE:
     case PAYMENT_NOT_CAPTURABLE:
-    case PAYMENT_NOT_RECONCILABLE:
     case REFUND_EXCEEDS_REMAINING:
     case OVERSELL:
     case ARCHIVE_BLOCKED:
@@ -351,11 +356,6 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case PROMO_ID_EXISTS:
     case INVOICE_COUNTER_RACE:
     case ROUTING_RULE_CONFLICT:
-    case GUEST_NOT_FOUND:
-    case GUEST_ALREADY_ERASED:
-    case GUEST_EXISTS:
-    case STAFF_NOT_FOUND:
-    case STAFF_EXITED:
     case STAFF_NOT_ASSIGNABLE:
     case INVALID_KINDS:
     case EMPTY_KINDS:

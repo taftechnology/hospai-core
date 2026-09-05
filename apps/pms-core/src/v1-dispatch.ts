@@ -888,9 +888,6 @@ async function handlePostRoomTypes(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'inventory:write',
     successStatus: 201,
-    onFailure: (result) => {return commandFailureResponse(result.error, 'inventory:write');
-      return null;
-    },
   });
 }
 
@@ -2322,9 +2319,8 @@ async function handlePostReservationCheckIn(ctx: V1DispatchContext): Promise<Res
     invoked,
     permission: 'reservations:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -2364,9 +2360,8 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
     invoked,
     permission: 'reservations:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3016,7 +3011,7 @@ async function handlePutRateDays(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
       return null;
     },
@@ -3144,8 +3139,7 @@ async function handlePostFolioLines(ctx: V1DispatchContext): Promise<Response> {
     if (result.error === NOT_FOUND || result.error === 'not_member') {
       return json({ error: 'not_found' }, 404);
     }
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -3218,9 +3212,8 @@ async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'inventory:write',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3273,9 +3266,8 @@ async function handlePatchRoom(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'inventory:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3335,11 +3327,10 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'inventory:write',
+    permission: 'housekeeping:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3402,12 +3393,13 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     invoked,
     permission: 'inventory:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'inventory:write' }, 403);
-    const payload: { ok: false; error: string; reservationId?: string } = { ok: false, error: result.error };
-    if (result.error === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
-      payload.reservationId = result.reservationId;
-    }
-    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
+    onFailure: (result) => {
+      if (result.error === OOO_ROOM_ASSIGNED && 'reservationId' in result && result.reservationId) {
+        return json(
+          { ok: false, error: result.error, reservationId: result.reservationId },
+          commandErrorHttpStatus(coerceCommandError(result.error)),
+        );
+      }
       return null;
     },
   });
@@ -3452,11 +3444,10 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'inventory:write',
+    permission: 'housekeeping:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'inventory:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3496,9 +3487,8 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
     invoked,
     permission: 'reservations:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'reservations:write' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -3556,12 +3546,10 @@ async function handlePostHousekeepingAssign(ctx: V1DispatchContext): Promise<Res
     if (result.error === STAFF_NOT_FOUND || result.error === STAFF_EXITED || result.error === STAFF_NOT_ASSIGNABLE) {
       return json({ ok: false, error: result.error }, 422);
     }
-    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'housekeeping:write' }, 403);
     if (result.error === 'invalid_assignee_ref' || result.error === 'invalid_business_date') {
       return json({ ok: false, error: result.error }, 400);
     }
-    return commandFailureResponse(coerceCommandError(result.error), 'housekeeping:write');
-      return null;
+    return null;
     },
   });
 }
@@ -3649,10 +3637,9 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -3725,10 +3712,9 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -3767,13 +3753,12 @@ async function handleDeleteRatePlan(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === RATE_PLAN_NOT_FOUND) return json({ error: 'not_found' }, 404);
     if (result.error === ARCHIVE_BLOCKED) {
       return json({ ok: false, error: result.error }, 409);
     }
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -3814,12 +3799,11 @@ async function handlePostChargeCodes(ctx: V1DispatchContext): Promise<Response> 
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -3865,12 +3849,11 @@ async function handlePatchChargeCode(ctx: V1DispatchContext): Promise<Response> 
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -3911,12 +3894,11 @@ async function handlePutChargeCodeStatus(ctx: V1DispatchContext): Promise<Respon
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4012,12 +3994,11 @@ async function handlePutFolioRoutingRule(ctx: V1DispatchContext): Promise<Respon
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === CHARGE_CODE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4055,12 +4036,11 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4128,12 +4108,11 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4200,12 +4179,11 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
 
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === TAX_RULE_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4271,8 +4249,7 @@ async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
     permission: 'folio:post',
     successStatus: 201,
     onFailure: (result) => {    if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4316,8 +4293,7 @@ async function handlePutShiftClose(ctx: V1DispatchContext): Promise<Response> {
     permission: 'folio:post',
     successStatus: 200,
     onFailure: (result) => {    if (result.error === 'not_member' || result.error === SHIFT_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    return null;
     },
   });
 }
@@ -4524,12 +4500,11 @@ async function handlePostRatePromos(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
     if (result.error === 'invalid_promo_code') return json({ error: 'invalid_body' }, 400);
     if (result.error === PROMO_CODE_EXISTS) return json({ ok: false, error: result.error }, 409);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -4600,10 +4575,9 @@ async function handlePatchRatePromo(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -4642,10 +4616,9 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member' || result.error === PROMO_NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -4691,8 +4664,7 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     permission: 'reservations:write',
     successStatus: 201,
     onFailure: (result) => {    if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
-      return null;
+    return null;
     },
   });
 }
@@ -4747,8 +4719,7 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
     invoked,
     permission: 'reservations:write',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'reservations:write');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5346,7 +5317,7 @@ async function handlePutRoomTypeRate(ctx: V1DispatchContext): Promise<Response> 
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
       return null;
     },
@@ -5408,10 +5379,9 @@ async function handlePostRatesBulk(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'rates:write',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'rates:write' }, 403);
+    onFailure: (result) => {
     if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
-    return commandFailureResponse(coerceCommandError(result.error), 'rates:write');
-      return null;
+    return null;
     },
   });
 }
@@ -5457,8 +5427,7 @@ async function handlePostFolioSplit(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5495,8 +5464,7 @@ async function handlePostFolioWindow(ctx: V1DispatchContext): Promise<Response> 
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5529,8 +5497,7 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5563,8 +5530,7 @@ async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Resp
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5600,8 +5566,7 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5634,8 +5599,7 @@ async function handlePostFolioVoid(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5688,8 +5652,7 @@ async function handlePostFolioReconcilePayment(ctx: V1DispatchContext): Promise<
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5729,8 +5692,7 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5785,8 +5747,7 @@ async function handlePostFolioDiscount(ctx: V1DispatchContext): Promise<Response
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5841,8 +5802,7 @@ async function handlePostFolioStayDiscount(ctx: V1DispatchContext): Promise<Resp
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -5875,8 +5835,7 @@ async function handlePostFolioCaptureDue(ctx: V1DispatchContext): Promise<Respon
     invoked,
     permission: 'folio:post',
     successStatus: 200,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }
@@ -6293,7 +6252,12 @@ function mapExceptionWriterError(error: CommandError): Response {
       { 'Retry-After': '30' },
     );
   }
-  return commandFailureResponse(error, 'night_audit:run');
+  if (error === FORBIDDEN || error === SCOPE_MISMATCH) {
+    return commandFailureResponse(error, 'night_audit:run');
+  }
+  if (error === NOT_MEMBER) return json({ error: 'not_found' }, 404);
+  if (error === NOT_FOUND) return json({ error: NOT_FOUND }, 404);
+  return json({ ok: false, error }, 422);
 }
 
 async function handlePostProvisionalExceptionRetry(ctx: V1DispatchContext): Promise<Response> {
@@ -6625,11 +6589,10 @@ async function handlePostFxRates(ctx: V1DispatchContext): Promise<Response> {
   });
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -6675,11 +6638,10 @@ async function handlePostFxRateSupersede(ctx: V1DispatchContext): Promise<Respon
   });
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'folio:post',
+    permission: 'settings:configure',
     successStatus: 200,
-    onFailure: (result) => {    if (result.error === FORBIDDEN) return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
-    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {
+    return null;
     },
   });
 }
@@ -6795,8 +6757,7 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
     invoked,
     permission: 'folio:post',
     successStatus: 201,
-    onFailure: (result) => {    return commandFailureResponse(coerceCommandError(result.error), 'folio:post');
-      return null;
+    onFailure: (result) => {    return null;
     },
   });
 }

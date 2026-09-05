@@ -33,6 +33,7 @@ jobs:
       - run: pnpm check:pms-core-test-dates
       - run: pnpm check:module-manifests
       - run: pnpm check:purge
+      - run: pnpm check:error-mapper-singleton
       - run: node scripts/module-manifests-check.mjs --self-test
       - run: node scripts/purge-check.mjs --self-test
       - run: node scripts/forbidden-body-check.mjs --self-test

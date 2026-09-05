@@ -37,6 +37,7 @@ import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
 import { consumePermissionDenyFlash } from './PermissionDenyFlash.js';
+import { LogoutModal } from './LogoutModal.js';
 
 type SearchHit = {
   reservationId: string;

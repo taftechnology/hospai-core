@@ -254,7 +254,7 @@ export function CityLedgerScreen() {
         <Card data-testid="city-ledger-detail">
 
         {message ? (
-          <Alert role="status" data-testid="city-ledger-message">
+          <Alert data-testid="city-ledger-message">
             {message}
           </Alert>
         ) : null}
@@ -561,7 +561,7 @@ export function CityLedgerScreen() {
         {message || listQ.isLoading || meQ.isLoading || listFailClosed || accounts.length === 0 ? (
           <CardContent>
             {message ? (
-              <Alert role="status" data-testid="city-ledger-message">
+              <Alert data-testid="city-ledger-message">
                 {message}
               </Alert>
             ) : null}

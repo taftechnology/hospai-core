@@ -1,8 +1,9 @@
 import type {
   PendingCommandMessage,
   ProvisionalContext,
+  ActorContext,
 } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED, DOMAIN_ERROR, fingerprintPayload } from '@hospai/contracts';
+import { BUSINESS_DATE_CLOSED, DOMAIN_ERROR, commandFingerprint } from '@hospai/contracts';
 import { LaneGuard } from '@hospai/do-runtime';
 import { logInfo, logWarn } from '@hospai/observability';
 import type { PmsEnv } from './env.js';
@@ -15,8 +16,6 @@ import { REPLAY_DISPATCH } from './replay-dispatch.js';
 export { REPLAY_DISPATCH, REPLAY_COMMAND_IDS } from './replay-dispatch.js';
 
 const replayLanes = new LaneGuard();
-
-const REPLAY_ACTOR = { kind: 'system' as const, reason: 'queue_replay' as const };
 
 async function ackTerminal(
   env: PmsEnv,
@@ -82,7 +81,10 @@ export async function handlePendingCommandsBatch(
         continue;
       }
 
-      const fingerprint = await fingerprintPayload(dispatch.fingerprintInput(provisional.command.payload));
+      const fingerprint = await commandFingerprint(
+        provisional.command.type,
+        dispatch.fingerprintInput(provisional.command.payload),
+      );
       if (fingerprint !== provisional.requestFingerprint) {
         await resolved.stub.recordProvisionalException(provisional, 'fingerprint_mismatch', {
           expected: provisional.requestFingerprint,
@@ -98,9 +100,11 @@ export async function handlePendingCommandsBatch(
         auditUserId: provisional.actor.userId,
       };
 
+      const replayActor: ActorContext = { kind: 'user', userId: provisional.actor.userId };
+
       const result = await dispatch.invoke(
         resolved.stub,
-        REPLAY_ACTOR,
+        replayActor,
         provisional.command.payload,
         { key: provisional.idempotencyKey, fingerprint: provisional.requestFingerprint },
         provisionalCtx,

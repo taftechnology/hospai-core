@@ -10,7 +10,7 @@ import {
 } from '../src/property-do-transport.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
-import { idemFor, seedBarRatesForHorizon } from './fixtures';
+import { idemFor, idemForCommand, seedBarRatesForHorizon } from './fixtures';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers';
 import { createHousekeeper } from './roster-helpers';
 
@@ -440,7 +440,9 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-5b',
-        requestFingerprint: (await idemFor('idem-5b', { reservationId: 'res_deg_5b' })).fingerprint,
+        requestFingerprint: (
+          await idemForCommand('reservations.check_in', 'idem-5b', { reservationId: 'res_deg_5b' })
+        ).fingerprint,
         propertyId,
         orgId: `org_deg_${propertyId}`,
         issuedAt: new Date().toISOString(),
@@ -478,7 +480,9 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-6',
-        requestFingerprint: (await idemFor('idem-6', { reservationId: 'res_deg_6' })).fingerprint,
+        requestFingerprint: (
+          await idemForCommand('reservations.check_in', 'idem-6', { reservationId: 'res_deg_6' })
+        ).fingerprint,
         propertyId,
         orgId: '',
         issuedAt: new Date().toISOString(),
@@ -509,7 +513,9 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-6b',
-        requestFingerprint: (await idemFor('idem-6b', { reservationId: 'res_deg_6b' })).fingerprint,
+        requestFingerprint: (
+          await idemForCommand('reservations.check_in', 'idem-6b', { reservationId: 'res_deg_6b' })
+        ).fingerprint,
         propertyId,
         orgId,
         issuedAt: new Date().toISOString(),
@@ -656,7 +662,7 @@ describe('degraded mode §4.6 fault injection', () => {
       provisional: {
         idempotencyKey: 'idem-folio-15',
         requestFingerprint: (
-          await idemFor('idem-folio-15', {
+          await idemForCommand('folio.add_item', 'idem-folio-15', {
             reservationId,
             folioLineId: `${reservationId}:item:idem-folio-15`,
             chargeCode: 'MISC',
@@ -1066,7 +1072,7 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-31',
-        requestFingerprint: (await idemFor('idem-31', payload)).fingerprint,
+        requestFingerprint: (await idemForCommand('reservations.check_in', 'idem-31', payload)).fingerprint,
         propertyId,
         orgId: (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId,
         issuedAt: new Date().toISOString(),
@@ -1098,7 +1104,7 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-32',
-        requestFingerprint: (await idemFor('idem-32', payload)).fingerprint,
+        requestFingerprint: (await idemForCommand('reservations.check_in', 'idem-32', payload)).fingerprint,
         propertyId,
         orgId: (await resolvePropertyFromRegistry(env, propertyId))!.property.orgId,
         issuedAt: new Date().toISOString(),
@@ -1149,7 +1155,7 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-39a-charge',
-        requestFingerprint: (await idemFor('idem-39a-charge', chargePayload)).fingerprint,
+        requestFingerprint: (await idemForCommand('folio.add_item', 'idem-39a-charge', chargePayload)).fingerprint,
         propertyId: chargeFirst.propertyId,
         orgId: chargeFirst.orgId,
         issuedAt: new Date().toISOString(),
@@ -1164,7 +1170,7 @@ describe('degraded mode §4.6 fault injection', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-39a-co',
-        requestFingerprint: (await idemFor('idem-39a-co', checkoutPayload)).fingerprint,
+        requestFingerprint: (await idemForCommand('reservations.check_out', 'idem-39a-co', checkoutPayload)).fingerprint,
         propertyId: chargeFirst.propertyId,
         orgId: chargeFirst.orgId,
         issuedAt: new Date().toISOString(),
@@ -1194,7 +1200,7 @@ describe('degraded mode §4.6 fault injection', () => {
       provisional: {
         ...checkoutMsg.provisional,
         idempotencyKey: 'idem-39b-co',
-        requestFingerprint: (await idemFor('idem-39b-co', checkoutPayloadB)).fingerprint,
+        requestFingerprint: (await idemForCommand('reservations.check_out', 'idem-39b-co', checkoutPayloadB)).fingerprint,
         propertyId: outFirst.propertyId,
         orgId: outFirst.orgId,
         businessDate: outFirst.arrival,
@@ -1207,7 +1213,7 @@ describe('degraded mode §4.6 fault injection', () => {
       provisional: {
         ...chargeMsg.provisional,
         idempotencyKey: 'idem-39b-charge',
-        requestFingerprint: (await idemFor('idem-39b-charge', chargePayloadB)).fingerprint,
+        requestFingerprint: (await idemForCommand('folio.add_item', 'idem-39b-charge', chargePayloadB)).fingerprint,
         propertyId: outFirst.propertyId,
         orgId: outFirst.orgId,
         businessDate: outFirst.arrival,
@@ -1306,7 +1312,9 @@ describe('degraded replay attribution (C1)', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-c1-fail',
-        requestFingerprint: (await idemFor('idem-c1-fail', { reservationId: 'res_c1_fail' })).fingerprint,
+        requestFingerprint: (
+          await idemForCommand('reservations.check_in', 'idem-c1-fail', { reservationId: 'res_c1_fail' })
+        ).fingerprint,
         propertyId,
         orgId: '',
         issuedAt: new Date().toISOString(),
@@ -1355,7 +1363,9 @@ describe('degraded replay attribution (C1)', () => {
       enqueuedAt: new Date().toISOString(),
       provisional: {
         idempotencyKey: 'idem-c1-exc',
-        requestFingerprint: (await idemFor('idem-c1-exc', { reservationId: 'res_c1_exc' })).fingerprint,
+        requestFingerprint: (
+          await idemForCommand('reservations.check_in', 'idem-c1-exc', { reservationId: 'res_c1_exc' })
+        ).fingerprint,
         propertyId,
         orgId: '',
         issuedAt: new Date().toISOString(),

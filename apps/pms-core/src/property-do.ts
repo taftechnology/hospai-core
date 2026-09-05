@@ -169,6 +169,7 @@ import {
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
   ROLE_GRANTS,
+  commandFingerprint,
   fingerprintPayload,
   isStaffRef,
   type ActorContext,
@@ -207,6 +208,7 @@ import {
   migrateSql,
   outboxBacklogSnapshot,
   runIdempotent,
+  scopeIdempotencyKey,
   IdempotencyKeyReused,
   TYPE_WIDE_RATE_PLAN,
   DEFAULT_RATE_PLAN_ID,
@@ -4540,7 +4542,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!openRetryKey) return { ok: false, error: INTERNAL_ERROR };
 
     const payload = JSON.parse(keyed.payload) as unknown;
-    const fingerprint = await fingerprintPayload(dispatch.fingerprintInput(payload));
+    const fingerprint = await commandFingerprint(
+      existing.command_type,
+      dispatch.fingerprintInput(payload),
+    );
     const operator = actor.kind === 'user' ? actor : { kind: 'user' as const, userId: this.auditActorSync(actor) };
 
     const inner = await dispatch.invoke(
@@ -4801,7 +4806,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       ok: true;
       status: 'COMPLETED' | 'FAILED';
       error?: string;
-    }>(idem);
+    }>(idem, actor);
     if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
     if (prior) return prior;
 
@@ -4889,7 +4894,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       status: 'COMPLETED' | 'FAILED';
       error?: string;
       halted: boolean;
-    }>(idem);
+    }>(idem, actor);
     if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
     if (prior) return prior;
 
@@ -4963,9 +4968,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return payload;
   }
 
-  private lookupIdempotentResponse<T>(idem: IdempotencyKey): T | 'fingerprint_mismatch' | null {
+  private lookupIdempotentResponse<T>(
+    idem: IdempotencyKey,
+    actor: ActorContext,
+  ): T | 'fingerprint_mismatch' | null {
+    const storageKey = scopeIdempotencyKey(actor, idem.key);
     const prior = this.ctx.storage.sql
-      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, idem.key)
+      .exec(`SELECT request_fingerprint, response FROM idempotency WHERE key = ?`, storageKey)
       .toArray() as Array<{ request_fingerprint: string; response: string }>;
     if (prior.length === 0) return null;
     if (prior[0]!.request_fingerprint !== idem.fingerprint) {
@@ -17426,7 +17435,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       paymentId: string;
       status: 'captured' | 'refunded';
       refundedAmountMinor: number;
-    }>(idem);
+    }>(idem, actor);
     if (prior === 'fingerprint_mismatch') {
       return { ok: false, error: IDEM_KEY_REUSED };
     }
@@ -18721,7 +18730,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       generatedAt: number;
     };
 
-    const prior = this.lookupIdempotentResponse<GenerateOk>(idem);
+    const prior = this.lookupIdempotentResponse<GenerateOk>(idem, actor);
     if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
     if (prior) return prior;
 
@@ -20303,7 +20312,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       snapshot: Record<string, unknown>;
     };
 
-    const prior = this.lookupIdempotentResponse<GenerateOk>(idem);
+    const prior = this.lookupIdempotentResponse<GenerateOk>(idem, actor);
     if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
     if (prior) return prior;
 

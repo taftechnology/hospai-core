@@ -152,7 +152,11 @@ describe('night audit POST_ROOM_CHARGES', () => {
 
     const auditNoRate = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: 'res_no_rate' });
     expect(auditNoRate.ok).toBe(true);
-    expect(auditNoRate.rows.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
+    if (!auditNoRate.ok) return;
+    const auditRows = (
+      auditNoRate as unknown as { ok: true; rows: Array<{ afterJson?: { reason?: string } }> }
+    ).rows;
+    expect(auditRows.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
 
     const roll = await stub.runAuditStep(businessDate, 'ROLL_BUSINESS_DATE');
     expect(roll.status).toBe('COMPLETED');
@@ -190,7 +194,11 @@ describe('night audit POST_ROOM_CHARGES', () => {
     for (const id of ['res_miss_a', 'res_miss_b'] as const) {
       const audit = await stub.listAuditLog(TEST_OWNER_ACTOR, { reservationId: id });
       expect(audit.ok).toBe(true);
-      expect(audit.rows.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
+      if (!audit.ok) return;
+      const auditRows = (
+        audit as unknown as { ok: true; rows: Array<{ afterJson?: { reason?: string } }> }
+      ).rows;
+      expect(auditRows.some((e) => e.afterJson?.reason === 'rate_missing')).toBe(true);
     }
   });
 

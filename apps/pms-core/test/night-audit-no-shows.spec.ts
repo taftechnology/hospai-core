@@ -501,7 +501,6 @@ describe('night audit PROCESS_NO_SHOWS', () => {
       arrivalDate: d,
       departureDate: addCalendarDays(d, 1),
       status: 'pending',
-      confirmBy: null,
     });
     await stub.bumpSoldForTest('rt_a', d, 1);
 

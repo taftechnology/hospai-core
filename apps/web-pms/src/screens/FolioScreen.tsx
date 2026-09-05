@@ -6,6 +6,7 @@ import {
   type FolioLine,
   type FolioPaymentRow,
   type FolioReadState,
+  type FolioTransferResult,
 } from '@hospai/client-core';
 import {
   Alert,
@@ -828,10 +829,13 @@ export function FolioScreen() {
     },
   });
 
-  const transferLine = useFolioActionMutation({
+  const transferLine = useFolioActionMutation<
+    FolioTransferResult,
+    { folioLineId: string; destinationFolioWindowId: string }
+  >({
     fallback: 'Transfer failed',
     setMessage,
-    mutationFn: (input: { folioLineId: string; destinationFolioWindowId: string }) => {
+    mutationFn: (input) => {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
       return api.transferFolioLine(
         propertyId,
@@ -840,8 +844,16 @@ export function FolioScreen() {
         `xfer:${input.folioLineId}:${crypto.randomUUID()}`,
       );
     },
-    onSuccess: () => {
-      setMessage('Charge transferred.');
+    onSuccess: (result, input) => {
+      const destWindow = windows.find((w) => w.folioWindowId === input.destinationFolioWindowId);
+      const destIsCompany = destWindow?.kind === 'COMPANY';
+      if (destIsCompany && result.cityLedgerSynced === true) {
+        setMessage('Charge transferred.');
+      } else if (destIsCompany) {
+        setMessage('Moved to company folio.');
+      } else {
+        setMessage('Charge transferred.');
+      }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });

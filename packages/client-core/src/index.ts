@@ -35,6 +35,7 @@ export {
   type FrontDeskItem,
   type PropertyRead,
   type FolioRead,
+  type FolioTransferResult,
   type ReservationRead,
   type FolioPaymentRow,
   type AvailabilityRead,

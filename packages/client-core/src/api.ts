@@ -57,6 +57,14 @@ export type FolioRead = {
   txnBalances?: Array<{ currency: string; amountMinor: number }>;
 };
 
+/** POST post_folio_transfer success body; cityLedgerSynced set when AR posts on COMPANY transfer. */
+export type FolioTransferResult = {
+  ok: true;
+  reverseFolioLineId: string;
+  destFolioLineId: string;
+  cityLedgerSynced?: boolean;
+};
+
 export type FxRateRow = {
   quoteId: string;
   fromCurrency: string;
@@ -875,9 +883,9 @@ export function createClient(opts: {
       sourceFolioLineId: string,
       input: { destinationFolioWindowId: string },
       opId: string,
-    ) {
+    ): Promise<FolioTransferResult> {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
-      return getJson(
+      const { body } = await getJson(
         `/v1/properties/${enc(propertyId)}/folio/lines/${enc(sourceFolioLineId)}/transfer`,
         {
           method: 'POST',
@@ -888,6 +896,7 @@ export function createClient(opts: {
           }),
         },
       );
+      return body as FolioTransferResult;
     },
     async voidPayment(propertyId: string, paymentId: string, opId: string) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);

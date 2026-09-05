@@ -207,6 +207,99 @@ async function main() {
   if (checkInRes.status !== 200) fail(9, checkInRes.status, snippet(checkInBody));
   console.log('✓ step 9: POST …/reservations/{id}/check-in');
 
+  const accountName = `Smoke Direct ${suffix}`;
+
+  // Step 9b: POST city-ledger account
+  const claRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: accountName,
+        creditLimitMinor: 500_000,
+        idempotencyKey: `idem-cla-${suffix}`,
+      }),
+    },
+  );
+  const claBody = await readJson(claRes);
+  if (claRes.status !== 201) fail('9b', claRes.status, snippet(claBody));
+  const accountId = claBody?.accountId;
+  if (!accountId) fail('9b', claRes.status, 'missing accountId');
+  console.log('✓ step 9b: POST city-ledger account');
+
+  // Step 9c: GET folio — find ROOM line on GUEST window
+  const folioRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,
+    { headers: bearerOnly },
+  );
+  const folioBody = await readJson(folioRes);
+  if (folioRes.status !== 200) fail('9c', folioRes.status, snippet(folioBody));
+  const guestLine = (folioBody?.lines ?? []).find(
+    (l) => l.chargeCode === 'ROOM' && l.folioWindowId === `${reservationId}:GUEST`,
+  );
+  if (!guestLine?.folioLineId) fail('9c', folioRes.status, 'missing GUEST ROOM folio line');
+
+  // Step 9d: POST folio window (COMPANY)
+  const fwRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio/windows`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        kind: 'COMPANY',
+        billedParty: accountName,
+        idempotencyKey: `idem-fw-co-${suffix}`,
+      }),
+    },
+  );
+  const fwBody = await readJson(fwRes);
+  if (fwRes.status !== 201 && fwRes.status !== 200) fail('9d', fwRes.status, snippet(fwBody));
+  const companyWindowId = fwBody?.folioWindowId;
+  if (!companyWindowId) fail('9d', fwRes.status, 'missing company folioWindowId');
+  console.log('✓ step 9d: POST folio window (COMPANY)');
+
+  // Step 9e: POST folio transfer GUEST → COMPANY
+  const xferRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/${encodeURIComponent(guestLine.folioLineId)}/transfer`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        destinationFolioWindowId: companyWindowId,
+        idempotencyKey: `idem-xfer-${suffix}`,
+      }),
+    },
+  );
+  const xferBody = await readJson(xferRes);
+  if (xferRes.status !== 200) fail('9e', xferRes.status, snippet(xferBody));
+  console.log('✓ step 9e: POST folio transfer to COMPANY');
+
+  // Step 9f: POST folio window close (COMPANY)
+  const closeRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/folio/windows/${encodeURIComponent(companyWindowId)}/close`,
+    {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ idempotencyKey: `idem-close-co-${suffix}` }),
+    },
+  );
+  const closeBody = await readJson(closeRes);
+  if (closeRes.status !== 200) fail('9f', closeRes.status, snippet(closeBody));
+  console.log('✓ step 9f: POST folio window close (COMPANY)');
+
+  // Step 9g: GET city-ledger account — openBalanceMinor > 0
+  const clDetailRes = await fetch(
+    `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/city-ledger/accounts?accountId=${encodeURIComponent(accountId)}`,
+    { headers: bearerOnly },
+  );
+  const clDetailBody = await readJson(clDetailRes);
+  if (clDetailRes.status !== 200) fail('9g', clDetailRes.status, snippet(clDetailBody));
+  if (!(clDetailBody?.openBalanceMinor > 0)) {
+    fail('9g', clDetailRes.status, `expected openBalanceMinor > 0, got ${clDetailBody?.openBalanceMinor}`);
+  }
+  console.log('✓ step 9g: GET city-ledger account (AR posted)');
+
   // Step 10: POST /v1/properties/{id}/invoices — invoice.generate gates check-out
   const invoiceRes = await fetch(
     `${BASE}/v1/properties/${encodeURIComponent(propertyId)}/invoices`,

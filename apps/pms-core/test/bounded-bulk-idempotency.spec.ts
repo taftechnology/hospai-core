@@ -157,16 +157,7 @@ describe('bounded bulk + idempotency + JSON (R0.8)', () => {
 
   // T3 — rooms bulk HTTP over cap
   it('T3: rooms bulk 201 updates → HTTP 422 limit_exceeded', async () => {
-    const { propertyId, stub, actor } = await provisionPropertyViaHttp(ACTOR_A);
-    await stub.tryAddRoomType(
-      TEST_OWNER_ACTOR,
-      { roomTypeId: 'rt_king', code: 'KING', name: 'King', roomCount: 5, maxOccupancy: 2, maxAdults: 2 },
-      await idemFor('rt-rooms', { roomTypeId: 'rt_king', code: 'KING', name: 'King', roomCount: 5, maxOccupancy: 2, maxAdults: 2 }),
-    );
-    for (let i = 0; i < 3; i++) {
-      const room = { roomId: `room_${i}`, roomTypeId: 'rt_king', code: `${100 + i}` };
-      expect(await stub.tryCreateRoom(TEST_OWNER_ACTOR, room, await idemFor(`room-${i}`, room))).toMatchObject({ ok: true });
-    }
+    const { propertyId, actor } = await provisionPropertyViaHttp(ACTOR_A);
     const updates = Array.from({ length: ROOMS_BULK_STATUS_MAX + 1 }, (_, i) => ({
       roomId: `room_${i % 3}`,
       status: 'clean',
@@ -209,38 +200,21 @@ describe('bounded bulk + idempotency + JSON (R0.8)', () => {
 
   // T5 — folio split HTTP + RPC over cap
   it('T5: folio split 21 splits → HTTP + RPC limit_exceeded', async () => {
-    const { propertyId, stub, actor } = await provisionPropertyViaHttp(ACTOR_A);
-    const arrival = (await stub.readBusinessDate())!;
-    const reservationId = 'res_split_cap';
-    await stub.tryAddRoomType(
-      TEST_OWNER_ACTOR,
-      { roomTypeId: 'rt_king', code: 'KING', name: 'King', roomCount: 5, maxOccupancy: 2, maxAdults: 2 },
-      await idemFor('rt-split', { roomTypeId: 'rt_king', code: 'KING', name: 'King', roomCount: 5, maxOccupancy: 2, maxAdults: 2 }),
-    );
-    await stub.insertReservationForTest({
-      reservationId,
-      roomTypeId: 'rt_king',
-      guestRef: 'g1',
-      piiKeyId: 'p1',
-      arrivalDate: arrival,
-      departureDate: addCalendarDays(arrival, 1),
-    });
-    const sourceId = `${reservationId}:room`;
-    const line = { folioLineId: sourceId, reservationId, chargeCode: 'ROOM', amountMinor: 100_000 };
-    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('line', line))).toMatchObject({ ok: true });
-
     const splits = Array.from({ length: FOLIO_SPLIT_MAX + 1 }, (_, i) => ({
       folioLineId: `split_${i}`,
       amountMinor: 100,
     }));
-    const rpcPayload = { sourceFolioLineId: sourceId, splits };
+
+    const { stub } = await provisionedPropertyStub(`bb-rpc-split-${crypto.randomUUID()}`, 'UTC', 'USD');
+    const rpcPayload = { sourceFolioLineId: 'res_any:room', splits };
     expect(
       await stub.trySplitFolioLine(TEST_OWNER_ACTOR, rpcPayload, await idemFor('split-rpc', rpcPayload)),
     ).toEqual({ ok: false, error: LIMIT_EXCEEDED });
 
+    const { propertyId, actor } = await provisionPropertyViaHttp(ACTOR_A);
     const httpRes = await worker.fetch(
       new Request(
-        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/${encodeURIComponent(sourceId)}/split`,
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/folio/lines/any-id/split`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-dev-actor': actor },

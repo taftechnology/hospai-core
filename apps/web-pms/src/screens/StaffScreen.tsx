@@ -26,6 +26,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 type OrgRole = 'owner' | 'admin' | 'staff';
 type PropertyWriteRole = 'admin' | 'staff';
@@ -149,6 +150,8 @@ export function StaffScreen() {
     staleTime: 60_000,
     enabled: Boolean(me) && canManageOrg,
   });
+
+  const { subtitle } = usePropertySubtitle('Team members');
 
   useEffect(() => {
     if (!focusUserId) return;
@@ -290,7 +293,7 @@ export function StaffScreen() {
 
   return (
     <div className="ui-page-stack staff-screen">
-      <PageHeader title="Staff" subtitle="Team members · The Meridian Seattle" />
+      <PageHeader title="Staff" subtitle={subtitle} />
       <Card data-testid="staff-screen" className="staff-screen__shell">
         {message ? (
           <Alert data-testid="staff-message">{message}</Alert>

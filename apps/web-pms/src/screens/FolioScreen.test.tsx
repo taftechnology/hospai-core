@@ -282,6 +282,43 @@ describe('FolioScreen wiring', () => {
     );
   });
 
+  it('T16: void invoice uses ConfirmDialog not window.confirm', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_1' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_1',
+        snapshot: {
+          totals: { chargesMinor: 10000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 10000 }],
+        },
+        presentation: { showTaxfee: true },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    await waitFor(() => expect(screen.getByTestId('invoice-void')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('invoice-void'));
+    expect(await screen.findByRole('dialog', { name: /Void this invoice/i })).toBeTruthy();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it('policy C: charge submit does not issue a request when folio fail_closed', async () => {
     getFolio.mockRejectedValue(
       new ClassifiedError({

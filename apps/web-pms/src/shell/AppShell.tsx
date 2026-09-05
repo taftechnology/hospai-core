@@ -280,7 +280,7 @@ export function AppShell() {
           <div>
             <div className="app-sidebar-brand">
               <span className="app-sidebar-mark">✦</span>
-              <h1 className="app-sidebar-title">HospAI <span>PMS</span></h1>
+              <p className="app-sidebar-title">HospAI <span>PMS</span></p>
             </div>
             <nav aria-label="HospAI PMS">
               <div className="app-nav-list">

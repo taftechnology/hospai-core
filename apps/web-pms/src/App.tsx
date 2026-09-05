@@ -61,7 +61,7 @@ export function App() {
             <Route path="staff" element={<PermissionRoute permission="staff:read" />}>
               <Route index element={<StaffScreen />} />
             </Route>
-            <Route path="roster" element={<PermissionRoute permission="roster:write" />}>
+            <Route path="roster" element={<PermissionRoute permission="roster:read" />}>
               <Route index element={<RosterScreen />} />
             </Route>
             <Route path="city-ledger" element={<CityLedgerScreen />} />

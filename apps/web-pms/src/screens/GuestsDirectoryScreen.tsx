@@ -21,6 +21,7 @@ import {
   PageHeader,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 type GuestProfile = { displayName: string; email?: string; phone?: string };
 type GuestDirItem = {
@@ -92,6 +93,7 @@ export function GuestsDirectoryScreen() {
   const failClosed =
     listQ.isError &&
     (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
+  const { subtitle } = usePropertySubtitle('Guest directory');
 
   let results: ReactNode;
   if (failClosed) {
@@ -150,7 +152,7 @@ export function GuestsDirectoryScreen() {
     <div className="ui-page-stack">
       <PageHeader
         title="Guests"
-        subtitle="Guest directory · The Meridian Seattle"
+        subtitle={subtitle}
         actions={
           <div className="guest-directory__actions">
             <Field

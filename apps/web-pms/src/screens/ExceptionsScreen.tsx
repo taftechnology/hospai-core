@@ -28,6 +28,8 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
@@ -97,6 +99,7 @@ export function ExceptionsScreen() {
     copy: string;
     run: () => void;
   } | null>(null);
+  const { subtitle } = usePropertySubtitle('Open operational exceptions');
 
   const resolution = searchParams.get('resolution') ?? 'open';
   const commandType = searchParams.get('commandType') ?? '';
@@ -303,7 +306,7 @@ export function ExceptionsScreen() {
 
   return (
     <div className="ui-page-stack exceptions-screen">
-      <PageHeader title="Exceptions" subtitle="Open operational exceptions · The Meridian Seattle" />
+      <PageHeader title="Exceptions" subtitle={subtitle} />
       {unsavedGuard}
       <Card data-testid="exceptions-workbench" className="exceptions-screen__shell">
       <Card>
@@ -689,15 +692,12 @@ export function ExceptionsScreen() {
         </aside>
       ) : null}
       {confirm ? (
-        <dialog open role="dialog" aria-labelledby="exception-confirm-title">
-          <p id="exception-confirm-title">{confirm.copy}</p>
-          <Button type="button" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={confirm.run}>
-            Confirm
-          </Button>
-        </dialog>
+        <ConfirmDialog
+          title="Confirm action"
+          description={confirm.copy}
+          onCancel={() => setConfirm(null)}
+          onConfirm={confirm.run}
+        />
       ) : null}
       </Card>
     </div>

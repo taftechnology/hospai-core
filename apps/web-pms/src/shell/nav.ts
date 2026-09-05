@@ -22,6 +22,6 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'settings', label: 'Settings', path: '/settings', order: 90, permission: 'settings:configure' },
   { id: 'inventory', label: 'Inventory', path: '/inventory', order: 100, permission: 'inventory:write', tone: 'quiet' },
   { id: 'staff', label: 'Staff', path: '/staff', order: 110, permission: 'staff:read', tone: 'quiet' },
-  { id: 'roster', label: 'Roster', path: '/roster', order: 120, permission: 'roster:write', tone: 'quiet' },
+  { id: 'roster', label: 'Roster', path: '/roster', order: 120, permission: 'roster:read', tone: 'quiet' },
   { id: 'exceptions', label: 'Exceptions', path: '/exceptions', order: 130, permission: 'property:read', tone: 'quiet' },
 ];

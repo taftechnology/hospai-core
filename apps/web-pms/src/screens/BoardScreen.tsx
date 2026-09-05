@@ -31,6 +31,7 @@ import {
 } from '@hospai/ui-kit';
 import type { BoardMode } from '../status/board-mode.js';
 
+import { boardPageTitle } from '../status/board-page-title.js';
 import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -608,10 +609,10 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
       ) : null}
 
       <PageHeader
-        title="Front Desk"
+        title={boardPageTitle(mode)}
         subtitle={
           headerDate
-            ? `${formatLongDate(headerDate, timeZone ?? 'UTC')} · arrivals and departures for the business date`
+            ? `${formatLongDate(headerDate, timeZone ?? 'UTC')} · ${boardPageTitle(mode).toLowerCase()} for the business date`
             : undefined
         }
         actions={

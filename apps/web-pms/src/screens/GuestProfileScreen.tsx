@@ -23,6 +23,7 @@ import {
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import type { StatusSeverity } from '../status/types.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
@@ -375,30 +376,14 @@ export function GuestProfileScreen() {
       )}
 
       {confirmErase ? (
-        <div role="dialog" aria-modal="true">
-        <Card>
-          <CardContent>
-            <p>
-              This permanently destroys the guest’s contact details. Stay records remain. This cannot be
-              undone.
-            </p>
-            <div className="ui-row">
-              <Button type="button" onClick={() => setConfirmErase(false)} aria-label="Cancel erase">
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                intent="destructive"
-                onClick={() => eraseM.mutate()}
-                disabled={eraseM.isPending}
-                data-testid="guest-erase-confirm"
-              >
-                {eraseM.isPending ? 'Erasing…' : 'Erase guest'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        </div>
+        <ConfirmDialog
+          title="Erase guest?"
+          description="This permanently destroys the guest's contact details. Stay records remain. This cannot be undone."
+          confirmLabel={eraseM.isPending ? 'Erasing…' : 'Erase guest'}
+          intent="destructive"
+          onCancel={() => setConfirmErase(false)}
+          onConfirm={() => eraseM.mutate()}
+        />
       ) : null}
 
       <section data-testid="guest-stays">

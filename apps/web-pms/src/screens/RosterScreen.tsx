@@ -23,6 +23,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 export const ROSTER_EXIT_CONFIRM =
   'The name and contact will be removed. The employment record is kept. This cannot be undone.';
@@ -129,9 +130,11 @@ export function RosterScreen() {
     exitMutation.mutate(row.staffId);
   }
 
+  const { subtitle } = usePropertySubtitle('Scheduled staff');
+
   return (
     <div className="ui-page-stack roster-screen">
-      <PageHeader title="Roster" subtitle="Scheduled staff · The Meridian Seattle" />
+      <PageHeader title="Roster" subtitle={subtitle} />
       <Card data-testid="roster-screen" className="roster-screen__shell">
         <Card>
           <CardHeader>

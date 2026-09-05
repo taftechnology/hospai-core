@@ -65,7 +65,7 @@ describe('GuestsDirectoryScreen', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { level: 1, name: 'Guests' })).toBeTruthy(),
     );
-    expect(screen.getByText(/Harbor Inn/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Harbor Inn/)).toBeTruthy());
     expect(screen.queryByText(/Meridian Seattle/)).toBeNull();
   });
 

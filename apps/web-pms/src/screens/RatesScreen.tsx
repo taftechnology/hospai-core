@@ -20,8 +20,10 @@ import {
   PageHeader,
   Textarea,
   Toolbar,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -156,7 +158,9 @@ function RateCell(props: {
   }, [props.amountMinor]);
   return (
     <Field
-      label={`Rate for ${props.code}`}
+      label={
+        <VisuallyHidden>{`Rate for ${props.code} on ${props.stayDate}`}</VisuallyHidden>
+      }
       control={
         <Input
           value={raw}
@@ -1150,15 +1154,17 @@ await api.bulkUpdateRates(propertyId, updates);
       ) : null}
 
       {archivePlan ? (
-        <Card role="dialog" aria-modal="true">
-          <p>Archive {archivePlan.code}? It will stop being sellable.</p>
-          <Button type="button" onClick={() => setArchivePlan(null)}>
-            Cancel
-          </Button>
-          <Button type="button" intent="destructive" onClick={() => doArchivePlan.mutate(archivePlan.ratePlanId)}>
-            Archive
-          </Button>
-        </Card>
+        <ConfirmDialog
+          title="Archive rate plan?"
+          description={`Archive ${archivePlan.code}? It will stop being sellable.`}
+          confirmLabel="Archive"
+          intent="destructive"
+          onCancel={() => setArchivePlan(null)}
+          onConfirm={() => {
+            doArchivePlan.mutate(archivePlan.ratePlanId);
+            setArchivePlan(null);
+          }}
+        />
       ) : null}
       </Card>
     </div>

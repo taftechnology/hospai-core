@@ -40,6 +40,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { formatMinor } from '../money.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -243,6 +244,8 @@ export function FolioScreen() {
   const [fxReason, setFxReason] = useState('');
   const [fxFrom, setFxFrom] = useState('EUR');
   const [fxRate, setFxRate] = useState('1.10');
+  const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
+  const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
 
   const folioQ = useQuery({
     queryKey: ['folio', propertyId, reservationId],
@@ -1033,16 +1036,9 @@ export function FolioScreen() {
   const voidInv = useFolioActionMutation({
     fallback: 'Void invoice failed',
     setMessage,
-    onLocalError: (err) => {
-      if (err instanceof Error && err.message === 'void_cancelled') return true;
-      return false;
-    },
     mutationFn: () => {
       if (!activeInvoiceId) throw new Error('no_active_invoice');
       if (!canAdjust) throw new Error('policy_blocked_adjust');
-      if (!window.confirm('Void this invoice? This cannot be undone.')) {
-        throw new Error('void_cancelled');
-      }
       return api.voidInvoice(propertyId, activeInvoiceId, {
         idempotencyKey: `void:${activeInvoiceId}:${crypto.randomUUID()}`,
       });
@@ -1538,7 +1534,7 @@ export function FolioScreen() {
                           type="button"
                           data-testid={`void-payment-${p.paymentId}`}
                           disabled={voidPay.isPending}
-                          onClick={() => voidPay.mutate(p.paymentId)}
+                          onClick={() => setVoidPaymentId(p.paymentId)}
                         >
                           Void
                         </Button>
@@ -1631,7 +1627,7 @@ export function FolioScreen() {
               type="button"
               data-testid="invoice-void"
               disabled={voidInv.isPending || folioDegraded}
-              onClick={() => voidInv.mutate()}
+              onClick={() => setVoidInvoiceOpen(true)}
             >
               Void invoice
             </Button>
@@ -2150,6 +2146,33 @@ export function FolioScreen() {
         </div>
         </div>
       </details>
+      {voidInvoiceOpen ? (
+        <ConfirmDialog
+          title="Void this invoice?"
+          description="This cannot be undone."
+          confirmLabel="Void invoice"
+          intent="destructive"
+          onCancel={() => setVoidInvoiceOpen(false)}
+          onConfirm={() => {
+            setVoidInvoiceOpen(false);
+            voidInv.mutate();
+          }}
+        />
+      ) : null}
+      {voidPaymentId ? (
+        <ConfirmDialog
+          title="Void this payment?"
+          description="This cannot be undone."
+          confirmLabel="Void payment"
+          intent="destructive"
+          onCancel={() => setVoidPaymentId(null)}
+          onConfirm={() => {
+            const paymentId = voidPaymentId;
+            setVoidPaymentId(null);
+            voidPay.mutate(paymentId);
+          }}
+        />
+      ) : null}
     </>
   );
 }

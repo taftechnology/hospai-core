@@ -70,7 +70,7 @@ export type PmsEnv = {
   CLERK_JWT_KEY?: string;
   /** Comma-separated azp allowlist for session tokens (SPA origins). */
   CLERK_AUTHORIZED_PARTIES?: string;
-  /** Vitest-only: 64-char hex org master key for guest PII envelope encryption. */
+  /** Platform PII master key material (64-char hex). HKDF-derived per org in OrgDO — not a direct org wrap key. Set via wrangler secret in staging/production; miniflare binding in local/tests. */
   HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */
   LEDGER_PROP_SEED?: string;

@@ -10,6 +10,7 @@ type DataKeyRow = {
   wrapped_key: Uint8Array;
   created_at: number;
   shredded_at: number | null;
+  key_version: number;
 };
 
 /** Minimal SQL stub — SELECT returns BLOB as ArrayBuffer like Durable Object storage. */
@@ -20,11 +21,12 @@ class DoBlobSql implements SqlStorageLike {
     const q = query.replace(/\s+/g, ' ').trim();
 
     if (q.startsWith('INSERT INTO data_key')) {
-      const [piiKeyId, scope, subjectId, wrappedKey, createdAt] = bindings as [
+      const [piiKeyId, scope, subjectId, wrappedKey, createdAt, keyVersion] = bindings as [
         string,
         'guest' | 'staff',
         string,
         Uint8Array,
+        number,
         number,
       ];
       this.rows.set(piiKeyId, {
@@ -34,11 +36,16 @@ class DoBlobSql implements SqlStorageLike {
         wrapped_key: wrappedKey,
         created_at: createdAt,
         shredded_at: null,
+        key_version: keyVersion,
       });
       return { toArray: () => [] };
     }
 
-    if (q.startsWith('SELECT pii_key_id, scope, subject_id, wrapped_key, shredded_at FROM data_key WHERE pii_key_id =')) {
+    if (
+      q.startsWith(
+        'SELECT pii_key_id, scope, subject_id, wrapped_key, shredded_at, key_version FROM data_key WHERE pii_key_id =',
+      )
+    ) {
       const piiKeyId = bindings[0] as string;
       const row = this.rows.get(piiKeyId);
       if (!row) return { toArray: () => [] };
@@ -54,6 +61,7 @@ class DoBlobSql implements SqlStorageLike {
             subject_id: row.subject_id,
             wrapped_key: buf,
             shredded_at: row.shredded_at,
+            key_version: row.key_version,
           },
         ],
       };
@@ -105,5 +113,34 @@ describe('SqlKeyStore DO-specific', () => {
     const record = store.get('key_1')!;
     expect(record.wrappedKey.byteLength).toBe(0);
     expect(record.shredded).toBe(true);
+  });
+
+  it('insert defaults key_version 1; get returns keyVersion', () => {
+    const store = new SqlKeyStore(new DoBlobSql());
+    const wrapped = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+    store.insert({ piiKeyId: 'key_v1', scope: 'guest', subjectId: 'guest_v1', wrappedKey: wrapped });
+
+    const record = store.get('key_v1')!;
+    expect(record.keyVersion).toBe(1);
+  });
+
+  it('get maps missing key_version to 0', () => {
+    const sql = new DoBlobSql();
+    const store = new SqlKeyStore(sql);
+    const wrapped = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+    sql.exec(
+      `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
+      'key_v0',
+      'guest',
+      'guest_v0',
+      wrapped,
+      Date.now(),
+      null as unknown as number,
+    );
+
+    const record = store.get('key_v0')!;
+    expect(record.keyVersion).toBe(0);
   });
 });

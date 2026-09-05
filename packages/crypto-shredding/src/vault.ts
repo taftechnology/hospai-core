@@ -56,7 +56,7 @@ export class PiiVault {
     const iv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
     const aad = profileAad(piiKeyId);
     const ciphertext = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, dataKey, plaintext as BufferSource),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad as BufferSource }, dataKey, plaintext as BufferSource),
     );
     return { ciphertext, iv };
   }
@@ -67,7 +67,7 @@ export class PiiVault {
     try {
       return new Uint8Array(
         await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad },
+          { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad as BufferSource },
           dataKey,
           ciphertext as BufferSource,
         ),
@@ -125,7 +125,7 @@ export class PiiVault {
     const encoded = new TextEncoder().encode(JSON.stringify(profile));
     const aad = profileAad(piiKeyId);
     const profileCipher = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad }, dataKey, encoded),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad as BufferSource }, dataKey, encoded),
     );
     return {
       piiKeyId,
@@ -154,7 +154,7 @@ export class PiiVault {
     const encoded = new TextEncoder().encode(JSON.stringify(profile));
     const aad = profileAad(piiKeyId);
     const profileCipher = new Uint8Array(
-      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad }, dataKey, encoded),
+      await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad as BufferSource }, dataKey, encoded),
     );
     return { profileCipher, profileIv };
   }

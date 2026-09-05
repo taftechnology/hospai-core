@@ -103,9 +103,9 @@ describe('PiiVault', () => {
     const wrongAad = new TextEncoder().encode(crypto.randomUUID());
     await expect(
       crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: sealed.iv, additionalData: wrongAad },
+        { name: 'AES-GCM', iv: sealed.iv as BufferSource, additionalData: wrongAad as BufferSource },
         dataKey,
-        sealed.ciphertext,
+        sealed.ciphertext as BufferSource,
       ),
     ).rejects.toThrow();
   });

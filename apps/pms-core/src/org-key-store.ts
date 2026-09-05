@@ -18,7 +18,7 @@ export class SqlKeyStore implements KeyStore {
   get(piiKeyId: string): WrappedKeyRecord | null {
     const rows = this.sql
       .exec(
-        `SELECT pii_key_id, scope, subject_id, wrapped_key, shredded_at FROM data_key WHERE pii_key_id = ?`,
+        `SELECT pii_key_id, scope, subject_id, wrapped_key, shredded_at, key_version FROM data_key WHERE pii_key_id = ?`,
         piiKeyId,
       )
       .toArray() as Array<{
@@ -27,6 +27,7 @@ export class SqlKeyStore implements KeyStore {
       subject_id: string;
       wrapped_key: unknown;
       shredded_at: number | null;
+      key_version: number | null;
     }>;
     const row = rows[0];
     if (!row) return null;
@@ -38,6 +39,7 @@ export class SqlKeyStore implements KeyStore {
       subjectId: row.subject_id,
       wrappedKey: bytes,
       shredded: row.shredded_at != null || materialGone,
+      keyVersion: (row.key_version ?? 0) as 0 | 1,
     };
   }
 
@@ -46,14 +48,17 @@ export class SqlKeyStore implements KeyStore {
     scope: 'guest' | 'staff';
     subjectId: string;
     wrappedKey: Uint8Array;
+    keyVersion?: 0 | 1;
   }): void {
+    const keyVersion = record.keyVersion ?? 1;
     this.sql.exec(
-      `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
       record.piiKeyId,
       record.scope,
       record.subjectId,
       record.wrappedKey,
       Date.now(),
+      keyVersion,
     );
   }
 

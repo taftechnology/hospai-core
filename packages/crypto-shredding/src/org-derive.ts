@@ -34,8 +34,8 @@ export async function deriveOrgWrapKeyHex(hex: string, orgId: string): Promise<C
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: HKDF_SALT,
-      info: orgWrapInfo(orgId),
+      salt: HKDF_SALT as BufferSource,
+      info: orgWrapInfo(orgId) as BufferSource,
     },
     ikm,
     { name: 'AES-GCM', length: 256 },
@@ -51,8 +51,8 @@ export async function deriveOrgBlindIndexKeyHex(hex: string, orgId: string): Pro
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: HKDF_SALT,
-      info: orgBlindInfo(orgId),
+      salt: HKDF_SALT as BufferSource,
+      info: orgBlindInfo(orgId) as BufferSource,
     },
     ikm,
     { name: 'HMAC', hash: 'SHA-256', length: 256 },

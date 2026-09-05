@@ -53,7 +53,8 @@ import {
 import {
   blindIndexHash,
   blindIndexRows,
-  importBlindIndexKeyHex,
+  deriveOrgBlindIndexKeyHex,
+  deriveOrgWrapKeyHex,
   importMasterKeyHex,
   normalizeBlindIndexValue,
   PiiVault,
@@ -288,24 +289,30 @@ export class OrgDO extends DurableObject<PmsEnv> {
   }
 
   private async vault(): Promise<PiiVault> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) throw new Error('org_id unset');
     if (!this.vaultPromise) {
+      const hex = this.env.HOSPAI_ORG_MASTER_KEY;
+      if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
       this.vaultPromise = (async () => {
-        const hex = this.env.HOSPAI_ORG_MASTER_KEY;
-        if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
-        const master = await importMasterKeyHex(hex);
-        return new PiiVault(master, new SqlKeyStore(this.ctx.storage.sql));
+        const legacyPlatformWrap = await importMasterKeyHex(hex);
+        const orgWrap = await deriveOrgWrapKeyHex(hex, orgId);
+        return new PiiVault(
+          { legacyPlatformWrap, orgWrap },
+          new SqlKeyStore(this.ctx.storage.sql),
+        );
       })();
     }
     return this.vaultPromise;
   }
 
   private async blindIndexKey(): Promise<CryptoKey> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) throw new Error('org_id unset');
     if (!this.blindIndexKeyPromise) {
-      this.blindIndexKeyPromise = (async () => {
-        const hex = this.env.HOSPAI_ORG_MASTER_KEY;
-        if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
-        return importBlindIndexKeyHex(hex);
-      })();
+      const hex = this.env.HOSPAI_ORG_MASTER_KEY;
+      if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
+      this.blindIndexKeyPromise = deriveOrgBlindIndexKeyHex(hex, orgId);
     }
     return this.blindIndexKeyPromise;
   }
@@ -1544,12 +1551,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
             material.piiKeyId,
             'guest',
             input.guestId,
             material.wrappedKey,
             now,
+            1,
           );
           this.ctx.storage.sql.exec(
             `INSERT INTO guest (guest_id, pii_key_id, profile_cipher, profile_iv, created_at, updated_at)
@@ -1848,12 +1856,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
             material.piiKeyId,
             'staff',
             staffId,
             material.wrappedKey,
             now,
+            1,
           );
           this.ctx.storage.sql.exec(
             `INSERT INTO roster (staff_id, pii_key_id, profile_cipher, profile_iv, status, exited_at, created_at, updated_at)
@@ -2594,12 +2603,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const material = await vault.prepareGuestRecord('staff', staffId, { displayName: 'staff-placeholder' });
     const now = Date.now();
     this.ctx.storage.sql.exec(
-      `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
       material.piiKeyId,
       'staff',
       staffId,
       material.wrappedKey,
       now,
+      1,
     );
     return { piiKeyId: material.piiKeyId };
   }

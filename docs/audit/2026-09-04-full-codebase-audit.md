@@ -10,6 +10,8 @@
 - [`2026-08-15-full-codebase-audit.md`](2026-08-15-full-codebase-audit.md) — original 32 items; most money/authz/copy items are **fixed**. Do not reopen them.
 - [`2026-09-03-full-codebase-audit.md`](2026-09-03-full-codebase-audit.md) — N1–N14. Ten confirmed, four partial, none refuted as a whole. This brief **supersedes the suggested order** in that file because later passes found a cross-tenant critical (S1) and an AR-never-posts critical (L1).
 
+This document is the **Track 0 defect** contract (isolation, AR, azp, desk freshness). Prototype feature parity after those verticals is [`docs/roadmap.md`](../roadmap.md). Do not add Dashboard Hub, products, email, or HK inventory as extra audit verticals — they are roadmap slices, and several “gaps” (ARI KV, purge, BoardSummary, booking Hold=`PENDING`) are **already shipped**.
+
 This document is the implementer contract. Take **one vertical at a time**. Do not cherry-pick Low items from a later vertical while Criticals in earlier ones are open.
 
 ---
@@ -64,8 +66,10 @@ Write a spec under `docs/superpowers/specs/` only if the human (or reviewer) sta
 - **SQL injection.** Identifiers are constants or regex-gated; user data is bound.
 - **DO atomicity.** Zero `await` inside `transactionSync`. `runIdempotent` `Sync<T>` makes async `execute` a compile error.
 - **Crypto primitive.** Envelope AES-GCM, per-subject data keys, shred + blind-index delete on guest erasure. The defect is **one platform master key** (N6), not the algorithm.
-- **Availability is a ledger.** Book/modify/cancel/no-show adjust `availability_day` in one `transactionSync`. Do not change that to a reservation scan.
-- **held vs sold.** `held` is always 0 (Phase 3). Pending and confirmed increment `sold`. Inquiry does not.
+- **Availability is a ledger.** Book/modify/cancel/no-show adjust `availability_day` in one `transactionSync`. Do not change that to a reservation scan. Occupancy widgets use `get_front_desk_summary`, not a stay count.
+- **held vs sold.** `held` is always 0 (Phase 3). Pending and confirmed increment `sold`. Inquiry does not. Wizard **Hold** is `PENDING`.
+- **ARI_KV + PurgeWorkflow.** Projection, `quoteAriVersion` reject-on-commit, and guest/org purge certificates exist. Do not file them as missing platform. Remaining product work is the **booking engine consumer** (roadmap R4.2) and honest Iceberg skip on certificates — not a rebuild.
+- **BoardSummary / booking wizard / money-ops extras.** Today’s occupancy chip, Inquiry/Hold/Confirm, promo, DAMAGE authorize/void, invoice engine, ShiftStrip, `StaleWatermark` are shipped. SPA holes (stay card, Hub **nav**, folio **directory**) are roadmap, not this brief.
 - **B1 checkout.** `tryCheckOut` uses guest-window balance only. Direct-bill COMPANY charges must not block the guest. The AR hole is **L1**, not a regression of B1.
 - **B2 / B4.** Modify honors `ratePlanId`. Bad cancel policy throws `InvalidCancelPolicyError`.
 - **Payments algebra.** Capture requires authorized; refund capped; amounts integer. Do not loosen.
@@ -97,6 +101,11 @@ Write a spec under `docs/superpowers/specs/` only if the human (or reviewer) sta
 | `held === 0` | Architecture Phase 3. |
 | Plan-scoped restriction rows unused | Locked unused in the rate-plans spec. |
 | Occupancy pricing | Not a product. Rates are flat per night. |
+| 7-day occupancy **trend** on a Dashboard Hub | Warehouse (`ARCHITECTURE.md` §7.8). Today’s counts are `get_front_desk_summary`. |
+| CHECK / VOUCHER / GIFT tenders | Cashiering spec is `CARD` \| `CASH`. |
+| Phase 1 confirmation email | Guest engagement is Phase 3. |
+| Extra `guest_ref`s for additional guests | Occupancy is `adults`/`children`. |
+| Rebuilding ARI KV or PurgeWorkflow | Shipped. |
 | Authenticated bootstrap as “authz hole” | See S1/N4. |
 | Extracting PropertyDO for quality or speed | Explicitly out of scope for every vertical. |
 | Virtualizing the 7-day tape | `content-visibility` is enough. Cap UI window at 14 before a virtualizer. |
@@ -686,10 +695,12 @@ Cross-checked against: Sept 3 N1–N14, Sept 4 verification canvas (X1–X4 + co
 
 **Intentionally not promoted** (hunters filed, reviewer rejected): Playwright/Cypress; 80% DO coverage; tape virtualizer as High; unused `LinkButton` / skip-link; extra `toHaveLength(144)` pin; extracting PropertyDO; Redis; Storybook; occupancy UI; restyle tokens.
 
+**After this brief (roadmap / spec pass, not extra audit IDs):** ARI_KV, PurgeWorkflow, BoardSummary, booking wizard Hold=`PENDING`, money-ops DAMAGE, and ShiftStrip are **shipped**. Feature leftovers live in [`docs/roadmap.md`](../roadmap.md). Do not open Vertical 15 for them.
+
 ---
 
 ## Document control
 
 - **Audience:** implementing agent (and reviewer). Product owner reads the global sequence and locked calls.
 - **Source canvases** (session artefacts, not committed): quality, security, business logic, UX, UI, performance, CI, Sept 4 verification of N1–N14.
-- **This file does not implement anything.** It is the queue. Start at Vertical 1.
+- **This file does not implement anything.** It is the **defect** queue. Start at Vertical 1. After Track 0, continue at [`docs/roadmap.md`](../roadmap.md) first `- [ ]`.

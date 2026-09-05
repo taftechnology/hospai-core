@@ -10,7 +10,7 @@ Normative architecture: [ARCHITECTURE.md](ARCHITECTURE.md). Product queue (proto
 
 ## How to work in this repo
 
-1. Read the locked product call before inventing an alternative. Do not bounce A/B/C when a lock already exists (architecture, a spec, or the audit brief).
+1. Read the locked product call before inventing an alternative. Do not bounce A/B/C when a lock already exists (architecture, a spec under `docs/superpowers/specs/`, the audit brief, or the roadmap slice). **Search specs before writing a new one** — ARI KV, purge, money-ops DAMAGE, booking wizard, tape/board, guest CRM directory, cashiering, and housekeeping already have accepted specs.
 2. Prefer a **failing characterization test**, then production code, for tenancy, money, inventory, and authz. Do not encode today’s broken behaviour as `expect(…)`.
 3. Do **not** extract folio, payments, or reservations out of `PropertyDO` unless a named architecture trigger lands in `ARCHITECTURE.md`. Housekeeping’s `moduleTxnCtx` is the pattern when extraction is actually decided.
 4. Do **not** add Playwright, Cypress, Redis, Storybook, occupancy-pricing UI, dark mode, a second design kit, or a visual rewrite of `apps/web-pms/src/styles.css`.
@@ -78,15 +78,20 @@ When adding or changing any path that accepts a `propertyId` / `orgId` in the **
 
 **Money is integers.** Splits, transfers, tax allocation, and FX partials use `allocate` (last-unit remainder). Do not `Math.round` a ratio in a new money path.
 
-**Availability is a ledger.** Book, modify, cancel, no-show, OOO, and oversell adjust `availability_day` in the same `transactionSync` as the reservation. **Never** count overlapping reservations to answer capacity. Import `freeAvailability` from `@hospai/contracts` — do not inline `physical - blocked - held - sold + oversell`. `held` stays 0 until Phase 3; pending/confirmed increment `sold`.
+**Availability is a ledger.** Book, modify, cancel, no-show, OOO, and oversell adjust `availability_day` in the same `transactionSync` as the reservation. **Never** count overlapping reservations to answer capacity — including a Dashboard occupancy widget. Compose `get_front_desk_summary` / `availability_day` reads that already exist. Import `freeAvailability` from `@hospai/contracts` — do not inline `physical - blocked - held - sold + oversell`. `held` stays 0 until Phase 3; **wizard Hold is `PENDING` (`sold++`)**, not the `held` column. Inquiry does not increment `sold`.
 
 **Checkout** uses the **guest** window balance only. Direct-bill COMPANY balances must not block the guest. COMPANY receivable **must post city-ledger AR** on transfer-into and/or checkout — **not** only on close-at-zero (a receivable window cannot reach zero from the desk if payments hit GUEST).
 
 **Folio transfer / split (new behaviour must preserve):**
 
 - A source line transfers **once**. Reject if a `TRANSFER_REVERSAL` already exists. Destination identity must not allow the same source onto two COMPANY windows.
+- Transfer is **windows on the same stay**. Cross-reservation transfer is `transfer_cross_reservation` — do not “fix” that to match the prototype.
 - Transfer **copies existing tax amounts** (same as split). Do not reverse TAX and restamp at today’s rules.
 - Reopen + more charges + close again must post an **AR delta**, not skip forever on “charge already exists” and not duplicate the original charge.
+
+**Damage deposit** is money-ops, not a new command: `folio.authorize` with `purpose=DAMAGE`; release = `folio.void`; forfeit = post `DAMAGE` then capture. Do not auto-capture DAMAGE on `capture_due`.
+
+**Tenders** are `CARD` \| `CASH` (cashiering spec). Do not add CHECK / VOUCHER / GIFT without amending that spec.
 
 **Do not silently release `sold` inside `tryCheckOut`.** Remaining nights after early departure stay sold until a **named** early-departure / shorten command runs (`ARCHITECTURE.md` §7.1). If you add checkout UX without that command, warn the clerk — do not change inventory.
 
@@ -149,6 +154,12 @@ Typed domain errors only in `catch`; unexpected throws → `INTERNAL_ERROR`, nev
 
 **Settings / Book:** if a control is not wired in pms-core, do not show it. FAIL_CLOSED on types/availability disables Hold/Quote/Confirm with an Alert.
 
+**Dashboard / occupancy:** today’s counts come from `get_front_desk_summary` (`BoardSummary`). A 7-day occupancy chart is a **warehouse trend** (`ARCHITECTURE.md` §7.8) — do not scan reservations or copy the prototype Recharts outlook into Phase 1.
+
+**Party size** is `adults` / `children` on the stay. Do not add extra `guest_ref` rows for “additional guests.”
+
+**New PMS modules** (`products`, `maintenance`, …) are `modules/pms/<name>` with `src/module.manifest.ts`. Core never imports add-ons. Maintenance **consumes** `room.ooo_changed`; do not invent tickets inside housekeeping. Guest messaging / confirmation email is Phase 3 (Whistle), not a Phase 1 Worker mailer.
+
 **Perf defaults:** React Query `staleTime` 60s, `refetchOnWindowFocus: false` — keep. `lazy()` admin routes; desk routes stay eager. Do not virtualize the default 7-day tape; cap the **UI** range at 14 days if you expose a longer picker. Do not raise the 90-night HTTP availability cap. Do not poll an empty queue every 1s.
 
 **No `fetch` in components** (`hospai/no-fetch-in-components`). No DOM in `client-core`. No inline styles in web-pms.
@@ -196,6 +207,7 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 - [ ] Tests: characterization for isolation/money; two-property case if OrgDO PII; no `it.only`.
 - [ ] Pins: catalog length, last audit route id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS` if those lists changed.
 - [ ] No new Settings control unless pms-core reads it.
+- [ ] Existing spec in `docs/superpowers/specs/` searched; no second design for ARI, purge, DAMAGE, Hold=`PENDING`, or BoardSummary.
 
 ---
 
@@ -218,11 +230,15 @@ There are **15** `check:*` scripts in CI (not 17). Local pms-core shards **inclu
 
 - Authenticated `POST /v1/orgs` bootstrap — keep; isolation is the org-match on provision, plus `azp`.
 - 60s permission / entitlement cache — Phase 1 until KV projection (`ARCHITECTURE.md` §4.3).
-- `held === 0` — Phase 3.
+- `held === 0` — Phase 3. Desk **Hold** = `PENDING`.
 - Plan-scoped restriction rows unused — type-wide `*` until a spec says otherwise.
-- Occupancy pricing, yield engine, Playwright-first e2e, PropertyDO split for speed, Redis, tape virtualizer on 7 days.
+- Occupancy pricing, yield engine, Playwright-first e2e, PropertyDO split for speed, Redis, tape virtualizer on 7 days, 7-day occupancy **trend** on the Hub.
 - Sign-in marketing column — keep; do not copy its shadows into the desk.
 - `LinkButton` unused in ui-kit — kit cannot depend on the router; `Link` + `ui-link-btn` is the contract.
+- **Already shipped — do not rebuild:** `ARI_KV` + book `quoteAriVersion`; `PurgeWorkflow` + certificates; `StaleWatermark`; ShiftStrip in AppShell; money-ops DAMAGE/void/discount/invoice; guest CRM directory + blind-index search (tags/LTV/merge remain deferred in that spec); `get_audit_log` (do not add `audit.append` HTTP).
+- Folio transfer to **another reservation** — rejected. Charges move between windows on the same stay.
+- `tender_type` `CARD` \| `CASH` only until the cashiering spec is amended.
+- Confirmation email / Whistle inbox / concierge tickets — Phase 3, not a Phase 1 Settings Email clone.
 
 ---
 

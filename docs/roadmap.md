@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-09-04 code + spec + architecture pass. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.5 or a named leftover in a shipped spec.
+**Revision:** 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.5 or a named leftover in a shipped spec.
 
 ---
 
@@ -33,7 +33,7 @@
 **Do not** ask “should I continue?” between slices.
 **Do not** start Track 1 while **R0.1–R0.6** are open.
 **Do not** start Track 2 while **R0.11** is open (kit/chrome). Other Track 0 items may still be in flight.
-**Do not** start Track 4 (Phase 2 add-ons) while **Track 1 or Track 2** still have open boxes. R3.2–R3.5 leftovers may remain; **R3.1** must be done. **ARI_KV already ships** — R4.2 consumes it.
+**Do not** start Track 4 (Phase 2 add-ons) while **Tracks 0–2** still have open Phase-1 boxes. R3.2–R3.5 leftovers may remain; **R3.1** must be done. **ARI_KV already ships** — R4.2 consumes it.
 
 ### Slice template (when you write a spec/plan)
 
@@ -62,7 +62,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 - **Same information architecture** as the prototype sidebar: Dashboard Hub, Room Plan, Front Desk, Reservations (**list + stay card**), New Booking, Housekeeping, Guests, Rates, Folio directory, Night Audit, Settings — plus the quiet ops items we already have (Inventory, Staff, Roster, Exceptions, City ledger, Shift).
 - **Same clerk flows:** tape click → stay; walk-in / Open Reservation; book → quote $ → Inquiry/Hold(`PENDING`)/Confirm; stay card modify/cancel/no-show; in-house room move; check-in by room **code**; folio as a bill; HK dirty→clean; night audit as a job; shift open/close. Confirmation email is **Phase 3** (Whistle / R5.2), not Phase 1.
 - **Chrome:** existing P0-3 tokens (sage `#4A5D4E`, cream, IBM Plex). `PageHeader` + `Card`. One `<h1>`. Live `property.name`.
-- **Not:** Tailwind v4, `lucide-react`, `recharts` as a product, pixel-identical CSS, prototype “Simulation Active”, role impersonation, Opera fake sync, competitor scrape.
+- **Not:** Tailwind v4, `lucide-react`, `recharts` as a product, pixel-identical CSS, prototype booking-engine “LIVE DIRECT BOOKING INTERFACE SIMULATION” chrome, role impersonation, Opera fake sync, competitor scrape.
 
 ### All features functional
 
@@ -102,7 +102,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 | Inquiry → confirmed | `INQUIRY` → `PENDING` → `CONFIRMED` |
 | Assign-before-check-in as waiting | Pre-assign allowed; check-in needs a room (or auto-assign) |
 | Staff blocks as $0 reservations | `held` unused until Phase 3 |
-| 89 `localStorage` keys | Classified config register |
+| Prototype config keys (`EXPECTED_PROTOTYPE_KEYS` **97** — not the catalog length 89) | Classified config register |
 | DND as `room.status` | Stay flag `dnd_flag` only |
 | HK budgeting / metrics / mobile | Dropped from Phase 1 (holes sweep). Workload counts on the HK **board** already ship. No Reports tab. |
 | HK **inventory** (linens/stock) and **manager priorities** | **KEEP** — §16.1 core HK; not in the drop list |
@@ -114,7 +114,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 | Rate-plan inclusions JSON | Deferred with recurring |
 | PAN / CVV / raw card fields | Never in PMS. Guarantee **workflow** is Phase 1 (R1.20); card capture is payments Worker (R5.4) |
 | Folio transfer to **another reservation** | Rejected (`transfer_cross_reservation`). Charges move between **windows on the same stay** (GUEST/COMPANY) |
-| “Add 5 arrivals”, Simulation Active, Opera fake sync, competitor scrape | Investor theater — never build |
+| “Add 5 Arrivals”, booking-engine simulation chrome, Opera fake sync, competitor scrape | Investor theater — never build |
 | Dynamic Yield / Forecast tabs that `alert()` a +20% surge | Not Phase 1. **R5.1** must be a real RM module, not that stub |
 
 ---
@@ -170,24 +170,24 @@ Cross-checked against live SPA/routes, ARCHITECTURE.md §7.1/§7.8/§11/§14/§1
 
 ## Track 0 — Make what we already shipped true
 
-**Source of truth:** [2026-09-04 audit](audit/2026-09-04-full-codebase-audit.md). Execute those verticals **in audit order**. Tick here when that audit vertical is merged and `pnpm test:local` is green.
+**Source of truth:** [2026-09-04 audit](audit/2026-09-04-full-codebase-audit.md). Execute those verticals **in audit order**. Tick here when that audit vertical is merged and `pnpm test:local` is green. Each R0.x line lists **every** audit id in that vertical — implement the vertical body, not the paraphrase.
 
 Do not start Track 1 while R0.1–R0.6 are open (security + AR + desk freshness). R0.7–R0.14 may interleave with Track 1 only if the Track 1 slice does not touch the same files; prefer finishing Track 0.
 
 - [x] **R0.1** Audit V1 — S1/S3/G1 provision graft. `provision.ts` org match; 409 no foreign row; failing cross-org test first.
-- [ ] **R0.2** Audit V2 — N4/N5/S5/G12/N12 azp, headers, Bearer-or-Origin, smoke JWT mask.
-- [ ] **R0.3** Audit V3 — L1–L4/U8/G2/G10 city-ledger AR posts on transfer/checkout; honest toast; smoke AR step.
-- [ ] **R0.4** Audit V4 — S2/S7 property-scoped guest and roster lists (two-property test).
-- [ ] **R0.5** Audit V5 — N6 per-org HKDF master key + comment lie.
-- [ ] **R0.6** Audit V6 — U1–U3/Q5/P2/P4 board invalidate, terminal Check-in disabled, tape query key, guest batch chunk 50.
-- [ ] **R0.7** Audit V7 — N1 DST two-pass; L5 per-reservation night-audit catch; rewrite case 17 in the same PR.
-- [ ] **R0.8** Audit V8 — array caps (rates, rooms, split, roster `kinds`); JSON 400 helper; fingerprint `{ commandId, payload }`.
-- [ ] **R0.9** Audit V9 — kill-switch on cancel/purge; replay re-checks actor; degraded allowlist; R2 no infinite retry.
-- [ ] **R0.10** Audit V10 — one `commandErrorHttpStatus` (402 / 404 `not_member`).
-- [ ] **R0.11** Audit V11 — UX/UI (RateCell `VisuallyHidden`, one h1, Dialog, print CSS, hide unread Booking settings, Alerts, live hotel name).
-- [ ] **R0.12** Audit V12 — `resolvePropertyContext(..., ctx.tenantProperty)` everywhere; name search not decrypt-200.
-- [ ] **R0.13** Audit V13 — deploy needs green CI SHA; web-pms `*.tsx` coverage; crypto-shredding `test:coverage`; eslint recommended.
-- [ ] **R0.14** Audit V14 — named early-departure command (L6); cash/FX/OOO; `freeAvailability` single import; architecture write-down.
+- [ ] **R0.2** Audit V2 — N4, N5, G12, S5, N12. azp, headers, Bearer-or-Origin, smoke JWT mask.
+- [ ] **R0.3** Audit V3 — L1, L2, L3, L4, U8, G2, G10. city-ledger AR posts on transfer/checkout; honest toast; smoke AR step.
+- [ ] **R0.4** Audit V4 — S2, S7. property-scoped guest and roster lists (two-property test).
+- [ ] **R0.5** Audit V5 — N6. per-org HKDF master key + comment lie.
+- [ ] **R0.6** Audit V6 — U1, U2, U3, Q5, G6, P2, P4, G9. Board invalidate, terminal Check-in disabled, tape query key, guest batch chunk 50. G6/G9 are the SPA tests that would catch U1/P2/P4 — land them in this vertical.
+- [ ] **R0.7** Audit V7 — N1, L5, L7, L8, G3, P6. DST two-pass; per-reservation ROOM catch + rewrite case 17 in the same PR; `auto_no_show=false` must not post ROOM for confirmed-not-arrived (L7); pending expires on `confirmBy`, not arrival-only (L8).
+- [ ] **R0.8** Audit V8 — N3, X1, P5, N10, Q11, N2, S6, Q3. array caps (rates, rooms, split, roster `kinds`); JSON 400 helper; fingerprint `{ commandId, payload }`; catalog lane vs `touchInteractive()`; idempotency key prefixed with user; same object hashed as sent (virtual type constituents).
+- [ ] **R0.9** Audit V9 — S4, X2, N7, X3. kill-switch on cancel/purge; replay re-checks original actor; degraded allowlist + one module; missing R2 terminal-fail/DLQ (not infinite retry).
+- [ ] **R0.10** Audit V10 — Q1, Q2, Q6, Q7, Q8, Q9, Q10. one `commandErrorHttpStatus` (`entitlement_required` → **402**, `not_member` → **404**); `{ ok: false, error }`; decrypt miss not 500; typed catch not blanket forbidden.
+- [ ] **R0.11** Audit V11 — U4–U17, I1–I15, E3, Q4, Q18, Q19, L12. RateCell `VisuallyHidden`, one h1, Dialog, print CSS, hide unread Booking settings, Alerts, live hotel name, checkout remaining-nights **warning** (do not release `sold` — that is L6 / R0.14).
+- [ ] **R0.12** Audit V12 — P1, N8, P3, P7–P13. `resolvePropertyContext(..., ctx.tenantProperty)` everywhere (do not skip `assertTenantActive`); name search not decrypt-200; folio mount deferral; lazy admin routes; queue poll only while non-empty; P8/P11 **keep**; tape UI cap-14 if the picker is touched (P13).
+- [ ] **R0.13** Audit V13 — G4, G5, G7, G8, G11, N9. deploy needs green CI SHA; web-pms `*.tsx` coverage; crypto-shredding `test:coverage`; eslint recommended; no Playwright; shard topology unchanged. G10 smoke lives in R0.3.
+- [ ] **R0.14** Audit V14 — L6, L9–L11, L13, N11, N13, N14, Q12–Q22 (B3 `noPost` HTTP + X4 invite collapse if those files are touched). named early-departure command (do not silently release `sold` in checkout); cash/FX/OOO; `freeAvailability` single import; architecture write-down.
 
 When R0.1–R0.6 are `[x]`, the 8-minute demo path is **honest** (AR, board, azp). Then Track 1.
 
@@ -203,7 +203,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Depends:** R0.6 (board keys).
   - **Prototype:** `Dashboard.tsx` (occupancy, arrivals/departures, ADR, available-rooms entry, night-audit CTA). **Not** Yield Analytics charts.
   - **Live:** `BoardSummary` on `/arrivals` etc. (`get_front_desk_summary`). No Hub nav item.
-  - **Locked:** Add `/` or `/dashboard` as the first nav item. **Compose existing reads** — occupancy/arrivals/due-out/in-house from `get_front_desk_summary` (tape-chart spec), available-rooms from existing GET, night-audit CTA to `/night-audit`. VIP arrivals = filter existing arrivals by `vipFlag`. Spec: [tape chart + live board](../superpowers/specs/2026-08-13-tape-chart-live-board-design.md).
+  - **Locked:** Add `/` or `/dashboard` as the first nav item. **Compose existing reads** — occupancy/arrivals/due-out/in-house from `get_front_desk_summary` (tape-chart spec), available-rooms from existing GET, night-audit CTA to `/night-audit`. VIP arrivals = filter existing arrivals by `vipFlag`. Spec: [tape chart + live board](superpowers/specs/2026-08-13-tape-chart-live-board-design.md).
   - **Out:** 7-day occupancy trend (warehouse §7.8); recharts; competitor scrape; Whistle inbox; “add 5 fake arrivals”; a second occupancy calculator that scans reservations.
   - **Tests:** Hub numbers match `get_front_desk_summary` for a seeded day; available-rooms omit occupied+OOO.
 
@@ -224,7 +224,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 - [ ] **R1.4 Booking wizard remainder**
   - **Depends:** R0.11 (hide or wire Booking settings).
   - **Prototype:** `BookingWizard.tsx`.
-  - **Live:** `BookingScreen.tsx` — adults/children, Inquiry / Hold(`PENDING`) / Confirm, promo, guest equality search, `quoteAriVersion`. Spec: [booking wizard](../superpowers/specs/2026-08-11-booking-wizard-design.md).
+  - **Live:** `BookingScreen.tsx` — adults/children, Inquiry / Hold(`PENDING`) / Confirm, promo, guest equality search, `quoteAriVersion`. Spec: [booking wizard](superpowers/specs/2026-08-11-booking-wizard-design.md).
   - **Locked:** Do **not** rebuild the wizard. Remainder: FAIL_CLOSED disables Hold/Quote/Confirm; **hide or consume** `same_day_*` / `require_prepayment` (R0.11 / R1.20); booking add-ons = **R1.5 products** posted via `folio.add_item`, not recurring (R3.2); source/segment optional fields from **R1.6**. Special requests = existing front-office comment, not a new column. **Hold is `PENDING` / `reservations.hold` — it increments `sold`. Do not use `held`.**
   - **Tests:** occupancy exceeded on submit; FAIL_CLOSED disables Hold/Quote/Confirm. Do not re-test adults/promo/search as if they were new.
 
@@ -257,20 +257,20 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 - [ ] **R1.8 Guest CRM depth**
   - **Depends:** R0.4 (property-scoped list).
   - **Prototype:** `GuestsCRM.tsx` (tags, VIP, spend, stays, passport, address, sort by spend).
-  - **Live:** directory + profile + property stay history + blind-index search. Spec: [guest CRM directory](../superpowers/specs/2026-08-13-guest-crm-directory-design.md) — tags / guest VIP / notes / LTV / merge / passport **explicitly deferred**.
+  - **Live:** directory + profile + property stay history + blind-index search. Spec: [guest CRM directory](superpowers/specs/2026-08-13-guest-crm-directory-design.md) — tags / guest VIP / notes / LTV / merge / passport **explicitly deferred**.
   - **Locked:** this slice **is** that deferred CRM remainder: tags + guest-level VIP + notes on OrgDO profile. Stay history already ships. **Do not** add OLTP “lifetime spend” (warehouse §7.8). **Do not** add `guests.merge` or ID documents (named leftovers). Loyalty = tag/VIP, not a points ledger.
   - **Out:** warehouse LTV; merge; passport/R2 files; decrypt-on-list.
 
 - [ ] **R1.9 Housekeeping — KEEP core extras**
   - **Depends:** none after R0.1.
   - **Prototype:** `Housekeeping.tsx` tabs: board, priority, assignments, staff, inventory, budgeting, metrics, reports, maintenance, mobile.
-  - **Live:** HK board + assign + workload counts + roster picker. Specs: [housekeeping module](../superpowers/specs/2026-08-11-housekeeping-module-mechanism-design.md), [room-ops HK completion](../superpowers/specs/2026-08-12-room-operations-hk-completion-design.md) leftover 5.
+  - **Live:** HK board + assign + workload counts + roster picker. Specs: [housekeeping module](superpowers/specs/2026-08-11-housekeeping-module-mechanism-design.md), [room-ops HK completion](superpowers/specs/2026-08-12-room-operations-hk-completion-design.md) leftover 5.
   - **Locked Phase 1:** **priority** (ordered rooms; un-exclude `pms_hk_manager_priorities`); **inventory** (linens/stock OPERATIONAL list; un-exclude `pms_hk_inventory`; not a warehouse); **`pms.maintenance` module** — work-order table, task types, checklists; consume `room.ooo_changed` (do not invent tickets inside HK). **Staff** = `/roster` + shifts/skills/capacity (roster leftover 7).
   - **Drop:** budgeting, metrics charts, HK Reports tab, mobile attendant, valet/coffee tickets (R5.2), SLA email.
   - **Tests:** assign + status; OOO still fail-closed if assigned; inventory round-trip; `room.ooo_changed` opens a maintenance ticket when the module exists.
 
 - [ ] **R1.10 Night audit operator job**
-  - **Depends:** R0.7 (L5/N1).
+  - **Depends:** R0.7 (full V7: N1/L5/L7/L8/G3/P6).
   - **Prototype:** `NightAudit.tsx` stepped wizard (checks → settle → execute).
   - **Live:** `NightAuditScreen.tsx`.
   - **Locked:** Alert on run/fail; STEP_LABELS; halt copy = review, Retry, Resume. Pre-check counts from existing reads (PRE_CHECK leftover). Close-out numbers = existing **SNAPSHOT_REPORTS** (`roomNet` / tax already on the screen). Do **not** grow `NIGHT_AUDIT_STEPS`. Do not print folio/invoice in `DEGRADED`. Do not clone prototype 11%/2% tax theater.
@@ -279,13 +279,15 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Depends:** R0.2.
   - **Prototype:** Settings `users`, `system` (preferences, notifications, tags), `logs`.
   - **Live:** Staff + Roster screens; limited property settings.
-  - **Locked:** **Users** = Staff screen linked from Settings. **System preferences** = classified keys pms-core reads. **Notifications** = hide until **R5.2**. **Tags** = R1.8. **Logs** = existing `get_audit_log` read UI (folio:read). Do **not** add `audit.append` HTTP ([audit log spec](../superpowers/specs/2026-08-07-audit-log-design.md)).
+  - **Locked:** **Users** = Staff screen linked from Settings. **System preferences** = classified keys pms-core reads. **Notifications** = hide until **R5.2**. **Tags** = R1.8. **Logs** = existing `get_audit_log` read UI (folio:read). Do **not** add `audit.append` HTTP ([audit log spec](superpowers/specs/2026-08-07-audit-log-design.md)).
 
 - [ ] **R1.12 Settings: Finance remainder**
   - **Depends:** R0.3.
   - **Prototype:** `FinanceSettings.tsx` / `FinanceModals.tsx` (gateways, terminals, AVS, invoice numbering).
   - **Live:** tax rules + charge codes; invoice engine exists.
   - **Locked:** Invoice numbering/templates **configuration** on the existing engine (if not already in Settings). Gateway/terminal/AVS: **sandbox-only** copy + existing simulate path; no live Stripe in Phase 1 (Phase 3). **Card-brand matrix** and **channel routings** = hide until R5.4 / R4.3. City ledger is `/city-ledger`, link from Finance. Folio **routing rules** already live under Settings charges — link, do not rebuild. Do not store secrets in the config register.
+
+- **R1.13** — unused number, not a lost slice. Stay workspace is **R1.15**. Do not invent work under this id.
 
 - [ ] **R1.14 Reports — OLTP only (optional nav)**
   - **Depends:** R1.1.
@@ -298,14 +300,14 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Depends:** R0.6. Add-ons need R1.5 products if you post incidentals here.
   - **Prototype:** `Reservations.tsx` (not just the list — the selected-stay card: modify dates/type, confirm pending, inquiry filter, cancel + policy penalty, no-show, cancel check-in, confirmation code, add-ons, damage-deposit checkbox).
   - **Live:** `ReservationsDirectoryScreen.tsx` is a **list**. Folio and Check-in are separate routes. Commands for hold/confirm/cancel/no-show already exist — **wire the stay card**, do not invent new status verbs.
-  - **Locked:** Add `/reservations/:id` (or split pane). **Wire existing commands** — do not invent verbs. Modify = `reservations.modify` (client-core method likely missing — add it). Cancel/no-show = existing DO paths + snapshotted penalty ([lifecycle spec](../superpowers/specs/2026-08-12-reservations-lifecycle-completion-design.md)). Cancel check-in = `reservations.cancel_check_in`. Confirm pending = existing `confirmReservation`. Damage = FolioScreen `folio.authorize` `purpose=DAMAGE`; void = release; post `DAMAGE` + capture = forfeit ([money-ops](../superpowers/specs/2026-08-12-folio-money-operations-design.md)). Front-office editor already on Check-in/Folio — reuse. Inquiry/pending/confirmed filters on the directory already exist as status query.
+  - **Locked:** Add `/reservations/:id` (or split pane). **Wire existing commands** — do not invent verbs. Modify = `reservations.modify` (client-core method likely missing — add it). Cancel/no-show = existing DO paths + snapshotted penalty ([lifecycle spec](superpowers/specs/2026-08-12-reservations-lifecycle-completion-design.md)). Cancel check-in = `reservations.cancel_check_in`. Confirm pending = existing `confirmReservation`. Damage = FolioScreen `folio.authorize` `purpose=DAMAGE`; void = release; post `DAMAGE` + capture = forfeit ([money-ops](superpowers/specs/2026-08-12-folio-money-operations-design.md)). Front-office editor already on Check-in/Folio — reuse. Inquiry/pending/confirmed filters on the directory already exist as status query.
   - **Out:** extra named guests; dirty-room force check-in; recurring engine; second folio UI; PAN; new deposit commands.
   - **Tests:** cancel outside window posts one penalty line; modify dates moves availability; cancel-check-in returns confirmed without deleting folio history; DAMAGE void leaves stay capture-due untouched.
 
 - [ ] **R1.16 Cashiering / shift as a first-class desk surface**
   - **Depends:** R0.14 for L9–L10 cash FX and business-date on close. If R0.14 is still open, do not start this slice.
   - **Prototype:** cash drawer on Front Desk.
-  - **Live:** `ShiftScreen.tsx`, **ShiftStrip in AppShell** (all desk routes). Spec: [cashier-shift SPA](../superpowers/specs/2026-08-09-cashier-shift-spa-design.md), [cashiering](../superpowers/specs/2026-08-07-cashiering-design.md) (`tender_type` = `CARD` \| `CASH` only).
+  - **Live:** `ShiftScreen.tsx`, **ShiftStrip in AppShell** (all desk routes). Spec: [cashier-shift SPA](superpowers/specs/2026-08-09-cashier-shift-spa-design.md), [cashiering](superpowers/specs/2026-08-07-cashiering-design.md) (`tender_type` = `CARD` \| `CASH` only).
   - **Locked:** Do **not** rebuild the strip or add CHECK/VOUCHER/GIFT. This slice is **R0.14 SPA honesty** (cash FX / business-date on close) plus characterization around `get_shift` / `put_shift_close`. If R0.14 already covers the SPA, tick this when R0.14 ticks.
   - **Out:** new tender types; PCI card data; Apple Pay / terminals (R5.4).
 
@@ -330,7 +332,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 - [ ] **R1.20 Guarantee + check-in auth workflow (no PAN)**
   - **Depends:** R1.4. Real card capture is R5.4.
   - **Prototype:** Booking wizard step “Billing & Guarantee”; Front Desk pre-auth modal with card number/CVV.
-  - **Locked:** Do **not** add `guaranteeMethod` if the folio payment already records the guarantee. Consume `pms.booking.require_prepayment` inside confirm/check-in (hide the toggle until then — R0.11). Card path = existing **simulate** authorize ([payments simulate](../superpowers/specs/2026-08-06-payments-ledger-simulate-design.md), [card last4](../superpowers/specs/2026-08-14-card-last4-brand-design.md)). Check-in shows last4/brand if present — never PAN/CVV. Cash / pay-at-hotel = no authorize required unless the config is on.
+  - **Locked:** Do **not** add `guaranteeMethod` if the folio payment already records the guarantee. Consume `pms.booking.require_prepayment` inside confirm/check-in (hide the toggle until then — R0.11). Card path = existing **simulate** authorize ([payments simulate](superpowers/specs/2026-08-06-payments-ledger-simulate-design.md), [card last4](superpowers/specs/2026-08-14-card-last4-brand-design.md)). Check-in shows last4/brand if present — never PAN/CVV. Cash / pay-at-hotel = no authorize required unless the config is on.
   - **Out:** PAN/expiry/CVV; `held` inventory; a second payments Worker.
   - **Tests:** require_prepayment blocks check-in with zero captured/authorized STAY money; simulate authorize unblocks; no card-number input in web-pms.
 
@@ -342,8 +344,9 @@ Do after R0.11 at minimum (audit UI). Can run in parallel with Track 1 slices th
 
 - [ ] **R2.1 Nav IA**
   - Sidebar order matches prototype **roles we keep:** Dashboard, Room Plan, Front Desk, Reservations, New Booking, Housekeeping, Guests, Rates, Folios, Night Audit, Settings. Quiet: Inventory, Staff, Roster, Exceptions, City ledger, Shift.
+  - **Today:** `nav.ts` has no Shift item (`ShiftStrip` links to `/shift` from AppShell). City ledger is in the list but not `tone: 'quiet'`. This slice adds both — not a later surprise.
   - **Night Audit stays in the sidebar.** The prototype only CTAs it from Dashboard; live already has a nav item — keep it.
-  - **Out:** Whistle button, Simulation Active, role-swap, property-switcher (until **R4.4**).
+  - **Out:** Whistle button, booking-engine simulation chrome, role-swap, property-switcher (until **R4.4**).
   - Gate: `check:spa-page-chrome`, `check:web-pms-me-gating`. Roster nav `roster:read` (audit U16).
 
 - [ ] **R2.2 Screen titles and hotel name**
@@ -369,7 +372,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 - [ ] **R3.1 Config register vs Settings UI**
   - Every visible Settings control maps to a register key that pms-core **reads**. Hide the rest. `EXCLUDED_PROTOTYPE_KEYS` stay excluded or get a spec to include them.
-  - **Prototype:** 89 keys. **Do not** re-derive classification; extend `packages/contracts/src/config/register.ts`.
+  - **Prototype / register:** `EXPECTED_PROTOTYPE_KEYS` length **97** (`packages/contracts/src/register.test.ts`). Do not confuse with `COMMAND_CATALOG` length **89**. **Do not** re-derive classification; extend `packages/contracts/src/config/register.ts`.
 
 - [ ] **R3.2 Recurring / fixed charges (named leftover — still Phase 1-adjacent)**
   - Architecture deferred this. **When** you take it: schedule table, post inside existing `POST_ROOM_CHARGES` (no 9th step unless pin updates), snapshot `amountMinor`, honour `no_post`. Until then keep **unchecked** only if product pulls it forward; default is **after Track 1**.
@@ -389,10 +392,10 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
   - Fiscalization / `held` remain **R5.5**.
 
 - [x] **R3.7 Cross-store purge Workflow**
-  - **Shipped.** Spec: [purge workflow](../superpowers/specs/2026-08-12-purge-workflow-design.md). Code: `PurgeWorkflow`, certificates, `guest.erased` consumer. **Do not rebuild.** Iceberg skip remains honest on the certificate.
+  - **Shipped.** Spec: [purge workflow](superpowers/specs/2026-08-12-purge-workflow-design.md). Code: `PurgeWorkflow`, certificates, `guest.erased` consumer. **Do not rebuild.** Iceberg skip remains honest on the certificate.
 
 - [x] **R3.8 ARI KV + staleness SLA + reject-on-commit**
-  - **Shipped.** Spec: [ARI KV projection](../superpowers/specs/2026-07-29-ari-kv-projection-design.md). Binding `ARI_KV`; book uses `quoteAriVersion`. **Do not rebuild.** R4.2 is the public-engine consumer.
+  - **Shipped.** Spec: [ARI KV projection](superpowers/specs/2026-07-29-ari-kv-projection-design.md). Binding `ARI_KV`; book uses `quoteAriVersion`. **Do not rebuild.** R4.2 is the public-engine consumer.
 
 - [ ] **R3.9 Degraded SPA watermarks (gap-fill only)**
   - `StaleWatermark` + exception workbench already ship. Walk remaining screens: every `READ_STALE` / `QUEUE_PROVISIONAL` / `FAIL_CLOSED` path the clerk can hit shows a watermark or Alert. Do not add a second banner system.

@@ -1035,24 +1035,81 @@ class ChannelService extends WorkerEntrypoint<Env> {
 | `soft` | Emails, API calls | Analytics Engine → billing rollup |
 | `grace` | Unit count after expansion | Allow overage + notify; never block a booking |
 
-### 6.7 Package composition example
+### 6.7 Package composition
 
-| Feature key | Starter | Growth | Enterprise | Add-on |
+Three tiers, named for the three segments the product sells to: single independents, single
+full-service properties, and groups of three to ten. **There is deliberately no Enterprise
+tier.** Estates above ten properties are out of scope — the ceiling is enforced by
+`pms.properties.limit` below rather than left to memory. If that ceiling ever moves it becomes
+a fourth tier with its own compliance surface, never a stretched Group.
+
+| Feature key | Starter | Growth | Group | Add-on |
 |---|---|---|---|---|
 | `pms.core` | ✅ | ✅ | ✅ | — |
-| `pms.units.limit` | 20 | 100 | ∞ | — |
-| `pms.housekeeping` | — | ✅ | ✅ | ✅ |
+| `pms.properties.limit` | 1 | 1 | 10 | +1 each |
+| `pms.units.limit` | 40 | 400 | ∞ | — |
 | `pms.multi_property` | — | — | ✅ | — |
-| `channel_manager.enabled` | — | ✅ | ✅ | ✅ |
-| `channel_manager.connections.limit` | — | 5 | ∞ | +1 each |
-| `revenue_mgmt.enabled` | — | — | ✅ | ✅ |
+| `pms.housekeeping` | ✅ | ✅ | ✅ | — |
+| `payments.enabled` | **required** | ✅ | ✅ | — |
 | `booking_engine.enabled` | ✅ | ✅ | ✅ | — |
 | `booking_engine.custom_domain` | — | ✅ | ✅ | ✅ |
+| `channel_manager.enabled` | ✅ | ✅ | ✅ | — |
+| `channel_manager.connections.limit` | 3 | 15 | ∞ | +1 each |
+| `agentic_distribution.enabled` | ✅ | ✅ | ✅ | — |
+| `revenue_mgmt.enabled` | — | — | — | ✅ |
+| `ai_ops.enabled` | — | — | — | ✅ |
+| `ai_ops.messages.limit` | — | — | — | metered (`soft`) |
+| `mcp.enabled` | ✅ | ✅ | ✅ | — |
+| `mcp.clients.limit` | 1 | 5 | ∞ | +1 each |
 | `pos.enabled` | — | — | — | ✅ |
 | `api.public_access` | — | ✅ | ✅ | — |
 | `sso.saml` | — | — | ✅ | ✅ |
-| `compliance.fiscalization` | — | — | ✅ | ✅ |
+| `compliance.fiscalization` | ✅ | ✅ | ✅ | — |
 
+Eight of these rows are load-bearing commercial decisions rather than defaults, and each one
+was wrong in the previous draft of this table in a way that priced the target customer out of
+the product they were being sold.
+
+- **`pms.properties.limit` turns the ceiling into a product boundary.** `1 / 1 / 10`, with a
+  `+1 each` add-on. A group that grows to twelve gets a path that does not require a tier we
+  have decided not to build, and the entitlement plane — not a salesperson — decides when a
+  tenant has left the segment.
+- **`pms.multi_property` belongs to Group.** It is the defining capability of the segment that
+  carries the largest share of the book. Gating it above that segment prices the core customer
+  out of the core feature.
+- **`pms.units.limit` must clear a full-service property.** Growth at 400 rooms. The previous
+  cap of 100 ran through the middle of the single-property upscale segment and forced a
+  150-room hotel into a tier meant for estates.
+- **`channel_manager.enabled` starts at Starter.** An independent that cannot reach an OTA has
+  no product. Tier on `connections.limit` (`3 / 15 / ∞`), never by switching distribution off.
+- **`payments.enabled` is required on Starter, not optional.** Starter is priced near zero on
+  the assumption that the rails earn. A Starter tenant not enrolled in payments is a tenant we
+  pay to host, so enrolment is a condition of the tier and enforced as one.
+- **`revenue_mgmt.enabled` is an add-on on every tier.** It is the only module whose outcome
+  the operator can verify without us, which makes it the natural upgrade at every size — and a
+  poor reason to buy a tier they otherwise do not need.
+- **`agentic_distribution.enabled` ships on every tier and is never sold separately.** Its
+  value is coverage: an AI intermediary integrates with a platform whose entire inventory is
+  addressable, not with a paywalled subset. Charging for it optimises a small line and
+  forfeits the channel.
+- **`ai_ops.*` is the *in-product* agent; `mcp.*` is the external one.** Two different trust
+  boundaries with two different keys (§10.2). `ai_ops` is metered because we pay for the
+  inference; `mcp` is capped because each connected client is a standing capability against
+  tenant data.
+- **`mcp.*` ships on every tier under a `hard` connection cap.** Same coverage logic as agentic
+  distribution: an operator whose own assistant is wired into the PMS does not go shopping for
+  another PMS. Whether those agents may *write* is configuration, not entitlement, and defaults
+  closed (§10.2).
+- **`compliance.fiscalization` is not premium.** In a fiscal launch market (§7.9) an
+  independent cannot legally operate without it. Gating it at the top excludes the launch
+  segment from the launch country.
+
+**Relationship to the closed union.** `@hospai/contracts` currently exports a two-key
+`FEATURE_KEYS` union (`pms.core`, `pms.units.limit`) and `check:entitlements` holds the D1 seed
+to it. This table is the **authorised target**, not the shipped catalog: each key above may
+join the union as its module lands, and doing so is a catalog change plus a module, never a
+schema migration (§6.1). A key that is *not* in this table remains subject to the escalation
+rule in `docs/roadmap.md` — stop and ask. Landing the rows above is roadmap slice **R3.10**.
 ---
 
 ## 7. PMS domain — the parts that are genuinely hard
@@ -1520,19 +1577,53 @@ dashboard and unacceptable for a check-in decision.
 
 ### 7.9 Regulatory — the hidden second product
 
-None of this changes the architecture — each is an add-on module gated on
-`compliance.*` entitlements, exactly as designed. It does change the roadmap, and it is
-absent from most PMS build plans until a deal depends on it.
+None of this changes the architecture — each is an add-on module gated on `compliance.*`
+entitlements, exactly as designed. It does change the roadmap, and it is absent from most PMS
+build plans until a deal depends on it.
 
-| Obligation | Where | Note |
-|---|---|---|
-| **Fiscalization / e-invoicing** | IT, PT, ES (TicketBAI/Verifactu), GR (myDATA), PL, DE (KassenSichV) | Certified, audited, per-country. Effectively a second product. |
-| **Guest registration reporting** | ES (SES Hospedajes), IT (Alloggiati), PT (SEF) | Legally mandatory, per-country, per-property credentials. |
-| **Tourist/city tax** | Most EU municipalities | Rules vary *below* national level. Belongs to the tax engine interface (§7.3). |
+**Launch markets: Canada, India, Australia.** They span the whole difficulty range, and more
+usefully they exercise three *different* structural features of a tax engine. Building for the
+union of the three is only slightly more work than building for Canada alone, and far less work
+than retrofitting India afterwards.
 
-Sequencing consequence: **EU market entry requires at least one fiscalization implementation.**
-Pick the launch country before Phase 1 ends, because it constrains the folio and tax model.
+| Obligation | Canada | Australia | India |
+|---|---|---|---|
+| **Rate structure** | Federal GST/HST **+** provincial (PST / QST, and HST-harmonised provinces differ in kind) **+** municipal accommodation tax | Single federal GST, one rate | GST **slab keyed to the nightly tariff**; splits `CGST` + `SGST` intra-state, `IGST` inter-state |
+| **Display** | Tax-exclusive | **Tax-inclusive is mandatory** in displayed prices | Components itemised on the invoice |
+| **Fiscalization** | None | None (Peppol e-invoicing is voluntary) | **e-invoicing: IRN + QR from the government portal above the turnover threshold** |
+| **Guest registration** | None | None | **Form C** for foreign nationals |
+| **Guest tax id on invoice** | — | ABN for B2B | **GSTIN** — required for the guest's input credit |
 
+> Rates, slab boundaries and turnover thresholds move. Verify current values with a local
+> advisor before implementing; the table records *shape*, which is what constrains the model.
+
+**What the tax model must carry from Phase 1**, whichever country ships first:
+
+1. **A jurisdiction stack per property** — country → state/province → municipality — not a
+   country enum. Canadian accommodation taxes are set below the province.
+2. **Rate resolution is a function**, `f(jurisdiction, date, taxable base, product class)`, not
+   a stored percentage. India's slab makes the rate depend on the amount being taxed.
+3. **Computed inside the PropertyDO transaction that sets the rate** (§5.1). A slab rate read
+   from config outside that transaction reintroduces exactly the race this architecture exists
+   to prevent — and a discount or an upgrade can move a stay across a slab boundary.
+4. **Per night, at posting.** Room-charge tax is computed for each night at that night's rate,
+   never once for the stay.
+5. **One levy may split into components.** `CGST` + `SGST` is a single taxable event reported as
+   two lines, not two taxes; the folio must foot either way.
+6. **Inclusive versus exclusive is a jurisdiction property, not a display preference.** Australia
+   requires inclusive pricing in the booking engine *and* on the folio.
+7. **A fiscal-document hook on the invoice engine** — null for Canada and Australia, carrying
+   IRN and QR for India. Adding it later means reissuing invoices.
+
+**Recommended answer to R3.6: name Australia**, and design the engine to the India shape.
+Australia is the only one of the three that is legally shippable on a single flat rate, it
+forces the inclusive-pricing axis early (painful to retrofit into the booking engine and the
+folio), and it unblocks the Phase 1 folio constraint now. Canada then arrives as jurisdiction
+*configuration* on requirement 1, and India as a `compliance.*` module on requirement 7.
+
+Note that **R3.6 is an architecture decision — which tax shape constrains the folio — and it
+does not have to match the commercial launch order.** Naming Australia here does not commit
+sales to Australia first.
 ---
 
 ## 8. Events, scheduling, and workflows
@@ -1649,6 +1740,50 @@ WebSocket — a plan upgrade lights up the UI without a reload.
 The shell also owns **degraded mode** (§4.6): a stale-data watermark, a queued-mutation
 indicator, and hard refusal of inventory-consuming actions when the PropertyDO is unreachable.
 
+
+### 9.1 The second client — housekeeping and communication
+
+`web-pms` is not the only client. **Housekeeping and communication ship as a separate mobile
+app**; the operator SPA stays desktop-only and the viewport lock in §13 is permanent rather than
+deferred. The split is right — a tape chart and a folio are dense grid surfaces, and a corridor
+is not where anyone posts a charge — but a second client changes four things a single
+first-party SPA let us ignore.
+
+**1. The client and the Worker stop deploying together.** This is the one that costs most if
+missed. `web-pms` ships with `pms-core`; an installed mobile client runs whatever version its
+user last accepted, for months. So either the internal `/v1` surface takes on the
+backwards-compatibility discipline §10 reserves for the *public* API — additive change only, no
+field repurposed, no route retired without a deprecation window — **or** the app carries a
+minimum-supported-version handshake and refuses to run below it. Pick one before the first
+release; retrofitting either onto a shipped app costs a release cycle nobody can be forced to
+take. (A PWA sidesteps this entirely by updating with the Worker.)
+
+**2. Offline becomes a client concern, not only a server one.** Degraded mode (§4.6) covers
+PropertyDO unreachability. A housekeeper in a basement is a different failure: the network is
+gone at the device. Status changes queue locally and replay on reconnect, and they must reuse
+**the existing command idempotency keys** rather than inventing a second replay path. Two
+attendants marking the same room is routine, not hypothetical — last-write-wins is acceptable on
+a room status and unacceptable on anything touching money, which is one more reason money stays
+off this client.
+
+**3. Push is the first outbound channel to a person.** Device tokens are per-user records that
+purge with the user (§4.8) and revoke with the device. **Push payloads must not carry guest
+PII** — a lock screen is a public surface, and *"Message from A. Okafor in 214"* leaks a name and
+a room number to anyone glancing at a pooled handset. Send an identifier; let the app fetch the
+content behind auth.
+
+**4. A lost device is a standing credential.** Housekeeping hardware is shared, pooled and
+mislaid far more often than a front-desk terminal. Sessions on this client are short,
+device-bound and independently revocable. Note the interaction with §6.3: the entitlement
+version rides the session token, so a long-lived mobile token widens the revocation window the
+entitlement design works to keep narrow. Do not extend token TTL to save a login prompt.
+
+Whether this client reaches *guest* conversations or only staff ones decides whether guest PII is
+cached on a pooled device at all — scoped in roadmap **R4.10**.
+
+**Shared contract, separate build.** The mobile client consumes `@hospai/contracts` and
+`@hospai/client-core` like any other caller, so route and payload types cannot drift. It does not
+import from `web-pms`, and `web-pms` does not import from it.
 ---
 
 ## 10. Public API and marketplace
@@ -1731,6 +1866,52 @@ per-tenant bindings computed at load time and may be a lighter path to the same 
 Either way: ship OAuth + public API first. This is the moat, not the MVP.
 
 ---
+
+### 10.2 Agent surfaces — two trust boundaries, never one
+
+Three different callers want to drive this platform with a model, and they do not share an
+authorisation story. Collapsing them onto one surface is the mistake to avoid.
+
+| Surface | Principal | Trust | Reach |
+|---|---|---|---|
+| **In-product agent** (`ai_ops.*`) | The tenant's operator; we run the model | Full — our code, our prompts | Whatever the acting role may do |
+| **MCP server** (`mcp.*`) | A third-party AI client the operator authorised — their assistant, a partner's | Delegated, scoped **narrower** than the user | Consented scopes only |
+| **Public distribution** (`agentic_distribution.*`) | A traveller's assistant. A stranger. | None | Public ARI + create-booking-with-payment |
+
+Both *agent* surfaces call `COMMAND_CATALOG`. Neither reaches a Durable Object directly.
+
+1. **Tools are catalog entries, not endpoints.** An MCP tool maps 1:1 to a command that already
+   exists. That is what makes the three gates of §1 apply without a second implementation —
+   entitlement, permission and release flag are checked on the command path, and the audit
+   write on money/inventory mutations already happens. A tool that needs a new capability
+   needs a new *command* first.
+2. **The grant is narrower than the user.** §10 already installs OAuth2 apps per property with
+   granular scopes. An MCP session resolves to `(org, property, principal, granted scopes)` and
+   the effective permission is the **intersection** of the user's role and the grant. A general
+   manager connecting an assistant must not thereby hand it everything a general manager can do.
+3. **External writes default closed, and are configuration rather than entitlement.** Whether
+   outside agents may mutate is *how this hotel wants it to work* — the fourth plane in §1. It
+   lives in the config register, per scope, closed until opened. `mcp.enabled` says the tenant
+   bought the surface; the register says what it may touch.
+4. **Attribution is per client.** The `agent` actor kind is not sufficient here: the audit row
+   must carry the **OAuth client id** alongside the delegating user, or *who cancelled this
+   reservation* has no answer once three assistants are connected.
+5. **Revocation is a safety state, not a commercial one.** §6.4 already establishes that
+   anything requiring a token refresh to land is not a kill-switch. Cutting off a misbehaving
+   agent is exactly that case: it must **not** ride the version-keyed entitlement snapshot and
+   must not wait out the session token TTL. Revoke at the grant and at the kill-switch, both
+   effective immediately.
+6. **Guest-supplied text is data, never instruction.** An agent reading the guest inbox is
+   reading text written by strangers, while holding the operator's authority. No command may be
+   derived from guest-supplied content without an explicit human confirmation step — otherwise a
+   sentence in a booking note becomes a way to drive the hotel's own assistant against the
+   hotel. Put the confirmation requirement on the **command**, not in the prompt.
+7. **Connections are a `hard` limit.** `mcp.clients.limit` at the OrgEntitlementDO counter,
+   exactly like OTA connections (§6.6). Never a soft meter — each connected client is a
+   standing capability against tenant data.
+8. **PII scopes separately.** Guest-profile reads are their own scope, audited per read and
+   excluded from any default grant. Right-to-erasure (§4.8) cannot recall what an agent has
+   already retrieved, so the consent screen and the DPA have to say so.
 
 ## 11. Repository layout
 
@@ -2136,7 +2317,7 @@ to a rule already stated in this document.
 
 Visual divergence from the prototype is no longer expected: controls, tables, and panels share one system. Interaction design remains specification (§16.3); appearance is now platform-owned via tokens + ui-kit, not per-screen CSS.
 
-**Viewport (2026-08-16, Audit Phase H).** Operator SPA targets **desktop terminals** (≥1280px effective width): fixed 16rem sidebar, no collapse, no width breakpoints. **Tablet support is deferred** — the housekeeping board (attendants in corridors) is the most likely surface to force a revisit; track as an unscheduled Phase 2+ UX decision.
+**Viewport (2026-08-16, Audit Phase H).** Operator SPA targets **desktop terminals** (≥1280px effective width): fixed 16rem sidebar, no collapse, no width breakpoints. **Tablet and phone support is permanently out of scope for this SPA** (decided 2026-09-12) — housekeeping and communication ship as a **separate mobile client** (§9.1), which is where the corridor surfaces live. Do not add width breakpoints to `web-pms` to serve them.
 
 Enforcement: `hospai/no-raw-controls-in-web-pms` (error), `check:ui-kit-adoption` ratchet (floor 0), dev-only `/dev/ui` gallery outside `AppShell`. Storybook deferred.
 

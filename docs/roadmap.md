@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
+**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Sequencing pass: **R4.5** opens Track 4 (R4.3 depends on it); **R1.4** follows **R1.5** and **R1.6**; **R4.8** Stage B moved into **R5.7**; **R5.8** back in numeric order; **R3.6** and **R3.10** added to the Track 4 gate; **R1.5** tax group locked to a §7.9 product class; card-capture references point at **R4.7**. Stage resequencing: Track 4 is the **Canada launch** (R4.5, R4.7, R5.2, R4.2, R4.3, R4.12, R4.10, R4.8, R5.6), Track 5 **upscale properties and groups**, new Track 6 **India and later bets** with **R6.1** (WhatsApp); resolves the **R4.2** email fork and the **R5.7** sequencing flag. Moves `held` behaviour out of R5.5 into new **R5.13** after R5.7, since group central reservations need TTL holds before India. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
 
 ---
 
@@ -33,7 +33,8 @@
 **Do not** ask “should I continue?” between slices.
 **Do not** start Track 1 while **R0.1–R0.6** are open.
 **Do not** start Track 2 while **R0.11** is open (kit/chrome). Other Track 0 items may still be in flight.
-**Do not** start Track 4 (Phase 2 add-ons) while **Tracks 0–2** still have open Phase-1 boxes. R3.2–R3.5 leftovers may remain; **R3.1** must be done. **ARI_KV already ships** — R4.2 consumes it.
+**Do not** start Track 4 (Canada launch) while **Tracks 0–2** still have open Phase-1 boxes. R3.2–R3.5 leftovers may remain; **R3.1**, **R3.6** (tax model) and **R3.10** (entitlement catalog) must be done — Track 4 posts money, computes tax and reads feature keys that do not exist without them. **ARI_KV already ships** — R4.2 consumes it.
+**Do not** start Track 5 while Track 4 has open boxes, or Track 6 while Track 5 does. Slice IDs are stable labels, not positions — some R5.x slices live in Track 4 because the launch needs them.
 
 ### Slice template (when you write a spec/plan)
 
@@ -60,7 +61,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 ### Looks the same
 
 - **Same information architecture** as the prototype sidebar: Dashboard Hub, Room Plan, Front Desk, Reservations (**list + stay card**), New Booking, Housekeeping, Guests, Rates, Folio directory, Night Audit, Settings — plus the quiet ops items we already have (Inventory, Staff, Roster, Exceptions, City ledger, Shift).
-- **Same clerk flows:** tape click → stay; walk-in / Open Reservation; book → quote $ → Inquiry/Hold(`PENDING`)/Confirm; stay card modify/cancel/no-show; in-house room move; check-in by room **code**; folio as a bill; HK dirty→clean; night audit as a job; shift open/close. Confirmation email is **Phase 3** (Whistle / R5.2), not Phase 1.
+- **Same clerk flows:** tape click → stay; walk-in / Open Reservation; book → quote $ → Inquiry/Hold(`PENDING`)/Confirm; stay card modify/cancel/no-show; in-house room move; check-in by room **code**; folio as a bill; HK dirty→clean; night audit as a job; shift open/close. Confirmation email is **R5.2** in Track 4 (Canada launch), not Phase 1.
 - **Chrome:** existing P0-3 tokens (sage `#4A5D4E`, cream, IBM Plex). `PageHeader` + `Card`. One `<h1>`. Live `property.name`.
 - **Not:** Tailwind v4, `lucide-react`, `recharts` as a product, pixel-identical CSS, prototype booking-engine “LIVE DIRECT BOOKING INTERFACE SIMULATION” chrome, role impersonation, Opera fake sync, competitor scrape.
 
@@ -70,7 +71,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 - **Stub UI is still in scope.** If a clerk would click it in a hotel, implement it for real even when the prototype only `alert()`s, uses React state, or is half-broken. Do not skip a surface because the prototype is fake. Rebuild against live APIs (integers, ledger, OrgDO PII). **This covers only surfaces §16.5 or §16.6 place in scope.** A hub §16.6 classifies *Integrate* or *Avoid* — Payroll & HR, Purchase, stores Inventory, F&B costing, full restaurant POS, Spa, Transport, Hostel, sales-pipeline CRM — is not built at any fidelity: not a stub, not a screen.
 - Settings keys the SPA shows are **read** by pms-core (or hidden).
 - City-ledger AR actually posts (audit L1). Board updates after check-in without waiting on WebSocket (audit U1).
-- Prototype **Phase 2/3** surfaces (channel manager, booking engine, groups, Whistle, yield engine, marketplace, POS) stay on Track 4–5. When those slices run they must be real modules — not a nicer `alert('synced')`. They are not Phase 1.
+- Prototype **Phase 2/3** surfaces (channel manager, booking engine, groups, Whistle, yield engine, marketplace, POS) stay on Tracks 4–6. When those slices run they must be real modules — not a nicer `alert('synced')`. They are not Phase 1.
 - **Specs win over a blank-page rebuild.** If `docs/superpowers/specs/*` already designed the command, HTTP, and leftover list, implement that spec (or the named leftover). Do not invent a second product.
 
 ### Architecture / spec compliance (do not violate)
@@ -80,9 +81,9 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 | 7-day occupancy Recharts on Dashboard | **Warehouse** (§7.8). Phase 1 Dashboard is **today’s** OLTP (`get_front_desk_summary`). |
 | Guest LTV / merge / passport / ID files | Guest CRM spec deferred. LTV trends = warehouse. Stay history already ships. |
 | Additional named guests as extra `guest_ref`s | Holes sweep: party = `adults`/`children` only. No second profiles. |
-| Inventory `held` / wizard “hold a room without selling” | `held` unused until Phase 3 (§7.1). Live **Hold** = `PENDING` (`sold++`), via `reservations.hold` / create-as-pending. |
+| Inventory `held` / wizard “hold a room without selling” | `held` unused until **R5.13** (Track 5, §7.1). Live **Hold** = `PENDING` (`sold++`), via `reservations.hold` / create-as-pending. |
 | CHECK / VOUCHER / GIFT tenders | Cashiering spec settled `CARD` \| `CASH` only. Do not widen the CHECK. |
-| Transactional email in Phase 1 | Guest engagement is Phase 3 (§14). **R5.2**, not Track 1. |
+| Transactional email in Phase 1 | Guest engagement is **R5.2** in Track 4 (Canada launch), not Track 1. |
 | Valet / coffee tickets inside HK | §16.1 **maintenance module** = work orders. Concierge tickets = Whistle **tasks** (R5.2). OOO emits `room.ooo_changed`; tickets subscribe (HK leftover 5). |
 | HK reports tab | Not in §16.1. Workload counts already on the HK board. |
 | Products as a Settings tab stuffed into PropertyDO | §11 **`products` module**. Charge-code registry stays the posting reference. |
@@ -101,14 +102,14 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 | Guest embedded on reservation | `guest_ref` + OrgDO vault |
 | Inquiry → confirmed | `INQUIRY` → `PENDING` → `CONFIRMED` |
 | Assign-before-check-in as waiting | Pre-assign allowed; check-in needs a room (or auto-assign) |
-| Staff blocks as $0 reservations | `held` unused until Phase 3 |
+| Staff blocks as $0 reservations | `held` unused until **R5.13** (Track 5) |
 | Prototype config keys (`EXPECTED_PROTOTYPE_KEYS` **97** — not the catalog length 89) | Classified config register |
 | DND as `room.status` | Stay flag `dnd_flag` only |
 | HK budgeting / metrics / mobile | Dropped from Phase 1 (holes sweep). Workload counts on the HK **board** already ship. No Reports tab. |
 | HK **inventory** (linens/stock) and **manager priorities** | **KEEP** — §16.1 core HK; not in the drop list |
 | Settings **Tickets** (valet SLA, inspections, escalations) | **Maintenance module** (R1.9) for property work orders. Concierge tickets + SLA email = Whistle **R5.2**. |
 | Keyless / door-lock | Dropped |
-| Room-type photos | Deferred (booking engine Phase 2) |
+| Room-type photos | Deferred (booking engine **R4.2**, Track 4) |
 | Recurring breakfast/parking engine | Deferred (named leftover) |
 | Plan-scoped restrictions | Type-wide `*` until channel-manager phase |
 | Rate-plan inclusions JSON | Deferred with recurring |
@@ -164,7 +165,7 @@ Cross-checked against live SPA/routes, ARCHITECTURE.md §7.1/§7.8/§11/§14/§1
 | Degraded watermarks | `StaleWatermark` shipped. R3.9 gap-fill. |
 | Outbox consumers + Queue workers | **R4.5**, before or with **R4.3**. |
 | Usage billing, partner sandbox, §7.6 projections | **R5.6–R5.8**. Switcher-only is **R4.4**. |
-| Card-brand matrix / channel routings | Hide until Stripe (**R5.4**) / channels (**R4.3**). Invoice numbering stays **R1.12**. |
+| Card-brand matrix / channel routings | Hide until **R5.4** (card-brand matrix) / **R4.3** (channel routings). Live acquiring is **R4.7**. Invoice numbering stays **R1.12**. |
 
 ---
 
@@ -221,35 +222,35 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Locked:** tape empty-cell → **navigate** to `/book` with dates/type query params (tape spec: no new assign POST on the tape). Available-rooms already has a GET — surface it as a modal or Room Plan action that books. **Open Reservation / walk-in** = `/book` with arrival = property today. Board already shows VIP/DND badges — add **VIP-only filter**. **Post incidental** Dialog → existing `folio.add_item`. Assign-room from **arrivals board** may POST `reservations.assign_room` (not drag-on-tape). Cancel check-in: wire existing HTTP on **R1.15**. Dirty-room: keep cleanliness gate. Tape OOO uses existing ranges.
   - **Out:** “Add 5 arrivals”; PAN pre-auth modal; drag-to-move on the tape.
 
-- [ ] **R1.4 Booking wizard remainder**
-  - **Depends:** R0.11 (hide or wire Booking settings).
-  - **Prototype:** `BookingWizard.tsx`.
-  - **Live:** `BookingScreen.tsx` — adults/children, Inquiry / Hold(`PENDING`) / Confirm, promo, guest equality search, `quoteAriVersion`. Spec: [booking wizard](superpowers/specs/2026-08-11-booking-wizard-design.md).
-  - **Locked:** Do **not** rebuild the wizard. Remainder: FAIL_CLOSED disables Hold/Quote/Confirm; **hide or consume** `same_day_*` / `require_prepayment` (R0.11 / R1.20); booking add-ons = **R1.5 products** posted via `folio.add_item`, not recurring (R3.2); source/segment optional fields from **R1.6**. Special requests = existing front-office comment, not a new column. **Hold is `PENDING` / `reservations.hold` — it increments `sold`. Do not use `held`.**
-  - **Tests:** occupancy exceeded on submit; FAIL_CLOSED disables Hold/Quote/Confirm. Do not re-test adults/promo/search as if they were new.
-
 ### R1 — Inventory / rates / products
 
 - [ ] **R1.5 Products catalog (not only charge codes)**
   - **Depends:** none after R0.1.
   - **Prototype:** `ProductsSettings.tsx` (categories, SKU items, add-ons, tax code).
   - **Live:** Settings → Charges (`charge_code` rows).
-  - **Locked:** new **`modules/pms/products`** module (§11), not a Settings-only dump into PropertyDO. Category + item + default `amountMinor` + `chargeCode` + tax group. Folio “post charge” picker uses **products** for incidentals; system codes stay hidden. Charge-code registry spec remains the posting reference. **No** stock/reorder engine.
+  - **Locked:** new **`modules/pms/products`** module (§11), not a Settings-only dump into PropertyDO. Category + item + default `amountMinor` + `chargeCode` + tax group. Folio “post charge” picker uses **products** for incidentals; system codes stay hidden. Charge-code registry spec remains the posting reference. **No** stock/reorder engine. `tax group` is the §7.9 **product class** key — never a stored rate or percentage; the rate resolves through the **R3.6** tax model, so Ontario and British Columbia can tax the same product differently.
   - **Pins:** new commands/routes + schema version + `src/module.manifest.ts` in the same commit.
-  - **Out:** POS, channel-only pricing (Phase 2).
+  - **Out:** POS (**R5.4**), channel-only pricing (**R4.3**).
 
 - [ ] **R1.6 Amenities / sources / market segments / policies (Settings Property subtabs)**
   - **Depends:** R0.11.
   - **Prototype:** `Settings.tsx` Property subtabs `amenities`, `sources`, `policies`, `market_segments`, `split_inventory`, `spaces`.
   - **Live:** Settings property + Inventory rooms/types.
-  - **Locked:** Amenities on room types if inventory already has a field — expose in Inventory SPA. Sources + market segments as OPERATIONAL lists used on create-reservation (optional fields). Policies = the Booking keys **once wired** (R1.4). **Spaces** (meeting rooms) and **split inventory** (group allotment UI) → Track 4 / Phase 2; **hide** the tabs until then.
+  - **Locked:** Amenities on room types if inventory already has a field — expose in Inventory SPA. Sources + market segments as OPERATIONAL lists used on create-reservation (optional fields). Policies = the Booking keys **once wired** by **R1.4**, which now follows this slice — ship the tab hidden and let R1.4 reveal it. **Spaces** (meeting rooms) and **split inventory** (group allotment UI) → Track 4 / Phase 2; **hide** the tabs until then.
   - **Out:** hardcoded Spaces cards from prototype.
+
+- [ ] **R1.4 Booking wizard remainder**
+  - **Depends:** R0.11 (hide or wire Booking settings), **R1.5** (booking add-ons are products), **R1.6** (sources and market segments) — sequenced after both for that reason.
+  - **Prototype:** `BookingWizard.tsx`.
+  - **Live:** `BookingScreen.tsx` — adults/children, Inquiry / Hold(`PENDING`) / Confirm, promo, guest equality search, `quoteAriVersion`. Spec: [booking wizard](superpowers/specs/2026-08-11-booking-wizard-design.md).
+  - **Locked:** Do **not** rebuild the wizard. Remainder: FAIL_CLOSED disables Hold/Quote/Confirm; **hide or consume** `same_day_*` / `require_prepayment` (R0.11 / R1.20); booking add-ons = **R1.5 products** posted via `folio.add_item`, not recurring (R3.2); source/segment optional fields from **R1.6**. Special requests = existing front-office comment, not a new column. **Hold is `PENDING` / `reservations.hold` — it increments `sold`. Do not use `held`.**
+  - **Tests:** occupancy exceeded on submit; FAIL_CLOSED disables Hold/Quote/Confirm. Do not re-test adults/promo/search as if they were new.
 
 - [ ] **R1.7 Rates tabs the prototype shows that we skip**
   - **Depends:** R0.11 (I1 RateCell).
   - **Prototype:** `RatesAvailability.tsx` tabs: matrix, dynamic, derived, forecasting, ancillary, channels.
   - **Live:** plans (derived exists), matrix, restrictions.
-  - **Locked:** **Derived** stays on Plans (already). **Ancillary** = products (R1.5) — link, do not duplicate. **Dynamic / forecasting / channels** = Phase 3 / 2 — do not build occupancy-pricing or OTA rate push here. Remove or never add those tabs until Track 4–5.
+  - **Locked:** **Derived** stays on Plans (already). **Ancillary** = products (R1.5) — link, do not duplicate. **Dynamic / forecasting** = **R5.1** (Track 5) and **channels** = **R4.3** (Track 4) — do not build occupancy-pricing or OTA rate push here. Remove or never add those tabs until those slices run.
   - **This slice:** matrix looks like a grid of numbers; restrictions type-wide only; document the missing tabs as “Channel / Yield — later” in page subtitle, not fake UI. **Bulk update** must accept a date range **and** day-of-week filter (§16.1); live already posts `rates.bulk_update` — add the DOW UI, do not uncap the array (R0.8). **Modifiers** on a plan (percent/amount, not only derived bps) if the domain already has them — expose on Plans; do not invent a second derivation graph.
 
 ### R1 — Guests, HK, night audit, settings ops
@@ -286,7 +287,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Depends:** R0.3.
   - **Prototype:** `FinanceSettings.tsx` / `FinanceModals.tsx` (gateways, terminals, AVS, invoice numbering).
   - **Live:** tax rules + charge codes; invoice engine exists.
-  - **Locked:** Invoice numbering/templates **configuration** on the existing engine (if not already in Settings). Gateway/terminal/AVS: **sandbox-only** copy + existing simulate path; no live Stripe in Phase 1 (Phase 3). **Card-brand matrix** and **channel routings** = hide until R5.4 / R4.3. City ledger is `/city-ledger`, link from Finance. Folio **routing rules** already live under Settings charges — link, do not rebuild. Do not store secrets in the config register.
+  - **Locked:** Invoice numbering/templates **configuration** on the existing engine (if not already in Settings). Gateway/terminal/AVS: **sandbox-only** copy + existing simulate path; no live gateway in Phase 1 — the first real acquirer is **R4.7**. **Card-brand matrix** and **channel routings** = hide until R5.4 / R4.3. City ledger is `/city-ledger`, link from Finance. Folio **routing rules** already live under Settings charges — link, do not rebuild. Do not store secrets in the config register.
 
 - **R1.13** — unused number, not a lost slice. Stay workspace is **R1.15**. Do not invent work under this id.
 
@@ -331,7 +332,8 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Tests:** old room free, new room occupied; dirty/OOO/occupied target rejected.
 
 - [ ] **R1.20 Guarantee + check-in auth workflow (no PAN)**
-  - **Depends:** R1.4. Real card capture is R5.4.
+  - **Depends:** R1.4.
+  - **Later, not a dependency:** real card capture is **R4.7** (first acquirer); terminals and further gateways are **R5.4**. This slice uses the simulate path only.
   - **Prototype:** Booking wizard step “Billing & Guarantee”; Front Desk pre-auth modal with card number/CVV.
   - **Locked:** Do **not** add `guaranteeMethod` if the folio payment already records the guarantee. Consume `pms.booking.require_prepayment` inside confirm/check-in (hide the toggle until then — R0.11). Card path = existing **simulate** authorize ([payments simulate](superpowers/specs/2026-08-06-payments-ledger-simulate-design.md), [card last4](superpowers/specs/2026-08-14-card-last4-brand-design.md)). Check-in shows last4/brand if present — never PAN/CVV. Cash / pay-at-hotel = no authorize required unless the config is on.
   - **Out:** PAN/expiry/CVV; `held` inventory; a second payments Worker.
@@ -394,7 +396,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
   - **Locked:** build the eight requirements in §7.9 — jurisdiction *stack* (not a country enum), rate as a **function** of `(jurisdiction, date, taxable base, product class)`, computed **inside the PropertyDO transaction** (§5.1) and **per night at posting**, a levy that can **split into components**, inclusive-vs-exclusive as a **jurisdiction property**, a nullable **fiscal-document hook** on the invoice engine, and **ordered levies** where one can sit inside another's base. India still sets the shape: its slab rate is why 2–4 are not optional.
   - **Locked:** record tax jurisdiction **per property, not per org** — a small group can span both provinces.
   - **Locked:** Canada is tax-exclusive, so keep a **tax-inclusive jurisdiction fixture** in the engine's tests; nothing in the launch market exercises requirement 6 otherwise.
-  - **Scope out:** Quebec and every other province (see Blocked); Australia and India as live jurisdictions. Fiscalization / `held` remain **R5.5**.
+  - **Scope out:** Quebec and every other province (see Blocked); Australia and India as live jurisdictions. Fiscalization remains **R5.5**; `held` behaviour is **R5.13**.
 
 - [x] **R3.7 Cross-store purge Workflow**
   - **Shipped.** Spec: [purge workflow](superpowers/specs/2026-08-12-purge-workflow-design.md). Code: `PurgeWorkflow`, certificates, `guest.erased` consumer. **Do not rebuild.** Iceberg skip remains honest on the certificate.
@@ -414,68 +416,33 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 ---
 
-## Track 4 — Phase 2 add-ons (prototype Distribution / Booking Engine / Groups)
+## Track 4 — Canada launch (Ontario and British Columbia)
 
-Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may remain). **R3.1** must be `[x]`. ARI KV is already `[x]` (**R3.8**). Each add-on is a **gated module** (`ARCHITECTURE.md` §14 Phase 2). Core never imports add-ons. **R3.10** (entitlement catalog) must be `[x]` before any add-on here ships gated — the keys below do not exist until it lands.
+Everything an independent in Ontario or British Columbia needs to switch and run: money that moves, guest messaging, direct and OTA distribution, books that reconcile, the housekeeping app, a switch path and a way to sign up and pay.
 
-- [ ] **R4.1 Group blocks / allotments**
-  - **Prototype:** Settings split inventory + group as reservation flag.
-  - **Locked:** own aggregate, not a reservation flag (§7.4). New module + entitlement.
-
-- [ ] **R4.2 Booking engine (direct book + preview)**
-  - **Prototype:** `BookingEnginePreview.tsx`, `BookingEngineSettings.tsx`, `OnboardingDashboard.tsx` (first-hotel wizard — may ship as ops, not the public engine).
-  - **Locked:** public site Worker + Static Assets; consume existing **ARI_KV** + reject-on-commit; photos from R2 (unlocks deferred type photos). Entitlement is `booking_engine.enabled` per §6.7 (Starter and up) with `booking_engine.custom_domain` above it — from **R3.10**. Do not re-derive the ARI spec.
-  - **Fork — decide before this ships (blocking):** transactional email is **R5.2**, Phase 3. That is defensible while the product is operator-only; it is **not** defensible once a *public* booking engine is live, because a guest books and receives nothing. Shipping R4.2 without a confirmation email is a broken transaction, not a missing feature. Either pull the confirm / cancel / no-show mailer out of **R5.2** into this slice, or hold R4.2 until R5.2 ships. **Do not ship R4.2 with a silent booking path.**
-
-- [ ] **R4.3 Channel manager (2–3 OTAs)**
-  - **Prototype:** `ChannelManager.tsx`, `DistributionSettings.tsx`, Rates `channels` tab.
-  - **Locked:** gated module, outbox consumers, no special cases in PropertyDO. Plan-scoped restrictions **may** land here (ARCHITECTURE lock). Keys are `channel_manager.enabled` (**all tiers**, per §6.7) tiered by `channel_manager.connections.limit` `3 / 15 / ∞` — distribution is never switched off for a Starter tenant. Include the **unmapped-booking exception queue** (a booking whose room or rate code has no mapping never silently drops) and **commission and settlement reconciliation** per channel — both *Core* per §16.6.
-
-- [ ] **R4.4 Multi-property switcher (ops, not projections)**
-  - Prototype header property dropdown. Until §7.6 projections: switch `propertyId` in the SPA from `/me` property list. Isolation is structural (one DO per property) — do not query across properties.
+Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may remain). **R3.1** and **R3.6** (tax model) must be `[x]`. ARI KV is already `[x]` (**R3.8**). **R3.10** (entitlement catalog) must be `[x]` before any gated module here ships — the keys do not exist until it lands. Each gated module follows `ARCHITECTURE.md` §14 Phase 2: core never imports add-ons, and **the first gated module to ship proves the mechanism** — if it needs a special case, fix the mechanism, not the module. Order follows `ARCHITECTURE.md` §16.6 rule 3.
 
 - [ ] **R4.5 Outbox consumers + Queue workers**
   - ARCHITECTURE Phase 2 mechanism proof. **Locked:** required before or with **R4.3**. No special cases inside PropertyDO. Do not start R4.3 if events have no consumer.
 
-- [ ] **R4.6 AI operations layer — in-product agent, command-path foundation**
-  - **Depends on:** **R3.10** (`ai_ops.*` keys), **R4.5** (queues/consumers). This is the natural *second* proof of the module mechanism after the channel manager.
-  - **Locked:** an AI actor is a **first-class caller of `COMMAND_CATALOG`**, never a side door into PropertyDO. Same entitlement resolution, same audit-log write on every money/inventory mutation, same lane rules (§4.2). Add an **`agent` actor kind** to the audit trail so an AI-originated mutation is attributable and reversible; do not borrow a staff `userId`.
-  - **Also locked:** AI writes never run in `INTERACTIVE`. Batch work — rate suggestions, review drafts, campaign sends — goes to `BULK` under the existing chunk cap, so an agent cannot starve the front desk. Metering is `ai_ops.messages.limit` (`soft`, §6.6).
-  - **Scope out:** guest-facing inbox, automations and upsell (**R5.9**); rate setting (**R5.1**); **external** agent access (**R5.11**); model choice and prompt content. **This slice is the mechanism, not the product.**
-  - **Note:** this is the *inboard* surface — our model, our prompts, full trust (§10.2 row 1). It is also the foundation **R5.11** stands on: get the command path and the `agent` actor right here and the external surface becomes a scoping problem rather than a second implementation.
-
 - [ ] **R4.7 Live payment acquiring — one gateway**
-  - **Why it moved:** the commercial model prices Starter at or near zero because the **rails earn** — payments is the majority of small-property revenue and `payments.enabled` is `required` on Starter (§6.7). Today **R1.12** locks *sandbox only, no live gateway before Phase 3* and **R5.4** is where "gateways become real". That puts the revenue engine two phases behind the customers it is meant to fund. One acquirer comes forward; the rest of finance stays in R5.4.
+  - **Why it moved:** the commercial model prices Starter at or near zero because the **rails earn** — payments is the majority of small-property revenue and `payments.enabled` is `required` on Starter (§6.7). **R1.12** previously locked *sandbox only, no live gateway before Phase 3* and **R5.4** is where "gateways become real". That puts the revenue engine two phases behind the customers it is meant to fund. One acquirer comes forward; the rest of finance stays in R5.4.
   - **Depends on:** the §7.3 payments↔folio **event contract** (already specified and shipped on the folio side: multi-currency, authorize / void / capture).
   - **Locked:** a **PCI-isolated `payments` Worker** (§13). It **cannot** write folio rows and the folio **cannot** call the gateway — the seam stays the event bus, idempotent by `(event_id, gateway_reference)`, and money moves on the gateway's word. Tokenised / hosted fields or terminal only: **no PAN, CVV or magstripe ever enters this repo** (standing Blocked rule). Gateway credentials are `SECRET` class and unreadable by `pms-core` (§5.1) — `pms-core` sees `gateway`, `terminal_id` and nothing else.
   - **Scope out:** POS, Stripe *billing* for our own plans (**R5.6**), card-brand matrix and channel routings (**R5.4** / **R4.3**), a second gateway. One acquirer, one country, real money.
 
-- [ ] **R4.8 Migration importers — the switch path**
-  - **Why now:** switching PMS is the largest objection in every deal, and for a multi-property operator the **consolidation demo is the sales conversation** — three legacy exports in, one estate view out. There is currently no slice, no contract and no tooling for it anywhere in this repo.
-  - **Stage A (single property, unblocks self-serve switching):** importers for reservations, guest profiles, rate plans and folio history from the incumbents our target properties actually run. Map onto existing commands — **no bulk write path that bypasses `COMMAND_CATALOG`** — and run in the `BULK` lane (§4.2) under the chunk cap so an import cannot stall a front desk.
-  - **Stage B (group consolidation):** cross-property guest **deduplication** into OrgDO, and a **parallel-run** mode that shadows the incumbent before cutover. Stage B is what **R5.7** projections are sold on; sequence it with them.
-  - **Locked:** import is a product surface with progress, per-record rejection and a re-runnable report — **not** a services engagement and not a script an engineer runs. Idempotent per source record. Every imported money row lands through the folio contract, never inserted.
-  - **Scope out:** competitor-specific screen-scraping; anything that writes a DO directly.
+- [ ] **R5.2 Whistle (guest engagement group)**
+  - **Prototype:** `WhistleHub.tsx` + `whistle/*` (inbox, automations, contacts, tasks, upsell, analytics, profile).
+  - **Locked:** module **group**, entitlement per sub-module. Events by `guest_ref` only. **This slice owns transactional email** (confirm / cancel / no-show templates + real send) plus inbox, automations, scheduled campaigns, concierge **tasks**. `guest_ref` on events; plaintext only on the mailer path from OrgDO. Guest with no email: skip + audit, do not fail the reservation command. **R5.9 layers the AI autoresponder on these surfaces** — build them so a second caller can drive them. Channel order by market (§16.6): **email and SMS first** for the Canada launch, **WhatsApp** with India (**R6.1**).
 
-- [ ] **R4.9 On-property interface framework**
-  - **Why now:** a full-service upscale property runs fifteen to thirty on-property interfaces. Each missing one is a manual process the buyer prices into the deal, and this segment is the entry ticket to groups. **Reverses a Phase-1 scope call:** keyless / door-lock was *dropped* in the holes sweep as prototype-parity work — it returns here as a real interface, which is a different thing.
-  - **Locked:** build the **framework, not N integrations** — a typed adapter contract, outbox-driven, each adapter a gated module with its own entitlement, none of them special-cased inside PropertyDO. Ship the framework plus **one** adapter end-to-end to prove it (door lock is the cleanest first: narrow surface, clear success signal).
-  - **Scope out:** POS (**R5.4**), building N adapters in this slice, any adapter that needs a core change to work — if it does, fix the framework.
+- [ ] **R4.2 Booking engine (direct book + preview)**
+  - **Prototype:** `BookingEnginePreview.tsx`, `BookingEngineSettings.tsx`, `OnboardingDashboard.tsx` (first-hotel wizard — may ship as ops, not the public engine).
+  - **Locked:** public site Worker + Static Assets; consume existing **ARI_KV** + reject-on-commit; photos from R2 (unlocks deferred type photos). Entitlement is `booking_engine.enabled` per §6.7 (Starter and up) with `booking_engine.custom_domain` above it — from **R3.10**. Do not re-derive the ARI spec.
+  - **Email (resolved 2026-09-12):** **R5.2** now precedes this slice in Track 4, so the booking engine ships with confirm / cancel / no-show email. **Do not tick R4.2 before R5.2 is `[x]`** — a public booking path with no confirmation is a broken transaction, not a missing feature.
 
-- [ ] **R4.10 Mobile app — housekeeping and communication**
-  - **Decided (2026-09-12):** housekeeping and communication ship as a **separate mobile app**. The operator SPA stays desktop-only and §Viewport is now a permanent lock rather than a deferred question — see [`ARCHITECTURE.md` §9.1](../ARCHITECTURE.md#91-the-second-client--housekeeping-and-communication). **Do not add width breakpoints to `web-pms`.**
-  - **Fork — scope this before building:** does *communication* mean staff↔staff (assignment, handover, maintenance) or staff↔guest (the **R5.2** Whistle inbox)? Staff-only keeps guest PII off a pooled handset entirely; guest-facing changes the security surface of every line below. **Recommend staff-first, guest inbox as a second release.**
-  - **Locked:** consumes `@hospai/contracts` + `@hospai/client-core` — no forked types, no import from `web-pms` in either direction. The offline queue reuses the **existing command idempotency keys**, not a second replay path. Push payloads carry an identifier, **never guest PII**. Sessions are short, device-bound and independently revocable; do **not** extend token TTL to save a login prompt (§6.3 — the entitlement version rides that token). Device tokens purge with the user (§4.8).
-  - **Also locked — no money on this client.** Folio, cashiering, night audit, rates and reservation editing stay on the desktop SPA. Last-write-wins is fine for a room status and unacceptable for anything financial, and an offline queue on a pooled device is the wrong place to discover that.
-  - **Shape — recommendation:** **PWA first.** It removes the deploy-skew problem in §9.1 point 1 outright (the client updates with the Worker), needs no store review cycle, and housekeeping is a captive audience on known devices where store distribution buys almost nothing. Go native only if one of these forces it: push reliability web push cannot meet, camera-heavy maintenance capture, or offline depth beyond a status queue.
-  - **Scope out:** the manager-glance view — **R5.11** (MCP) may answer it for free, so decide that before building it.
-
-- [ ] **R4.11 Housekeeping depth**
-  - **Depends:** **R1.9**; **R4.10** for attendant capture.
-  - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
-  - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted; missing and damaged cases with closure; guest-count audit comparing front-office occupancy with housekeeping counts, with a variance reason; scored inspections from checklist templates (weighted items, required checks, room score); cleaning stages and linen movement; minibar pickup and amenity dispatch **posted through the folio contract**, never inserted.
-  - **Locked:** attendant capture lives in the **R4.10** mobile app; supervisor review and reporting on the desktop SPA. Minibar and amenity stock moves against the R1.9 operational list — **no stores inventory** (§16.6). Post minibar straight to the folio; do not create a POS bill to do it.
-  - **Scope out:** budgeting and metrics dashboards (still dropped); stores inventory; productivity pay.
+- [ ] **R4.3 Channel manager (2–3 OTAs)**
+  - **Prototype:** `ChannelManager.tsx`, `DistributionSettings.tsx`, Rates `channels` tab.
+  - **Locked:** gated module, outbox consumers, no special cases in PropertyDO. Plan-scoped restrictions **may** land here (ARCHITECTURE lock). Keys are `channel_manager.enabled` (**all tiers**, per §6.7) tiered by `channel_manager.connections.limit` `3 / 15 / ∞` — distribution is never switched off for a Starter tenant. Include the **unmapped-booking exception queue** (a booking whose room or rate code has no mapping never silently drops) and **commission and settlement reconciliation** per channel — both *Core* per §16.6.
 
 - [ ] **R4.12 Accounting export**
   - **Why:** every one-to-ten property owner keeps books in accounting software, and neither BluePMS nor the prototype integrates one. It is also where purchasing, stock and payroll meet the PMS without us building those modules (§16.6).
@@ -485,6 +452,32 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
   - **Key:** `accounting_export.enabled` (§6.7, every tier).
   - **Scope out:** purchasing, stores inventory, payroll calculation, a general ledger inside HospAI.
 
+- [ ] **R4.10 Mobile app — housekeeping and communication**
+  - **Decided (2026-09-12):** housekeeping and communication ship as a **separate mobile app**. The operator SPA stays desktop-only and §Viewport is now a permanent lock rather than a deferred question — see [`ARCHITECTURE.md` §9.1](../ARCHITECTURE.md#91-the-second-client--housekeeping-and-communication). **Do not add width breakpoints to `web-pms`.**
+  - **Fork — scope this before building:** does *communication* mean staff↔staff (assignment, handover, maintenance) or staff↔guest (the **R5.2** Whistle inbox)? Staff-only keeps guest PII off a pooled handset entirely; guest-facing changes the security surface of every line below. **Recommend staff-first, guest inbox as a second release.**
+  - **Locked:** consumes `@hospai/contracts` + `@hospai/client-core` — no forked types, no import from `web-pms` in either direction. The offline queue reuses the **existing command idempotency keys**, not a second replay path. Push payloads carry an identifier, **never guest PII**. Sessions are short, device-bound and independently revocable; do **not** extend token TTL to save a login prompt (§6.3 — the entitlement version rides that token). Device tokens purge with the user (§4.8).
+  - **Also locked — no money on this client.** Folio, cashiering, night audit, rates and reservation editing stay on the desktop SPA. Last-write-wins is fine for a room status and unacceptable for anything financial, and an offline queue on a pooled device is the wrong place to discover that.
+  - **Shape — recommendation:** **PWA first.** It removes the deploy-skew problem in §9.1 point 1 outright (the client updates with the Worker), needs no store review cycle, and housekeeping is a captive audience on known devices where store distribution buys almost nothing. Go native only if one of these forces it: push reliability web push cannot meet, camera-heavy maintenance capture, or offline depth beyond a status queue.
+  - **Scope out:** the manager-glance view — **R5.11** (MCP) may answer it for free, so decide that before building it.
+
+- [ ] **R4.8 Migration importers — the switch path**
+  - **Why now:** switching PMS is the largest objection in every deal, and for a multi-property operator the **consolidation demo is the sales conversation** — three legacy exports in, one estate view out. There is currently no slice, no contract and no tooling for it anywhere in this repo.
+  - **Stage A (single property, unblocks self-serve switching):** importers for reservations, guest profiles, rate plans and folio history from the incumbents our target properties actually run. Map onto existing commands — **no bulk write path that bypasses `COMMAND_CATALOG`** — and run in the `BULK` lane (§4.2) under the chunk cap so an import cannot stall a front desk.
+  - **Stage B moved to R5.7** — group consolidation needs the projections, so it cannot finish in this track. R4.8 is done when Stage A is.
+  - **Locked:** import is a product surface with progress, per-record rejection and a re-runnable report — **not** a services engagement and not a script an engineer runs. Idempotent per source record. Every imported money row lands through the folio contract, never inserted.
+  - **Scope out:** competitor-specific screen-scraping; anything that writes a DO directly.
+
+- [ ] **R5.6 Self-serve plans + usage billing**
+  - **Moved into the Canada launch:** Starter charges a subscription and requires payments enrolment at provisioning, so plans and billing must exist before independents sign up. Stripe billing for plan changes; metered add-on usage. Do not start from Finance sandbox copy (R1.12).
+
+---
+
+## Track 5 — Upscale properties and groups
+
+What a 100–200 room full-service hotel and a 3–10 property group buy on top of the launch product: packages and housekeeping depth, the in-product AI layer, revenue management, on-property interfaces and POS-lite, group blocks and banquets, multi-property views, and external agent access.
+
+Start only when Track 4 is `[x]`. Track 4's module rules still apply.
+
 - [ ] **R4.13 Front Office depth — packages, proforma, document templates**
   - **Depends:** **R3.2** (recurring charges) and **R3.3** (rate-plan inclusions) — packages are built on both.
   - **Prototype:** `PackageMaster.tsx`, the Booking Wizard package mode, proforma and registration-card template switchers.
@@ -492,46 +485,66 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
   - **Locked:** a package splits into posting lines that each carry their own tax under §7.9 — a bundled price is never taxed as one line. Printable documents never render in `DEGRADED` (§4.6).
   - **Scope out:** a template *designer*; e-invoicing (India, **R5.5**).
 
----
+- [ ] **R4.11 Housekeeping depth**
+  - **Depends:** **R1.9**; **R4.10** for attendant capture.
+  - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
+  - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted; missing and damaged cases with closure; guest-count audit comparing front-office occupancy with housekeeping counts, with a variance reason; scored inspections from checklist templates (weighted items, required checks, room score); cleaning stages and linen movement; minibar pickup and amenity dispatch **posted through the folio contract**, never inserted.
+  - **Locked:** attendant capture lives in the **R4.10** mobile app; supervisor review and reporting on the desktop SPA. Minibar and amenity stock moves against the R1.9 operational list — **no stores inventory** (§16.6). Post minibar straight to the folio; do not create a POS bill to do it.
+  - **Scope out:** budgeting and metrics dashboards (still dropped); stores inventory; productivity pay.
 
-## Track 5 — Phase 3 (prototype Yield, Whistle, Marketplace, POS)
+- [ ] **R4.6 AI operations layer — in-product agent, command-path foundation**
+  - **Depends on:** **R3.10** (`ai_ops.*` keys), **R4.5** (queues/consumers). This is the natural next proof of the module mechanism after the launch modules in Track 4.
+  - **Locked:** an AI actor is a **first-class caller of `COMMAND_CATALOG`**, never a side door into PropertyDO. Same entitlement resolution, same audit-log write on every money/inventory mutation, same lane rules (§4.2). Add an **`agent` actor kind** to the audit trail so an AI-originated mutation is attributable and reversible; do not borrow a staff `userId`.
+  - **Also locked:** AI writes never run in `INTERACTIVE`. Batch work — rate suggestions, review drafts, campaign sends — goes to `BULK` under the existing chunk cap, so an agent cannot starve the front desk. Metering is `ai_ops.messages.limit` (`soft`, §6.6).
+  - **Scope out:** guest-facing inbox, automations and upsell (**R5.9**); rate setting (**R5.1**); **external** agent access (**R5.11**); model choice and prompt content. **This slice is the mechanism, not the product.**
+  - **Note:** this is the *inboard* surface — our model, our prompts, full trust (§10.2 row 1). It is also the foundation **R5.11** stands on: get the command path and the `agent` actor right here and the external surface becomes a scoping problem rather than a second implementation.
+
+- [ ] **R5.9 AI operations layer — in-product guest-facing surfaces**
+  - **Depends on:** **R4.6** (command path), **R5.2** (Whistle inbox, automations, upsell).
+  - **Locked:** builds **on** R5.2's surfaces and does not fork them — autoresponder over the Whistle inbox across WhatsApp / email / OTA in the guest's language, inbound mail parsed into reservation commands, review replies, upsell timing. Every write goes through the R4.6 command path with the `agent` actor. `guest_ref` on events; plaintext PII only on the mailer path from OrgDO.
+  - **Scope out:** rate setting — that is **R5.1**, which follows this slice in Track 5. R5.9 does not set or suggest rates until R5.1 ships, and never reimplements it.
 
 - [ ] **R5.1 Yield Analytics / dynamic / forecasting tabs**
   - **Prototype:** `ReportsAnalytics.tsx`, Rates `dynamic` / `forecasting`.
   - **Locked:** revenue-management module, keyed `revenue_mgmt.enabled` as an **add-on on every tier** (§6.7) — not a top-tier feature. Occupancy forecast OLTP may feed it; **no** competitor scraper theater. The prototype tab that `alert()`s “+20% surge applied” is the spec of *what clerks expect to configure* — implement rules + ledger writes, not that stub. Comp-set rates come from manual entry or a licensed rate-data feed, never scraping (§16.6).
 
-- [ ] **R5.2 Whistle (guest engagement group)**
-  - **Prototype:** `WhistleHub.tsx` + `whistle/*` (inbox, automations, contacts, tasks, upsell, analytics, profile).
-  - **Locked:** module **group**, entitlement per sub-module. Events by `guest_ref` only. **This slice owns transactional email** (confirm / cancel / no-show templates + real send) plus inbox, automations, scheduled campaigns, concierge **tasks**. `guest_ref` on events; plaintext only on the mailer path from OrgDO. Guest with no email: skip + audit, do not fail the reservation command. **R5.9 layers the AI autoresponder on these surfaces** — build them so a second caller can drive them. Channel order by market (§16.6): **email and SMS first** for the Canada launch, **WhatsApp** with India.
-
-- [ ] **R5.3 Marketplace + public API**
-  - **Prototype:** Settings `marketplace`.
-  - **Locked:** OAuth, webhooks, versioned HTTP. Idempotency already command-scoped (R0.8).
+- [ ] **R4.9 On-property interface framework**
+  - **Why now:** a full-service upscale property runs fifteen to thirty on-property interfaces. Each missing one is a manual process the buyer prices into the deal, and this segment is the entry ticket to groups. **Reverses a Phase-1 scope call:** keyless / door-lock was *dropped* in the holes sweep as prototype-parity work — it returns here as a real interface, which is a different thing.
+  - **Locked:** build the **framework, not N integrations** — a typed adapter contract, outbox-driven, each adapter a gated module with its own entitlement, none of them special-cased inside PropertyDO. Ship the framework plus **one** adapter end-to-end to prove it (door lock is the cleanest first: narrow surface, clear success signal).
+  - **Scope out:** POS (**R5.4**), building N adapters in this slice, any adapter that needs a core change to work — if it does, fix the framework.
 
 - [ ] **R5.4 POS-lite / remaining finance gateways**
   - PCI isolation (`ARCHITECTURE.md` §13) and the **first** acquirer moved to **R4.7**. What remains here: POS-lite, additional gateways and terminals, card-brand matrix, AVS.
   - **POS scope (§16.6):** POS-lite only — one outlet, a simple menu, split bill, settle or **charge to room** through the folio contract, tips. Key `pos.enabled`. **No** kitchen display, table plans with waitlist, labour tracking, menu waste, happy-hour engine or F&B costing: a full restaurant POS is **integrated** through the **R4.9** interface framework.
 
-- [ ] **R5.5 Fiscalization + `held` behaviour**
-  - Ontario and British Columbia have no hotel fiscalization, so the first real implementation is **India's IRN + QR** (§7.9) — or Quebec's certified sales-recording, if Quebec is added first. Staff blocks use `held` (Phase 3). Country itself was **R3.6** (Canada).
+- [ ] **R4.1 Group blocks / allotments**
+  - **Prototype:** Settings split inventory + group as reservation flag.
+  - **Locked:** own aggregate, not a reservation flag (§7.4). New module + entitlement.
 
-- [ ] **R5.6 Self-serve plans + usage billing**
-  - ARCHITECTURE Phase 3. Stripe billing for plan changes; metered add-on usage. Do not start from Finance sandbox copy (R1.12).
+- [ ] **R5.12 Banquet & Events — lean**
+  - **Depends:** **R4.1** (group blocks), **R4.13** (packages), city-ledger AR.
+  - **Prototype:** `BanquetHub.tsx` (BluePMS parity Phase 6).
+  - **Scope (§16.6 *Add-on*, `banquet.enabled`):** function spaces and capacity; event → functions (date, time, space, covers); menus and resources per function; deposits; the banquet event order (BEO) as a printable view; a function diary of spaces against time; billing to a room folio or an AR company account; copy and move utilities.
+  - **Locked:** event charges post through the existing folio and city-ledger contracts — **no separate event money path**.
+  - **Scope out:** sales leads and follow-up traces (external CRM, §16.6); banquet staff payouts; event-specific reporting beyond revenue by space.
+
+- [ ] **R4.4 Multi-property switcher (ops, not projections)**
+  - Prototype header property dropdown. Until §7.6 projections: switch `propertyId` in the SPA from `/me` property list. Isolation is structural (one DO per property) — do not query across properties.
 
 - [ ] **R5.7 Multi-property projections (§7.6)**
   - Distinct from the **R4.4** switcher. Projections are the read model for org-wide views. Do not scan every PropertyDO from the SPA.
-  - **Sequencing flag (unresolved):** groups of 3–10 properties are now the largest planned revenue segment, and the group availability projection is what that segment buys. Sitting in Phase 3 puts it *after* the point the go-to-market needs it. **R4.4** is the interim (SPA-side property switch, no cross-property reads). Pulling R5.7 forward is a product call — do not re-order this track unilaterally; raise it.
+  - **Sequencing (resolved 2026-09-12):** Track 5 is the upscale-and-groups stage, so projections land with the segment that buys them, ahead of everything in Track 6. **R4.4**, earlier in this track, is the interim property switch.
+  - **Includes former R4.8 Stage B:** cross-property guest **deduplication** into OrgDO and a **parallel-run** mode that shadows the incumbent before cutover — the consolidation demo groups are sold on.
 
-- [ ] **R5.9 AI operations layer — in-product guest-facing surfaces**
-  - **Depends on:** **R4.6** (command path), **R5.2** (Whistle inbox, automations, upsell).
-  - **Locked:** builds **on** R5.2's surfaces and does not fork them — autoresponder over the Whistle inbox across WhatsApp / email / OTA in the guest's language, inbound mail parsed into reservation commands, review replies, upsell timing. Every write goes through the R4.6 command path with the `agent` actor. `guest_ref` on events; plaintext PII only on the mailer path from OrgDO.
-  - **Scope out:** rate setting — that is **R5.1**'s module, consumed here, never reimplemented.
+- [ ] **R5.13 `held` behaviour — staff blocks and central-reservation holds**
+  - **Depends:** **R5.7** (group availability projection and two-phase central reservations).
+  - **Why here:** `ARCHITECTURE.md` §7.6 names TTL holds as the fix for central reservations — a phone agent reserves stock at the owning PropertyDO while collecting details, instead of meeting a reject after four minutes. Groups buy central reservations, so holds land in the groups stage, not with India. Previously bundled into R5.5.
+  - **Locked:** use the existing `held` ledger column (§7.1) — no second inventory counter. Holds expire on a TTL and release on abandonment, and a held room counts once against availability. Staff room blocks use `held`, never $0 reservations.
+  - **Scope out:** channel-level holds; changing live **Hold** (`PENDING`, `sold++`), which stays as it is.
 
-- [ ] **R5.10 Agentic distribution**
-  - **Depends on:** **R3.8** (ARI KV), **R4.2** (reject-on-commit path), **R5.3** (public API + OAuth).
-  - **Trust boundary:** the caller is **a stranger's** assistant, not the operator's (§10.2 row 3). No tenant principal, no PII read, no command surface — this is *not* the MCP server (**R5.11**) and must not reuse its scopes.
-  - **Locked:** machine-readable rates, availability, restrictions and cancellation terms, plus a transactional booking endpoint for AI intermediaries. Consume **ARI_KV** and commit against the owning PropertyDO through the existing reject path — **do not add a second availability read model** and do not re-derive the ARI spec. Rate and parity rules stay operator-owned config in the register. Key is `agentic_distribution.enabled`, on **every tier and never sold separately** (§6.7).
-  - **Scope out:** agent-specific pricing; anything that bypasses `quoteAriVersion`; a bespoke inventory projection.
+- [ ] **R5.3 Marketplace + public API**
+  - **Prototype:** Settings `marketplace`.
+  - **Locked:** OAuth, webhooks, versioned HTTP. Idempotency already command-scoped (R0.8).
 
 - [ ] **R5.11 MCP server — external agent access**
   - **Depends on:** **R3.10** (`mcp.*` keys), **R4.6** (command path + `agent` actor), **R5.3** (OAuth2 apps, granular scopes, versioned HTTP). Do not build a second OAuth.
@@ -540,15 +553,30 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
   - **Also locked:** guest-supplied text is **data, never instruction**. No command may be derived from guest content without explicit human confirmation, and that requirement sits on the command, not in a prompt. Guest-profile reads are a separate scope, audited per read, excluded from any default grant, and named in the DPA — §4.8 erasure cannot recall what an agent already retrieved.
   - **Scope out:** the in-product agent (**R4.6** / **R5.9**); public demand-side booking (**R5.10**); shipping our own MCP *client*.
 
+---
+
+## Track 6 — India and later bets
+
+India's compliance and messaging channel, then the bets nothing else depends on.
+
+Start only when Track 5 is `[x]`. Before India work begins, verify current GST slab boundaries, e-invoicing thresholds and Form C rules with a local advisor (`ARCHITECTURE.md` §7.9).
+
+- [ ] **R5.5 Fiscalization (India)**
+  - Ontario and British Columbia have no hotel fiscalization, so the first real implementation is **India's IRN + QR** (§7.9) — or Quebec's certified sales-recording, if Quebec is added first. `held` behaviour moved to **R5.13** (Track 5) — groups need it before India. Country itself was **R3.6** (Canada).
+
+- [ ] **R6.1 WhatsApp channel (India)**
+  - **Depends:** **R5.2** (Whistle inbox, templates, delivery status).
+  - **Locked:** a channel on the existing Whistle inbox and templates — **not** a second inbox. Template approval, opt-in and delivery status follow the provider's rules; `guest_ref` on events, plaintext only on the send path from OrgDO. Staff notifications it triggers follow the no-PII push rule in `ARCHITECTURE.md` §9.1.
+  - **Scope out:** WhatsApp for the Canada launch (email and SMS cover it); broadcast marketing beyond R5.2's campaigns.
+
+- [ ] **R5.10 Agentic distribution**
+  - **Depends on:** **R3.8** (ARI KV), **R4.2** (reject-on-commit path), **R5.3** (public API + OAuth).
+  - **Trust boundary:** the caller is **a stranger's** assistant, not the operator's (§10.2 row 3). No tenant principal, no PII read, no command surface — this is *not* the MCP server (**R5.11**) and must not reuse its scopes.
+  - **Locked:** machine-readable rates, availability, restrictions and cancellation terms, plus a transactional booking endpoint for AI intermediaries. Consume **ARI_KV** and commit against the owning PropertyDO through the existing reject path — **do not add a second availability read model** and do not re-derive the ARI spec. Rate and parity rules stay operator-owned config in the register. Key is `agentic_distribution.enabled`, on **every tier and never sold separately** (§6.7).
+  - **Scope out:** agent-specific pricing; anything that bypasses `quoteAriVersion`; a bespoke inventory projection.
+
 - [ ] **R5.8 Partner sandbox**
   - Workers for Platforms or dynamic Worker loader. After **R5.3**.
-
-- [ ] **R5.12 Banquet & Events — lean**
-  - **Depends:** **R4.1** (group blocks), **R4.13** (packages), city-ledger AR.
-  - **Prototype:** `BanquetHub.tsx` (BluePMS parity Phase 6).
-  - **Scope (§16.6 *Add-on*, `banquet.enabled`):** function spaces and capacity; event → functions (date, time, space, covers); menus and resources per function; deposits; the banquet event order (BEO) as a printable view; a function diary of spaces against time; billing to a room folio or an AR company account; copy and move utilities.
-  - **Locked:** event charges post through the existing folio and city-ledger contracts — **no separate event money path**.
-  - **Scope out:** sales leads and follow-up traces (external CRM, §16.6); banquet staff payouts; event-specific reporting beyond revenue by space.
 
 ---
 
@@ -621,7 +649,7 @@ A slice is not done until **all** are true:
 6. No new Settings control that pms-core does not read.
 7. No Playwright, Redis, PropertyDO extraction, Tailwind, or token restyle.
 
-**Whole PMS (Phase 1 operator)** is done when Tracks 0–2 are all `[x]` and **R3.1** is `[x]`. **Phase 1 architecture** additionally wants **R3.6–R3.9** (tax country decided: Canada — Ontario and British Columbia). **Whole prototype product** is done when Tracks 4–5 are `[x]` as well.
+**Whole PMS (Phase 1 operator)** is done when Tracks 0–2 are all `[x]` and **R3.1** is `[x]`. **Phase 1 architecture** additionally wants **R3.6–R3.9** (tax country decided: Canada — Ontario and British Columbia). **Canada launch** is done when Track 4 is `[x]` as well. **Upscale properties and groups** adds Track 5; **India and later bets** adds Track 6.
 
 ---
 
@@ -666,4 +694,4 @@ If the human says “work the roadmap”:
 3. Then **R1.1** Dashboard Hub — first missing prototype **screen**.
 4. Continue first `- [ ]` in this file.
 
-Do not start R4/R5 because they are more fun. The prototype “looks complete” only after Track 1 screens exist (including **R1.15** stay card) and Track 0 does not lie.
+Do not start Tracks 4–6 because they are more fun. The prototype “looks complete” only after Track 1 screens exist (including **R1.15** stay card) and Track 0 does not lie.

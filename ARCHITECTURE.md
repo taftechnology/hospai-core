@@ -2221,6 +2221,14 @@ hack, fix the mechanism, not the module.
 - Guest engagement / messaging
 - Partner sandbox (Workers for Platforms or dynamic Worker loader)
 
+> **Commercial sequencing (2026-09-12).** Phases 2 and 3 above describe the order the *mechanisms*
+> get built. The order features ship to customers follows the segments in §16.6 rule 3 and roadmap
+> Tracks 4–6: guest engagement and self-serve billing move into the Canada launch; group blocks,
+> multi-property projections and revenue management follow with upscale properties and groups;
+> fiscalization lands with India, since Ontario and British Columbia need none. The mechanism-proof
+> rule still holds for whichever gated module ships first — if it needs a special case, fix the
+> mechanism, not the module.
+
 ---
 
 ## 15. The rules that keep it enterprise-grade
@@ -2479,7 +2487,7 @@ a separate business; avoid what serves a different customer.**
 | Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; packages, proforma and document templates in R4.13 on R3.2 / R3.3. `RoomOpsLiveView` is covered by `/board` — no second grid |
 | Housekeeping | `Housekeeping` | **Core** | R1.9; attendant work in the R4.10 mobile app; lost and found, damage, inspections, minibar and amenity posting in R4.11 |
 | Channel Distribution | `ChannelManager`, `DistributionSettings` | **Core** | R4.3 on R4.5, including the unmapped-booking queue and commission reconciliation |
-| Communications | `WhistleHub` | **Core** | R5.2 and R4.10 — email and SMS for the Canada launch, WhatsApp with India |
+| Communications | `WhistleHub` | **Core** | R5.2 (all of Whistle) and R4.10 at the Canada launch; WhatsApp in R6.1 with India |
 | Accounts Receivable | `FoliosBilling` AR surfaces | **Core** | Shipped city ledger (aging, statements); company AR posting is audit L1 |
 | CRM — guest side | `GuestsCRM` | **Core** | R1.8 tags, VIP and notes; campaigns in R5.2 |
 | AI Copilot Home | `CopilotHome` | **Core, extended** | R4.6, R5.9, R5.10, R5.11 (§10.2) — agents act through the command catalog rather than only answer |
@@ -2517,9 +2525,13 @@ without us building any of them.
    *Avoid* modules deliberately have none.
 2. The prototype's Settings → Add-ons toggles are a local demo switch. Production gating is the
    entitlement plane (§6) and nothing else.
-3. Sequencing follows the segments. **Canada launch:** Front Office, Housekeeping and the mobile
-   app, channels, booking engine, payments, email and SMS, AR, guest CRM, accounting export.
-   **Upscale properties and groups:** revenue management, lean Banquet, POS-lite, POS and spa
-   interfaces, in-product AI and MCP. **India:** WhatsApp, GST e-invoicing (R5.5), deeper reporting.
+3. Sequencing follows the segments, as roadmap Tracks 4–6. **Canada launch (Track 4):** Front
+   Office, Housekeeping and the mobile app, channels, booking engine, payments, guest engagement
+   (all of Whistle — inbox, automations, campaigns, email and SMS), AR, guest CRM, accounting export,
+   single-property importers, self-serve plans and billing. **Upscale properties and groups
+   (Track 5):** packages and housekeeping depth, in-product AI, revenue management, POS and spa
+   interfaces, POS-lite, group blocks and lean Banquet, multi-property projections with group
+   consolidation, public API and MCP. **India and later bets (Track 6):** GST e-invoicing (R5.5),
+   WhatsApp (R6.1), agentic distribution, partner sandbox, deeper reporting.
 4. Building anything classified *Integrate* or *Avoid* is a scope change. Amend this table in the
    same change-set; `docs/roadmap.md` treats the attempt as Blocked until then.

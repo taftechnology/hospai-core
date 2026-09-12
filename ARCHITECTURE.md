@@ -1100,9 +1100,9 @@ the product they were being sold.
   distribution: an operator whose own assistant is wired into the PMS does not go shopping for
   another PMS. Whether those agents may *write* is configuration, not entitlement, and defaults
   closed (§10.2).
-- **`compliance.fiscalization` is not premium.** In a fiscal launch market (§7.9) an
-  independent cannot legally operate without it. Gating it at the top excludes the launch
-  segment from the launch country.
+- **`compliance.fiscalization` is not premium.** Ontario and British Columbia need none, but
+  India's e-invoicing does (§7.9), and an independent there cannot legally invoice without it.
+  Gating it at the top would exclude the smallest customers from that market.
 
 **Relationship to the closed union.** `@hospai/contracts` currently exports a two-key
 `FEATURE_KEYS` union (`pms.core`, `pms.units.limit`) and `check:entitlements` holds the D1 seed
@@ -1590,7 +1590,7 @@ than retrofitting India afterwards.
 |---|---|---|---|
 | **Rate structure** | Federal GST/HST **+** provincial (PST / QST, and HST-harmonised provinces differ in kind) **+** municipal accommodation tax | Single federal GST, one rate | GST **slab keyed to the nightly tariff**; splits `CGST` + `SGST` intra-state, `IGST` inter-state |
 | **Display** | Tax-exclusive | **Tax-inclusive is mandatory** in displayed prices | Components itemised on the invoice |
-| **Fiscalization** | None | None (Peppol e-invoicing is voluntary) | **e-invoicing: IRN + QR from the government portal above the turnover threshold** |
+| **Fiscalization** | None in Ontario or British Columbia. **Quebec:** certified sales-recording for restaurant and bar sales, which can catch a hotel's F&B outlets | None (Peppol e-invoicing is voluntary) | **e-invoicing: IRN + QR from the government portal above the turnover threshold** |
 | **Guest registration** | None | None | **Form C** for foreign nationals |
 | **Guest tax id on invoice** | — | ABN for B2B | **GSTIN** — required for the guest's input credit |
 
@@ -1611,19 +1611,44 @@ than retrofitting India afterwards.
 5. **One levy may split into components.** `CGST` + `SGST` is a single taxable event reported as
    two lines, not two taxes; the folio must foot either way.
 6. **Inclusive versus exclusive is a jurisdiction property, not a display preference.** Australia
-   requires inclusive pricing in the booking engine *and* on the folio.
+   requires inclusive pricing in the booking engine *and* on the folio. Canada is tax-exclusive,
+   so nothing in the launch market exercises this — keep a tax-inclusive jurisdiction fixture in
+   the engine's tests until an inclusive market ships.
 7. **A fiscal-document hook on the invoice engine** — null for Canada and Australia, carrying
    IRN and QR for India. Adding it later means reissuing invoices.
 
-**Recommended answer to R3.6: name Australia**, and design the engine to the India shape.
-Australia is the only one of the three that is legally shippable on a single flat rate, it
-forces the inclusive-pricing axis early (painful to retrofit into the booking engine and the
-folio), and it unblocks the Phase 1 folio constraint now. Canada then arrives as jurisdiction
-*configuration* on requirement 1, and India as a `compliance.*` module on requirement 7.
+8. **Levies are ordered, and one levy can sit inside another's base.** In Ontario a municipal
+   accommodation tax can itself fall within the HST base, so the engine applies levies in a
+   defined sequence rather than summing a list. Getting the order wrong mis-states every invoice
+   by a small amount — the kind of error that survives testing and fails an audit.
 
-Note that **R3.6 is an architecture decision — which tax shape constrains the folio — and it
-does not have to match the commercial launch order.** Naming Australia here does not commit
-sales to Australia first.
+**Launch country: Canada — Ontario and British Columbia first** (decided 2026-09-12; closes
+R3.6).
+
+| | Ontario | British Columbia |
+|---|---|---|
+| **Sales tax on accommodation** | HST — one harmonised federal-provincial levy | Federal GST **and** a separate provincial PST |
+| **Local levy** | Municipal accommodation tax, where a municipality has adopted one | Municipal and regional district tax in designated areas, administered with PST |
+| **What it exercises** | Municipal layer and levy ordering (requirements 1, 8) | Two independent levies from two governments on one charge (requirements 1, 8) |
+| **Fiscalization** | None | None |
+
+**Why Canada rather than a flat-rate market.** A single-rate country is the one place a wrong
+engine design still produces correct invoices, so nothing catches a hard-coded rate until the
+second country arrives. Ontario and British Columbia disagree about tax *shape* on day one, which
+tests the jurisdiction stack and levy ordering against real invoices rather than a design
+document — and they are where the first paying customers are, so the Phase 1 tax model is the
+one those customers actually use.
+
+**Record jurisdiction per property, not per organisation.** A small group can span both
+provinces, and every requirement above resolves against the property.
+
+India still sets the engine's shape and remains the first real fiscalization (requirement 7).
+Australia becomes the first **tax-inclusive** market, which is what requirement 6's test fixture
+protects until then.
+
+**Adding a province is configuration — except Quebec.** Quebec adds French-language obligations
+for customer-facing text and invoices, plus certified sales-recording for restaurant and bar
+sales. Treat it as a scoped expansion with its own review, not a new jurisdiction row.
 ---
 
 ## 8. Events, scheduling, and workflows

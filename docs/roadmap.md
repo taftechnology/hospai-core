@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and a standing recommendation on **R3.6**; flags the **R4.2** confirmation-email fork as blocking. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.5 or a named leftover in a shipped spec.
+**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.5 or a named leftover in a shipped spec.
 
 ---
 
@@ -387,12 +387,12 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
   - Audit Vertical 14. SPA already uses front-office RPC.
 
 - [ ] **R3.6 Launch-country tax model**
-  - ARCHITECTURE §7.9 / §14: pick the launch country before Phase 1 **architecture** closes — it constrains folio and tax.
-  - **Markets named (2026-09-12): Canada, India, Australia.** §7.9 now carries the shape of all three.
-  - **Recommendation awaiting sign-off — name Australia.** Single flat federal GST, legally shippable on one rate, and it forces the **tax-inclusive display** axis early (painful to retrofit into the booking engine and the folio). Canada then arrives as jurisdiction *configuration*; India as a `compliance.*` module. **This is an architecture decision, not the commercial launch order** — naming Australia does not commit sales to Australia first.
-  - **Locked regardless of which country ships first:** build the seven requirements in [§7.9](../ARCHITECTURE.md#79-regulatory--the-hidden-second-product) — jurisdiction *stack* (not a country enum), rate as a **function** of `(jurisdiction, date, taxable base, product class)`, computed **inside the PropertyDO transaction** (§5.1) and **per night at posting**, a levy that can **split into components** (`CGST`/`SGST`), inclusive-vs-exclusive as a **jurisdiction property**, and a nullable **fiscal-document hook** on the invoice engine. India's slab rate is the reason 2–4 are not optional: a discount or upgrade can move a stay across a slab boundary.
-  - **Locked:** record the decision in ARCHITECTURE (or a contracts constant the tax engine already reads). Do **not** invent a country beyond the three named.
-  - Fiscalization / `held` remain **R5.5**; India's IRN + QR is the first real implementation.
+  - **Decided (2026-09-12): Canada — Ontario and British Columbia first.** Recorded in [`ARCHITECTURE.md` §7.9](../ARCHITECTURE.md#79-regulatory--the-hidden-second-product). The country is no longer Blocked; the tax model is the open work.
+  - **Why these two:** they disagree about tax *shape* on day one — Ontario's single HST with a municipal accommodation tax that can sit inside its base; British Columbia's separate federal GST and provincial PST plus a regional levy — so the jurisdiction stack and levy ordering are tested against real invoices, not a design doc. A flat-rate market would let a hard-coded rate pass until the second country arrived.
+  - **Locked:** build the eight requirements in §7.9 — jurisdiction *stack* (not a country enum), rate as a **function** of `(jurisdiction, date, taxable base, product class)`, computed **inside the PropertyDO transaction** (§5.1) and **per night at posting**, a levy that can **split into components**, inclusive-vs-exclusive as a **jurisdiction property**, a nullable **fiscal-document hook** on the invoice engine, and **ordered levies** where one can sit inside another's base. India still sets the shape: its slab rate is why 2–4 are not optional.
+  - **Locked:** record tax jurisdiction **per property, not per org** — a small group can span both provinces.
+  - **Locked:** Canada is tax-exclusive, so keep a **tax-inclusive jurisdiction fixture** in the engine's tests; nothing in the launch market exercises requirement 6 otherwise.
+  - **Scope out:** Quebec and every other province (see Blocked); Australia and India as live jurisdictions. Fiscalization / `held` remain **R5.5**.
 
 - [x] **R3.7 Cross-store purge Workflow**
   - **Shipped.** Spec: [purge workflow](superpowers/specs/2026-08-12-purge-workflow-design.md). Code: `PurgeWorkflow`, certificates, `guest.erased` consumer. **Do not rebuild.** Iceberg skip remains honest on the certificate.
@@ -488,7 +488,7 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
   - PCI isolation (`ARCHITECTURE.md` §13) and the **first** acquirer moved to **R4.7**. What remains here: POS, additional gateways and terminals, card-brand matrix, AVS.
 
 - [ ] **R5.5 Fiscalization + `held` behaviour**
-  - Launch-country fiscal. Staff blocks use `held` (Phase 3). Country itself was **R3.6**.
+  - Ontario and British Columbia have no hotel fiscalization, so the first real implementation is **India's IRN + QR** (§7.9) — or Quebec's certified sales-recording, if Quebec is added first. Staff blocks use `held` (Phase 3). Country itself was **R3.6** (Canada).
 
 - [ ] **R5.6 Self-serve plans + usage billing**
   - ARCHITECTURE Phase 3. Stripe billing for plan changes; metered add-on usage. Do not start from Finance sandbox copy (R1.12).
@@ -573,7 +573,7 @@ A slice is not done until **all** are true:
 6. No new Settings control that pms-core does not read.
 7. No Playwright, Redis, PropertyDO extraction, Tailwind, or token restyle.
 
-**Whole PMS (Phase 1 operator)** is done when Tracks 0–2 are all `[x]` and **R3.1** is `[x]`. **Phase 1 architecture** additionally wants **R3.6–R3.9** (tax country may stay Blocked). **Whole prototype product** is done when Tracks 4–5 are `[x]` as well.
+**Whole PMS (Phase 1 operator)** is done when Tracks 0–2 are all `[x]` and **R3.1** is `[x]`. **Phase 1 architecture** additionally wants **R3.6–R3.9** (tax country decided: Canada — Ontario and British Columbia). **Whole prototype product** is done when Tracks 4–5 are `[x]` as well.
 
 ---
 
@@ -586,7 +586,7 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 - Need to scan reservations for availability.
 - Need to extract folio from PropertyDO.
 - Disagreement between prototype UX and a **KEEP** architecture lock (e.g. pending vs inquiry). Record in ARCHITECTURE §16.3 rule 4; do not silently match the prototype.
-- Launch country not yet chosen (**R3.6**). Markets are named — Canada, India, Australia — and Australia is the standing recommendation; the *choice* still needs a human yes before the tax model is written.
+- Need to support a Canadian province beyond Ontario and British Columbia — **Quebec in particular** (French-language obligations; certified sales-recording for restaurant and bar sales). Other provinces are configuration, but still a scope decision.
 - Need to store PAN, CVV, or magstripe in this repo.
 - Need to clone `TicketsSettings.tsx` layout or add role impersonation.
 - Need to widen `tender_type` beyond `CARD` \| `CASH`, add Phase 1 email, extra stay `guest_ref`s, warehouse trends on the desk, or a second occupancy scan.

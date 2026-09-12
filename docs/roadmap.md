@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.5 or a named leftover in a shipped spec.
+**Revision:** 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
 
 ---
 
@@ -66,8 +66,8 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 
 ### All features functional
 
-- Every prototype **core-PMS** behaviour that ARCHITECTURE §16.5 marked **KEEP** (or shipped) works on PropertyDO/OrgDO/HTTP/SPA.
-- **Stub UI is still in scope.** If a clerk would click it in a hotel, implement it for real even when the prototype only `alert()`s, uses React state, or is half-broken. Do not skip a surface because the prototype is fake. Rebuild against live APIs (integers, ledger, OrgDO PII).
+- Every prototype **core-PMS** behaviour that ARCHITECTURE §16.5 marked **KEEP** (or shipped) works on PropertyDO/OrgDO/HTTP/SPA. Prototype **add-on hubs** follow **§16.6**: only modules classified *Core* or *Add-on* there are built.
+- **Stub UI is still in scope.** If a clerk would click it in a hotel, implement it for real even when the prototype only `alert()`s, uses React state, or is half-broken. Do not skip a surface because the prototype is fake. Rebuild against live APIs (integers, ledger, OrgDO PII). **This covers only surfaces §16.5 or §16.6 place in scope.** A hub §16.6 classifies *Integrate* or *Avoid* — Payroll & HR, Purchase, stores Inventory, F&B costing, full restaurant POS, Spa, Transport, Hostel, sales-pipeline CRM — is not built at any fidelity: not a stub, not a screen.
 - Settings keys the SPA shows are **read** by pms-core (or hidden).
 - City-ledger AR actually posts (audit L1). Board updates after check-in without waiting on WebSocket (audit U1).
 - Prototype **Phase 2/3** surfaces (channel manager, booking engine, groups, Whistle, yield engine, marketplace, POS) stay on Track 4–5. When those slices run they must be real modules — not a nicer `alert('synced')`. They are not Phase 1.
@@ -260,13 +260,14 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Live:** directory + profile + property stay history + blind-index search. Spec: [guest CRM directory](superpowers/specs/2026-08-13-guest-crm-directory-design.md) — tags / guest VIP / notes / LTV / merge / passport **explicitly deferred**.
   - **Locked:** this slice **is** that deferred CRM remainder: tags + guest-level VIP + notes on OrgDO profile. Stay history already ships. **Do not** add OLTP “lifetime spend” (warehouse §7.8). **Do not** add `guests.merge` or ID documents (named leftovers). Loyalty = tag/VIP, not a points ledger.
   - **Out:** warehouse LTV; merge; passport/R2 files; decrypt-on-list.
+  - **§16.6:** guest CRM is *Core*. The prototype's sales pipeline — leads, opportunities, quotes, proposals, campaign ROI, customer portal — is *Integrate*; do not build it here or anywhere.
 
 - [ ] **R1.9 Housekeeping — KEEP core extras**
   - **Depends:** none after R0.1.
   - **Prototype:** `Housekeeping.tsx` tabs: board, priority, assignments, staff, inventory, budgeting, metrics, reports, maintenance, mobile.
   - **Live:** HK board + assign + workload counts + roster picker. Specs: [housekeeping module](superpowers/specs/2026-08-11-housekeeping-module-mechanism-design.md), [room-ops HK completion](superpowers/specs/2026-08-12-room-operations-hk-completion-design.md) leftover 5.
   - **Locked Phase 1:** **priority** (ordered rooms; un-exclude `pms_hk_manager_priorities`); **inventory** (linens/stock OPERATIONAL list; un-exclude `pms_hk_inventory`; not a warehouse); **`pms.maintenance` module** — work-order table, task types, checklists; consume `room.ooo_changed` (do not invent tickets inside HK). **Staff** = `/roster` + shifts/skills/capacity (roster leftover 7).
-  - **Drop:** budgeting, metrics charts, HK Reports tab, mobile attendant, valet/coffee tickets (R5.2), SLA email.
+  - **Drop:** budgeting, metrics charts, HK Reports tab, valet/coffee tickets (R5.2), SLA email. *Mobile attendant is superseded — attendant work moves to the **R4.10** mobile app.* Depth extras (lost and found, damage cases, inspections, minibar and amenity posting) are **R4.11**, not Phase 1.
   - **Tests:** assign + status; OOO still fail-closed if assigned; inventory round-trip; `room.ooo_changed` opens a maintenance ticket when the module exists.
 
 - [ ] **R1.10 Night audit operator job**
@@ -379,6 +380,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 - [ ] **R3.3 Rate-plan inclusions**
   - Deferred with R3.2. Do not add a JSON column nobody posts.
+  - **Priority raised (2026-09-12):** package reservations are *Core* in ARCHITECTURE §16.6 and are built on this slice and **R3.2** — see **R4.13**. The no-unposted-column rule still holds.
 
 - [x] **R3.4 Early-departure command**
   - Same as audit L6 / R0.14. If R0.14 is done, tick both.
@@ -427,7 +429,7 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
 
 - [ ] **R4.3 Channel manager (2–3 OTAs)**
   - **Prototype:** `ChannelManager.tsx`, `DistributionSettings.tsx`, Rates `channels` tab.
-  - **Locked:** gated module, outbox consumers, no special cases in PropertyDO. Plan-scoped restrictions **may** land here (ARCHITECTURE lock). Keys are `channel_manager.enabled` (**all tiers**, per §6.7) tiered by `channel_manager.connections.limit` `3 / 15 / ∞` — distribution is never switched off for a Starter tenant.
+  - **Locked:** gated module, outbox consumers, no special cases in PropertyDO. Plan-scoped restrictions **may** land here (ARCHITECTURE lock). Keys are `channel_manager.enabled` (**all tiers**, per §6.7) tiered by `channel_manager.connections.limit` `3 / 15 / ∞` — distribution is never switched off for a Starter tenant. Include the **unmapped-booking exception queue** (a booking whose room or rate code has no mapping never silently drops) and **commission and settlement reconciliation** per channel — both *Core* per §16.6.
 
 - [ ] **R4.4 Multi-property switcher (ops, not projections)**
   - Prototype header property dropdown. Until §7.6 projections: switch `propertyId` in the SPA from `/me` property list. Isolation is structural (one DO per property) — do not query across properties.
@@ -468,24 +470,47 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
   - **Shape — recommendation:** **PWA first.** It removes the deploy-skew problem in §9.1 point 1 outright (the client updates with the Worker), needs no store review cycle, and housekeeping is a captive audience on known devices where store distribution buys almost nothing. Go native only if one of these forces it: push reliability web push cannot meet, camera-heavy maintenance capture, or offline depth beyond a status queue.
   - **Scope out:** the manager-glance view — **R5.11** (MCP) may answer it for free, so decide that before building it.
 
+- [ ] **R4.11 Housekeeping depth**
+  - **Depends:** **R1.9**; **R4.10** for attendant capture.
+  - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
+  - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted; missing and damaged cases with closure; guest-count audit comparing front-office occupancy with housekeeping counts, with a variance reason; scored inspections from checklist templates (weighted items, required checks, room score); cleaning stages and linen movement; minibar pickup and amenity dispatch **posted through the folio contract**, never inserted.
+  - **Locked:** attendant capture lives in the **R4.10** mobile app; supervisor review and reporting on the desktop SPA. Minibar and amenity stock moves against the R1.9 operational list — **no stores inventory** (§16.6). Post minibar straight to the folio; do not create a POS bill to do it.
+  - **Scope out:** budgeting and metrics dashboards (still dropped); stores inventory; productivity pay.
+
+- [ ] **R4.12 Accounting export**
+  - **Why:** every one-to-ten property owner keeps books in accounting software, and neither BluePMS nor the prototype integrates one. It is also where purchasing, stock and payroll meet the PMS without us building those modules (§16.6).
+  - **Locked:** export revenue, tax by jurisdiction component (§7.9), payments, deposits and AR as journal-ready summaries per business date and property, mapped to a tenant-configured chart of accounts. Build from night-audit snapshots — **never** a live read across PropertyDOs (§7.6). Idempotent per business date: a re-export produces the same journal.
+  - **First targets:** QuickBooks Online and Xero (Canada launch). Tally and Zoho Books with India.
+  - **Also locked:** payroll *inputs* — hours from roster and shift, and tips, service charge and commissions where captured — export as a file for the operator's payroll provider. **We do not calculate pay.**
+  - **Key:** `accounting_export.enabled` (§6.7, every tier).
+  - **Scope out:** purchasing, stores inventory, payroll calculation, a general ledger inside HospAI.
+
+- [ ] **R4.13 Front Office depth — packages, proforma, document templates**
+  - **Depends:** **R3.2** (recurring charges) and **R3.3** (rate-plan inclusions) — packages are built on both.
+  - **Prototype:** `PackageMaster.tsx`, the Booking Wizard package mode, proforma and registration-card template switchers.
+  - **Scope (§16.6 *Core*):** package templates (room type, plan, number of nights, fixed price, included add-ons) with a **posting schedule** — every night, arrival day, a set night, or before departure — executed inside the existing `POST_ROOM_CHARGES` step (do **not** grow `NIGHT_AUDIT_STEPS`); add-on scheduling for full stay, arrival, departure, weekends or single days; a proforma invoice from a reservation; selectable templates for the proforma and the registration card.
+  - **Locked:** a package splits into posting lines that each carry their own tax under §7.9 — a bundled price is never taxed as one line. Printable documents never render in `DEGRADED` (§4.6).
+  - **Scope out:** a template *designer*; e-invoicing (India, **R5.5**).
+
 ---
 
 ## Track 5 — Phase 3 (prototype Yield, Whistle, Marketplace, POS)
 
 - [ ] **R5.1 Yield Analytics / dynamic / forecasting tabs**
   - **Prototype:** `ReportsAnalytics.tsx`, Rates `dynamic` / `forecasting`.
-  - **Locked:** revenue-management module, keyed `revenue_mgmt.enabled` as an **add-on on every tier** (§6.7) — not a top-tier feature. Occupancy forecast OLTP may feed it; **no** competitor scraper theater. The prototype tab that `alert()`s “+20% surge applied” is the spec of *what clerks expect to configure* — implement rules + ledger writes, not that stub.
+  - **Locked:** revenue-management module, keyed `revenue_mgmt.enabled` as an **add-on on every tier** (§6.7) — not a top-tier feature. Occupancy forecast OLTP may feed it; **no** competitor scraper theater. The prototype tab that `alert()`s “+20% surge applied” is the spec of *what clerks expect to configure* — implement rules + ledger writes, not that stub. Comp-set rates come from manual entry or a licensed rate-data feed, never scraping (§16.6).
 
 - [ ] **R5.2 Whistle (guest engagement group)**
   - **Prototype:** `WhistleHub.tsx` + `whistle/*` (inbox, automations, contacts, tasks, upsell, analytics, profile).
-  - **Locked:** module **group**, entitlement per sub-module. Events by `guest_ref` only. **This slice owns transactional email** (confirm / cancel / no-show templates + real send) plus inbox, automations, scheduled campaigns, concierge **tasks**. `guest_ref` on events; plaintext only on the mailer path from OrgDO. Guest with no email: skip + audit, do not fail the reservation command. **R5.9 layers the AI autoresponder on these surfaces** — build them so a second caller can drive them.
+  - **Locked:** module **group**, entitlement per sub-module. Events by `guest_ref` only. **This slice owns transactional email** (confirm / cancel / no-show templates + real send) plus inbox, automations, scheduled campaigns, concierge **tasks**. `guest_ref` on events; plaintext only on the mailer path from OrgDO. Guest with no email: skip + audit, do not fail the reservation command. **R5.9 layers the AI autoresponder on these surfaces** — build them so a second caller can drive them. Channel order by market (§16.6): **email and SMS first** for the Canada launch, **WhatsApp** with India.
 
 - [ ] **R5.3 Marketplace + public API**
   - **Prototype:** Settings `marketplace`.
   - **Locked:** OAuth, webhooks, versioned HTTP. Idempotency already command-scoped (R0.8).
 
-- [ ] **R5.4 POS / remaining finance gateways**
-  - PCI isolation (`ARCHITECTURE.md` §13) and the **first** acquirer moved to **R4.7**. What remains here: POS, additional gateways and terminals, card-brand matrix, AVS.
+- [ ] **R5.4 POS-lite / remaining finance gateways**
+  - PCI isolation (`ARCHITECTURE.md` §13) and the **first** acquirer moved to **R4.7**. What remains here: POS-lite, additional gateways and terminals, card-brand matrix, AVS.
+  - **POS scope (§16.6):** POS-lite only — one outlet, a simple menu, split bill, settle or **charge to room** through the folio contract, tips. Key `pos.enabled`. **No** kitchen display, table plans with waitlist, labour tracking, menu waste, happy-hour engine or F&B costing: a full restaurant POS is **integrated** through the **R4.9** interface framework.
 
 - [ ] **R5.5 Fiscalization + `held` behaviour**
   - Ontario and British Columbia have no hotel fiscalization, so the first real implementation is **India's IRN + QR** (§7.9) — or Quebec's certified sales-recording, if Quebec is added first. Staff blocks use `held` (Phase 3). Country itself was **R3.6** (Canada).
@@ -517,6 +542,13 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
 
 - [ ] **R5.8 Partner sandbox**
   - Workers for Platforms or dynamic Worker loader. After **R5.3**.
+
+- [ ] **R5.12 Banquet & Events — lean**
+  - **Depends:** **R4.1** (group blocks), **R4.13** (packages), city-ledger AR.
+  - **Prototype:** `BanquetHub.tsx` (BluePMS parity Phase 6).
+  - **Scope (§16.6 *Add-on*, `banquet.enabled`):** function spaces and capacity; event → functions (date, time, space, covers); menus and resources per function; deposits; the banquet event order (BEO) as a printable view; a function diary of spaces against time; billing to a room folio or an AR company account; copy and move utilities.
+  - **Locked:** event charges post through the existing folio and city-ledger contracts — **no separate event money path**.
+  - **Scope out:** sales leads and follow-up traces (external CRM, §16.6); banquet staff payouts; event-specific reporting beyond revenue by space.
 
 ---
 
@@ -558,6 +590,22 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]` (R3.2–R3.5 leftovers may 
 | Marketplace | Settings tab | missing | R5.3 |
 | Property switcher | header dropdown | missing | R4.4 |
 | Multi-property projections | — | missing | R5.7 |
+| Room Ops live view | `RoomOpsLiveView.tsx` | covered by `/board` | §16.6 — no second grid |
+| Package master | `PackageMaster.tsx` | missing | R3.2, R3.3 → **R4.13** |
+| Report catalogs + runner | `*ReportCatalog.tsx`, `NativeReportRunner.tsx` | snapshot reports | §16.6 — catalog entries are **not** a backlog |
+| AR (debtors, statements, aging) | `FoliosBilling.tsx` AR views | `/city-ledger` | R0.3 honesty, audit L1 |
+| CRM sales pipeline | `GuestsCRM.tsx` sales views | — | §16.6 **Integrate** — do not build |
+| POS | `PosHub.tsx` | missing | **R5.4** POS-lite; full POS via R4.9 |
+| F&B costing | `FnbHub.tsx` | — | §16.6 **Integrate** — do not build |
+| Banquet & Events | `BanquetHub.tsx` | missing | R4.1, **R5.12** |
+| Inventory (stores) | `InventoryHub.tsx` | — | §16.6 **Integrate** — HK list only (R1.9) |
+| Purchase | `PurchaseHub.tsx` | — | §16.6 **Integrate** — export via R4.12 |
+| Spa | `SpaHub.tsx` | — | §16.6 **Integrate** via R4.9 |
+| Transport | `TransportHub.tsx` | — | §16.6 **Avoid** — service item + folio charge |
+| Hostel | `HostelHub.tsx` | — | §16.6 **Avoid** |
+| Payroll & HR | `PayrollHub.tsx` | — | §16.6 **Integrate** — export via R4.12 |
+| AI Copilot | `CopilotHome.tsx` | missing | R4.6, R5.9, R5.11 |
+| Add-ons panel | Settings → Add-ons | — | entitlement plane (§6), never a local toggle |
 
 ---
 
@@ -587,6 +635,7 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 - Need to extract folio from PropertyDO.
 - Disagreement between prototype UX and a **KEEP** architecture lock (e.g. pending vs inquiry). Record in ARCHITECTURE §16.3 rule 4; do not silently match the prototype.
 - Need to support a Canadian province beyond Ontario and British Columbia — **Quebec in particular** (French-language obligations; certified sales-recording for restaurant and bar sales). Other provinces are configuration, but still a scope decision.
+- Need to build a prototype hub that **ARCHITECTURE §16.6** classifies *Integrate* or *Avoid* — Payroll & HR, Purchase, stores Inventory, F&B costing, full restaurant POS or kitchen display, Spa, Transport dispatch, residential Hostel, sales-pipeline CRM. That is a scope change: amend §16.6 first.
 - Need to store PAN, CVV, or magstripe in this repo.
 - Need to clone `TicketsSettings.tsx` layout or add role impersonation.
 - Need to widen `tender_type` beyond `CARD` \| `CASH`, add Phase 1 email, extra stay `guest_ref`s, warehouse trends on the desk, or a second occupancy scan.

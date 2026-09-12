@@ -1062,9 +1062,11 @@ a fourth tier with its own compliance surface, never a stretched Group.
 | `mcp.enabled` | ✅ | ✅ | ✅ | — |
 | `mcp.clients.limit` | 1 | 5 | ∞ | +1 each |
 | `pos.enabled` | — | — | — | ✅ |
+| `banquet.enabled` | — | — | — | ✅ |
 | `api.public_access` | — | ✅ | ✅ | — |
 | `sso.saml` | — | — | ✅ | ✅ |
 | `compliance.fiscalization` | ✅ | ✅ | ✅ | — |
+| `accounting_export.enabled` | ✅ | ✅ | ✅ | — |
 
 Eight of these rows are load-bearing commercial decisions rather than defaults, and each one
 was wrong in the previous draft of this table in a way that priced the target customer out of
@@ -1110,6 +1112,11 @@ to it. This table is the **authorised target**, not the shipped catalog: each ke
 join the union as its module lands, and doing so is a catalog change plus a module, never a
 schema migration (§6.1). A key that is *not* in this table remains subject to the escalation
 rule in `docs/roadmap.md` — stop and ask. Landing the rows above is roadmap slice **R3.10**.
+
+**Keys follow build decisions (§16.6).** `pos.enabled` and `banquet.enabled` gate add-ons §16.6
+commits to building; `accounting_export.enabled` ships on every tier. Modules §16.6 classifies
+*Integrate* or *Avoid* — payroll, purchase, stores inventory, F&B costing, spa, transport,
+hostel — deliberately have **no key**, so there is nothing to switch on and nothing half-built to sell.
 ---
 
 ## 7. PMS domain — the parts that are genuinely hard
@@ -2448,3 +2455,71 @@ resolved room is rejected unless `pms.ops.auto_assign_rooms` is on, in which cas
   [folio money operations](docs/superpowers/specs/2026-08-12-folio-money-operations-design.md)
   and shipped, promo codes last on 2026-08-15. This bullet is closed.
 - **`INQUIRY` / `PENDING` restored 2026-08-12.** The shipped machine matches §7.4.
+
+### 16.6 BluePMS parity hubs — production scope (2026-09-12)
+
+Between 2026-09-09 and 2026-09-11 the prototype ran a full BluePMS parity programme
+(`hospai-pms-prototype/docs/superpowers/specs/2026-09-09-bluepms-parity-roadmap-design.md`):
+all 17 BluePMS modules and 370 demo chapters, closed as 318 `done`, 47 `sim` and 5 `stub`. It
+added ten add-on hubs — POS, F&B, Banquet, Inventory, Purchase, Spa, Transport, Hostel, Payroll
+and Copilot — as a click-through prototype on in-memory state, with real integrations, payments,
+auth and multi-tenancy explicitly out of scope. The §16.5 audit predates every one of them.
+
+**Prototype breadth is not production scope.** §14 says rebuild the prototype's screens against
+live APIs; for these hubs that applies only where the table below says *Core* or *Add-on*. A hub
+classified *Integrate* or *Avoid* is not built at any fidelity — not a stub, not a screen, not a
+module behind a flag. What BluePMS offers in each module is recorded in
+[`docs/research/2026-09-12-bluepms-modules.md`](docs/research/2026-09-12-bluepms-modules.md).
+
+The rule behind every row: **build what touches the room-night and the folio; integrate what runs
+a separate business; avoid what serves a different customer.**
+
+| BluePMS module | Prototype surface | Decision | Production home |
+|---|---|---|---|
+| Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; packages, proforma and document templates in R4.13 on R3.2 / R3.3. `RoomOpsLiveView` is covered by `/board` — no second grid |
+| Housekeeping | `Housekeeping` | **Core** | R1.9; attendant work in the R4.10 mobile app; lost and found, damage, inspections, minibar and amenity posting in R4.11 |
+| Channel Distribution | `ChannelManager`, `DistributionSettings` | **Core** | R4.3 on R4.5, including the unmapped-booking queue and commission reconciliation |
+| Communications | `WhistleHub` | **Core** | R5.2 and R4.10 — email and SMS for the Canada launch, WhatsApp with India |
+| Accounts Receivable | `FoliosBilling` AR surfaces | **Core** | Shipped city ledger (aging, statements); company AR posting is audit L1 |
+| CRM — guest side | `GuestsCRM` | **Core** | R1.8 tags, VIP and notes; campaigns in R5.2 |
+| AI Copilot Home | `CopilotHome` | **Core, extended** | R4.6, R5.9, R5.10, R5.11 (§10.2) — agents act through the command catalog rather than only answer |
+| Forecast Intelligence | `RatesAvailability`, `ReportsAnalytics` | **Add-on** | R5.1, `revenue_mgmt.enabled`; comp-set rates by manual entry or a licensed feed, never scraping |
+| Banquet & Events | `BanquetHub` | **Add-on, lean** | R5.12 on R4.1, `banquet.enabled` — spaces, functions, BEO, deposits, billing; no sales-lead suite |
+| Point of Sales | `PosHub` | **Add-on (POS-lite); Integrate (restaurant POS)** | R5.4, `pos.enabled` — one outlet, charge to room. Kitchen display, table plans, labour and promotions stay with the outlet's own POS via R4.9 |
+| CRM — sales pipeline | `GuestsCRM` sales views | **Integrate** | Leads, opportunities, quotes, proposals and portal belong in an external CRM; event quotes live in R5.12 |
+| Food & Beverages | `FnbHub` | **Integrate** | Recipe costing and depletion need a full POS and stores inventory we do not build |
+| Spa | `SpaHub` | **Integrate** | R4.9 interface plus folio posting |
+| Inventory | `InventoryHub` | **Integrate** | Stores, requisitions and issues belong in back-office software. Housekeeping's operational linen and amenity list stays (R1.9) |
+| Purchase | `PurchaseHub` | **Integrate** | Requisitions, RFQs and purchase orders belong in accounting or procurement software; R4.12 exports to it |
+| Payroll & HR | `PayrollHub` | **Integrate** | R4.12 exports hours, tips, service charge and commissions to the operator's payroll provider |
+| Transport | `TransportHub` | **Avoid** | Dispatch boards and driver apps are fleet software. A shuttle is a bookable service, a task and a folio charge |
+| Hostel | `HostelHub` | **Avoid** | BluePMS's Hostel is residential housing — applications, residents, fee generation, renewals. Dorm-bed inventory for short-stay hostels is a separate, undecided question |
+
+**Why payroll is the clearest call.** Payroll is statutory per country and often per province. The
+prototype's payroll carries India and US locale packs; the launch market is Canada (§7.9), which
+needs CPP, EI, T4 slips and Records of Employment, none of which exists. Building payroll makes
+HospAI a regulated payroll provider in every market it enters, for operators who already pay a
+provider to do it.
+
+**Reports are not a backlog.** BluePMS publishes just over 1,000 named reports and the prototype
+mirrors them as report catalogues. Production ships a small set of operational and owner reports,
+a report builder over the warehouse (§7.8), and agent access (§10.2) for the long tail. A catalogue
+entry in the prototype is not a report anyone has committed to build.
+
+**Added, not in BluePMS.** Accounting export (R4.12): revenue, tax components, payments, deposits
+and AR as journal-ready summaries — QuickBooks Online and Xero first, Tally and Zoho Books with
+India. For a one-to-ten property operator it is where purchasing, stock and payroll meet the PMS
+without us building any of them.
+
+**Rules.**
+
+1. Entitlement keys follow this table (§6.7). *Core* and *Add-on* modules get keys; *Integrate* and
+   *Avoid* modules deliberately have none.
+2. The prototype's Settings → Add-ons toggles are a local demo switch. Production gating is the
+   entitlement plane (§6) and nothing else.
+3. Sequencing follows the segments. **Canada launch:** Front Office, Housekeeping and the mobile
+   app, channels, booking engine, payments, email and SMS, AR, guest CRM, accounting export.
+   **Upscale properties and groups:** revenue management, lean Banquet, POS-lite, POS and spa
+   interfaces, in-product AI and MCP. **India:** WhatsApp, GST e-invoicing (R5.5), deeper reporting.
+4. Building anything classified *Integrate* or *Avoid* is a scope change. Amend this table in the
+   same change-set; `docs/roadmap.md` treats the attempt as Blocked until then.

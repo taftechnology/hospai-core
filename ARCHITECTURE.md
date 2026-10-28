@@ -590,7 +590,7 @@ Two hard UI rules:
   cannot honour, which is the top-level rule restated.
 
 **Degraded mode is tested, not hoped for.** CI runs a fault-injection suite that blackholes the
-PropertyDO mid-session and asserts: no oversell, no double-posted folio line, no command lost,
+PropertyDO mid-session and asserts: no oversell (outside an accepted channel overbooking, §7.1), no double-posted folio line, no command lost,
 every unresolvable command in the exception queue.
 
 ### 4.7 KV, R2, and the analytics tier
@@ -1084,6 +1084,8 @@ the product they were being sold.
   150-room hotel into a tier meant for estates.
 - **`channel_manager.enabled` starts at Starter.** An independent that cannot reach an OTA has
   no product. Tier on `connections.limit` (`3 / 15 / ∞`), never by switching distribution off.
+  Since 2026-10-28 the key gates the **channel manager connector** (§16.6): a connection is one
+  OTA channel mapped through the third-party channel manager, not a direct OTA integration.
 - **`payments.enabled` is required on Starter, not optional.** Starter is priced near zero on
   the assumption that the rails earn. A Starter tenant not enrolled in payments is a tenant we
   pay to host, so enrolment is a condition of the tier and enforced as one.
@@ -1103,7 +1105,8 @@ the product they were being sold.
   another PMS. Whether those agents may *write* is configuration, not entitlement, and defaults
   closed (§10.2).
 - **`compliance.fiscalization` is not premium.** Ontario and British Columbia need none, but
-  India's e-invoicing does (§7.9), and an independent there cannot legally invoice without it.
+  India's e-invoicing does (§7.9) — the pilot client's first — and an independent there cannot
+  legally invoice without it.
   Gating it at the top would exclude the smallest customers from that market.
 
 **Relationship to the closed union.** `@hospai/contracts` currently exports a two-key
@@ -1263,9 +1266,40 @@ inventory. This is a **normal, expected outcome**, not an error path:
 
 - the booking engine handles it as a first-class UX state ("just sold out — here are
   alternatives"), never a 500
-- the channel manager translates it to the OTA's own rejection semantics
 - a rejection increments `ari.reject_on_commit`, tagged by property. A rising rate means the
   projection is lagging, and it is the earliest available signal of that
+
+Reject-on-commit applies to every path where **nothing has been promised to the guest yet** —
+the booking engine, the desk, the public API and agents. It does **not** apply to bookings
+delivered by a channel manager (below).
+
+**Channel-delivered bookings are accepted, never rejected for inventory (amended 2026-10-28).**
+An OTA booking is already confirmed to the guest by the time the channel manager delivers it,
+and channel managers expect the PMS to accept every reservation it is sent
+([research](docs/research/2026-10-28-channel-manager-integration-practice.md)). Rejecting it
+does not undo the OTA's confirmation; it only hides a guest who will arrive. So:
+
+- A booking or modification delivered through the channel manager connector (roadmap **R4.3**)
+  that finds a night short of `free` — past the `allow_overbooking` allowance — **still books**.
+  It goes through the same command and the same validate-then-mutate shape; the shortfall is
+  recorded instead of thrown. Restriction and stop-sell violations on a delivered booking are
+  treated the same way.
+- **The ledger stays the system of record.** `sold` increments in the same atomic write as the
+  reservation, so `free` goes **negative** on the over-sold nights and the ledger invariant
+  (`sold` equals the reservations covering the night) still holds. Nothing counts reservations.
+  For a virtual type the shortfall lands on its physical constituents.
+- **Every over-sold night raises an overbooking exception** on the exception workbench, naming
+  the room type, the nights and the booking, for the desk to resolve — move, upgrade or walk the
+  guest. A night with `free < 0` for tonight is a night-audit `PRE_CHECK` exception until it is
+  resolved; no new audit step.
+- **ARI never publishes a negative.** The projection and the channel push clamp `free` at 0, so
+  the over-sold nights read as sold out on every channel at once.
+- **Only the connector can do this.** The channel path is reachable only with the R4.3
+  connector's credential and records the channel as the booking source. A desk user, the
+  booking engine, the public API and agents cannot reach it, and a request from them that
+  names it is rejected.
+- Each accepted overbooking increments `ari.channel_overbooking`, tagged by property and
+  channel. Alongside projection lag it is the signal that pushes are late or mappings are wrong.
 
 **Versioned entries make disagreement detectable.** Because each projection entry carries the
 DO version it was derived from, a rejection can be classified as *stale projection* (version
@@ -1629,8 +1663,28 @@ than retrofitting India afterwards.
    defined sequence rather than summing a list. Getting the order wrong mis-states every invoice
    by a small amount — the kind of error that survives testing and fails an audit.
 
-**Launch country: Canada — Ontario and British Columbia first** (decided 2026-09-12; closes
-R3.6).
+**First market: India — the pilot client** (decided 2026-10-27; supersedes the 2026-09-12
+Canada-first call for R3.6). The pilot is one Indian hotel switching from BluePMS; what it uses is
+recorded in [`docs/research/2026-10-27-pilot-client-checklist.md`](docs/research/2026-10-27-pilot-client-checklist.md).
+A paying operator with a real switch date outranks a market chosen on paper, and India is the
+market this engine was shaped for: requirements 2–5 and 7 all exist because of it.
+
+| | India (the pilot client's state) |
+|---|---|
+| **Sales tax on accommodation** | GST at a **slab keyed to the per-night value of supply**. Components follow the **place of supply** — `CGST` + `SGST` intra-state, `IGST` inter-state (requirement 5) |
+| **F&B in the hotel** | The restaurant's GST rate depends on whether the hotel is a **specified premises** — a test on the hotel's own declared room tariff for the financial year. A product class's rate can therefore depend on a **property-level declaration**, not only on the charge (requirement 2) |
+| **Local levy** | None at municipal level for GST; state levies outside GST are out of scope until a property needs one |
+| **Fiscalization** | **e-invoicing** for B2B invoices above the aggregate-turnover threshold: IRN and signed QR from the Invoice Registration Portal, with the guest's **GSTIN** on the invoice (requirement 7, **R5.5**) |
+| **Invoice numbering** | One consecutive series per **financial year (April–March)**, unique per GSTIN, with a length limit — R1.12 numbering must reset on the financial year, not the calendar year |
+| **Guest registration** | **Form C** to the Bureau of Immigration for foreign nationals within 24 hours of arrival (**R6.2**) |
+| **Registration** | GSTIN is per state, so it is a **property** attribute — the same reason jurisdiction is per property below |
+
+> As above: slab boundaries, the specified-premises tariff test and the e-invoicing threshold move.
+> The table records shape. Confirm current values with the client's tax advisor before R3.6 posts
+> a rupee.
+
+**Second market: Canada — Ontario and British Columbia** (decided 2026-09-12 as the first market;
+now the first self-serve launch, roadmap Track 4, after the pilot).
 
 | | Ontario | British Columbia |
 |---|---|---|
@@ -1639,19 +1693,19 @@ R3.6).
 | **What it exercises** | Municipal layer and levy ordering (requirements 1, 8) | Two independent levies from two governments on one charge (requirements 1, 8) |
 | **Fiscalization** | None | None |
 
-**Why Canada rather than a flat-rate market.** A single-rate country is the one place a wrong
+**Why neither market is a flat-rate one.** A single-rate country is the one place a wrong
 engine design still produces correct invoices, so nothing catches a hard-coded rate until the
-second country arrives. Ontario and British Columbia disagree about tax *shape* on day one, which
-tests the jurisdiction stack and levy ordering against real invoices rather than a design
-document — and they are where the first paying customers are, so the Phase 1 tax model is the
-one those customers actually use.
+second country arrives. India exercises the slab, the component split and the fiscal hook on the
+pilot's first invoice; Ontario and British Columbia then exercise the municipal layer and levy
+ordering (requirements 1, 8) that India does not. Between them every requirement except 6 is
+tested against real invoices rather than a design document.
 
 **Record jurisdiction per property, not per organisation.** A small group can span both
 provinces, and every requirement above resolves against the property.
 
-India still sets the engine's shape and remains the first real fiscalization (requirement 7).
-Australia becomes the first **tax-inclusive** market, which is what requirement 6's test fixture
-protects until then.
+India sets the engine's shape and is the first real fiscalization (requirement 7), now with the
+pilot rather than after the groups stage. Australia becomes the first **tax-inclusive** market,
+which is what requirement 6's test fixture protects until then.
 
 **Adding a province is configuration — except Quebec.** Quebec adds French-language obligations
 for customer-facing text and invoices, plus certified sales-recording for restaurant and bar
@@ -2121,6 +2175,7 @@ the failure modes this architecture has. These are per-property and paged:
 |---|---|---|
 | `ari.projection_lag` p99 | Leading indicator of oversell | > 5 s (§7.1) |
 | `ari.reject_on_commit` rate | Projection drifting from the DO | Rising trend, not absolute |
+| `ari.channel_overbooking` | A channel sold a night we had already sold — late push or wrong mapping (§7.1) | Any, per property and channel |
 | `do.interactive_latency` p99 | Front desk is slow → lobby queue | > 250 ms |
 | `do.bulk_lag` | `BULK` starvation is expected; unbounded starvation is not | Backlog age > 1 h |
 | `degraded.pending_commands` | Operators are working blind right now | > 0 warns, age > 15 min pages |
@@ -2202,11 +2257,12 @@ housekeeping → night audit. Each depends on the previous.
 
 ### Phase 2 — First add-on (mechanism proof)
 
-Build the channel manager as a strictly gated module with zero special cases. If it needs a
-hack, fix the mechanism, not the module.
+Build the channel manager connector as a strictly gated module with zero special cases. If it
+needs a hack, fix the mechanism, not the module. (Amended 2026-10-28: HospAI connects to a
+third-party channel manager rather than building one — §16.6.)
 
 - Outbox consumers + Queue workers
-- OTA integration (start with 2–3 channels)
+- Channel manager connector (one third-party channel manager; the OTAs connect through it)
 - Booking engine with direct booking
 - Group blocks and allotments
 
@@ -2221,11 +2277,12 @@ hack, fix the mechanism, not the module.
 - Guest engagement / messaging
 - Partner sandbox (Workers for Platforms or dynamic Worker loader)
 
-> **Commercial sequencing (2026-09-12).** Phases 2 and 3 above describe the order the *mechanisms*
-> get built. The order features ship to customers follows the segments in §16.6 rule 3 and roadmap
-> Tracks 4–6: guest engagement and self-serve billing move into the Canada launch; group blocks,
-> multi-property projections and revenue management follow with upscale properties and groups;
-> fiscalization lands with India, since Ontario and British Columbia need none. The mechanism-proof
+> **Commercial sequencing (2026-09-12, amended 2026-10-27).** Phases 2 and 3 above describe the
+> order the *mechanisms* get built. The order features ship to customers follows the segments in
+> §16.6 rule 3 and roadmap Track P then Tracks 4–6: the India pilot client first, with
+> fiscalization, a channel manager connector, accounting export, a POS connector and a read-only copilot; guest
+> engagement and self-serve billing with the Canada launch; group blocks, multi-property
+> projections and revenue management with upscale properties and groups. The mechanism-proof
 > rule still holds for whichever gated module ships first — if it needs a special case, fix the
 > mechanism, not the module.
 
@@ -2482,18 +2539,35 @@ module behind a flag. What BluePMS offers in each module is recorded in
 The rule behind every row: **build what touches the room-night and the folio; integrate what runs
 a separate business; avoid what serves a different customer.**
 
+**Amended 2026-10-27 for the pilot client.** The India pilot (§7.9) returned the BluePMS checklist
+with Front Office, Housekeeping, Point of Sale, Channel Distribution and AI Copilot ticked in full,
+and Food & Beverages, Inventory, Purchase, Spa, Payroll, Transport, Hostel, Banquet, Forecast
+Intelligence and Communications left blank
+([`docs/research/2026-10-27-pilot-client-checklist.md`](docs/research/2026-10-27-pilot-client-checklist.md)).
+**Restaurant POS stays *Integrate*, and the integration moves forward:** the pilot runs a
+third-party POS through a **PMS connector** (roadmap **R4.21** on the **R4.9** interface framework,
+both Track P), and every one of its twelve ticked POS features is the vendor's. A built-in
+restaurant POS without recipe costing is written down as a parked fallback (**R4.17**) in case no
+vendor fits; starting it means amending this row to *Add-on* first (rule 4).
+**Amended 2026-10-28: channel distribution moves to *Integrate*.** HospAI does not build a channel
+manager and does not connect to OTAs directly. It connects to **one third-party channel manager**
+that holds the OTA connections (roadmap **R4.3**, Track P). All seven ticked distribution features
+are met by the channel manager plus that connector. Four rows change
+production home only (Front Office, Housekeeping, guest CRM, AI Copilot) — they move into roadmap
+Track P. Every other row stands, and the blank modules confirm them.
+
 | BluePMS module | Prototype surface | Decision | Production home |
 |---|---|---|---|
-| Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; packages, proforma and document templates in R4.13 on R3.2 / R3.3. `RoomOpsLiveView` is covered by `/board` — no second grid |
-| Housekeeping | `Housekeeping` | **Core** | R1.9; attendant work in the R4.10 mobile app; lost and found, damage, inspections, minibar and amenity posting in R4.11 |
-| Channel Distribution | `ChannelManager`, `DistributionSettings` | **Core** | R4.3 on R4.5, including the unmapped-booking queue and commission reconciliation |
-| Communications | `WhistleHub` | **Core** | R5.2 (all of Whistle) and R4.10 at the Canada launch; WhatsApp in R6.1 with India |
+| Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; packages, proforma and document templates in R4.13 on R3.2 / R3.3, guest ID documents in R4.15 and the operational report set in R4.14 — all Track P. `RoomOpsLiveView` is covered by `/board` — no second grid |
+| Housekeeping | `Housekeeping` | **Core** | R1.9; lost and found, damage, guest audit, inspections, linen, minibar and amenity posting in R4.11 (Track P, desktop capture first); attendant capture moves to the R4.10 mobile app when it ships |
+| Channel Distribution | `ChannelManager`, `DistributionSettings` | **Integrate — through a channel manager connector** (amended 2026-10-28) | R4.3 on R4.5 (Track P), keyed `channel_manager.enabled`: ARI push, booking receipt into the existing reservation commands, room and rate mapping, the unmapped-booking queue, commission per booking and distribution reports (R4.14). OTA connections, OTA certification and content are the channel manager's. No direct OTA integration is built |
+| Communications | `WhistleHub` | **Core** | R5.2 (all of Whistle) and R4.10 at the Canada launch; WhatsApp in R6.1 (Track 6 — the pilot left Communications blank) |
 | Accounts Receivable | `FoliosBilling` AR surfaces | **Core** | Shipped city ledger (aging, statements); company AR posting is audit L1 |
-| CRM — guest side | `GuestsCRM` | **Core** | R1.8 tags, VIP and notes; campaigns in R5.2 |
-| AI Copilot Home | `CopilotHome` | **Core, extended** | R4.6, R5.9, R5.10, R5.11 (§10.2) — agents act through the command catalog rather than only answer |
+| CRM — guest side | `GuestsCRM` | **Core** | R1.8 tags, VIP and notes; consent and ID documents in R4.15 (Track P); campaigns in R5.2 |
+| AI Copilot Home | `CopilotHome` | **Core, extended** | R4.16 read-only copilot first (Track P): answers with sources, summaries and suggested actions under the asking user's permissions. Then R4.6, R5.9, R5.10, R5.11 (§10.2) — agents act through the command catalog rather than only answer |
 | Forecast Intelligence | `RatesAvailability`, `ReportsAnalytics` | **Add-on** | R5.1, `revenue_mgmt.enabled`; comp-set rates by manual entry or a licensed feed, never scraping |
 | Banquet & Events | `BanquetHub` | **Add-on, lean** | R5.12 on R4.1, `banquet.enabled` — spaces, functions, BEO, deposits, billing; no sales-lead suite |
-| Point of Sales | `PosHub` | **Add-on (POS-lite); Integrate (restaurant POS)** | R5.4, `pos.enabled` — one outlet, charge to room. Kitchen display, table plans, labour and promotions stay with the outlet's own POS via R4.9 |
+| Point of Sales | `PosHub` | **Integrate — through a PMS connector** (amended 2026-10-27) | R4.21 on R4.9 (Track P), keyed `pos.enabled`: room lookup, charge to room through the folio contract, voids, outlet day-close totals, stay events to the POS. Tables, KOT and kitchen display, waitlist, settlement, promotions, waste and POS reports are the vendor's. Built-in restaurant POS parked as R4.17 — not scheduled. POS-lite (former R5.4 scope) is withdrawn |
 | CRM — sales pipeline | `GuestsCRM` sales views | **Integrate** | Leads, opportunities, quotes, proposals and portal belong in an external CRM; event quotes live in R5.12 |
 | Food & Beverages | `FnbHub` | **Integrate** | Recipe costing and depletion need a full POS and stores inventory we do not build |
 | Spa | `SpaHub` | **Integrate** | R4.9 interface plus folio posting |
@@ -2504,34 +2578,44 @@ a separate business; avoid what serves a different customer.**
 | Hostel | `HostelHub` | **Avoid** | BluePMS's Hostel is residential housing — applications, residents, fee generation, renewals. Dorm-bed inventory for short-stay hostels is a separate, undecided question |
 
 **Why payroll is the clearest call.** Payroll is statutory per country and often per province. The
-prototype's payroll carries India and US locale packs; the launch market is Canada (§7.9), which
-needs CPP, EI, T4 slips and Records of Employment, none of which exists. Building payroll makes
+prototype's payroll carries India and US locale packs, but production India needs PF, ESI,
+Professional Tax, Labour Welfare Fund, TDS and Form 16 per state, and Canada (§7.9) needs CPP, EI,
+T4 slips and Records of Employment — none of which exists. The pilot client left payroll blank. Building payroll makes
 HospAI a regulated payroll provider in every market it enters, for operators who already pay a
 provider to do it.
 
 **Reports are not a backlog.** BluePMS publishes just over 1,000 named reports and the prototype
 mirrors them as report catalogues. Production ships a small set of operational and owner reports,
 a report builder over the warehouse (§7.8), and agent access (§10.2) for the long tail. A catalogue
-entry in the prototype is not a report anyone has committed to build.
+entry in the prototype is not a report anyone has committed to build. The small set is named in
+roadmap **R4.14** — the front-office, housekeeping, POS and distribution reports the pilot ticked —
+and nothing outside that list is in scope without a new slice.
 
 **Added, not in BluePMS.** Accounting export (R4.12): revenue, tax components, payments, deposits
-and AR as journal-ready summaries — QuickBooks Online and Xero first, Tally and Zoho Books with
-India. For a one-to-ten property operator it is where purchasing, stock and payroll meet the PMS
+and AR as journal-ready summaries — **Tally and Zoho Books first** for the India pilot, QuickBooks
+Online and Xero with the Canada launch. For a one-to-ten property operator it is where purchasing, stock and payroll meet the PMS
 without us building any of them.
 
 **Rules.**
 
 1. Entitlement keys follow this table (§6.7). *Core* and *Add-on* modules get keys; *Integrate* and
-   *Avoid* modules deliberately have none.
+   *Avoid* modules deliberately have none. The one exception is a **connector that posts to the
+   folio**: R4.9 gives each adapter an entitlement, so the POS connector keeps `pos.enabled`.
+   The same holds for a **connector that writes reservations or inventory**: the channel
+   manager connector keeps `channel_manager.enabled` and `channel_manager.connections.limit`.
 2. The prototype's Settings → Add-ons toggles are a local demo switch. Production gating is the
    entitlement plane (§6) and nothing else.
-3. Sequencing follows the segments, as roadmap Tracks 4–6. **Canada launch (Track 4):** Front
-   Office, Housekeeping and the mobile app, channels, booking engine, payments, guest engagement
-   (all of Whistle — inbox, automations, campaigns, email and SMS), AR, guest CRM, accounting export,
-   single-property importers, self-serve plans and billing. **Upscale properties and groups
-   (Track 5):** packages and housekeeping depth, in-product AI, revenue management, POS and spa
-   interfaces, POS-lite, group blocks and lean Banquet, multi-property projections with group
-   consolidation, public API and MCP. **India and later bets (Track 6):** GST e-invoicing (R5.5),
-   WhatsApp (R6.1), agentic distribution, partner sandbox, deeper reporting.
+3. Sequencing follows the segments, as roadmap Track P then Tracks 4–6. **India pilot (Track P):**
+   GST e-invoicing (R5.5) and Form C (R6.2), a channel manager connector, accounting export to Tally and Zoho Books,
+   packages and front-office depth, housekeeping depth, guest documents and consent, the named
+   report set, the on-property interface framework with a POS connector, the read-only copilot,
+   and a BluePMS importer. **Canada launch
+   (Track 4):** Ontario and British Columbia jurisdictions, the mobile app, booking engine, payments,
+   guest engagement (all of Whistle — inbox, automations, campaigns, email and SMS), QuickBooks and
+   Xero export targets, Canadian importers, self-serve plans and billing. **Upscale properties and
+   groups (Track 5):** the acting AI layer, revenue management, further interface adapters (door
+   lock, spa), group blocks and lean Banquet, multi-property projections with group consolidation, public
+   API and MCP. **Later bets (Track 6):** WhatsApp (R6.1), agentic distribution, partner sandbox,
+   deeper reporting.
 4. Building anything classified *Integrate* or *Avoid* is a scope change. Amend this table in the
    same change-set; `docs/roadmap.md` treats the attempt as Blocked until then.

@@ -6,6 +6,7 @@ import { PermissionRoute } from './auth/PermissionRoute.js';
 import { createQueryClient } from './query-client.js';
 import { BookingScreen } from './screens/BookingScreen.js';
 import { BoardScreen } from './screens/BoardScreen.js';
+import { DashboardScreen } from './screens/DashboardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
@@ -50,7 +51,8 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}>
-            <Route index element={<Navigate to="/board" replace />} />
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardScreen />} />
             <Route path="board" element={<TapeChartScreen />} />
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />
             <Route path="departures" element={<BoardScreen mode="departures" />} />

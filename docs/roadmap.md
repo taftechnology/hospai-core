@@ -200,13 +200,14 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 ### R1 — Front office surfaces the prototype still has and we do not
 
-- [ ] **R1.1 Dashboard Hub**
+- [x] **R1.1 Dashboard Hub**
   - **Depends:** R0.6 (board keys).
   - **Prototype:** `Dashboard.tsx` (occupancy, arrivals/departures, ADR, available-rooms entry, night-audit CTA). **Not** Yield Analytics charts.
   - **Live:** `BoardSummary` on `/arrivals` etc. (`get_front_desk_summary`). No Hub nav item.
   - **Locked:** Add `/` or `/dashboard` as the first nav item. **Compose existing reads** — occupancy/arrivals/due-out/in-house from `get_front_desk_summary` (tape-chart spec), available-rooms from existing GET, night-audit CTA to `/night-audit`. VIP arrivals = filter existing arrivals by `vipFlag`. Spec: [tape chart + live board](superpowers/specs/2026-08-13-tape-chart-live-board-design.md).
   - **Out:** 7-day occupancy trend (warehouse §7.8); recharts; competitor scrape; Whistle inbox; “add 5 fake arrivals”; a second occupancy calculator that scans reservations.
   - **Tests:** Hub numbers match `get_front_desk_summary` for a seeded day; available-rooms omit occupied+OOO.
+  - **Shipped (2026-10-28):** `/dashboard` (`DashboardScreen`), first nav item; the index route redirects there and `/board` keeps the tape. Composes `get_front_desk_summary` (the shared `BoardSummary`), `get_front_desk_available_rooms` for tonight, today's arrivals filtered by `vipFlag`, and a Night audit link shown only with `night_audit:run`. ADR is left out — no existing read returns it, and a client-side calculation would be a second money path. Supersedes the tape spec's *no `/dashboard`* lock (§7.2, open question 5). The occupied+OOO exclusion is the server's ([tape spec](superpowers/specs/2026-08-13-tape-chart-live-board-design.md) test 6); the Hub shows that list's count.
 
 - [ ] **R1.2 Folio directory (prototype Billing nav)**
   - **Depends:** R0.3 (AR honest).
@@ -712,7 +713,7 @@ Start only when Track 5 is `[x]`.
 
 | Prototype section | Prototype file | Live today | Track |
 |---|---|---|---|
-| Dashboard Hub | `Dashboard.tsx` | summary widgets on board; no Hub nav | R1.1 (compose existing GET) |
+| Dashboard Hub | `Dashboard.tsx` | `/dashboard` Hub, first nav item | R1.1 **done** |
 | Room Plan Timeline | `TapeChart.tsx` | `/board` | R0.6, R1.3, R2 |
 | Front Desk Board | `FrontDesk.tsx` | `/arrivals` etc. + BoardSummary | R0.6, R1.3, R1.19, R1.20, R2.2 |
 | Cash drawer / shift | Front Desk cash | `/shift` + AppShell strip | R0.14, R1.16 honesty |

@@ -868,6 +868,37 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'reservations.early_depart',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_products',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_product_categories',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'products.create_category',
+  },
+  {
+    id: 'patch_product_category',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'products.update_category',
+  },
+  {
+    id: 'post_products',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'products.create_item',
+  },
+  {
+    id: 'patch_product',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'products.update_item',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

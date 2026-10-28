@@ -227,13 +227,15 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 ### R1 — Inventory / rates / products
 
-- [ ] **R1.5 Products catalog (not only charge codes)**
+- [x] **R1.5 Products catalog (not only charge codes)**
   - **Depends:** none after R0.1.
   - **Prototype:** `ProductsSettings.tsx` (categories, SKU items, add-ons, tax code).
   - **Live:** Settings → Charges (`charge_code` rows).
   - **Locked:** new **`modules/pms/products`** module (§11), not a Settings-only dump into PropertyDO. Category + item + default `amountMinor` + `chargeCode` + tax group. Folio “post charge” picker uses **products** for incidentals; system codes stay hidden. Charge-code registry spec remains the posting reference. **No** stock/reorder engine. `tax group` is the §7.9 **product class** key — never a stored rate or percentage; the rate resolves through the **R3.6** tax model, so Ontario and British Columbia can tax the same product differently.
   - **Pins:** new commands/routes + schema version + `src/module.manifest.ts` in the same commit.
   - **Out:** POS (third-party, via the **R4.21** connector), channel-only pricing (**R4.3**).
+  - **Amended 2026-10-28 ([spec](superpowers/specs/2026-10-28-products-catalog-design.md) §2.3):** a product's tax group **is its charge code's `tax_group`** — shown read-only, never stored on the product, because tax posting already resolves by charge code and a second carrier would be config pms-core does not read. A product in another product class uses another charge code.
+  - **Shipped (2026-10-28):** `modules/pms/products` (`pms.products`, `pms.core`) with migration **v35** (`products_category`, `products_item`, archive-only); commands `products.create_category` / `update_category` / `create_item` / `update_item` (INTERACTIVE, FAIL_CLOSED, audited, `products.changed`); routes `get_products` (`folio:read`) and `post_product_categories`, `patch_product_category`, `post_products`, `patch_product` (`settings:configure`). A product's charge code must be operator-postable — not a `SYSTEM_CHARGE_CODES` entry or a tax-rule output — or `charge_code_not_postable`; caps 200 categories / 2,000 items. Settings → **Products** tab; the Folio and Front Desk *Post charge* pickers list postable products by category and prefill code and price, posting through the unchanged `folio.add_item`; with no products they fall back to operator charge codes. The Folio card's existing charge-code list is unchanged. No `product_id` on folio lines yet (spec §6).
 
 - [ ] **R1.6 Amenities / sources / market segments / policies (Settings Property subtabs)**
   - **Depends:** R0.11.
@@ -805,13 +807,13 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-At roadmap authoring (`461d391`):
+After **R1.5** (2026-10-28):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **89** |
-| `V1_HTTP_ROUTE_AUDIT` | **144** routes, last `get_city_ledger_statement` |
-| `PROPERTY_SCHEMA_HEAD` | **34** |
+| `COMMAND_CATALOG` | length **94** |
+| `V1_HTTP_ROUTE_AUDIT` | **150** routes, last `patch_product` |
+| `PROPERTY_SCHEMA_HEAD` | **35** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 
 After a slice that adds a command/route/migration, **edit this table** in the same PR so the next agent does not use stale heads.

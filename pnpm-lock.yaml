@@ -65,6 +65,9 @@ importers:
       '@hospai/pms-inventory':
         specifier: workspace:*
         version: link:../../modules/pms/inventory
+      '@hospai/pms-products':
+        specifier: workspace:*
+        version: link:../../modules/pms/products
       '@hospai/pms-rates':
         specifier: workspace:*
         version: link:../../modules/pms/rates
@@ -205,6 +208,22 @@ importers:
         specifier: ^3.0.9
         version: 3.2.7(@types/node@22.20.1)(jsdom@30.0.1)
 
+  modules/pms/products:
+    dependencies:
+      '@hospai/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+    devDependencies:
+      '@hospai/do-runtime':
+        specifier: workspace:*
+        version: link:../../../packages/do-runtime
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.9
+        version: 3.2.7(@types/node@22.20.1)(jsdom@30.0.1)
+
   modules/pms/rates:
     dependencies:
       '@hospai/contracts':
@@ -325,6 +344,9 @@ importers:
       '@hospai/pms-housekeeping':
         specifier: workspace:*
         version: link:../../modules/pms/housekeeping
+      '@hospai/pms-products':
+        specifier: workspace:*
+        version: link:../../modules/pms/products
       zod:
         specifier: ^3.24.2
         version: 3.25.76

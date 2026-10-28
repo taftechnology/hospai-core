@@ -3927,6 +3927,257 @@ async function handleGetChargeCodes(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+/** Products catalog (R1.5) — body fields copied only when present, so the hashed object is the sent object. */
+function pickDefined<K extends string>(
+  body: Record<string, unknown>,
+  keys: readonly K[],
+): Partial<Record<K, unknown>> {
+  const out: Partial<Record<K, unknown>> = {};
+  for (const k of keys) if (body[k] !== undefined) out[k] = body[k];
+  return out;
+}
+
+async function handleGetProducts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const statusParam = new URL(ctx.request.url).searchParams.get('status');
+  const status = statusParam === 'all' ? ('all' as const) : ('active' as const);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listProducts(status);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostProductCategories(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.categoryId !== 'string' ||
+    typeof body.name !== 'string' ||
+    typeof body.idempotencyKey !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const idempotencyKey = body.idempotencyKey;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    categoryId: body.categoryId,
+    name: body.name,
+    ...pickDefined(body, ['sortOrder'] as const),
+  } as { categoryId: string; name: string; sortOrder?: number };
+  const fingerprint = await commandFingerprint('products.create_category', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryCreateProductCategory']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'products.create_category',
+      routeId: 'post_product_categories',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateProductCategory(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
+}
+
+async function handlePatchProductCategory(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const categoryId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body?.idempotencyKey !== 'string') return json({ error: 'invalid_body' }, 400);
+  const idempotencyKey = body.idempotencyKey;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    categoryId,
+    ...pickDefined(body, ['name', 'sortOrder', 'status'] as const),
+  } as { categoryId: string; name?: string; sortOrder?: number; status?: 'active' | 'archived' };
+  const fingerprint = await commandFingerprint('products.update_category', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryUpdateProductCategory']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'products.update_category',
+      routeId: 'patch_product_category',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateProductCategory(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
+}
+
+async function handlePostProducts(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.productId !== 'string' ||
+    typeof body.categoryId !== 'string' ||
+    typeof body.name !== 'string' ||
+    typeof body.chargeCode !== 'string' ||
+    body.defaultAmountMinor === undefined ||
+    typeof body.idempotencyKey !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const idempotencyKey = body.idempotencyKey;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    productId: body.productId,
+    categoryId: body.categoryId,
+    name: body.name,
+    chargeCode: body.chargeCode,
+    defaultAmountMinor: body.defaultAmountMinor,
+    ...pickDefined(body, ['sku'] as const),
+  } as {
+    productId: string;
+    categoryId: string;
+    name: string;
+    chargeCode: string;
+    defaultAmountMinor: number;
+    sku?: string | null;
+  };
+  const fingerprint = await commandFingerprint('products.create_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateProduct']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'products.create_item',
+      routeId: 'post_products',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateProduct(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
+}
+
+async function handlePatchProduct(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const productId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body?.idempotencyKey !== 'string') return json({ error: 'invalid_body' }, 400);
+  const idempotencyKey = body.idempotencyKey;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    productId,
+    ...pickDefined(body, [
+      'categoryId',
+      'name',
+      'sku',
+      'chargeCode',
+      'defaultAmountMinor',
+      'status',
+    ] as const),
+  } as {
+    productId: string;
+    categoryId?: string;
+    name?: string;
+    sku?: string | null;
+    chargeCode?: string;
+    defaultAmountMinor?: number;
+    status?: 'active' | 'archived';
+  };
+  const fingerprint = await commandFingerprint('products.update_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateProduct']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'products.update_item',
+      routeId: 'patch_product',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateProduct(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
+}
+
 async function handleGetFolioRoutingRules(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -8087,6 +8338,51 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'reservations.early_depart',
     entitlement: 'pms.core',
     handler: handlePostReservationEarlyDepart,
+  },
+  {
+    id: 'get_products',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/products$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetProducts,
+  },
+  {
+    id: 'post_product_categories',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/product-categories$/,
+    permission: 'settings:configure',
+    commandId: 'products.create_category',
+    handler: handlePostProductCategories,
+  },
+  {
+    id: 'patch_product_category',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/product-categories\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'products.update_category',
+    handler: handlePatchProductCategory,
+  },
+  {
+    id: 'post_products',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/products$/,
+    permission: 'settings:configure',
+    commandId: 'products.create_item',
+    handler: handlePostProducts,
+  },
+  {
+    id: 'patch_product',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/products\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'products.update_item',
+    handler: handlePatchProduct,
   },
 ];
 

@@ -173,6 +173,13 @@ import {
   WINDOW_NOT_CLOSABLE,
   WINDOW_NOT_OPENABLE,
   WINDOW_NOT_REOPENABLE,
+  CHARGE_CODE_NOT_POSTABLE,
+  PRODUCT_EXISTS,
+  PRODUCT_CATEGORY_EXISTS,
+  PRODUCT_SKU_TAKEN,
+  PRODUCT_INVALID_AMOUNT,
+  PRODUCT_CATEGORY_NOT_FOUND,
+  PRODUCT_NOT_FOUND,
   type CommandError,
   type FeatureKey,
   type Permission,
@@ -218,6 +225,9 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case NO_AVAILABILITY:
     case GUEST_ALREADY_ERASED:
     case GUEST_EXISTS:
+    case PRODUCT_EXISTS:
+    case PRODUCT_CATEGORY_EXISTS:
+    case PRODUCT_SKU_TAKEN:
     case STAFF_EXITED:
     case PAYMENT_NOT_RECONCILABLE:
       return 409;
@@ -225,6 +235,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case PROMO_NOT_FOUND:
     case INVOICE_NOT_FOUND:
     case CHARGE_CODE_NOT_FOUND:
+    case PRODUCT_CATEGORY_NOT_FOUND:
+    case PRODUCT_NOT_FOUND:
     case TAX_RULE_NOT_FOUND:
     case SHIFT_NOT_FOUND:
     case CITY_LEDGER_ACCOUNT_NOT_FOUND:
@@ -289,6 +301,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case DERIVED_RATE_PLAN_WRITE_FORBIDDEN:
     case CHARGE_CODE_EXISTS:
     case SYSTEM_CHARGE_CODE_PROTECTED:
+    case CHARGE_CODE_NOT_POSTABLE:
+    case PRODUCT_INVALID_AMOUNT:
     case TAX_RULE_KEY_EXISTS:
     case TAX_RULE_KEY_OVERLAP:
     case TAX_RULE_TYPE_UNSUPPORTED:

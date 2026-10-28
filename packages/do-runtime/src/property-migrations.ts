@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 34. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 35. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1169,6 +1169,32 @@ export const PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS = [
 export const PROVISIONAL_EXCEPTION_ACTOR_V34_SQL =
   PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v35 — products catalog (R1.5, modules/pms/products). Archive-only; tax group stays on charge_code. */
+export const PRODUCTS_V35_STATEMENTS = [
+  `CREATE TABLE products_category (
+  category_id  TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  status       TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+)`,
+  `CREATE TABLE products_item (
+  product_id            TEXT PRIMARY KEY,
+  category_id           TEXT NOT NULL REFERENCES products_category(category_id),
+  sku                   TEXT NULL,
+  name                  TEXT NOT NULL,
+  charge_code           TEXT NOT NULL REFERENCES charge_code(code),
+  default_amount_minor  INTEGER NOT NULL CHECK (default_amount_minor >= 0),
+  status                TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL
+)`,
+  `CREATE UNIQUE INDEX products_item_sku ON products_item (sku) WHERE sku IS NOT NULL`,
+  `CREATE INDEX products_item_category ON products_item (category_id, status)`,
+] as const;
+export const PRODUCTS_V35_SQL = PRODUCTS_V35_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1339,5 +1365,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 34,
     name: 'provisional_exception_actor',
     statements: PROVISIONAL_EXCEPTION_ACTOR_V34_STATEMENTS,
+  },
+  {
+    version: 35,
+    name: 'products',
+    statements: PRODUCTS_V35_STATEMENTS,
   },
 ] as const;

@@ -67,6 +67,15 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
   inquiry_expired: () => 'This inquiry has expired — create a new booking.',
   invoice_required: () => 'Generate an invoice before checkout.',
   not_modifiable: () => 'This reservation cannot be changed in its current status.',
+  charge_code_not_postable: () =>
+    'That charge code cannot be used for a product — pick an active, non-system code.',
+  category_exists: () => 'A category with that id already exists.',
+  product_exists: () => 'A product with that id already exists.',
+  sku_taken: () => 'Another product already uses that SKU.',
+  invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
+  category_not_found: () => 'That category is missing or archived — pick an active category.',
+  product_not_found: () => 'That product no longer exists — refresh the list.',
+  limit_exceeded: () => 'This property has reached the catalog limit.',
   no_availability: (body) => {
     const date = bodyStringField(body, 'date');
     if (date) {

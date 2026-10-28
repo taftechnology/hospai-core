@@ -1,0 +1,28 @@
+{
+  "name": "@hospai/pms-products",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hospai/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@hospai/do-runtime": "workspace:*",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}

@@ -36,6 +36,32 @@ export type PropertyRead = {
   propertyDo?: 'unreachable';
 };
 
+/** `get_products` (R1.5). `taxGroup` is the charge code's — read-only on a product. */
+export type ProductCategoryRead = {
+  categoryId: string;
+  name: string;
+  sortOrder: number;
+  status: 'active' | 'archived';
+};
+
+export type ProductItemRead = {
+  productId: string;
+  categoryId: string;
+  sku: string | null;
+  name: string;
+  chargeCode: string;
+  defaultAmountMinor: number;
+  status: 'active' | 'archived';
+  taxGroup: string | null;
+  postable: boolean;
+};
+
+export type ProductsList = {
+  ok: true;
+  categories: ProductCategoryRead[];
+  items: ProductItemRead[];
+};
+
 export type FolioWindowSummary = {
   folioWindowId: string;
   kind: string;
@@ -2103,6 +2129,86 @@ export function createClient(opts: {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ status, idempotencyKey }),
+      });
+    },
+    async listProducts(propertyId: string, query?: { status?: 'active' | 'all' }) {
+      const qs = query?.status === 'all' ? '?status=all' : '';
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/products${qs}`);
+      return body as ProductsList;
+    },
+    async createProductCategory(
+      propertyId: string,
+      input: { categoryId: string; name: string; sortOrder?: number },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `product-category:create:${input.categoryId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/product-categories`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateProductCategory(
+      propertyId: string,
+      categoryId: string,
+      input: { name?: string; sortOrder?: number; status?: 'active' | 'archived' },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `product-category:update:${categoryId}:${JSON.stringify(input)}`,
+        opts.keyStore,
+      );
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/product-categories/${enc(categoryId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+    async createProduct(
+      propertyId: string,
+      input: {
+        productId: string;
+        categoryId: string;
+        name: string;
+        sku?: string | null;
+        chargeCode: string;
+        defaultAmountMinor: number;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `product:create:${input.productId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/products`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateProduct(
+      propertyId: string,
+      productId: string,
+      input: {
+        categoryId?: string;
+        name?: string;
+        sku?: string | null;
+        chargeCode?: string;
+        defaultAmountMinor?: number;
+        status?: 'active' | 'archived';
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `product:update:${productId}:${JSON.stringify(input)}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/products/${enc(productId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
       });
     },
     async listFolioRoutingRules(propertyId: string, query?: { status?: 'active' | 'archived' | 'all' }) {

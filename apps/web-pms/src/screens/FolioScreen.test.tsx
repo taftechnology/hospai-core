@@ -33,6 +33,7 @@ const recordChargeback = vi.fn();
 const postFxAdjustment = vi.fn();
 const listRooms = vi.fn();
 const listChargeCodes = vi.fn();
+const listProducts = vi.fn();
 const openFolioWindowMock = vi.fn();
 const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
@@ -103,6 +104,7 @@ vi.mock('../client.js', () => ({
     postFxAdjustment: (...args: unknown[]) => postFxAdjustment(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
     listChargeCodes: (...args: unknown[]) => listChargeCodes(...args),
+    listProducts: (...args: unknown[]) => listProducts(...args),
     generateInvoice: (...args: unknown[]) => generateInvoice(...args),
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
@@ -433,6 +435,49 @@ describe('FolioScreen wiring', () => {
     screen.getByTestId('add-charge').click();
     await waitFor(() => expect(screen.getByTestId('folio-message')).toBeTruthy());
     expect(screen.getByTestId('folio-message').tagName).toBe('DIV');
+  });
+
+  it('R1.5: choosing a product fills the charge code and amount, then posts through add_item', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listChargeCodes.mockResolvedValue({
+      ok: true,
+      codes: [
+        { code: 'MISC', name: 'Misc' },
+        { code: 'MINIBAR', name: 'Minibar' },
+      ],
+    });
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_minibar', name: 'Minibar', sortOrder: 0, status: 'active' }],
+      items: [
+        {
+          productId: 'prod_water',
+          categoryId: 'cat_minibar',
+          sku: null,
+          name: 'Water',
+          chargeCode: 'MINIBAR',
+          defaultAmountMinor: 4000,
+          status: 'active',
+          taxGroup: 'GOODS',
+          postable: true,
+        },
+      ],
+    });
+    addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderFolio();
+    await waitFor(() => {
+      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.focus(screen.getByLabelText('charge-code'));
+    const product = await screen.findByLabelText('charge-product');
+    fireEvent.change(product, { target: { value: 'prod_water' } });
+    expect((screen.getByLabelText('charge-code') as HTMLSelectElement).value).toBe('MINIBAR');
+    expect((screen.getByLabelText('charge-amount') as HTMLInputElement).value).toBe('40.00');
+    screen.getByTestId('add-charge').click();
+    await waitFor(() => expect(addFolioLine).toHaveBeenCalledTimes(1));
+    expect(addFolioLine.mock.calls[0]![2]).toEqual({ chargeCode: 'MINIBAR', amountMinor: 4000 });
   });
 
   it('T18: tenders render in DataTable not ul', async () => {

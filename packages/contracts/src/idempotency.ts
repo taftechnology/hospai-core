@@ -164,6 +164,15 @@ export const CHARGE_CODE_EXISTS = 'charge_code_exists' as const;
 export const ROUTING_RULE_CONFLICT = 'routing_rule_conflict' as const;
 export const SYSTEM_CHARGE_CODE_PROTECTED = 'system_charge_code_protected' as const;
 
+/** Products catalog wire codes (R1.5) */
+export const CHARGE_CODE_NOT_POSTABLE = 'charge_code_not_postable' as const;
+export const PRODUCT_EXISTS = 'product_exists' as const;
+export const PRODUCT_CATEGORY_EXISTS = 'category_exists' as const;
+export const PRODUCT_SKU_TAKEN = 'sku_taken' as const;
+export const PRODUCT_INVALID_AMOUNT = 'invalid_amount' as const;
+export const PRODUCT_CATEGORY_NOT_FOUND = 'category_not_found' as const;
+export const PRODUCT_NOT_FOUND = 'product_not_found' as const;
+
 /** Config wire codes */
 export const CONFIG_CLASS_NOT_DOMAIN = 'config_class_not_domain' as const;
 

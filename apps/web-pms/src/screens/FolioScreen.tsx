@@ -47,6 +47,7 @@ import { formatMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
+import { usePostableProducts } from './product-picker.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
@@ -308,6 +309,8 @@ export function FolioScreen() {
     queryFn: () => api.listRooms(propertyId),
     enabled: Boolean(propertyId) && reservationQ.isSuccess && Boolean(reservationQ.data?.roomId),
   });
+  const products = usePostableProducts(chargeCodesRequested);
+  const [chargeProductId, setChargeProductId] = useState('');
   const chargeCodesQ = useQuery({
     queryKey: ['charge-codes', propertyId],
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
@@ -1387,6 +1390,38 @@ export function FolioScreen() {
           </CardHeader>
           <CardContent>
             <div className="ui-row">
+              {products.hasProducts ? (
+                <Field
+                  size="sm"
+                  label="Product"
+                  control={
+                    <NativeSelect
+                      aria-label="charge-product"
+                      value={chargeProductId}
+                      disabled={!policy.canPostCharge}
+                      onChange={(e) => {
+                        const item = products.byId.get(e.target.value);
+                        setChargeProductId(e.target.value);
+                        if (item) {
+                          setChargeCode(item.chargeCode);
+                          setChargeAmount(formatMinor(item.defaultAmountMinor));
+                        }
+                      }}
+                    >
+                      <option value="">Choose a product</option>
+                      {products.groups.map((g) => (
+                        <optgroup key={g.category.categoryId} label={g.category.name}>
+                          {g.items.map((i) => (
+                            <option key={i.productId} value={i.productId}>
+                              {i.name} · {formatMinor(i.defaultAmountMinor)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+              ) : null}
               <Field
                 size="sm"
                 label="Charge code"

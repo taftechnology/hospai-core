@@ -19,6 +19,7 @@ const getAvailableRooms = vi.fn();
 const assignRoom = vi.fn();
 const addFolioLine = vi.fn();
 const listChargeCodes = vi.fn();
+const listProducts = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -38,6 +39,7 @@ vi.mock('../client.js', () => ({
     assignRoom: (...a: unknown[]) => assignRoom(...a),
     addFolioLine: (...a: unknown[]) => addFolioLine(...a),
     listChargeCodes: (...a: unknown[]) => listChargeCodes(...a),
+    listProducts: (...a: unknown[]) => listProducts(...a),
   },
 }));
 
@@ -168,9 +170,54 @@ describe('BoardScreen R1.3 leftovers', () => {
         { code: 'OLD', name: 'Retired', status: 'archived' },
       ],
     });
+    listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
   });
 
   afterEach(() => cleanup());
+
+  it('R1.5: with products configured, Post charge picks a product and prefills its price', async () => {
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_minibar', name: 'Minibar', sortOrder: 0, status: 'active' }],
+      items: [
+        {
+          productId: 'prod_water',
+          categoryId: 'cat_minibar',
+          sku: null,
+          name: 'Water',
+          chargeCode: 'MINIBAR',
+          defaultAmountMinor: 4000,
+          status: 'active',
+          taxGroup: 'GOODS',
+          postable: true,
+        },
+        {
+          productId: 'prod_hidden',
+          categoryId: 'cat_minibar',
+          sku: null,
+          name: 'Hidden',
+          chargeCode: 'OLD',
+          defaultAmountMinor: 100,
+          status: 'active',
+          taxGroup: null,
+          postable: false,
+        },
+      ],
+    });
+    renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    fireEvent.click(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Post charge' }));
+    const dialog = await screen.findByRole('dialog', { name: /Post charge/ });
+    const product = await within(dialog).findByLabelText('Product');
+    expect(within(product).queryByRole('option', { name: /Hidden/ })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Post' })).toBeDisabled();
+    fireEvent.change(product, { target: { value: 'prod_water' } });
+    expect(within(dialog).getByLabelText('Amount')).toHaveValue('40.00');
+    fireEvent.change(within(dialog).getByLabelText('Amount'), { target: { value: '35.00' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Post' }));
+    await waitFor(() => expect(addFolioLine).toHaveBeenCalledTimes(1));
+    expect(addFolioLine.mock.calls[0]![2]).toEqual({ chargeCode: 'MINIBAR', amountMinor: 3500 });
+  });
 
   it('offers a walk-in booking for tonight', async () => {
     renderBoard('arrivals');

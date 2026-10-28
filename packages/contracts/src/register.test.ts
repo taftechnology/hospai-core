@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(64);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -747,10 +747,15 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[142]?.id).toBe('post_city_ledger_account_payment');
     expect(V1_HTTP_ROUTE_AUDIT[143]?.id).toBe('get_city_ledger_statement');
     expect(V1_HTTP_ROUTE_AUDIT[144]?.id).toBe('post_reservation_early_depart');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(145);
+    expect(V1_HTTP_ROUTE_AUDIT[145]?.id).toBe('get_products');
+    expect(V1_HTTP_ROUTE_AUDIT[146]?.id).toBe('post_product_categories');
+    expect(V1_HTTP_ROUTE_AUDIT[147]?.id).toBe('patch_product_category');
+    expect(V1_HTTP_ROUTE_AUDIT[148]?.id).toBe('post_products');
+    expect(V1_HTTP_ROUTE_AUDIT[149]?.id).toBe('patch_product');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(150);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(64);
-    expect(COMMAND_CATALOG).toHaveLength(90);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
+    expect(COMMAND_CATALOG).toHaveLength(94);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

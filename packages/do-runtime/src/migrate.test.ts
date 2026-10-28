@@ -51,6 +51,7 @@ import {
   INVOICE_GENERATION_V32_SQL,
   CITY_LEDGER_AR_V33_SQL,
   PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
+  PRODUCTS_V35_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -238,16 +239,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 34', () => {
+  it('applies property migrations through version 35', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(34);
+    expect(v1).toBe(35);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(34);
-    expect(sql.schemaVersion).toHaveLength(34);
+    expect(v2).toBe(35);
+    expect(sql.schemaVersion).toHaveLength(35);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -665,7 +666,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(34);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(35);
     expect(ORG_SCHEMA_HEAD).toBe(9);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -979,5 +980,23 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(PROVISIONAL_EXCEPTION_ACTOR_V34_SQL.trim());
+  });
+
+  it('property schema head is 35 after products', () => {
+    const v35 = PROPERTY_MIGRATIONS.find((m) => m.version === 35);
+    expect(v35?.name).toBe('products');
+    expect(v35?.statements[0]).toContain('products_category');
+  });
+
+  it('migrations/do-property/0035_products.sql matches PRODUCTS_V35_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0035_products.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PRODUCTS_V35_SQL.trim());
   });
 });

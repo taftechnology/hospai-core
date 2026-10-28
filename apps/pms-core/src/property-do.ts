@@ -178,6 +178,7 @@ import {
   type EventSource,
   type IdempotencyKey,
   type ModuleTxnCtx,
+  type Sync,
   type Permission,
   type ProvisionalCommand,
   type ProvisionalContext,
@@ -196,6 +197,18 @@ import {
   readAssignments,
   updateRoomStatus,
 } from '@hospai/pms-housekeeping';
+import {
+  createProductCategory,
+  createProductItem,
+  readProducts,
+  updateProductCategory,
+  updateProductItem,
+  type CreateCategoryInput,
+  type CreateItemInput,
+  type ProductsRead,
+  type UpdateCategoryInput,
+  type UpdateItemInput,
+} from '@hospai/pms-products';
 import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
 import {
 
@@ -1542,6 +1555,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'payment',
   'payment_dispute',
   'payment_event',
+  'products_category',
+  'products_item',
   'property_config',
   'property_config_audit',
   'provisional_exception',
@@ -1583,6 +1598,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM payment) +
       (SELECT COUNT(*) FROM payment_dispute) +
       (SELECT COUNT(*) FROM payment_event) +
+      (SELECT COUNT(*) FROM products_category) +
+      (SELECT COUNT(*) FROM products_item) +
       (SELECT COUNT(*) FROM property_config) +
       (SELECT COUNT(*) FROM property_config_audit) +
       (SELECT COUNT(*) FROM provisional_exception) +
@@ -13017,6 +13034,139 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof ChargeCodeExistsError) return { ok: false, error: CHARGE_CODE_EXISTS };
       return { ok: false, error: INTERNAL_ERROR };
     }
+  }
+
+
+  /**
+   * Shared write path for the products module (R1.5): DO preamble, then the
+   * module's sync use case inside `transactionSync(() => runIdempotent(...))`
+   * with `moduleTxnCtx`, plus one audit row. Module errors carry wire codes and
+   * map through `mapPropertyCommandError`.
+   */
+  private async runProductsWrite<R extends { ok: true }>(
+    actor: ActorContext,
+    idem: IdempotencyKey,
+    audit: {
+      commandId:
+        | 'products.create_category'
+        | 'products.update_category'
+        | 'products.create_item'
+        | 'products.update_item';
+      entityType: 'product_category' | 'product';
+      entityId: string;
+    },
+    execute: (ctx: ModuleTxnCtx) => { result: R; before: unknown | null; after: unknown },
+  ): Promise<
+    | R
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const out = execute(this.moduleTxnCtx(orgId, propertyId));
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: audit.commandId,
+            entityType: audit.entityType,
+            entityId: audit.entityId,
+            beforeJson: out.before,
+            afterJson: out.after,
+          });
+          return out.result as Sync<R>;
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Implements catalog `products.create_category`. Fingerprint allowlist: `{ categoryId, name, sortOrder }`. */
+  async tryCreateProductCategory(
+    actor: ActorContext,
+    input: CreateCategoryInput,
+    idem: IdempotencyKey,
+  ) {
+    return this.runProductsWrite(
+      actor,
+      idem,
+      { commandId: 'products.create_category', entityType: 'product_category', entityId: input.categoryId },
+      (ctx) => {
+        const result = createProductCategory(ctx, input);
+        return { result, before: null, after: result.category };
+      },
+    );
+  }
+
+  /** Implements catalog `products.update_category`. */
+  async tryUpdateProductCategory(
+    actor: ActorContext,
+    input: UpdateCategoryInput,
+    idem: IdempotencyKey,
+  ) {
+    return this.runProductsWrite(
+      actor,
+      idem,
+      { commandId: 'products.update_category', entityType: 'product_category', entityId: input.categoryId },
+      (ctx) => {
+        const r = updateProductCategory(ctx, input);
+        return { result: { ok: true as const, category: r.category }, before: r.before, after: r.category };
+      },
+    );
+  }
+
+  /** Implements catalog `products.create_item`. Charge code must be operator-postable (spec §2.4). */
+  async tryCreateProduct(actor: ActorContext, input: CreateItemInput, idem: IdempotencyKey) {
+    return this.runProductsWrite(
+      actor,
+      idem,
+      { commandId: 'products.create_item', entityType: 'product', entityId: input.productId },
+      (ctx) => {
+        const result = createProductItem(ctx, input, { systemChargeCodes: SYSTEM_CHARGE_CODES });
+        return { result, before: null, after: result.item };
+      },
+    );
+  }
+
+  /** Implements catalog `products.update_item`. */
+  async tryUpdateProduct(actor: ActorContext, input: UpdateItemInput, idem: IdempotencyKey) {
+    return this.runProductsWrite(
+      actor,
+      idem,
+      { commandId: 'products.update_item', entityType: 'product', entityId: input.productId },
+      (ctx) => {
+        const r = updateProductItem(ctx, input, { systemChargeCodes: SYSTEM_CHARGE_CODES });
+        return { result: { ok: true as const, item: r.item }, before: r.before, after: r.item };
+      },
+    );
+  }
+
+  /** `get_products` — bounded list with each item's charge-code tax group and postability. */
+  async listProducts(status: 'active' | 'all' = 'active'): Promise<ProductsRead> {
+    this.assertRpcAvailable();
+    return readProducts(this.ctx.storage.sql, { status, systemChargeCodes: SYSTEM_CHARGE_CODES });
   }
 
   /**

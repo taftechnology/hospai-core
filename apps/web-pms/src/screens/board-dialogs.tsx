@@ -4,7 +4,8 @@ import type { FrontDeskItem } from '@hospai/client-core';
 import { Alert, Button, Field, Input, NativeSelect, Skeleton } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { parseMajorToMinor } from '../money.js';
+import { formatMinor, parseMajorToMinor } from '../money.js';
+import { usePostableProducts } from './product-picker.js';
 import { FormDialog } from '../shell/FormDialog.js';
 
 function failureCopy(err: unknown, fallback: string): string {
@@ -171,8 +172,10 @@ export function PostChargeDialog({
   const propertyId = tenant.propertyId;
   const [opId] = useState(() => `incidental:${row.reservationId}:${crypto.randomUUID()}`);
   const [code, setCode] = useState('');
+  const [productId, setProductId] = useState('');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const products = usePostableProducts();
 
   const codesQ = useQuery({
     queryKey: ['charge-codes', propertyId],
@@ -182,7 +185,10 @@ export function PostChargeDialog({
   const codes = (
     (codesQ.data?.codes ?? []) as Array<{ code: string; name: string; status?: string }>
   ).filter((c) => c.status !== 'archived' && !NON_INCIDENTAL_CODES.has(c.code));
-  const chosen = code || (codes.some((c) => c.code === 'MISC') ? 'MISC' : codes[0]?.code) || '';
+  const byProduct = products.hasProducts;
+  const chosen = byProduct
+    ? (products.byId.get(productId)?.chargeCode ?? '')
+    : code || (codes.some((c) => c.code === 'MISC') ? 'MISC' : codes[0]?.code) || '';
   const canPost = chosen.length > 0 && validAmount(amount);
 
   const post = useMutation({
@@ -227,12 +233,50 @@ export function PostChargeDialog({
         </>
       }
     >
-      {codesQ.isError ? (
+      {products.query.isPending ? (
+        <Skeleton aria-label="Loading products" />
+      ) : byProduct ? (
+        <>
+          <Field
+            label="Product"
+            control={
+              <NativeSelect
+                value={productId}
+                onChange={(e) => {
+                  const item = products.byId.get(e.target.value);
+                  setProductId(e.target.value);
+                  if (item) setAmount(formatMinor(item.defaultAmountMinor));
+                }}
+              >
+                <option value="">Choose a product</option>
+                {products.groups.map((g) => (
+                  <optgroup key={g.category.categoryId} label={g.category.name}>
+                    {g.items.map((i) => (
+                      <option key={i.productId} value={i.productId}>
+                        {i.name} · {formatMinor(i.defaultAmountMinor)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Amount"
+            control={
+              <Input placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            }
+          />
+        </>
+      ) : codesQ.isError ? (
         <Alert>{failureCopy(codesQ.error, 'Could not load charge codes.')}</Alert>
       ) : !codesQ.isSuccess ? (
         <Skeleton aria-label="Loading charge codes" />
       ) : (
         <>
+          {products.query.isError ? (
+            <p className="muted">Products unavailable — posting by charge code.</p>
+          ) : null}
           <Field
             label="Charge code"
             control={

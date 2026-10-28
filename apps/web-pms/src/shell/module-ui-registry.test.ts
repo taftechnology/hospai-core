@@ -13,6 +13,7 @@ describe('module UI nav merge', () => {
       'housekeeping',
       'guests',
       'rates',
+      'folios',
       'city-ledger',
       'night-audit',
       'settings',
@@ -27,6 +28,8 @@ describe('module UI nav merge', () => {
 
     expect(ALL_NAV.find((e) => e.id === 'dashboard')?.label).toBe('Dashboard');
     expect(ALL_NAV.find((e) => e.id === 'dashboard')?.path).toBe('/dashboard');
+    expect(ALL_NAV.find((e) => e.id === 'folios')?.label).toBe('Folios');
+    expect(ALL_NAV.find((e) => e.id === 'folios')?.permission).toBe('folio:read');
     expect(ALL_NAV.find((e) => e.id === 'board')?.label).toBe('Room Plan');
     expect(ALL_NAV.find((e) => e.id === 'arrivals')?.label).toBe('Front Desk');
     expect(ALL_NAV.find((e) => e.id === 'book')?.label).toBe('New Booking');

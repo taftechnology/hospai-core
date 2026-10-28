@@ -11,6 +11,7 @@ import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
+import { FoliosDirectoryScreen } from './screens/FoliosDirectoryScreen.js';
 import { ShiftScreen } from './screens/ShiftScreen.js';
 import { GuestsDirectoryScreen } from './screens/GuestsDirectoryScreen.js';
 import { GuestProfileScreen } from './screens/GuestProfileScreen.js';
@@ -62,6 +63,9 @@ export function App() {
             <Route path="guests/:guestRef" element={<GuestProfileScreen />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
             <Route path="folio/:reservationId" element={<FolioScreen />} />
+            <Route path="folios" element={<PermissionRoute permission="folio:read" />}>
+              <Route index element={<FoliosDirectoryScreen />} />
+            </Route>
             <Route path="shift" element={<ShiftScreen />} />
             <Route path="shift/:shiftId" element={<ShiftScreen />} />
             <Route path="book" element={<PermissionRoute permission="reservations:write" />}>

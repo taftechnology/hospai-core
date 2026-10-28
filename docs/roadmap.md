@@ -209,12 +209,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Tests:** Hub numbers match `get_front_desk_summary` for a seeded day; available-rooms omit occupied+OOO.
   - **Shipped (2026-10-28):** `/dashboard` (`DashboardScreen`), first nav item; the index route redirects there and `/board` keeps the tape. Composes `get_front_desk_summary` (the shared `BoardSummary`), `get_front_desk_available_rooms` for tonight, today's arrivals filtered by `vipFlag`, and a Night audit link shown only with `night_audit:run`. ADR is left out — no existing read returns it, and a client-side calculation would be a second money path. Supersedes the tape spec's *no `/dashboard`* lock (§7.2, open question 5). The occupied+OOO exclusion is the server's ([tape spec](superpowers/specs/2026-08-13-tape-chart-live-board-design.md) test 6); the Hub shows that list's count.
 
-- [ ] **R1.2 Folio directory (prototype Billing nav)**
+- [x] **R1.2 Folio directory (prototype Billing nav)**
   - **Depends:** R0.3 (AR honest).
   - **Prototype:** `FoliosBilling.tsx` search → pick stay → ledger.
   - **Live:** only `/folio/:reservationId`. Add `/folios` (or `/billing`) directory: in-house + due-out, search by guest name / reservation id, row → existing FolioScreen.
   - **Locked:** no new money model. Permission `folio:read`.
   - **Tests:** directory lists checked_in; click path uses existing folio GET.
+  - **Shipped (2026-10-28):** `/folios` (`FoliosDirectoryScreen`), nav *Folios* behind `folio:read`. Lists in-house stays from the existing in-house read (shared `['board', 'in-house', …]` key), marks *Due out today* and *Overstay* against the property business date, and opens the existing `/folio/:reservationId`. Search filters the loaded rows by guest name or reservation id; when nothing in house matches, it falls back to the existing exact `get_reservation_search`, so a departed stay's folio is still reachable by id. **No balances on the list** — showing one per row would need a folio GET per stay; the folio screen keeps the money view.
 
 - [ ] **R1.3 Tape / Front Desk interaction leftovers**
   - **Depends:** R0.6, R0.11.
@@ -723,7 +724,7 @@ Start only when Track 5 is `[x]`.
 | Housekeeping Desk | `Housekeeping.tsx` | board + assign + workload | R1.9 (priority, inventory, **maintenance module**, roster skills) |
 | Rates & Yield | `RatesAvailability.tsx` | `/rates/*` | R1.7, R5.1 |
 | Guest CRM | `GuestsCRM.tsx` | `/guests` | R1.8 (DEMO-READY P1); documents + consent **R4.15** |
-| Folio Ledger | `FoliosBilling.tsx` | `/folio/:id` only | R1.2 |
+| Folio Ledger | `FoliosBilling.tsx` | `/folios` directory → `/folio/:id` | R1.2 **done** |
 | Folio extras (promo, damage, no-post, invoice) | stay + billing | money-ops + FolioScreen | shipped; wire on R1.15 if missing |
 | Folio routing rules | Front Desk / Settings | Settings charges | shipped — do not rebuild |
 | Night Audit | `NightAudit.tsx` | `/night-audit` (keep in nav) | R1.10, R0.7 |

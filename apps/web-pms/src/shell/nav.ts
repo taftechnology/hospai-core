@@ -18,6 +18,7 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'book', label: 'New Booking', path: '/book', order: 40, permission: 'reservations:write' },
   { id: 'guests', label: 'Guests', path: '/guests', order: 60, permission: 'guests:read' },
   { id: 'rates', label: 'Rates', path: '/rates', order: 70, permission: 'rates:write' },
+  { id: 'folios', label: 'Folios', path: '/folios', order: 72, permission: 'folio:read' },
   { id: 'city-ledger', label: 'City ledger', path: '/city-ledger', order: 75, permission: 'folio:read' },
   { id: 'night-audit', label: 'Night Audit', path: '/night-audit', order: 80, permission: 'night_audit:run' },
   { id: 'settings', label: 'Settings', path: '/settings', order: 90, permission: 'settings:configure' },

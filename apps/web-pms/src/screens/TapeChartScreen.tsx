@@ -37,6 +37,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
+import { bookHref } from '../status/book-href.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
@@ -401,6 +402,9 @@ export function TapeChartScreen() {
                   <DataTableHeaderCell>Room</DataTableHeaderCell>
                   <DataTableHeaderCell>Type</DataTableHeaderCell>
                   <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell align="right">
+                    <span className="ui-visually-hidden">Actions</span>
+                  </DataTableHeaderCell>
                 </DataTableRow>
               </DataTableHead>
               <DataTableBody>
@@ -412,6 +416,19 @@ export function TapeChartScreen() {
                     <DataTableCell>{typeLabel(r.roomTypeId, typeRows)}</DataTableCell>
                     <DataTableCell>
                       <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
+                    </DataTableCell>
+                    <DataTableCell align="right">
+                      <Link
+                        className="ui-link-btn ui-link-btn--sm"
+                        aria-label={`Book ${r.code}`}
+                        to={bookHref({
+                          arrival: from,
+                          departure: to > from ? to : addCalendarDays(from, 1),
+                          roomTypeId: r.roomTypeId,
+                        })}
+                      >
+                        Book
+                      </Link>
                     </DataTableCell>
                   </DataTableRow>
                 ))}
@@ -481,13 +498,27 @@ export function TapeChartScreen() {
                   {room.code}{' '}
                   <Badge rung={roomStatusRung(room.status)}>{room.status}</Badge>
                 </div>
-                {dates.map((d, i) => (
-                  <div
-                    key={d}
-                    className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
-                    style={{ ['--tape-col' as string]: String(i + 2) }}
-                  />
-                ))}
+                {dates.map((d, i) =>
+                  today != null && d >= today ? (
+                    <Link
+                      key={d}
+                      to={bookHref({
+                        arrival: d,
+                        departure: addCalendarDays(d, 1),
+                        roomTypeId: room.roomTypeId,
+                      })}
+                      aria-label={`Book room ${room.code} on ${d}`}
+                      className={`tape-cell tape-cell--bookable min-w-0${d === today ? ' tape-cell--today' : ''}`}
+                      style={{ ['--tape-col' as string]: String(i + 2) }}
+                    />
+                  ) : (
+                    <div
+                      key={d}
+                      className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
+                      style={{ ['--tape-col' as string]: String(i + 2) }}
+                    />
+                  ),
+                )}
                 {(assignedByRoom.get(room.roomId) ?? []).map((block) => {
                   const span = spanRange(
                     block.arrivalDate ?? from,

@@ -332,6 +332,39 @@ describe('TapeChartScreen', () => {
     expect(screen.getByText(/Vacant sellable inventory/)).toBeTruthy();
   });
 
+  it('R1.3: available rows book that room type for the shown stay', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-13',
+      toDate: '2026-08-19',
+      asOf: 1,
+      rooms: [room],
+    });
+    renderTape({
+      pathname: '/board',
+      search: '?view=available&from=2026-08-13&to=2026-08-19',
+    });
+    const book = await screen.findByRole('link', { name: 'Book 101' });
+    expect(book.getAttribute('href')).toBe(
+      '/book?arrival=2026-08-13&departure=2026-08-19&roomTypeId=rt_king',
+    );
+  });
+
+  it('R1.3: an empty tape cell from today on links to /book for that night and type', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-08-14T12:00:00.000Z'), shouldAdvanceTime: true });
+    try {
+      renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+      const cell = await screen.findByRole('link', { name: 'Book room 101 on 2026-08-15' });
+      expect(cell.getAttribute('href')).toBe(
+        '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king',
+      );
+      expect(screen.getByRole('link', { name: 'Book room 101 on 2026-08-14' })).toBeTruthy();
+      expect(screen.queryByRole('link', { name: 'Book room 101 on 2026-08-13' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('available view empty copy', async () => {
     getAvailableRooms.mockResolvedValue({
       ok: true,

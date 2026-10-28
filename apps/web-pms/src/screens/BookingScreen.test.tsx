@@ -1016,4 +1016,20 @@ describe('BookingScreen', () => {
     expect((screen.getByTestId('hold-book') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('R1.3: prefills dates and room type from the query string', async () => {
+    renderBook('/book?arrival=2026-09-01&departure=2026-09-03&roomTypeId=rt_king');
+    await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-09-01'));
+    expect(inputValue('departure-date')).toBe('2026-09-03');
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/ })).toBeTruthy());
+    expect((screen.getByRole('radio', { name: /King Deluxe/ }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+
+  it('R1.3: ignores a query-string stay whose departure is not after arrival', async () => {
+    renderBook('/book?arrival=2026-09-03&departure=2026-09-01');
+    await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-08-11'));
+    expect(inputValue('departure-date')).toBe('2026-08-12');
+  });
 });

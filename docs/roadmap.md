@@ -217,12 +217,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Tests:** directory lists checked_in; click path uses existing folio GET.
   - **Shipped (2026-10-28):** `/folios` (`FoliosDirectoryScreen`), nav *Folios* behind `folio:read`. Lists in-house stays from the existing in-house read (shared `['board', 'in-house', …]` key), marks *Due out today* and *Overstay* against the property business date, and opens the existing `/folio/:reservationId`. Search filters the loaded rows by guest name or reservation id; when nothing in house matches, it falls back to the existing exact `get_reservation_search`, so a departed stay's folio is still reachable by id. **No balances on the list** — showing one per row would need a folio GET per stay; the folio screen keeps the money view.
 
-- [ ] **R1.3 Tape / Front Desk interaction leftovers**
+- [x] **R1.3 Tape / Front Desk interaction leftovers**
   - **Depends:** R0.6, R0.11.
   - **Prototype:** `TapeChart.tsx`, `FrontDesk.tsx`, `AvailableRoomsModal.tsx`.
   - **Live:** `TapeChartScreen.tsx`, `BoardScreen.tsx`.
   - **Locked:** tape empty-cell → **navigate** to `/book` with dates/type query params (tape spec: no new assign POST on the tape). Available-rooms already has a GET — surface it as a modal or Room Plan action that books. **Open Reservation / walk-in** = `/book` with arrival = property today. Board already shows VIP/DND badges — add **VIP-only filter**. **Post incidental** Dialog → existing `folio.add_item`. Assign-room from **arrivals board** may POST `reservations.assign_room` (not drag-on-tape). Cancel check-in: wire existing HTTP on **R1.15**. Dirty-room: keep cleanliness gate. Tape OOO uses existing ranges.
   - **Out:** “Add 5 arrivals”; PAN pre-auth modal; drag-to-move on the tape.
+  - **Shipped (2026-10-28):** empty tape cells from the property's today onward link to `/book?arrival=&departure=&roomTypeId=` (past cells stay inert; no assign POST on the tape); Available rows get **Book** with the shown stay and type; `BookingScreen` prefills from those params and ignores a stay whose departure is not after arrival. Front Desk header: **Walk-in** (`/book` for tonight) and a **VIP only** filter (`?vip=1`) across arrivals, departures and in-house, with VIP-specific empty copy. **Assign room** on unassigned arrivals lists free rooms of the booked type for the stay (`get_front_desk_available_rooms`, dirty rooms included — check-in keeps the cleanliness gate) and POSTs `reservations.assign_room`, invalidating `['board']`, tape, available and summary. **Post charge** on in-house rows posts through the existing `folio.add_item` route in minor units, hides archived codes and every do-runtime `SYSTEM_CHARGE_CODES` entry plus `TAX` (a test pins the list), and defaults to `MISC`. Both dialogs are one `FormDialog` in the `.app-modal` language with a focus trap. **Cancel check-in stays on R1.15.**
 
 ### R1 — Inventory / rates / products
 

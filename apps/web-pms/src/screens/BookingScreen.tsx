@@ -96,13 +96,20 @@ export function BookingScreen() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const urlGuestRef = searchParams.get('guestRef');
+  const [urlStay] = useState(() => {
+    const arrival = searchParams.get('arrival') ?? '';
+    const departure = searchParams.get('departure') ?? '';
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (!iso.test(arrival) || !iso.test(departure) || departure <= arrival) return null;
+    return { arrival, departure, roomTypeId: searchParams.get('roomTypeId') };
+  });
 
   const [reservationId] = useState(() => crypto.randomUUID());
   const [guestId] = useState(() => crypto.randomUUID());
 
-  const [arrivalDate, setArrivalDate] = useState('');
-  const [departureDate, setDepartureDate] = useState('');
-  const [roomTypeId, setRoomTypeId] = useState<string | null>(null);
+  const [arrivalDate, setArrivalDate] = useState(urlStay?.arrival ?? '');
+  const [departureDate, setDepartureDate] = useState(urlStay?.departure ?? '');
+  const [roomTypeId, setRoomTypeId] = useState<string | null>(urlStay?.roomTypeId ?? null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');

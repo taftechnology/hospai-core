@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  addCalendarDays,
   ClassifiedError,
   type FrontDeskItem,
   type GuestRowState,
@@ -19,7 +20,9 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Checkbox,
   EmptyState,
+  Field,
   Skeleton,
   DataTable,
   DataTableBody,
@@ -40,8 +43,10 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
-import { GuestNameLink } from './guest-row.js';
+import { GuestNameLink, guestLabel } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
+import { AssignRoomDialog, PostChargeDialog } from './board-dialogs.js';
+import { bookHref } from '../status/book-href.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -142,18 +147,24 @@ function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
   );
 }
 
+type RowAction = (row: FrontDeskItem) => void;
+
 function BoardTable({
   mode,
   items,
   states,
   timeZone,
   roomsById,
+  onAssign,
+  onPostCharge,
 }: {
   mode: BoardMode;
   items: FrontDeskItem[];
   states: Record<string, GuestRowState>;
   timeZone: string | null;
   roomsById: Map<string, string>;
+  onAssign?: RowAction;
+  onPostCharge?: RowAction;
 }) {
   const today = timeZone ? propertyLocalToday(timeZone) : null;
   const showDeparture = mode === 'in-house';
@@ -223,6 +234,11 @@ function BoardTable({
                 {mode === 'arrivals' && status === 'pending' ? (
                   <RowActions>
                     <ConfirmPendingButton reservationId={row.reservationId} />
+                    {onAssign && row.roomId == null ? (
+                      <Button type="button" size="sm" onClick={() => onAssign(row)}>
+                        Assign room
+                      </Button>
+                    ) : null}
                     <Link
                       className="ui-link-btn ui-link-btn--sm"
                       to={`/folio/${encodeURIComponent(row.reservationId)}`}
@@ -244,6 +260,11 @@ function BoardTable({
                     >
                       Check in
                     </Link>
+                    {onAssign && row.roomId == null ? (
+                      <Button type="button" size="sm" onClick={() => onAssign(row)}>
+                        Assign room
+                      </Button>
+                    ) : null}
                     <Link
                       className="ui-link-btn ui-link-btn--sm"
                       to={`/folio/${encodeURIComponent(row.reservationId)}`}
@@ -259,6 +280,11 @@ function BoardTable({
                   </RowActions>
                 ) : (
                   <RowActions>
+                    {onPostCharge && status === 'checked_in' ? (
+                      <Button type="button" size="sm" onClick={() => onPostCharge(row)}>
+                        Post charge
+                      </Button>
+                    ) : null}
                     <Link
                       className="ui-link-btn ui-link-btn--sm"
                       to={`/folio/${encodeURIComponent(row.reservationId)}`}
@@ -287,11 +313,13 @@ function DeparturesBoard({
   states,
   timeZone,
   roomsById,
+  onPostCharge,
 }: {
   items: FrontDeskItem[];
   states: Record<string, GuestRowState>;
   timeZone: string | null;
   roomsById: Map<string, string>;
+  onPostCharge?: RowAction;
 }) {
   const { dueOut, departed, other } = partitionDepartures(items);
   const sections: Array<{ title: string; rows: FrontDeskItem[] }> = [
@@ -314,6 +342,7 @@ function DeparturesBoard({
               states={states}
               timeZone={timeZone}
               roomsById={roomsById}
+              onPostCharge={onPostCharge}
             />
           )}
         </section>
@@ -385,6 +414,18 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const timeZone = usePropertyTimeZone();
   const [createdBanner, setCreatedBanner] = useState<string | null>(null);
+  const vipOnly = params.get('vip') === '1';
+  const [assignFor, setAssignFor] = useState<FrontDeskItem | null>(null);
+  const [chargeFor, setChargeFor] = useState<FrontDeskItem | null>(null);
+  const [boardMessage, setBoardMessage] = useState<string | null>(null);
+
+  function setVipOnly(next: boolean) {
+    const sp = new URLSearchParams(params);
+    if (next) sp.set('vip', '1');
+    else sp.delete('vip');
+    const qs = sp.toString();
+    void navigate({ search: qs ? `?${qs}` : '' }, { replace: true });
+  }
 
   useEffect(() => {
     if (seededRef.current) return;
@@ -481,8 +522,11 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     return <Alert>Failed to load board</Alert>;
   }
 
-  const items = listQ.data?.items ?? [];
+  const vipFilter = (rows: FrontDeskItem[]) =>
+    vipOnly ? rows.filter((row) => row.vipFlag === true) : rows;
+  const items = vipFilter(listQ.data?.items ?? []);
   const states = batchQ.data?.states ?? {};
+  const nameOf = (row: FrontDeskItem) => guestLabel(states[row.guestRef], row.guestRef);
 
   const dateLoading = (mode === 'arrivals' || mode === 'departures') && date == null;
 
@@ -492,8 +536,8 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   } else if (listQ.isLoading) {
     body = <p className="muted">Loading…</p>;
   } else if (mode === 'arrivals') {
-    const depItems = departuresQ.data?.items ?? [];
-    const inHouseItems = inHouseQ.data?.items ?? [];
+    const depItems = vipFilter(departuresQ.data?.items ?? []);
+    const inHouseItems = vipFilter(inHouseQ.data?.items ?? []);
     const dueOutCount = partitionDepartures(depItems).dueOut.length;
     body = (
       <>
@@ -502,7 +546,13 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           badge={<Badge rung="neutral">{items.length} expected</Badge>}
           isLoading={listQ.isLoading}
           error={listQ.isError ? 'Arrivals unavailable' : null}
-          empty={items.length === 0 ? 'No arrivals for this date' : null}
+          empty={
+            items.length === 0
+              ? vipOnly
+                ? 'No VIP arrivals for this date'
+                : 'No arrivals for this date'
+              : null
+          }
           next={listQ.data?.nextCursor}
           onNext={() => setCursor(listQ.data!.nextCursor!)}
         >
@@ -512,6 +562,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             states={states}
             timeZone={timeZone}
             roomsById={roomsById}
+            onAssign={setAssignFor}
           />
         </SectionCard>
         <SectionCard
@@ -519,7 +570,13 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           badge={<Badge rung="attention">{dueOutCount} due out</Badge>}
           isLoading={departuresQ.isLoading}
           error={departuresQ.isError ? 'Departures unavailable' : null}
-          empty={depItems.length === 0 ? 'No departures for this date' : null}
+          empty={
+            depItems.length === 0
+              ? vipOnly
+                ? 'No VIP departures for this date'
+                : 'No departures for this date'
+              : null
+          }
           next={departuresQ.data?.nextCursor}
           onNext={() => setDepCursor(departuresQ.data!.nextCursor!)}
         >
@@ -528,6 +585,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             states={states}
             timeZone={timeZone}
             roomsById={roomsById}
+            onPostCharge={setChargeFor}
           />
         </SectionCard>
         <SectionCard
@@ -535,7 +593,13 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           badge={<Badge rung="informational">{inHouseItems.length} guests</Badge>}
           isLoading={inHouseQ.isLoading}
           error={inHouseQ.isError ? 'In-house unavailable' : null}
-          empty={inHouseItems.length === 0 ? 'No guests in house' : null}
+          empty={
+            inHouseItems.length === 0
+              ? vipOnly
+                ? 'No VIP guests in house'
+                : 'No guests in house'
+              : null
+          }
           next={inHouseQ.data?.nextCursor}
           onNext={() => setInHouseCursor(inHouseQ.data!.nextCursor!)}
         >
@@ -545,6 +609,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             states={states}
             timeZone={timeZone}
             roomsById={roomsById}
+            onPostCharge={setChargeFor}
           />
         </SectionCard>
       </>
@@ -560,7 +625,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
             <Badge rung="informational">0 guests</Badge>
           )
         }
-        empty="No reservations for this view"
+        empty={vipOnly ? 'No VIP guests for this view' : 'No reservations for this view'}
       />
     );
   } else if (mode === 'departures') {
@@ -577,6 +642,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           states={states}
           timeZone={timeZone}
           roomsById={roomsById}
+          onPostCharge={setChargeFor}
         />
       </SectionCard>
     );
@@ -594,6 +660,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           states={states}
           timeZone={timeZone}
           roomsById={roomsById}
+          onPostCharge={setChargeFor}
         />
       </SectionCard>
     );
@@ -601,6 +668,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
   const summaryDate = date ?? (timeZone ? propertyLocalToday(timeZone) : null);
   const headerDate = summaryDate;
+  const localToday = timeZone ? propertyLocalToday(timeZone) : null;
 
   return (
     <div className="board-page">
@@ -634,6 +702,20 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
                 />
               </div>
             ) : null}
+            <Field
+              label="VIP only"
+              control={
+                <Checkbox checked={vipOnly} onChange={(e) => setVipOnly(e.target.checked)} />
+              }
+            />
+            {localToday ? (
+              <Link
+                className="ui-link-btn"
+                to={bookHref({ arrival: localToday, departure: addCalendarDays(localToday, 1) })}
+              >
+                Walk-in
+              </Link>
+            ) : null}
             <Link className="ui-link-btn ui-link-btn--primary" to="/book">
               New booking
             </Link>
@@ -641,7 +723,34 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         }
       />
       <BoardSummary date={summaryDate} />
+      {boardMessage ? (
+        <Alert intent="settled" data-testid="board-message">
+          {boardMessage}
+        </Alert>
+      ) : null}
       {body}
+      {assignFor ? (
+        <AssignRoomDialog
+          row={assignFor}
+          guestName={nameOf(assignFor)}
+          onClose={() => setAssignFor(null)}
+          onDone={(message) => {
+            setAssignFor(null);
+            setBoardMessage(message);
+          }}
+        />
+      ) : null}
+      {chargeFor ? (
+        <PostChargeDialog
+          row={chargeFor}
+          guestName={nameOf(chargeFor)}
+          onClose={() => setChargeFor(null)}
+          onDone={(message) => {
+            setChargeFor(null);
+            setBoardMessage(message);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -462,6 +462,16 @@ a {
   background: color-mix(in srgb, var(--primary) 6%, var(--panel));
 }
 
+/* Empty future cell → /book for that night (R1.3). */
+.tape-cell--bookable {
+  display: block;
+}
+
+.tape-cell--bookable:hover,
+.tape-cell--bookable:focus-visible {
+  background: color-mix(in srgb, var(--primary) 12%, var(--panel));
+}
+
 .tape-block {
   display: flex;
   align-items: center;

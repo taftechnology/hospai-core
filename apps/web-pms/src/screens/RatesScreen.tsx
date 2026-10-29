@@ -1,8 +1,10 @@
+import { RATES_BULK_UPDATE_MAX } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -23,8 +25,18 @@ import {
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
+import {
+  RATE_AMOUNT_RE,
+  buildBulkRateCells,
+  bulkRangeProblem,
+  chunk,
+  eachStayDate,
+  utcWeekday,
+  type BulkRateCell,
+} from './rates-bulk.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
@@ -108,10 +120,6 @@ function eachDateInclusive(from: string, to: string): string[] {
   return out;
 }
 
-function weekdayUtc(iso: string): number {
-  return new Date(`${iso}T00:00:00Z`).getUTCDay();
-}
-
 function ledgerCurrency(keys: Array<{ key: string; value: unknown }> | undefined): string {
   const row = keys?.find((k) => k.key === 'pms.money.currency_code');
   return typeof row?.value === 'string' && row.value ? row.value : 'USD';
@@ -142,7 +150,204 @@ function derivedPlanBadge(plan: RatePlanRow, plans: RatePlanRow[]): string | nul
   return `${formatDerivePercent(plan.deriveBps)} of ${parentCode}`;
 }
 
-function RateCell(props: {
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+function ratesLaterNote(lead: ReactNode) {
+  return (
+    <>
+      {lead}
+      <span className="sep">·</span>
+      <Link to="/settings/products">Add-ons: Products</Link>
+      <span className="sep">·</span>
+      {'Channel / Yield \u2014 later'}
+    </>
+  );
+}
+
+function RateAmount({ amountMinor }: { amountMinor: number | null }) {
+  if (amountMinor == null) return <span className="muted">{'\u2014'}</span>;
+  return formatMinor(amountMinor);
+}
+
+type RestrictionDraft = {
+  minLos: string;
+  maxLos: string;
+  cta: boolean;
+  ctd: boolean;
+  stopSell: boolean;
+};
+
+function losText(value: number | null | undefined): string {
+  return value == null ? '' : String(value);
+}
+
+function parseLos(raw: string): number | null {
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : Number(trimmed);
+}
+
+function draftFromRow(row: RestrictionRow | undefined): RestrictionDraft {
+  return {
+    minLos: losText(row?.minLos),
+    maxLos: losText(row?.maxLos),
+    cta: row?.cta ?? false,
+    ctd: row?.ctd ?? false,
+    stopSell: row?.stopSell ?? false,
+  };
+}
+
+function RestrictionCell(props: {
+  code: string;
+  roomTypeId: string;
+  stayDate: string;
+  row: RestrictionRow | undefined;
+  onSave: (input: {
+    roomTypeId: string;
+    stayDate: string;
+    minLos: number | null;
+    maxLos: number | null;
+    cta: boolean;
+    ctd: boolean;
+    stopSell: boolean;
+  }) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<RestrictionDraft>(() => draftFromRow(props.row));
+  const prevRow = useRef(props.row);
+
+  useEffect(() => {
+    const prev = prevRow.current;
+    const next = props.row;
+    if (prev === next) return;
+    prevRow.current = next;
+    setDraft((current) => {
+      const updated = { ...current };
+      if ((prev?.minLos ?? null) !== (next?.minLos ?? null)) updated.minLos = losText(next?.minLos);
+      if ((prev?.maxLos ?? null) !== (next?.maxLos ?? null)) updated.maxLos = losText(next?.maxLos);
+      if ((prev?.cta ?? false) !== (next?.cta ?? false)) updated.cta = next?.cta ?? false;
+      if ((prev?.ctd ?? false) !== (next?.ctd ?? false)) updated.ctd = next?.ctd ?? false;
+      if ((prev?.stopSell ?? false) !== (next?.stopSell ?? false)) {
+        updated.stopSell = next?.stopSell ?? false;
+      }
+      return updated;
+    });
+  }, [props.row]);
+
+  async function commit(field: keyof RestrictionDraft, override: Partial<RestrictionDraft>) {
+    const next = { ...draft, ...override };
+    setDraft((current) => ({ ...current, ...override }));
+    try {
+      await props.onSave({
+        roomTypeId: props.roomTypeId,
+        stayDate: props.stayDate,
+        minLos: parseLos(next.minLos),
+        maxLos: parseLos(next.maxLos),
+        cta: next.cta,
+        ctd: next.ctd,
+        stopSell: next.stopSell,
+      });
+    } catch {
+      const stored = draftFromRow(prevRow.current);
+      setDraft((current) => ({ ...current, [field]: stored[field] }));
+    }
+  }
+
+  return (
+    <>
+      <div className="rates-restrictions__los">
+        <Field
+          label={`Min LOS for ${props.code}`}
+          control={
+            <Input
+              type="number"
+              min={1}
+              autoComplete="off"
+              value={draft.minLos}
+              onChange={(e) => setDraft((current) => ({ ...current, minLos: e.target.value }))}
+              onBlur={(e) => {
+                void commit('minLos', { minLos: e.target.value });
+              }}
+            />
+          }
+        />
+        <Field
+          label={`Max LOS for ${props.code}`}
+          control={
+            <Input
+              type="number"
+              min={1}
+              autoComplete="off"
+              value={draft.maxLos}
+              onChange={(e) => setDraft((current) => ({ ...current, maxLos: e.target.value }))}
+              onBlur={(e) => {
+                void commit('maxLos', { maxLos: e.target.value });
+              }}
+            />
+          }
+        />
+      </div>
+      <div className="rates-restrictions__toggles">
+        <Field
+          label={`CTA for ${props.code}`}
+          control={
+            <Checkbox
+              checked={draft.cta}
+              onChange={(e) => {
+                void commit('cta', { cta: e.target.checked });
+              }}
+            />
+          }
+        />
+        <Field
+          label={`CTD for ${props.code}`}
+          control={
+            <Checkbox
+              checked={draft.ctd}
+              onChange={(e) => {
+                void commit('ctd', { ctd: e.target.checked });
+              }}
+            />
+          }
+        />
+        <Field
+          label={`Stop sell for ${props.code}`}
+          control={
+            <Checkbox
+              checked={draft.stopSell}
+              onChange={(e) => {
+                void commit('stopSell', { stopSell: e.target.checked });
+              }}
+            />
+          }
+        />
+      </div>
+    </>
+  );
+}
+
+function RestrictionBadges({ row }: { row: RestrictionRow | undefined }) {
+  if (!row) return null;
+  const badges: Array<{ key: string; label: string; rung: 'neutral' | 'attention' | 'exception' }> =
+    [];
+  if (row.minLos != null) badges.push({ key: 'min', label: `Min ${row.minLos}`, rung: 'neutral' });
+  if (row.maxLos != null) badges.push({ key: 'max', label: `Max ${row.maxLos}`, rung: 'neutral' });
+  if (row.cta) badges.push({ key: 'cta', label: 'CTA', rung: 'attention' });
+  if (row.ctd) badges.push({ key: 'ctd', label: 'CTD', rung: 'attention' });
+  if (row.stopSell) badges.push({ key: 'stop', label: 'Stop sell', rung: 'exception' });
+  if (badges.length === 0) return null;
+  return (
+    <div className="rates-matrix__badges">
+      {badges.map((badge) => (
+        <Badge key={badge.key} rung={badge.rung}>
+          {badge.label}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function RateCellEditor(props: {
   code: string;
   roomTypeId: string;
   stayDate: string;
@@ -150,43 +355,76 @@ function RateCell(props: {
   currency: string;
   ratePlanId: string;
   propertyId: string;
-  readOnly?: boolean;
+  onClose: () => void;
+  onError: (err: unknown) => void;
+  onSaved: () => Promise<void>;
 }) {
   const [raw, setRaw] = useState(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
+  const closed = useRef(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setRaw(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
-  }, [props.amountMinor]);
+    const input = wrapRef.current?.querySelector('input');
+    if (!(input instanceof HTMLInputElement)) return;
+    input.focus();
+    input.select();
+  }, []);
+
+  async function commit() {
+    if (closed.current) return;
+    closed.current = true;
+    const value = raw.trim();
+    if (!RATE_AMOUNT_RE.test(value)) {
+      props.onClose();
+      return;
+    }
+    try {
+      await api.putRateDay(props.propertyId, {
+        roomTypeId: props.roomTypeId,
+        ratePlanId: props.ratePlanId,
+        stayDate: props.stayDate,
+        amountMinor: parseMajorToMinor(value),
+        currency: props.currency,
+      });
+    } catch (err) {
+      props.onError(err);
+      props.onClose();
+      return;
+    }
+    await props.onSaved();
+    props.onClose();
+  }
+
+  function cancel() {
+    if (closed.current) return;
+    closed.current = true;
+    props.onClose();
+  }
+
   return (
-    <Field
-      label={
-        <VisuallyHidden>{`Rate for ${props.code} on ${props.stayDate}`}</VisuallyHidden>
-      }
-      control={
-        <Input
-          value={raw}
-          autoComplete="off"
-          readOnly={props.readOnly}
-          disabled={props.readOnly}
-          onChange={(e) => {
-            if (props.readOnly) return;
-            setRaw(e.target.value);
-          }}
-          onBlur={async () => {
-            if (props.readOnly) return;
-            if (raw.trim() === '') return;
-            const amountMinor = parseMajorToMinor(raw);
-            if (!Number.isFinite(amountMinor)) return;
-            await api.putRateDay(props.propertyId, {
-              roomTypeId: props.roomTypeId,
-              ratePlanId: props.ratePlanId,
-              stayDate: props.stayDate,
-              amountMinor,
-              currency: props.currency,
-            });
-          }}
-        />
-      }
-    />
+    <div ref={wrapRef}>
+      <Field
+        label={<VisuallyHidden>{`Rate for ${props.code} on ${props.stayDate}`}</VisuallyHidden>}
+        control={
+          <Input
+            value={raw}
+            autoComplete="off"
+            onChange={(e) => setRaw(e.target.value)}
+            onBlur={() => {
+              void commit();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void commit();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancel();
+              }
+            }}
+          />
+        }
+      />
+    </div>
   );
 }
 
@@ -211,9 +449,16 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [penaltyBps, setPenaltyBps] = useState('');
   const [policyText, setPolicyText] = useState('');
   const [bulkAmount, setBulkAmount] = useState('');
+  const [bulkFrom, setBulkFrom] = useState(from);
+  const [bulkTo, setBulkTo] = useState(to);
+  const bulkSeeded = useRef(from !== '' && to !== '');
   const [weekdays, setWeekdays] = useState<Set<number>>(() => new Set([0, 1, 2, 3, 4, 5, 6]));
   const [selectedTypes, setSelectedTypes] = useState<Set<string> | null>(null);
   const [savingBulk, setSavingBulk] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [bulkFailure, setBulkFailure] = useState<{ chunks: BulkRateCell[][]; text: string } | null>(
+    null,
+  );
   const [archivePlan, setArchivePlan] = useState<RatePlanRow | null>(null);
   const [promoCode, setPromoCode] = useState('');
   const [promoName, setPromoName] = useState('');
@@ -223,18 +468,31 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [promoValidFrom, setPromoValidFrom] = useState('');
   const [promoValidTo, setPromoValidTo] = useState('');
   const [promoPlanId, setPromoPlanId] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; intent: 'settled' | 'exception' } | null>(
+    null,
+  );
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashMessage = (text: string) => {
-    setMessage(text);
+    setNotice({ text, intent: 'settled' });
     if (messageTimer.current) clearTimeout(messageTimer.current);
-    messageTimer.current = setTimeout(() => setMessage(null), 5000);
+    messageTimer.current = setTimeout(() => setNotice(null), 5000);
+  };
+  const showProblem = (text: string) => {
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    setNotice({ text, intent: 'exception' });
   };
   useEffect(() => {
     return () => {
       if (messageTimer.current) clearTimeout(messageTimer.current);
     };
   }, []);
+  useEffect(() => {
+    if (bulkSeeded.current) return;
+    if (!from || !to) return;
+    bulkSeeded.current = true;
+    setBulkFrom(from);
+    setBulkTo(to);
+  }, [from, to]);
 
   const unsavedGuard = useUnsavedChanges(Boolean(planCode || planName));
 
@@ -269,7 +527,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const restQ = useQuery({
     queryKey: ['restriction-days', propertyId, from, to],
     queryFn: () => api.listRestrictionDays(propertyId, { fromDate: from, toDate: to }),
-    enabled: Boolean(from && to) && activeTab === 'restrictions',
+    enabled: Boolean(from && to) && (activeTab === 'restrictions' || activeTab === 'matrix'),
     retry: false,
   });
 
@@ -386,30 +644,119 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
     setSearchParams(next);
   }
 
+  const selectedIds = types.filter((t) => typeIds.has(t.roomTypeId)).map((t) => t.roomTypeId);
+  const rangeProblem = bulkRangeProblem(bulkFrom, bulkTo);
+  const rangeReady = Boolean(bulkFrom && bulkTo && rangeProblem == null);
+  const matchingDays = rangeReady
+    ? eachStayDate(bulkFrom, bulkTo).filter((stayDate) => weekdays.has(utcWeekday(stayDate))).length
+    : 0;
+  const previewCount = rangeReady ? selectedIds.length * matchingDays : 0;
+  const previewText =
+    `Sets ${previewCount} ${plural(previewCount, 'rate', 'rates')}` +
+    ` \u2014 ${selectedIds.length} ${plural(selectedIds.length, 'type', 'types')}` +
+    ` \u00d7 ${matchingDays} ${plural(matchingDays, 'day', 'days')}`;
+  const amountOk = RATE_AMOUNT_RE.test(bulkAmount.trim());
+  const bulkToError =
+    rangeProblem === 'order'
+      ? 'Fill to is before Fill from.'
+      : rangeProblem === 'length'
+        ? 'Range is longer than 366 days.'
+        : undefined;
+
+  async function postBulk(parts: BulkRateCell[][]) {
+    setSavingBulk(true);
+    setBulkFailure(null);
+    const failed: BulkRateCell[][] = [];
+    let saved = 0;
+    let failure: unknown = null;
+    try {
+      for (const part of parts) {
+        try {
+          await api.bulkUpdateRates(propertyId, part);
+          saved += part.length;
+          void queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
+        } catch (err) {
+          failed.push(part);
+          failure = err;
+        }
+      }
+    } finally {
+      setSavingBulk(false);
+    }
+    if (failed.length === 0) {
+      flashMessage(`Saved ${saved} ${plural(saved, 'rate', 'rates')}.`);
+      return;
+    }
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    setNotice(null);
+    const ranges = failed
+      .map((part) => {
+        const first = part[0]?.stayDate ?? '';
+        const last = part[part.length - 1]?.stayDate ?? '';
+        if (!first) return '';
+        return first === last ? first : `${first}\u2013${last}`;
+      })
+      .filter(Boolean)
+      .join(', ');
+    const copy = classifiedUserMessage(asClassified(failure), {
+      fallback: 'Could not save the rates',
+    });
+    setBulkFailure({
+      chunks: failed,
+      text: `Saved ${saved} ${plural(saved, 'rate', 'rates')}. Failed ${ranges}. ${copy}`,
+    });
+  }
+
+  async function saveRestriction(input: {
+    roomTypeId: string;
+    stayDate: string;
+    minLos: number | null;
+    maxLos: number | null;
+    cta: boolean;
+    ctd: boolean;
+    stopSell: boolean;
+  }) {
+    try {
+      await api.putRestrictionDay(propertyId, input);
+      await queryClient.invalidateQueries({ queryKey: ['restriction-days', propertyId] });
+    } catch (err) {
+      showProblem(
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not save the restriction' }),
+      );
+      throw err;
+    }
+  }
+
   return (
     <div className="ui-page-stack rates-screen">
       <PageHeader
         title="Rates"
         subtitle={
-          activeTab === 'plans' && !plansFailClosed ? (
-            <>
-              <span translate="no">Ledger currency {currency}</span>
-              <span className="sep">·</span>
-              Rate plans
-            </>
-          ) : activeTab === 'matrix' && !plansFailClosed && !typesFailClosed ? (
-            <>
-              <span translate="no">Ledger currency {currency}</span>
-              <span className="sep">·</span>
-              {selectedPlan?.name ?? plan}
-            </>
-          ) : activeTab === 'restrictions' && !typesFailClosed ? (
-            <>
-              <span translate="no">Ledger currency {currency}</span>
-              <span className="sep">·</span>
-              Restrictions
-            </>
-          ) : undefined
+          activeTab === 'plans' && !plansFailClosed
+            ? ratesLaterNote(
+                <>
+                  <span translate="no">Ledger currency {currency}</span>
+                  <span className="sep">·</span>
+                  Rate plans
+                </>,
+              )
+            : activeTab === 'matrix' && !plansFailClosed && !typesFailClosed
+              ? ratesLaterNote(
+                  <>
+                    <span translate="no">Ledger currency {currency}</span>
+                    <span className="sep">·</span>
+                    {selectedPlan?.name ?? plan}
+                  </>,
+                )
+              : activeTab === 'restrictions' && !typesFailClosed
+                ? ratesLaterNote(
+                    <>
+                      <span translate="no">Ledger currency {currency}</span>
+                      <span className="sep">·</span>
+                      Restrictions
+                    </>,
+                  )
+                : undefined
         }
       />
       <nav className="ui-tabs" aria-label="Rates">
@@ -437,12 +784,22 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
       </nav>
       <Card data-testid="rates-screen">
         {unsavedGuard}
-        {message || plansFailClosed || typesFailClosed ? (
+        {notice || bulkFailure || plansFailClosed || typesFailClosed ? (
           <div className="rates-screen__notices">
-            {message ? (
-              <p className="muted" aria-live="polite">
-                {message}
-              </p>
+            {notice ? <Alert intent={notice.intent}>{notice.text}</Alert> : null}
+            {bulkFailure ? (
+              <Alert>
+                {bulkFailure.text}{' '}
+                <Button
+                  type="button"
+                  disabled={savingBulk}
+                  onClick={() => {
+                    void postBulk(bulkFailure.chunks);
+                  }}
+                >
+                  Retry
+                </Button>
+              </Alert>
             ) : null}
             {plansFailClosed || typesFailClosed ? (
               <Alert>Property unreachable — cannot load rates.</Alert>
@@ -847,18 +1204,53 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                         </DataTableCell>
                         {dates.map((d) => {
                           const row = dayMap.get(`${t.roomTypeId}:${d}`);
+                          const cellKey = `${t.roomTypeId}:${d}`;
+                          const amountMinor = row?.amountMinor ?? null;
                           return (
-                            <DataTableCell key={d}>
-                              <RateCell
-                                code={t.code}
-                                roomTypeId={t.roomTypeId}
-                                stayDate={d}
-                                amountMinor={row?.amountMinor ?? null}
-                                currency={currency}
-                                ratePlanId={plan}
-                                propertyId={propertyId}
-                                readOnly={isDerivedMatrix}
-                              />
+                            <DataTableCell key={d} align="right">
+                              <div className="rates-matrix__cell">
+                                {isDerivedMatrix ? (
+                                  <RateAmount amountMinor={amountMinor} />
+                                ) : editingKey === cellKey ? (
+                                  <RateCellEditor
+                                    code={t.code}
+                                    roomTypeId={t.roomTypeId}
+                                    stayDate={d}
+                                    amountMinor={amountMinor}
+                                    currency={currency}
+                                    ratePlanId={plan}
+                                    propertyId={propertyId}
+                                    onClose={() => {
+                                      setEditingKey((current) =>
+                                        current === cellKey ? null : current,
+                                      );
+                                    }}
+                                    onError={(err) => {
+                                      showProblem(
+                                        classifiedUserMessage(asClassified(err), {
+                                          fallback: 'Could not save the rate',
+                                        }),
+                                      );
+                                    }}
+                                    onSaved={() =>
+                                      queryClient.invalidateQueries({
+                                        queryKey: ['rate-days', propertyId],
+                                      })
+                                    }
+                                  />
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    intent="ghost"
+                                    size="sm"
+                                    aria-label={`Edit rate for ${t.code} on ${d}`}
+                                    onClick={() => setEditingKey(cellKey)}
+                                  >
+                                    <RateAmount amountMinor={amountMinor} />
+                                  </Button>
+                                )}
+                                <RestrictionBadges row={restMap.get(cellKey)} />
+                              </div>
                             </DataTableCell>
                           );
                         })}
@@ -878,35 +1270,59 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               <CardContent>
                 <form
                   className="stack rates-matrix__bulk"
-                  onSubmit={async (e) => {
+                  onSubmit={(e) => {
                     e.preventDefault();
-                    const amountMinor = parseMajorToMinor(bulkAmount);
-                    if (!Number.isFinite(amountMinor) || bulkAmount.trim() === '') return;
-                    const updates = types
-                      .filter((t) => typeIds.has(t.roomTypeId))
-                      .flatMap((t) =>
-                        dates
-                          .filter((d) => weekdays.has(weekdayUtc(d)))
-                          .map((stayDate) => ({
-                            roomTypeId: t.roomTypeId,
-                            ratePlanId: plan,
-                            stayDate,
-                            amountMinor,
-                            currency,
-                          })),
-                      );
-                    setSavingBulk(true);
-                    try {
-await api.bulkUpdateRates(propertyId, updates);
-                      flashMessage('Saved.');
-                      void queryClient.invalidateQueries({ queryKey: ['rate-days', propertyId] });
-                    } finally {
-                      setSavingBulk(false);
-                    }
+                    if (savingBulk || !amountOk || !rangeReady || previewCount === 0) return;
+                    const cells = buildBulkRateCells({
+                      roomTypeIds: selectedIds,
+                      from: bulkFrom,
+                      to: bulkTo,
+                      weekdays,
+                      ratePlanId: plan,
+                      amountMinor: parseMajorToMinor(bulkAmount.trim()),
+                      currency,
+                    });
+                    void postBulk(chunk(cells, RATES_BULK_UPDATE_MAX));
                   }}
                 >
                   <div className="rates-matrix__bulk-options">
                     <h2>Bulk fill</h2>
+                    <div className="rates-matrix__bulk-range">
+                      <Field
+                        size="xs"
+                        label="Fill from"
+                        control={
+                          <Input
+                            type="date"
+                            value={bulkFrom}
+                            autoComplete="off"
+                            onChange={(e) => {
+                              bulkSeeded.current = true;
+                              setBulkFrom(e.target.value);
+                            }}
+                          />
+                        }
+                      />
+                      <Field
+                        size="xs"
+                        label="Fill to"
+                        error={bulkToError}
+                        control={
+                          <Input
+                            type="date"
+                            value={bulkTo}
+                            autoComplete="off"
+                            onChange={(e) => {
+                              bulkSeeded.current = true;
+                              setBulkTo(e.target.value);
+                            }}
+                          />
+                        }
+                      />
+                    </div>
+                    <p className="muted">
+                      {previewText}
+                    </p>
                     <div className="rates-matrix__bulk-checkboxes">
                       {types.map((t) => (
                         <Field
@@ -956,7 +1372,11 @@ await api.bulkUpdateRates(propertyId, updates);
                         />
                       }
                     />
-                    <Button type="submit" intent="primary" disabled={savingBulk}>
+                    <Button
+                      type="submit"
+                      intent="primary"
+                      disabled={savingBulk || !amountOk || !rangeReady || previewCount === 0}
+                    >
                       {savingBulk ? 'Saving…' : 'Fill Selected Days'}
                     </Button>
                   </div>
@@ -968,10 +1388,16 @@ await api.bulkUpdateRates(propertyId, updates);
       ) : null}
 
       {activeTab === 'restrictions' && !typesFailClosed ? (
-        typesQ.isPending ? (
+        typesQ.isPending || (Boolean(from && to) && restQ.isPending) ? (
           <p className="muted">Loading…</p>
         ) : types.length === 0 ? (
           <p className="muted">Create a room type first.</p>
+        ) : restQ.isError ? (
+          <Alert>
+            {classifiedUserMessage(asClassified(restQ.error), {
+              fallback: 'Could not load restrictions',
+            })}
+          </Alert>
         ) : (
           <>
             <CardContent>
@@ -1032,114 +1458,14 @@ await api.bulkUpdateRates(propertyId, updates);
                     {dates.map((d) => {
                       const row = restMap.get(`${t.roomTypeId}:${d}`);
                       return (
-                        <DataTableCell key={d}>
-                          <div className="rates-restrictions__los">
-                            <Field
-                              label={`Min LOS for ${t.code}`}
-                              control={
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  autoComplete="off"
-                                  defaultValue={row?.minLos != null ? String(row.minLos) : ''}
-                                  onBlur={async (e) => {
-                                    const v = e.target.value.trim();
-                                    await api.putRestrictionDay(propertyId, {
-                                      roomTypeId: t.roomTypeId,
-                                      stayDate: d,
-                                      minLos: v ? Number(v) : null,
-                                      maxLos: row?.maxLos ?? null,
-                                      cta: row?.cta ?? false,
-                                      ctd: row?.ctd ?? false,
-                                      stopSell: row?.stopSell ?? false,
-                                    });
-                                  }}
-                                />
-                              }
-                            />
-                            <Field
-                              label={`Max LOS for ${t.code}`}
-                              control={
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  autoComplete="off"
-                                  defaultValue={row?.maxLos != null ? String(row.maxLos) : ''}
-                                  onBlur={async (e) => {
-                                    const v = e.target.value.trim();
-                                    await api.putRestrictionDay(propertyId, {
-                                      roomTypeId: t.roomTypeId,
-                                      stayDate: d,
-                                      minLos: row?.minLos ?? null,
-                                      maxLos: v ? Number(v) : null,
-                                      cta: row?.cta ?? false,
-                                      ctd: row?.ctd ?? false,
-                                      stopSell: row?.stopSell ?? false,
-                                    });
-                                  }}
-                                />
-                              }
-                            />
-                          </div>
-                          <div className="rates-restrictions__toggles">
-                            <Field
-                              label={`CTA for ${t.code}`}
-                              control={
-                                <Checkbox
-                                  defaultChecked={row?.cta ?? false}
-                                  onChange={async (e) => {
-                                    await api.putRestrictionDay(propertyId, {
-                                      roomTypeId: t.roomTypeId,
-                                      stayDate: d,
-                                      minLos: row?.minLos ?? null,
-                                      maxLos: row?.maxLos ?? null,
-                                      cta: e.target.checked,
-                                      ctd: row?.ctd ?? false,
-                                      stopSell: row?.stopSell ?? false,
-                                    });
-                                  }}
-                                />
-                              }
-                            />
-                            <Field
-                              label={`CTD for ${t.code}`}
-                              control={
-                                <Checkbox
-                                  defaultChecked={row?.ctd ?? false}
-                                  onChange={async (e) => {
-                                    await api.putRestrictionDay(propertyId, {
-                                      roomTypeId: t.roomTypeId,
-                                      stayDate: d,
-                                      minLos: row?.minLos ?? null,
-                                      maxLos: row?.maxLos ?? null,
-                                      cta: row?.cta ?? false,
-                                      ctd: e.target.checked,
-                                      stopSell: row?.stopSell ?? false,
-                                    });
-                                  }}
-                                />
-                              }
-                            />
-                            <Field
-                              label={`Stop sell for ${t.code}`}
-                              control={
-                                <Checkbox
-                                  defaultChecked={row?.stopSell ?? false}
-                                  onChange={async (e) => {
-                                    await api.putRestrictionDay(propertyId, {
-                                      roomTypeId: t.roomTypeId,
-                                      stayDate: d,
-                                      minLos: row?.minLos ?? null,
-                                      maxLos: row?.maxLos ?? null,
-                                      cta: row?.cta ?? false,
-                                      ctd: row?.ctd ?? false,
-                                      stopSell: e.target.checked,
-                                    });
-                                  }}
-                                />
-                              }
-                            />
-                          </div>
+                        <DataTableCell key={`${t.roomTypeId}:${d}`}>
+                          <RestrictionCell
+                            code={t.code}
+                            roomTypeId={t.roomTypeId}
+                            stayDate={d}
+                            row={row}
+                            onSave={saveRestriction}
+                          />
                         </DataTableCell>
                       );
                     })}

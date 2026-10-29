@@ -1615,6 +1615,15 @@ details.side-panel summary {
   grid-column: 1 / -1;
 }
 
+.rates-screen .ui-page-header__subtitle a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.rates-screen .ui-page-header__subtitle a:hover {
+  color: var(--ink);
+}
+
 .rates-screen__notices {
   display: flex;
   flex-direction: column;
@@ -1900,6 +1909,30 @@ details.side-panel summary {
   min-inline-size: 8rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.rates-matrix__cell {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.rates-matrix__cell .ui-input {
+  min-inline-size: 0;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.rates-matrix__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.rates-matrix__bulk-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
 }
 
 .rates-restrictions__table .ui-table tbody td:not(:first-child) {

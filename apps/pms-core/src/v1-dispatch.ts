@@ -1771,6 +1771,7 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     expiresAt?: number;
     sourceCode?: string;
     marketSegmentCode?: string;
+    frontOfficeComment?: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -1785,6 +1786,16 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
 
+  const frontOfficeCommentRaw: unknown = (body as { frontOfficeComment?: unknown })
+    .frontOfficeComment;
+  if (
+    frontOfficeCommentRaw !== undefined &&
+    frontOfficeCommentRaw !== null &&
+    typeof frontOfficeCommentRaw !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
@@ -1792,6 +1803,10 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     body.promoCode != null && body.promoCode.trim() !== ''
       ? normalizePromoCode(body.promoCode)
       : null;
+  const normalizedFrontOfficeComment =
+    typeof frontOfficeCommentRaw === 'string' && frontOfficeCommentRaw.trim() !== ''
+      ? frontOfficeCommentRaw.trim()
+      : undefined;
 
   const fingerprint = await commandFingerprint('reservations.create', {
     reservationId: body.reservationId,
@@ -1806,6 +1821,9 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}),
     ...(body.sourceCode !== undefined ? { sourceCode: body.sourceCode } : {}),
     ...(body.marketSegmentCode !== undefined ? { marketSegmentCode: body.marketSegmentCode } : {}),
+    ...(normalizedFrontOfficeComment !== undefined
+      ? { frontOfficeComment: normalizedFrontOfficeComment }
+      : {}),
   });
 
   const commandPayload = {
@@ -1823,6 +1841,9 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
     ...(body.sourceCode !== undefined ? { sourceCode: body.sourceCode } : {}),
     ...(body.marketSegmentCode !== undefined ? { marketSegmentCode: body.marketSegmentCode } : {}),
+    ...(normalizedFrontOfficeComment !== undefined
+      ? { frontOfficeComment: normalizedFrontOfficeComment }
+      : {}),
   };
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 

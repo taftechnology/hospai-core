@@ -22,6 +22,15 @@ export function addCalendarDays(iso: string, deltaDays: number): string {
   return formatUtcParts(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate());
 }
 
+function hashFrontOfficeComment(comment: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < comment.length; i++) {
+    h ^= comment.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
 export function bookingReservationOpId(input: {
   reservationId: string;
   roomTypeId: string;
@@ -35,6 +44,7 @@ export function bookingReservationOpId(input: {
   promoCode?: string;
   sourceCode?: string;
   marketSegmentCode?: string;
+  frontOfficeComment?: string;
 }): string {
   const status = input.status ?? 'confirmed';
   const adults = input.adults ?? 1;
@@ -52,7 +62,11 @@ export function bookingReservationOpId(input: {
     input.marketSegmentCode != null && input.marketSegmentCode.trim() !== ''
       ? `:seg=${input.marketSegmentCode.trim().toUpperCase()}`
       : '';
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}${promoSegment}${sourceSegment}${segmentSegment}`;
+  const commentSegment =
+    input.frontOfficeComment != null && input.frontOfficeComment.trim() !== ''
+      ? `:fo=${hashFrontOfficeComment(input.frontOfficeComment.trim())}`
+      : '';
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}${promoSegment}${sourceSegment}${segmentSegment}${commentSegment}`;
 }
 
 /**

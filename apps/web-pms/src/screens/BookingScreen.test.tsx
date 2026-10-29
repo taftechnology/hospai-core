@@ -14,6 +14,8 @@ const listRateDays = vi.fn();
 const listRatePlans = vi.fn();
 const listRatePromos = vi.fn();
 const listOperationalConfig = vi.fn();
+const listProducts = vi.fn();
+const addFolioLine = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -37,8 +39,49 @@ vi.mock('../client.js', () => ({
     listRatePlans: (...a: unknown[]) => listRatePlans(...a),
     listRatePromos: (...a: unknown[]) => listRatePromos(...a),
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
+    listProducts: (...a: unknown[]) => listProducts(...a),
+    addFolioLine: (...a: unknown[]) => addFolioLine(...a),
   },
 }));
+
+const postableCatalog = {
+  ok: true,
+  categories: [
+    { categoryId: 'cat_food', name: 'Food', sortOrder: 0, status: 'active' as const },
+    { categoryId: 'cat_minibar', name: 'Minibar', sortOrder: 1, status: 'active' as const },
+  ],
+  items: [
+    {
+      productId: 'prod_breakfast',
+      categoryId: 'cat_food',
+      sku: null,
+      name: 'Breakfast',
+      chargeCode: 'FB',
+      defaultAmountMinor: 1500,
+      status: 'active' as const,
+      taxGroup: 'FOOD',
+      postable: true,
+    },
+    {
+      productId: 'prod_water',
+      categoryId: 'cat_minibar',
+      sku: null,
+      name: 'Water',
+      chargeCode: 'MINIBAR',
+      defaultAmountMinor: 4000,
+      status: 'active' as const,
+      taxGroup: 'GOODS',
+      postable: true,
+    },
+  ],
+};
+
+async function fillBookForConfirm() {
+  await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+  fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+  fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+  await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+}
 
 vi.mock('../shell/PropertyTimeZone.js', () => ({
   usePropertyTimeZone: () => 'UTC',
@@ -208,6 +251,8 @@ describe('BookingScreen', () => {
     listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
     listRatePromos.mockResolvedValue({ ok: true, promos: [] });
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
+    listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
+    addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
   });
 
   afterEach(() => {
@@ -1087,5 +1132,125 @@ describe('BookingScreen', () => {
     const opId = createReservation.mock.calls[0]![2] as string;
     expect(opId).toContain(':src=WALKIN');
     expect(opId).toContain(':seg=LEISURE');
+  });
+
+  it('R1.4: special requests sent on create', async () => {
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('special-requests'), {
+      target: { value: '  Late arrival  ' },
+    });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    const body = createReservation.mock.calls[0]![1] as { frontOfficeComment?: string };
+    expect(body.frontOfficeComment).toBe('Late arrival');
+    const opId = createReservation.mock.calls[0]![2] as string;
+    expect(opId).toMatch(/:fo=/);
+  });
+
+  it('R1.4: add-ons hidden when no postable products', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('booking-screen')).toBeTruthy());
+    expect(screen.queryByTestId('booking-addons')).toBeNull();
+  });
+
+  it('R1.4: Quote disabled when add-on lines present', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('booking-addons')).toBeTruthy());
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText('Quote saves no add-ons — remove them to save a quote.'),
+    ).toBeTruthy();
+  });
+
+  it('R1.4: Confirm with two add-on lines posts folio lines after create', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('booking-addons')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.change(screen.getByTestId('addon-draft-qty'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_water' },
+    });
+    fireEvent.change(screen.getByTestId('addon-draft-price'), { target: { value: '10.00' } });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    await waitFor(() => expect(addFolioLine).toHaveBeenCalledTimes(2));
+    expect(addFolioLine.mock.invocationCallOrder[0]).toBeGreaterThan(
+      createReservation.mock.invocationCallOrder[0]!,
+    );
+    expect(addFolioLine.mock.calls[0]![2]).toEqual({
+      chargeCode: 'FB',
+      amountMinor: 3000,
+    });
+    expect(addFolioLine.mock.calls[1]![2]).toEqual({
+      chargeCode: 'MINIBAR',
+      amountMinor: 1000,
+    });
+  });
+
+  it('R1.4: one failing add-on shows Alert and Retry reuses opId', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    addFolioLine
+      .mockResolvedValueOnce({ classified: { class: 'live' }, body: { ok: true } })
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { ok: false, error: 'folio_closed' },
+          retryAfterMs: null,
+        }),
+      );
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_water' },
+    });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(screen.getByTestId('addon-failure-alert')).toBeTruthy());
+    expect(createReservation).toHaveBeenCalledTimes(1);
+    const failedOp = addFolioLine.mock.calls[1]![3] as string;
+    fireEvent.click(screen.getByTestId('retry-addons'));
+    await waitFor(() => expect(addFolioLine).toHaveBeenCalledTimes(3));
+    expect(addFolioLine.mock.calls[2]![3]).toBe(failedOp);
+  });
+
+  it('R1.4: invalid add-on quantity or price blocks adding a line', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('booking-addons')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.change(screen.getByTestId('addon-draft-qty'), { target: { value: '0' } });
+    expect((screen.getByTestId('addon-commit-line') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('addon-draft-qty'), { target: { value: '1' } });
+    fireEvent.change(screen.getByTestId('addon-draft-price'), { target: { value: 'abc' } });
+    expect((screen.getByTestId('addon-commit-line') as HTMLButtonElement).disabled).toBe(true);
   });
 });

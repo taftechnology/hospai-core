@@ -129,6 +129,25 @@ describe('bookingReservationOpId', () => {
       'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR',
     );
   });
+
+  it('appends frontOfficeComment segment only when non-blank', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+    };
+    const baseOp = bookingReservationOpId(base);
+    expect(baseOp).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR');
+    const withComment = bookingReservationOpId({ ...base, frontOfficeComment: 'Late arrival' });
+    expect(withComment.startsWith(baseOp + ':fo=')).toBe(true);
+    expect(withComment).not.toBe(baseOp);
+    expect(
+      bookingReservationOpId({ ...base, frontOfficeComment: 'Different note' }),
+    ).not.toBe(withComment);
+    expect(bookingReservationOpId({ ...base, frontOfficeComment: '  ' })).toBe(baseOp);
+  });
 });
 
 describe('availabilityRangeForStay', () => {

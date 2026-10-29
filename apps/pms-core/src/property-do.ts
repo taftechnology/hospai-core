@@ -8198,6 +8198,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       noPost?: boolean;
       sourceCode?: string;
       marketSegmentCode?: string;
+      frontOfficeComment?: string;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -8238,6 +8239,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (sourceErr) return { ok: false, error: sourceErr };
     const segmentErr = validateOptionalReservationCode(input.marketSegmentCode);
     if (segmentErr) return { ok: false, error: segmentErr };
+    if (input.frontOfficeComment != null && input.frontOfficeComment.length > 2000) {
+      return { ok: false, error: FRONT_OFFICE_COMMENT_TOO_LONG };
+    }
 
     let nights: string[];
     try {
@@ -8321,10 +8325,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.ctx.storage.sql.exec(
             `INSERT INTO reservation (
                reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
-               status, adults, children, rate_plan_id, promo_id, cancel_penalty_type, cancel_grace_hours,
+               status, adults, children, front_office_comment, rate_plan_id, promo_id, cancel_penalty_type, cancel_grace_hours,
                cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post,
                allocated_room_type_id, source_code, market_segment_code, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
@@ -8334,6 +8338,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             status,
             adults,
             children,
+            input.frontOfficeComment ?? null,
             ratePlanId,
             promoId,
             snapshot.cancelPenaltyType,

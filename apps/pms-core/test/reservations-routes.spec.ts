@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  FRONT_OFFICE_COMMENT_TOO_LONG,
   IDEM_KEY_REUSED,
   INVALID_STATUS_TRANSITION,
   NO_AVAILABILITY,
@@ -15,6 +16,7 @@ import { resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
 import { createGuest, orgStub as testOrgStub, seedBarRatesForHorizon } from './guest-helpers.js';
 import { idemFor } from './fixtures';
+import { addCalendarDays } from './date-helpers.js';
 import type { PropertyDO } from '../src/property-do';
 
 function addDays(isoDate: string, days: number): string {
@@ -1596,6 +1598,181 @@ describe('reservations vertical HTTP routes', () => {
         sourceCode: null,
         marketSegmentCode: null,
       });
+    });
+  });
+
+  describe('booking special requests (frontOfficeComment on create)', () => {
+    it('create with comment returns it on GET', async () => {
+      const actor = 'user_res_fo_create_1';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addCalendarDays(arrival, 2);
+      const reservationId = 'res_fo_create_1';
+
+      const book = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId,
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: departure,
+            frontOfficeComment: 'Late arrival',
+            idempotencyKey: `idem-fo-create-${crypto.randomUUID()}`,
+          }),
+        }),
+        env,
+      );
+      expect(book.status).toBe(201);
+
+      const getRes = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(getRes.status).toBe(200);
+      expect(await getRes.json()).toMatchObject({
+        reservationId,
+        frontOfficeComment: 'Late arrival',
+      });
+    });
+
+    it('2001 chars → 422 front_office_comment_too_long', async () => {
+      const actor = 'user_res_fo_create_2';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const res = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId: 'res_fo_long',
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: addCalendarDays(arrival, 1),
+            frontOfficeComment: 'x'.repeat(2001),
+            idempotencyKey: `idem-fo-long-${crypto.randomUUID()}`,
+          }),
+        }),
+        env,
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({ ok: false, error: FRONT_OFFICE_COMMENT_TOO_LONG });
+    });
+
+    it('non-string frontOfficeComment → 400 invalid_body and reservation not created', async () => {
+      const actor = 'user_res_fo_create_bad_type';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const reservationId = 'res_fo_bad_type';
+      const book = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId,
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: addCalendarDays(arrival, 1),
+            frontOfficeComment: 12,
+            idempotencyKey: `idem-fo-bad-type-${crypto.randomUUID()}`,
+          }),
+        }),
+        env,
+      );
+      expect(book.status).toBe(400);
+      expect(await book.json()).toEqual({ error: 'invalid_body' });
+
+      const getRes = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(getRes.status).toBe(404);
+    });
+
+    it('blank comment stored as absent on GET', async () => {
+      const actor = 'user_res_fo_create_3';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const reservationId = 'res_fo_blank';
+      expect(
+        (
+          await worker.fetch(
+            new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+              body: JSON.stringify({
+                reservationId,
+                roomTypeId: 'rt_king',
+                guestRef,
+                arrivalDate: arrival,
+                departureDate: addCalendarDays(arrival, 1),
+                frontOfficeComment: '   ',
+                idempotencyKey: `idem-fo-blank-${crypto.randomUUID()}`,
+              }),
+            }),
+            env,
+          )
+        ).status,
+      ).toBe(201);
+
+      const getRes = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      const body = (await getRes.json()) as { frontOfficeComment?: string | null };
+      expect(body.frontOfficeComment == null || body.frontOfficeComment === '').toBe(true);
+    });
+
+    it('same idempotency key, different comment → idempotency_key_reused', async () => {
+      const actor = 'user_res_fo_create_fp';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addCalendarDays(arrival, 1);
+      const reservationId = `res_fo_fp_${crypto.randomUUID()}`;
+      const idempotencyKey = `idem-fo-fp-${crypto.randomUUID()}`;
+      const first = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId,
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: departure,
+            frontOfficeComment: 'A',
+            idempotencyKey,
+          }),
+        }),
+        env,
+      );
+      expect(first.status).toBe(201);
+      const replay = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId,
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: departure,
+            frontOfficeComment: 'B',
+            idempotencyKey,
+          }),
+        }),
+        env,
+      );
+      expect(replay.status).toBe(409);
+      expect(await replay.json()).toMatchObject({ ok: false, error: IDEM_KEY_REUSED });
     });
   });
 });

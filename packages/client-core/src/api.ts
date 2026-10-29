@@ -1207,6 +1207,7 @@ export function createClient(opts: {
         promoCode?: string;
         sourceCode?: string;
         marketSegmentCode?: string;
+        frontOfficeComment?: string;
       },
       opId: string,
     ) {
@@ -1229,6 +1230,9 @@ export function createClient(opts: {
           ...(input.sourceCode !== undefined ? { sourceCode: input.sourceCode } : {}),
           ...(input.marketSegmentCode !== undefined
             ? { marketSegmentCode: input.marketSegmentCode }
+            : {}),
+          ...(input.frontOfficeComment !== undefined
+            ? { frontOfficeComment: input.frontOfficeComment }
             : {}),
           idempotencyKey,
         }),

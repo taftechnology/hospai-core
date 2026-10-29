@@ -542,6 +542,37 @@ describe('createClient booking', () => {
     expect(bodies[0]?.frontOfficeComment).toBe('Late');
   });
 
+  it('createReservation JSON includes frontOfficeComment only when provided', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, reservationId: 'r1', ariVersion: 1 }), {
+          status: 201,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    const input = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      quoteAriVersion: 3,
+    };
+    await client.createReservation('p', input, bookingReservationOpId(input));
+    expect(bodies[0]).not.toHaveProperty('frontOfficeComment');
+    await client.createReservation(
+      'p',
+      { ...input, frontOfficeComment: 'Late' },
+      bookingReservationOpId({ ...input, frontOfficeComment: 'Late' }),
+    );
+    expect(bodies[1]?.frontOfficeComment).toBe('Late');
+  });
+
   it('createReservation JSON includes ratePlanId when provided', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const client = createClient({

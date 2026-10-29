@@ -24,11 +24,14 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  Textarea,
   Total,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatMinor } from '../money.js';
+import { formatMinor, parseMajorToMinor } from '../money.js';
+import { validAmount } from './board-dialogs.js';
+import { usePostableProducts } from './product-picker.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 
@@ -79,6 +82,24 @@ function bodyField(body: unknown, key: string): string | undefined {
 }
 
 const PROMO_CODE_CHARSET = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
+
+function validAddonQuantity(raw: string): boolean {
+  if (!/^\d+$/.test(raw.trim())) return false;
+  const n = Number(raw.trim());
+  return Number.isInteger(n) && n >= 1 && n <= 99;
+}
+
+type BookAddonLine = {
+  lineKey: string;
+  index: number;
+  productId: string;
+  quantity: number;
+  unitMinor: number;
+  productName: string;
+  chargeCode: string;
+};
+
+type FailedBookAddon = BookAddonLine & { errorMessage: string };
 
 type RatePromoRow = {
   promoId: string;
@@ -135,6 +156,14 @@ export function BookingScreen() {
   const [findQ, setFindQ] = useState('');
   const [debouncedFind, setDebouncedFind] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [frontOfficeComment, setFrontOfficeComment] = useState('');
+  const [addonLines, setAddonLines] = useState<BookAddonLine[]>([]);
+  const [addonDraftProductId, setAddonDraftProductId] = useState('');
+  const [addonDraftQty, setAddonDraftQty] = useState('1');
+  const [addonDraftPrice, setAddonDraftPrice] = useState('');
+  const [failedAddons, setFailedAddons] = useState<FailedBookAddon[]>([]);
+
+  const postableProducts = usePostableProducts();
 
   useEffect(() => {
     if (!timeZone) return;
@@ -398,6 +427,48 @@ export function BookingScreen() {
     availErrorClassified != null &&
     bodyErrorCode(availErrorClassified.body) === 'date_range_exceeds_max';
 
+  async function postBookAddons(lines: BookAddonLine[]): Promise<FailedBookAddon[]> {
+    const failures: FailedBookAddon[] = [];
+    for (const line of lines) {
+      const opId = `book-addon:${reservationId}:${line.index}:${line.productId}:${line.quantity}:${line.unitMinor}`;
+      try {
+        await api.addFolioLine(
+          propertyId,
+          reservationId,
+          { chargeCode: line.chargeCode, amountMinor: line.unitMinor * line.quantity },
+          opId,
+        );
+      } catch (err) {
+        failures.push({
+          ...line,
+          errorMessage: classifiedUserMessage(asClassified(err), {
+            fallback: 'Could not post add-on',
+          }),
+        });
+      }
+    }
+    if (lines.length > 0) {
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    }
+    return failures;
+  }
+
+  const retryAddonsMutation = useMutation({
+    mutationFn: () => postBookAddons(failedAddons),
+    onSuccess: (failures) => {
+      if (failures.length === 0) {
+        setFailedAddons([]);
+        void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
+          state: { createdReservationId: reservationId },
+        });
+        return;
+      }
+      setFailedAddons(failures);
+    },
+  });
+
+  const trimmedFrontOfficeComment = frontOfficeComment.trim();
+
   const bookMutation = useMutation({
     mutationFn: async (status: 'inquiry' | 'pending' | 'confirmed') => {
       if (roomTypeId == null) {
@@ -432,8 +503,9 @@ export function BookingScreen() {
         ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
         ...(sourceCode ? { sourceCode } : {}),
         ...(marketSegmentCode ? { marketSegmentCode } : {}),
+        ...(trimmedFrontOfficeComment ? { frontOfficeComment: trimmedFrontOfficeComment } : {}),
       });
-      return api.createReservation(
+      await api.createReservation(
         propertyId,
         {
           reservationId,
@@ -449,11 +521,24 @@ export function BookingScreen() {
           ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
           ...(sourceCode ? { sourceCode } : {}),
           ...(marketSegmentCode ? { marketSegmentCode } : {}),
+          ...(trimmedFrontOfficeComment
+            ? { frontOfficeComment: trimmedFrontOfficeComment }
+            : {}),
         },
         opId,
       );
+      if ((status === 'pending' || status === 'confirmed') && addonLines.length > 0) {
+        const failures = await postBookAddons(addonLines);
+        return { status, addonFailures: failures };
+      }
+      return { status, addonFailures: [] as FailedBookAddon[] };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.addonFailures.length > 0) {
+        setFailedAddons(result.addonFailures);
+        setMessage('Booking created — some add-ons could not be posted.');
+        return;
+      }
       void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
         state: { createdReservationId: reservationId },
       });
@@ -674,6 +759,18 @@ export function BookingScreen() {
                 ) : null}
               </div>
             ) : null}
+            <Field
+              label="Special requests"
+              control={
+                <Textarea
+                  data-testid="special-requests"
+                  rows={3}
+                  value={frontOfficeComment}
+                  onChange={(e) => setFrontOfficeComment(e.target.value)}
+                  placeholder="Optional notes for front office"
+                />
+              }
+            />
             {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
             {plansEmpty ? (
               <p className="muted" role="status">
@@ -870,6 +967,128 @@ export function BookingScreen() {
         </CardContent>
       </Card>
 
+      {postableProducts.hasProducts ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add-ons</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ui-stack" data-testid="booking-addons">
+              <fieldset className="booking-addons__fieldset" disabled={bookMutation.isPending}>
+                {addonLines.map((line) => (
+                  <div key={line.lineKey} className="ui-row">
+                    <p>
+                      {line.productName} × {line.quantity} @ {formatMinor(line.unitMinor)} (
+                      {formatMinor(line.unitMinor * line.quantity)})
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={() =>
+                        setAddonLines((rows) =>
+                          rows
+                            .filter((r) => r.lineKey !== line.lineKey)
+                            .map((r, index) => ({ ...r, index })),
+                        )
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+                <div className="ui-row">
+                  <Field
+                    size="sm"
+                    label="Product"
+                    control={
+                      <NativeSelect
+                        data-testid="addon-draft-product"
+                        value={addonDraftProductId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setAddonDraftProductId(id);
+                          const item = postableProducts.byId.get(id);
+                          if (item) setAddonDraftPrice(formatMinor(item.defaultAmountMinor));
+                        }}
+                      >
+                        <option value="">Choose a product</option>
+                        {postableProducts.groups.map((g) => (
+                          <optgroup key={g.category.categoryId} label={g.category.name}>
+                            {g.items.map((i) => (
+                              <option key={i.productId} value={i.productId}>
+                                {i.name} · {formatMinor(i.defaultAmountMinor)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                  <Field
+                    size="xs"
+                    label="Qty"
+                    control={
+                      <Input
+                        data-testid="addon-draft-qty"
+                        value={addonDraftQty}
+                        onChange={(e) => setAddonDraftQty(e.target.value)}
+                      />
+                    }
+                  />
+                  <Field
+                    size="xs"
+                    label="Unit price"
+                    control={
+                      <Input
+                        data-testid="addon-draft-price"
+                        value={addonDraftPrice}
+                        onChange={(e) => setAddonDraftPrice(e.target.value)}
+                      />
+                    }
+                  />
+                  <Button
+                    type="button"
+                    data-testid="addon-commit-line"
+                    disabled={
+                      !postableProducts.byId.has(addonDraftProductId) ||
+                      !validAddonQuantity(addonDraftQty) ||
+                      !validAmount(addonDraftPrice)
+                    }
+                    onClick={() => {
+                      const product = postableProducts.byId.get(addonDraftProductId);
+                      if (
+                        !product ||
+                        !validAddonQuantity(addonDraftQty) ||
+                        !validAmount(addonDraftPrice)
+                      ) {
+                        return;
+                      }
+                      const index = addonLines.length;
+                      setAddonLines((rows) => [
+                        ...rows,
+                        {
+                          lineKey: crypto.randomUUID(),
+                          index,
+                          productId: product.productId,
+                          quantity: Number(addonDraftQty.trim()),
+                          unitMinor: parseMajorToMinor(addonDraftPrice.trim()),
+                          productName: product.name,
+                          chargeCode: product.chargeCode,
+                        },
+                      ]);
+                      setAddonDraftProductId('');
+                      setAddonDraftQty('1');
+                      setAddonDraftPrice('');
+                    }}
+                  >
+                    Add line
+                  </Button>
+                </div>
+              </fieldset>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardContent>
           <Total
@@ -896,7 +1115,9 @@ export function BookingScreen() {
             <Button
               type="button"
               data-testid="quote-book"
-              disabled={!quoteEnabled || bookMutation.isPending}
+              disabled={
+                !quoteEnabled || bookMutation.isPending || addonLines.length > 0
+              }
               onClick={() => bookMutation.mutate('inquiry')}
             >
               Quote
@@ -910,10 +1131,38 @@ export function BookingScreen() {
             >
               Confirm booking
             </Button>
+            {addonLines.length > 0 ? (
+              <p className="muted">
+                Quote saves no add-ons — remove them to save a quote.
+              </p>
+            ) : null}
           </div>
         </CardFooter>
       </Card>
 
+      {failedAddons.length > 0 ? (
+        <Alert data-testid="addon-failure-alert">
+          <p>Booking created — these add-ons could not be posted:</p>
+          <ul>
+            {failedAddons.map((line) => (
+              <li key={line.lineKey}>
+                {line.productName}: {line.errorMessage}
+              </li>
+            ))}
+          </ul>
+          <div className="ui-row">
+            <Button
+              type="button"
+              data-testid="retry-addons"
+              disabled={retryAddonsMutation.isPending}
+              onClick={() => retryAddonsMutation.mutate()}
+            >
+              Retry add-ons
+            </Button>
+            <Link to={`/folio/${reservationId}`}>Open folio</Link>
+          </div>
+        </Alert>
+      ) : null}
       {message ? <Alert data-testid="book-message">{message}</Alert> : null}
     </div>
   );

@@ -44,6 +44,10 @@ export {
   type AvailabilityRead,
   type NightAuditStatus,
   type NightAuditStepStatus,
+  type NamedListEntry,
+  type OperationalConfigItem,
+  type OperationalConfigKey,
+  type OperationalConfigRead,
 } from './api.js';
 export { requestJson, ClassifiedError } from './request.js';
 export {

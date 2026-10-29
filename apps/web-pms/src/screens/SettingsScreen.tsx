@@ -27,6 +27,7 @@ import { CURRENCIES } from '../config/currencies.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
+import { SourcesSettings } from './settings-sources.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
   'ROOM',
@@ -424,7 +425,11 @@ function PropertyNameField(props: {
   );
 }
 
-export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'products' | 'tax' }) {
+export function SettingsScreen({
+  tab,
+}: {
+  tab?: 'property' | 'charges' | 'products' | 'sources' | 'tax';
+}) {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
   const activeTab = tab ?? 'property';
@@ -611,6 +616,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'produc
         <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
         <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
         <Link className="ui-tab" to="/settings/products" aria-current={activeTab === 'products' ? 'page' : undefined}>Products</Link>
+        <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
       </nav>
       {message ? (
@@ -1073,6 +1079,7 @@ export function SettingsScreen({ tab }: { tab?: 'property' | 'charges' | 'produc
       ) : null}
 
       {activeTab === 'products' ? <ProductsSettings onMessage={setMessage} /> : null}
+      {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'tax' ? (
         <>
           <Card>

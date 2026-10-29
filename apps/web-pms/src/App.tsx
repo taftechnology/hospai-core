@@ -146,6 +146,11 @@ export function App() {
                   <SettingsScreen tab="products" />
                 </Suspense>
               } />
+              <Route path="sources" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="sources" />
+                </Suspense>
+              } />
               <Route path="tax" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="tax" />

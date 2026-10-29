@@ -12,6 +12,7 @@ const getProperty = vi.fn();
 const updateFrontOffice = vi.fn();
 const listRooms = vi.fn();
 const listRoomTypes = vi.fn();
+const listOperationalConfig = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -33,6 +34,7 @@ vi.mock('../client.js', () => ({
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
     listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
+    listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
   },
 }));
 
@@ -80,6 +82,7 @@ describe('CheckInScreen', () => {
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
     });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     listRoomTypes.mockResolvedValue({
       ok: true,
       roomTypes: [{ roomTypeId: 'rt', code: 'KNG', name: 'King Room' }],

@@ -23,6 +23,11 @@ import {
   PROPERTY_REF_NOT_FOUND,
   DECRYPT_UNRESOLVED,
   KEY_SHRED_FAILED,
+  CONFIG_KEY_NOT_WRITABLE,
+  CONFIG_CODE_REMOVED,
+  VALIDATION_ERROR,
+  getConfigEntry,
+  NamedList,
   isCommandError,
   isOrgScopedPermission,
   isPropertyScopedPermission,
@@ -276,6 +281,68 @@ function readIdempotentReplay<T>(
 }
 
 const SEARCH_PHONE_RE = /^[+]?[\d\s().-]{7,}$/;
+
+const OPERATIONAL_CONFIG_ALLOWLIST = ['pms.property.sources', 'pms.property.market_segments'] as const;
+
+/** Fixed inventory for purge VERIFY — the DO SQLite authorizer rejects dynamic table identifiers (SQLITE_AUTH); same pattern as PropertyDO. */
+const ORG_PURGE_INVENTORY_TABLES = [
+  'alarm_schedule',
+  'data_key',
+  'guest',
+  'guest_blind_index',
+  'guest_property',
+  'idempotency',
+  'member',
+  'operational_config',
+  'operational_config_audit',
+  'outbox',
+  'property_member',
+  'property_ref',
+  'roster',
+  'roster_kind',
+  'roster_property',
+] as const;
+
+/** Literal SQL only — each FROM target is a string constant for the DO authorizer. */
+function countOrgInventoryRows(sql: DurableObjectState['storage']['sql']): number {
+  const row = sql
+    .exec(
+      `SELECT
+      (SELECT COUNT(*) FROM alarm_schedule) +
+      (SELECT COUNT(*) FROM data_key) +
+      (SELECT COUNT(*) FROM guest) +
+      (SELECT COUNT(*) FROM guest_blind_index) +
+      (SELECT COUNT(*) FROM guest_property) +
+      (SELECT COUNT(*) FROM idempotency) +
+      (SELECT COUNT(*) FROM member) +
+      (SELECT COUNT(*) FROM operational_config) +
+      (SELECT COUNT(*) FROM operational_config_audit) +
+      (SELECT COUNT(*) FROM outbox) +
+      (SELECT COUNT(*) FROM property_member) +
+      (SELECT COUNT(*) FROM property_ref) +
+      (SELECT COUNT(*) FROM roster) +
+      (SELECT COUNT(*) FROM roster_kind) +
+      (SELECT COUNT(*) FROM roster_property) AS n`,
+    )
+    .toArray() as Array<{ n: number }>;
+  return Number(row[0]?.n ?? 0);
+}
+
+function operationalConfigKeyWritable(key: string): boolean {
+  if (!(OPERATIONAL_CONFIG_ALLOWLIST as readonly string[]).includes(key)) return false;
+  const entry = getConfigEntry(key);
+  if (!entry || entry.class !== 'OPERATIONAL' || entry.scope !== 'property') return false;
+  return true;
+}
+
+function parseNamedListOrThrow(value: unknown) {
+  const parsed = NamedList.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const limitExceeded = parsed.error.issues.some(
+    (i) => i.code === 'too_big' && (i.type === 'array' || i.path.length === 0),
+  );
+  throw new Error(limitExceeded ? LIMIT_EXCEEDED : VALIDATION_ERROR);
+}
 
 export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
@@ -700,22 +767,19 @@ export class OrgDO extends DurableObject<PmsEnv> {
       ).length > 0;
     if (!schemaPresent) return 0;
 
-    const tables = this.ctx.storage.sql
-      .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
-      .toArray() as Array<{ name: string }>;
-    const allow = new Set(['schema_version', '__cf_kv']);
-    let total = 0;
-    for (const { name } of tables) {
-      if (allow.has(name)) continue;
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-        throw new Error(`unexpected_table_name:${name}`);
+    const bookkeeping = new Set(['schema_version', '__cf_kv', '__meta', 'sqlite_sequence', '_cf_METADATA']);
+    const present = (
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM sqlite_master WHERE type='table'`)
+        .toArray() as Array<{ name: string }>
+    ).map((r) => r.name);
+    for (const name of present) {
+      if (bookkeeping.has(name) || name.startsWith('sqlite_') || name.startsWith('_cf')) continue;
+      if (!(ORG_PURGE_INVENTORY_TABLES as readonly string[]).includes(name)) {
+        throw new Error(`unexpected_table:${name}`);
       }
-      const rows = this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${name}`).toArray() as Array<{
-        n: number;
-      }>;
-      total += Number(rows[0]?.n ?? 0);
     }
-    return total;
+    return countOrgInventoryRows(this.ctx.storage.sql);
   }
 
   /** Test helper (unsafe-local only): invoke `alarm()` directly. */
@@ -1480,6 +1544,141 @@ export class OrgDO extends DurableObject<PmsEnv> {
             payload: { orgId, propertyId, name: input.name },
           });
           return { ok: true as const, propertyId, name: input.name };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async listOperationalConfig(propertyId: string): Promise<{
+    ok: true;
+    items: Array<{
+      key: string;
+      value: unknown;
+      version: number;
+      source: 'stored' | 'default';
+    }>;
+  }> {
+    this.assertRpcAvailable();
+    const items = OPERATIONAL_CONFIG_ALLOWLIST.map((key) => {
+      const entry = getConfigEntry(key)!;
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT value_json, version FROM operational_config WHERE property_id = ? AND key = ?`,
+          propertyId,
+          key,
+        )
+        .toArray() as Array<{ value_json: string; version: number }>;
+      const row = rows[0];
+      if (!row) {
+        return { key, value: entry.default, version: 0, source: 'default' as const };
+      }
+      return {
+        key,
+        value: JSON.parse(row.value_json) as unknown,
+        version: row.version,
+        source: 'stored' as const,
+      };
+    });
+    return { ok: true, items };
+  }
+
+  async tryPutOperationalConfig(
+    actor: ActorContext,
+    propertyId: string,
+    input: { key: string; value: unknown; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; key: string; version: number }
+    | { ok: false; error: typeof CONFIG_KEY_NOT_WRITABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    if (!operationalConfigKeyWritable(input.key)) {
+      return { ok: false, error: CONFIG_KEY_NOT_WRITABLE };
+    }
+
+    const reason = input.reason.trim();
+    if (!reason) return { ok: false, error: VALIDATION_ERROR };
+
+    const permDenied = await this.gatePermission(actor, propertyId, 'settings:configure');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const auditActor = actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const parsedValue = parseNamedListOrThrow(input.value);
+
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT value_json, version FROM operational_config WHERE property_id = ? AND key = ?`,
+              propertyId,
+              input.key,
+            )
+            .toArray() as Array<{ value_json: string; version: number }>;
+          const beforeJson = existing[0]?.value_json ?? null;
+          if (beforeJson) {
+            const beforeList = JSON.parse(beforeJson) as Array<{ code: string }>;
+            const newCodes = new Set(parsedValue.map((e) => e.code));
+            for (const entry of beforeList) {
+              if (!newCodes.has(entry.code)) {
+                throw new Error(CONFIG_CODE_REMOVED);
+              }
+            }
+          }
+
+          const version = (existing[0]?.version ?? 0) + 1;
+          const afterJson = JSON.stringify(parsedValue);
+          const now = Date.now();
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO operational_config (property_id, key, value_json, version, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(property_id, key) DO UPDATE SET
+               value_json = excluded.value_json,
+               version = excluded.version,
+               updated_at = excluded.updated_at,
+               updated_by = excluded.updated_by`,
+            propertyId,
+            input.key,
+            afterJson,
+            version,
+            now,
+            auditActor,
+          );
+          this.ctx.storage.sql.exec(
+            `INSERT INTO operational_config_audit (property_id, key, actor, reason, before_json, after_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            propertyId,
+            input.key,
+            auditActor,
+            reason,
+            beforeJson,
+            afterJson,
+            now,
+          );
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'config.operational_changed',
+            payload: { orgId, propertyId, key: input.key, version },
+          });
+          return { ok: true as const, key: input.key, version };
         }, actor),
       );
     } catch (e) {

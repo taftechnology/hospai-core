@@ -1810,6 +1810,8 @@ export function FolioScreen() {
               frontOfficeComment={reservationQ.data.frontOfficeComment}
               vipFlag={reservationQ.data.vipFlag}
               dndFlag={reservationQ.data.dndFlag}
+              sourceCode={reservationQ.data.sourceCode}
+              marketSegmentCode={reservationQ.data.marketSegmentCode}
               disabled={editorDisabled}
               actions={<PrintRegCardControl canPrint={canPrint} />}
             />

@@ -813,7 +813,7 @@ requirement.**
 | Class | Meaning | Lives in | Read path |
 |---|---|---|---|
 | `DOMAIN` | Participates in a domain decision | **PropertyDO**, beside the data it governs | Read **inside the DO, in the same atomic write** as the decision |
-| `OPERATIONAL` | Changes behaviour but not an invariant (nav defaults, list columns, ETA display) | OrgDO | KV projection, version-keyed |
+| `OPERATIONAL` | Changes behaviour but not an invariant (nav defaults, list columns, ETA display) | OrgDO | KV projection, version-keyed; R1.6 booking sources/segments read OrgDO directly (FAIL_CLOSED) until a hot path needs the projection (booking engine, R4.2) |
 | `PRESENTATION` | Pure UI (date format, week start, compact mode) | OrgDO or user-scoped | KV projection; stale is harmless |
 | `SECRET` | Gateway credentials, API tokens, terminal keys | **Never in config** — see below | Not readable by `pms-core` at all |
 

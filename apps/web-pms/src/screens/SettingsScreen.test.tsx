@@ -18,6 +18,7 @@ const archiveFolioRoutingRule = vi.fn();
 const listTaxRules = vi.fn();
 const createTaxRule = vi.fn();
 const supersedeTaxRule = vi.fn();
+const listOperationalConfig = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -36,6 +37,7 @@ vi.mock('../client.js', () => ({
     listTaxRules: (...a: unknown[]) => listTaxRules(...a),
     createTaxRule: (...a: unknown[]) => createTaxRule(...a),
     supersedeTaxRule: (...a: unknown[]) => supersedeTaxRule(...a),
+    listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -75,6 +77,7 @@ function renderSettings(path: string) {
 describe('SettingsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
     });

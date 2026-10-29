@@ -13,6 +13,7 @@ const searchGuests = vi.fn();
 const listRateDays = vi.fn();
 const listRatePlans = vi.fn();
 const listRatePromos = vi.fn();
+const listOperationalConfig = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -35,6 +36,7 @@ vi.mock('../client.js', () => ({
     listRateDays: (...a: unknown[]) => listRateDays(...a),
     listRatePlans: (...a: unknown[]) => listRatePlans(...a),
     listRatePromos: (...a: unknown[]) => listRatePromos(...a),
+    listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
   },
 }));
 
@@ -205,6 +207,7 @@ describe('BookingScreen', () => {
     listRatePlans.mockResolvedValue({ ok: true, plans: [barPlan, corpPlan] });
     listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-12'));
     listRatePromos.mockResolvedValue({ ok: true, promos: [] });
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
   });
 
   afterEach(() => {
@@ -315,6 +318,8 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(createReservation).toHaveBeenCalled());
     const resArg = createReservation.mock.calls[0]![1] as { quoteAriVersion: number };
     expect(resArg.quoteAriVersion).toBe(3);
+    expect(resArg).not.toHaveProperty('sourceCode');
+    expect(resArg).not.toHaveProperty('marketSegmentCode');
     await waitFor(() => {
       const loc = screen.getByTestId('location');
       expect(loc.getAttribute('data-pathname')).toBe('/arrivals');
@@ -1031,5 +1036,56 @@ describe('BookingScreen', () => {
     renderBook('/book?arrival=2026-09-03&departure=2026-09-01');
     await waitFor(() => expect(inputValue('arrival-date')).toBe('2026-08-11'));
     expect(inputValue('departure-date')).toBe('2026-08-12');
+  });
+
+  it('shows Source and Market segment only for active entries and sends the chosen codes', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByTestId('rate-plan')).toBeTruthy());
+    expect(screen.queryByTestId('booking-source')).toBeNull();
+    expect(screen.queryByTestId('booking-segment')).toBeNull();
+    cleanup();
+
+    listOperationalConfig.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          key: 'pms.property.sources',
+          value: [
+            { code: 'WALKIN', name: 'Walk-in', status: 'active' },
+            { code: 'OLD', name: 'Old desk', status: 'archived' },
+          ],
+          version: 1,
+          source: 'stored',
+        },
+        {
+          key: 'pms.property.market_segments',
+          value: [{ code: 'LEISURE', name: 'Leisure', status: 'active' }],
+          version: 1,
+          source: 'stored',
+        },
+      ],
+    });
+    renderBook();
+    const source = (await screen.findByTestId('booking-source')) as HTMLSelectElement;
+    const segment = screen.getByTestId('booking-segment') as HTMLSelectElement;
+    expect([...source.options].map((option) => option.value)).toEqual(['', 'WALKIN']);
+    expect([...segment.options].map((option) => option.value)).toEqual(['', 'LEISURE']);
+    fireEvent.change(source, { target: { value: 'WALKIN' } });
+    fireEvent.change(segment, { target: { value: 'LEISURE' } });
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    const body = createReservation.mock.calls[0]![1] as {
+      sourceCode?: string;
+      marketSegmentCode?: string;
+    };
+    expect(body.sourceCode).toBe('WALKIN');
+    expect(body.marketSegmentCode).toBe('LEISURE');
+    const opId = createReservation.mock.calls[0]![2] as string;
+    expect(opId).toContain(':src=WALKIN');
+    expect(opId).toContain(':seg=LEISURE');
   });
 });

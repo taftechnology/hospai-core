@@ -213,6 +213,30 @@ const ORG_DATA_KEY_VERSION_STATEMENTS = [
 
 export const ORG_DATA_KEY_VERSION_SQL = ORG_DATA_KEY_VERSION_STATEMENTS.join(';\n\n') + ';\n';
 
+const ORG_OPERATIONAL_CONFIG_STATEMENTS = [
+  `CREATE TABLE operational_config (
+  property_id   TEXT NOT NULL,
+  key           TEXT NOT NULL,
+  value_json    TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  updated_by    TEXT NOT NULL,
+  PRIMARY KEY (property_id, key)
+)`,
+  `CREATE TABLE operational_config_audit (
+  seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+  property_id  TEXT NOT NULL,
+  key          TEXT NOT NULL,
+  actor        TEXT NOT NULL,
+  reason       TEXT NOT NULL,
+  before_json  TEXT,
+  after_json   TEXT NOT NULL,
+  created_at   INTEGER NOT NULL
+)`,
+] as const;
+
+export const ORG_OPERATIONAL_CONFIG_SQL = ORG_OPERATIONAL_CONFIG_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -258,5 +282,10 @@ export const ORG_MIGRATIONS = [
     version: 9,
     name: '0009_data_key_key_version',
     statements: ORG_DATA_KEY_VERSION_STATEMENTS,
+  },
+  {
+    version: 10,
+    name: '0010_operational_config',
+    statements: ORG_OPERATIONAL_CONFIG_STATEMENTS,
   },
 ] as const;

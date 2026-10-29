@@ -76,6 +76,9 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
   category_not_found: () => 'That category is missing or archived — pick an active category.',
   product_not_found: () => 'That product no longer exists — refresh the list.',
   limit_exceeded: () => 'This property has reached the catalog limit.',
+  config_code_removed: () =>
+    'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',
+  config_key_not_writable: () => 'That setting cannot be changed.',
   no_availability: (body) => {
     const date = bodyStringField(body, 'date');
     if (date) {

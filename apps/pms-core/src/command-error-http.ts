@@ -180,6 +180,8 @@ import {
   PRODUCT_INVALID_AMOUNT,
   PRODUCT_CATEGORY_NOT_FOUND,
   PRODUCT_NOT_FOUND,
+  CONFIG_KEY_NOT_WRITABLE,
+  CONFIG_CODE_REMOVED,
   type CommandError,
   type FeatureKey,
   type Permission,
@@ -212,6 +214,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case PSP_UNAVAILABLE:
       return 501;
     case CONFIG_CLASS_NOT_DOMAIN:
+    case CONFIG_KEY_NOT_WRITABLE:
       return 400;
 
     case ALREADY_CANCELLED:
@@ -302,6 +305,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CHARGE_CODE_EXISTS:
     case SYSTEM_CHARGE_CODE_PROTECTED:
     case CHARGE_CODE_NOT_POSTABLE:
+    case CONFIG_CODE_REMOVED:
     case PRODUCT_INVALID_AMOUNT:
     case TAX_RULE_KEY_EXISTS:
     case TAX_RULE_KEY_OVERLAP:

@@ -312,6 +312,8 @@ export function CheckInScreen() {
               frontOfficeComment={res.frontOfficeComment}
               vipFlag={res.vipFlag}
               dndFlag={res.dndFlag}
+              sourceCode={res.sourceCode}
+              marketSegmentCode={res.marketSegmentCode}
               disabled={editorDisabled}
             />
           </CardContent>

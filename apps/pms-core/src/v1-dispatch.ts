@@ -148,6 +148,7 @@ import {
   KEY_SHRED_FAILED,
   LAST_OWNER,
   LIMIT_EXCEEDED,
+  NAMED_LIST_MAX_ENTRIES,
   RATES_BULK_UPDATE_MAX,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
@@ -1177,6 +1178,82 @@ async function handlePutDomainConfig(ctx: V1DispatchContext): Promise<Response> 
   return json({ ok: true, key: result.key, version: result.version, events: result.events }, 200);
 }
 
+async function handleGetOperationalConfig(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.listOperationalConfig(propertyId);
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handlePutOperationalConfig(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const key = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    value?: unknown;
+    reason?: string;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    body?.value === undefined ||
+    typeof body.reason !== 'string' ||
+    !body.reason.trim() ||
+    typeof body.idempotencyKey !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (Array.isArray(body.value) && body.value.length > NAMED_LIST_MAX_ENTRIES) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { key, value: body.value, reason: body.reason };
+  const fingerprint = await commandFingerprint('config.put_operational', commandPayload);
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.tryPutOperationalConfig(actor, propertyId, commandPayload, {
+      key: body.idempotencyKey,
+      fingerprint,
+    });
+    if (!result.ok) {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'settings:configure' }, 403);
+      }
+      return commandFailureResponse(result.error, 'settings:configure');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'config.put_operational' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
 async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -1692,6 +1769,8 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     promoCode?: string;
     confirmBy?: number;
     expiresAt?: number;
+    sourceCode?: string;
+    marketSegmentCode?: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -1725,6 +1804,8 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     children: body.children,
     ratePlanId: body.ratePlanId ?? 'BAR',
     ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}),
+    ...(body.sourceCode !== undefined ? { sourceCode: body.sourceCode } : {}),
+    ...(body.marketSegmentCode !== undefined ? { marketSegmentCode: body.marketSegmentCode } : {}),
   });
 
   const commandPayload = {
@@ -1740,6 +1821,8 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
     ...(normalizedPromoCode ? { promoCode: normalizedPromoCode } : {}),
     ...(body.confirmBy !== undefined ? { confirmBy: body.confirmBy } : {}),
     ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt } : {}),
+    ...(body.sourceCode !== undefined ? { sourceCode: body.sourceCode } : {}),
+    ...(body.marketSegmentCode !== undefined ? { marketSegmentCode: body.marketSegmentCode } : {}),
   };
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
 
@@ -2111,6 +2194,8 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
     vipFlag?: boolean;
     dndFlag?: boolean;
     noPost?: boolean;
+    sourceCode?: string | null;
+    marketSegmentCode?: string | null;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -2125,6 +2210,8 @@ async function handlePostReservationFrontOffice(ctx: V1DispatchContext): Promise
     ...(body.vipFlag !== undefined ? { vipFlag: body.vipFlag } : {}),
     ...(body.dndFlag !== undefined ? { dndFlag: body.dndFlag } : {}),
     ...(body.noPost !== undefined ? { noPost: body.noPost } : {}),
+    ...(body.sourceCode !== undefined ? { sourceCode: body.sourceCode } : {}),
+    ...(body.marketSegmentCode !== undefined ? { marketSegmentCode: body.marketSegmentCode } : {}),
   };
   const fingerprint = await commandFingerprint('reservations.update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -8383,6 +8470,24 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'settings:configure',
     commandId: 'products.update_item',
     handler: handlePatchProduct,
+  },
+  {
+    id: 'get_operational_config',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/operational-config$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetOperationalConfig,
+  },
+  {
+    id: 'put_operational_config',
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/operational-config\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'config.put_operational',
+    handler: handlePutOperationalConfig,
   },
 ];
 

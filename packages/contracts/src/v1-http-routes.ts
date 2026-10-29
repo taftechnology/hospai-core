@@ -899,6 +899,19 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'settings:configure',
     commandId: 'products.update_item',
   },
+  {
+    id: 'get_operational_config',
+    scope: 'property',
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'put_operational_config',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'config.put_operational',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

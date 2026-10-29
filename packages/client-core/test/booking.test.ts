@@ -104,6 +104,31 @@ describe('bookingReservationOpId', () => {
     expect(omitted.endsWith(':BAR')).toBe(true);
     expect(omitted.includes(':SUMMER15')).toBe(false);
   });
+
+  it('appends source and segment only when set', () => {
+    const base = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      guestRef: 'g1',
+    };
+    expect(bookingReservationOpId(base)).toBe(
+      'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR',
+    );
+    expect(
+      bookingReservationOpId({ ...base, sourceCode: 'walkin', marketSegmentCode: 'gov' }),
+    ).toBe('book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR:src=WALKIN:seg=GOV');
+    expect(bookingReservationOpId({ ...base, promoCode: 'summer15', sourceCode: 'OTA' })).toBe(
+      'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR:SUMMER15:src=OTA',
+    );
+    expect(bookingReservationOpId({ ...base, marketSegmentCode: 'GOV' })).toBe(
+      'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR:seg=GOV',
+    );
+    expect(bookingReservationOpId({ ...base, sourceCode: '  ', marketSegmentCode: '' })).toBe(
+      'book:r1:rt_a:2026-08-11:2026-08-12:g1:confirmed:1:0:BAR',
+    );
+  });
 });
 
 describe('availabilityRangeForStay', () => {

@@ -752,10 +752,12 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[147]?.id).toBe('patch_product_category');
     expect(V1_HTTP_ROUTE_AUDIT[148]?.id).toBe('post_products');
     expect(V1_HTTP_ROUTE_AUDIT[149]?.id).toBe('patch_product');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(150);
+    expect(V1_HTTP_ROUTE_AUDIT[150]?.id).toBe('get_operational_config');
+    expect(V1_HTTP_ROUTE_AUDIT[151]?.id).toBe('put_operational_config');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(152);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
-    expect(COMMAND_CATALOG).toHaveLength(94);
+    expect(COMMAND_CATALOG).toHaveLength(95);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

@@ -15,6 +15,7 @@ import {
   ORG_GUEST_BLIND_INDEX_SQL,
   ORG_PROPERTY_PII_ASSOCIATION_SQL,
   ORG_DATA_KEY_VERSION_SQL,
+  ORG_OPERATIONAL_CONFIG_SQL,
   ORG_SCHEMA_HEAD,
   ORG_SPINE_SQL,
   PLATFORM_REGISTRY_SQL,
@@ -52,6 +53,7 @@ import {
   CITY_LEDGER_AR_V33_SQL,
   PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
   PRODUCTS_V35_SQL,
+  RESERVATION_SEGMENTS_V36_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -173,6 +175,12 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE provisional_exception ADD COLUMN actor_user_id')) {
       return { toArray: () => [] };
     }
+    if (
+      q.startsWith('ALTER TABLE reservation ADD COLUMN source_code') ||
+      q.startsWith('ALTER TABLE reservation ADD COLUMN market_segment_code')
+    ) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('ALTER TABLE payment ADD COLUMN card_last4')) {
       return { toArray: () => [] };
     }
@@ -239,16 +247,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 35', () => {
+  it('applies property migrations through version 36', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(35);
+    expect(v1).toBe(36);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(35);
-    expect(sql.schemaVersion).toHaveLength(35);
+    expect(v2).toBe(36);
+    expect(sql.schemaVersion).toHaveLength(36);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -615,6 +623,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_DATA_KEY_VERSION_SQL.trim());
   });
 
+  it('migrations/do-org/0010_operational_config.sql matches ORG_OPERATIONAL_CONFIG_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0010_operational_config.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_OPERATIONAL_CONFIG_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -651,9 +671,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(9);
-    expect(sql.schemaVersion).toHaveLength(9);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(10);
+    expect(sql.schemaVersion).toHaveLength(10);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -666,8 +686,8 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(35);
-    expect(ORG_SCHEMA_HEAD).toBe(9);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(36);
+    expect(ORG_SCHEMA_HEAD).toBe(10);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 
@@ -998,5 +1018,23 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(PRODUCTS_V35_SQL.trim());
+  });
+
+  it('property schema head is 36 after reservation_segments', () => {
+    const v36 = PROPERTY_MIGRATIONS.find((m) => m.version === 36);
+    expect(v36?.name).toBe('reservation_segments');
+    expect(v36?.statements.join(' ')).toContain('market_segment_code');
+  });
+
+  it('migrations/do-property/0036_reservation_segments.sql matches RESERVATION_SEGMENTS_V36_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0036_reservation_segments.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(RESERVATION_SEGMENTS_V36_SQL.trim());
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createClient, ClassifiedError } from '../src/api.js';
 import { createEntitlementStore } from '../src/entitlements-state.js';
+import { stableKeyForOperation } from '../src/idempotency.js';
 import { createQueuedCommandLog } from '../src/queued-commands.js';
 import type { Transport } from '../src/transport.js';
 
@@ -120,6 +121,64 @@ describe('property-setup client methods', () => {
       value: false,
       reason: 'ops:hold',
     });
+  });
+
+  it('listOperationalConfig GETs the property list', async () => {
+    const items = [
+      {
+        key: 'pms.property.sources' as const,
+        value: [{ code: 'WALKIN', name: 'Walk-in', status: 'active' as const }],
+        version: 1,
+        source: 'stored' as const,
+      },
+    ];
+    const { client } = testClient((path) => {
+      expect(path).toBe('/v1/properties/p/operational-config');
+      return new Response(JSON.stringify({ ok: true, items }), { status: 200 });
+    });
+    await expect(client.listOperationalConfig('p')).resolves.toEqual({ ok: true, items });
+  });
+
+  it('putOperationalConfig PUTs the whole list with a stable idempotency key', async () => {
+    const keyStore = new Map<string, string>();
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((path, init) => {
+        expect(path).toBe('/v1/properties/p/operational-config/pms.property.sources');
+        expect(init?.method).toBe('PUT');
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({ ok: true, key: 'pms.property.sources', version: 2 }),
+          { status: 200 },
+        );
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore,
+    });
+    const value = [{ code: 'WALKIN', name: 'Walk-in', status: 'active' as const }];
+    const reason = 'Add source WALKIN';
+    await client.putOperationalConfig('p', 'pms.property.sources', value, reason);
+    const changed = [{ ...value[0]!, name: 'Walk in' }];
+    await client.putOperationalConfig('p', 'pms.property.sources', changed, reason);
+    expect(bodies[0]).toEqual({
+      value,
+      reason,
+      idempotencyKey: stableKeyForOperation(
+        `operational-config:pms.property.sources:${JSON.stringify(value)}:${reason}`,
+        keyStore,
+      ),
+    });
+    expect(bodies[0]?.idempotencyKey).not.toBe(bodies[1]?.idempotencyKey);
+    expect(bodies[1]).not.toHaveProperty('key');
   });
 
   it('listDomainConfig fail_closed does not append queued log', async () => {

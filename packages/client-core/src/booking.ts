@@ -33,6 +33,8 @@ export function bookingReservationOpId(input: {
   children?: number;
   ratePlanId?: string;
   promoCode?: string;
+  sourceCode?: string;
+  marketSegmentCode?: string;
 }): string {
   const status = input.status ?? 'confirmed';
   const adults = input.adults ?? 1;
@@ -42,7 +44,15 @@ export function bookingReservationOpId(input: {
     input.promoCode != null && input.promoCode.trim() !== ''
       ? `:${input.promoCode.trim().toUpperCase()}`
       : '';
-  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}${promoSegment}`;
+  const sourceSegment =
+    input.sourceCode != null && input.sourceCode.trim() !== ''
+      ? `:src=${input.sourceCode.trim().toUpperCase()}`
+      : '';
+  const segmentSegment =
+    input.marketSegmentCode != null && input.marketSegmentCode.trim() !== ''
+      ? `:seg=${input.marketSegmentCode.trim().toUpperCase()}`
+      : '';
+  return `book:${input.reservationId}:${input.roomTypeId}:${input.arrivalDate}:${input.departureDate}:${input.guestRef}:${status}:${adults}:${children}:${ratePlanId}${promoSegment}${sourceSegment}${segmentSegment}`;
 }
 
 /**

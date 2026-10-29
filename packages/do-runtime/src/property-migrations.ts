@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 35. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 36. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1195,6 +1195,14 @@ export const PRODUCTS_V35_STATEMENTS = [
 ] as const;
 export const PRODUCTS_V35_SQL = PRODUCTS_V35_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v36 — booking source and market segment codes on the stay (R1.6). Free text; format checked in the DO. */
+export const RESERVATION_SEGMENTS_V36_STATEMENTS = [
+  `ALTER TABLE reservation ADD COLUMN source_code TEXT`,
+  `ALTER TABLE reservation ADD COLUMN market_segment_code TEXT`,
+] as const;
+export const RESERVATION_SEGMENTS_V36_SQL =
+  RESERVATION_SEGMENTS_V36_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1370,5 +1378,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 35,
     name: 'products',
     statements: PRODUCTS_V35_STATEMENTS,
+  },
+  {
+    version: 36,
+    name: 'reservation_segments',
+    statements: RESERVATION_SEGMENTS_V36_STATEMENTS,
   },
 ] as const;

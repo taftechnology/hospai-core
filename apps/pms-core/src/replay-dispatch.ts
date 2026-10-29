@@ -28,6 +28,8 @@ export type ReplayTarget = {
       vipFlag?: boolean;
       dndFlag?: boolean;
       noPost?: boolean;
+      sourceCode?: string | null;
+      marketSegmentCode?: string | null;
     },
     idem: { key: string; fingerprint: string },
     ctx: ProvisionalContext,
@@ -112,6 +114,8 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
           vipFlag?: boolean;
           dndFlag?: boolean;
           noPost?: boolean;
+          sourceCode?: string | null;
+          marketSegmentCode?: string | null;
         },
         idem,
         ctx,

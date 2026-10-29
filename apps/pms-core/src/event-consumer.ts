@@ -149,6 +149,7 @@ export async function handleDomainEvent(
     case 'city_ledger.statement_generated':
     case 'charge_code.changed':
     case 'products.changed':
+    case 'config.operational_changed':
     case 'folio.routing_rule_changed':
     case 'tax_rule.changed':
     case 'shift.changed':

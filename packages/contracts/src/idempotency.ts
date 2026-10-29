@@ -173,6 +173,10 @@ export const PRODUCT_INVALID_AMOUNT = 'invalid_amount' as const;
 export const PRODUCT_CATEGORY_NOT_FOUND = 'category_not_found' as const;
 export const PRODUCT_NOT_FOUND = 'product_not_found' as const;
 
+/** OPERATIONAL config wire codes (R1.6) */
+export const CONFIG_KEY_NOT_WRITABLE = 'config_key_not_writable' as const;
+export const CONFIG_CODE_REMOVED = 'config_code_removed' as const;
+
 /** Config wire codes */
 export const CONFIG_CLASS_NOT_DOMAIN = 'config_class_not_domain' as const;
 

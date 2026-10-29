@@ -71,6 +71,21 @@ const bool = z.boolean();
 const str = z.string();
 const json = z.unknown();
 
+/** R1.6 named list (booking sources, market segments): codes are never removed, only archived. */
+export const NAMED_LIST_MAX_ENTRIES = 50;
+export const NamedListEntry = z.object({
+  code: z.string().regex(/^[A-Z0-9_]{1,32}$/),
+  name: z.string().trim().min(1).max(60),
+  status: z.enum(['active', 'archived']),
+});
+export type NamedListEntry = z.infer<typeof NamedListEntry>;
+export const NamedList = z
+  .array(NamedListEntry)
+  .max(NAMED_LIST_MAX_ENTRIES)
+  .refine((list) => new Set(list.map((e) => e.code)).size === list.length, {
+    message: 'duplicate_code',
+  });
+
 export const CONFIG_REGISTER: ConfigEntry[] = [
   // —— DOMAIN (freeze-critical) ——
   entry({
@@ -304,8 +319,8 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
   entry({ key: 'pms.property.amenities_checklist', prototypeKey: 'pms_amenities_checklist', class: 'OPERATIONAL', schema: json, default: [] }),
   entry({ key: 'pms.property.custom_amenities', prototypeKey: 'pms_custom_amenities', class: 'OPERATIONAL', schema: json, default: [] }),
   entry({ key: 'pms.property.split_inventory', prototypeKey: 'pms_property_split_inventory', class: 'OPERATIONAL', schema: json, default: [] }),
-  entry({ key: 'pms.property.sources', prototypeKey: 'pms_property_sources', class: 'OPERATIONAL', schema: json, default: [] }),
-  entry({ key: 'pms.property.market_segments', prototypeKey: 'pms_property_market_segments', class: 'OPERATIONAL', schema: json, default: [] }),
+  entry({ key: 'pms.property.sources', prototypeKey: 'pms_property_sources', class: 'OPERATIONAL', schema: NamedList, default: [] }),
+  entry({ key: 'pms.property.market_segments', prototypeKey: 'pms_property_market_segments', class: 'OPERATIONAL', schema: NamedList, default: [] }),
   entry({ key: 'pms.guests.settings', prototypeKey: 'pms_guest_settings', class: 'OPERATIONAL', schema: json, default: {}, scope: 'org' }),
   entry({ key: 'pms.marketplace.connections', prototypeKey: 'pms_marketplace_connections', class: 'OPERATIONAL', schema: json, default: {}, scope: 'org' }),
   entry({ key: 'pms.email.optin_headline', prototypeKey: 'pms_optin_headline', class: 'PRESENTATION', schema: str, default: '', audited: false }),

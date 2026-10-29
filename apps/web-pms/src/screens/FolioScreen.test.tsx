@@ -39,6 +39,7 @@ const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
 const voidInvoice = vi.fn();
 const listDomainConfig = vi.fn();
+const listOperationalConfig = vi.fn();
 const fetchCityLedgerAccounts = vi.fn();
 const validateCityLedgerBilledParty = vi.fn();
 
@@ -109,6 +110,7 @@ vi.mock('../client.js', () => ({
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
+    listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     fetchCityLedgerAccounts: (...args: unknown[]) => fetchCityLedgerAccounts(...args),
     validateCityLedgerBilledParty: (...args: unknown[]) => validateCityLedgerBilledParty(...args),
   },
@@ -259,6 +261,7 @@ describe('FolioScreen wiring', () => {
     });
     listFxRates.mockResolvedValue({ ledgerCurrency: 'USD', rates: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     reconcilePayment.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listDomainConfig.mockResolvedValue({
       ok: true,
@@ -1470,6 +1473,8 @@ describe('FolioScreen wiring', () => {
       frontOfficeComment: 'Late arrival',
       vipFlag: true,
       dndFlag: true,
+      sourceCode: null,
+      marketSegmentCode: null,
     });
     expect('noPost' in editorExtra).toBe(false);
 

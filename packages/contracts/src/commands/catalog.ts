@@ -1038,6 +1038,17 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     entitlement: 'pms.core',
     permission: 'settings:configure',
   },
+  {
+    id: 'config.put_operational',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['config.operational_changed'],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+    notes: 'R1.6: property-scoped OPERATIONAL keys in OrgDO; allowlist pms.property.sources and pms.property.market_segments only.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

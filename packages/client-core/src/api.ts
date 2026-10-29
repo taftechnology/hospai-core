@@ -18,6 +18,26 @@ export type ListPage<T> = {
   nextCursor: string | null;
 };
 
+export type NamedListEntry = {
+  code: string;
+  name: string;
+  status: 'active' | 'archived';
+};
+
+export type OperationalConfigKey = 'pms.property.sources' | 'pms.property.market_segments';
+
+export type OperationalConfigItem = {
+  key: OperationalConfigKey;
+  value: NamedListEntry[];
+  version: number;
+  source: 'stored' | 'default';
+};
+
+export type OperationalConfigRead = {
+  ok: true;
+  items: OperationalConfigItem[];
+};
+
 export type FrontDeskItem = {
   reservationId: string;
   guestRef: string;
@@ -25,6 +45,8 @@ export type FrontDeskItem = {
   departureDate: string;
   arrivalDate?: string;
   roomId?: string | null;
+  sourceCode?: string | null;
+  marketSegmentCode?: string | null;
   [key: string]: unknown;
 };
 
@@ -131,6 +153,8 @@ export type ReservationRead = {
   vipFlag?: boolean;
   dndFlag?: boolean;
   ratePlanId?: string;
+  sourceCode?: string | null;
+  marketSegmentCode?: string | null;
   confirmBy?: number | null;
   allocatedRoomTypeId?: string;
   createdAt: number;
@@ -1181,6 +1205,8 @@ export function createClient(opts: {
         children?: number;
         ratePlanId?: string;
         promoCode?: string;
+        sourceCode?: string;
+        marketSegmentCode?: string;
       },
       opId: string,
     ) {
@@ -1200,6 +1226,10 @@ export function createClient(opts: {
           ...(input.children !== undefined ? { children: input.children } : {}),
           ...(input.ratePlanId !== undefined ? { ratePlanId: input.ratePlanId } : {}),
           ...(input.promoCode !== undefined ? { promoCode: input.promoCode } : {}),
+          ...(input.sourceCode !== undefined ? { sourceCode: input.sourceCode } : {}),
+          ...(input.marketSegmentCode !== undefined
+            ? { marketSegmentCode: input.marketSegmentCode }
+            : {}),
           idempotencyKey,
         }),
       });
@@ -1239,7 +1269,14 @@ export function createClient(opts: {
       propertyId: string,
       reservationId: string,
       opId: string,
-      extra: { frontOfficeComment?: string; vipFlag?: boolean; noPost?: boolean; dndFlag?: boolean },
+      extra: {
+        frontOfficeComment?: string;
+        vipFlag?: boolean;
+        noPost?: boolean;
+        dndFlag?: boolean;
+        sourceCode?: string | null;
+        marketSegmentCode?: string | null;
+      },
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
@@ -2057,6 +2094,26 @@ export function createClient(opts: {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async listOperationalConfig(propertyId: string): Promise<OperationalConfigRead> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/operational-config`);
+      return body as OperationalConfigRead;
+    },
+    async putOperationalConfig(
+      propertyId: string,
+      key: OperationalConfigKey,
+      value: NamedListEntry[],
+      reason: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `operational-config:${key}:${JSON.stringify(value)}:${reason}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/operational-config/${enc(key)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value, reason, idempotencyKey }),
       });
     },
     async listDomainConfig(propertyId: string) {

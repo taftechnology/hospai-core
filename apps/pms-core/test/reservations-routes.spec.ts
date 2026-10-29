@@ -1435,4 +1435,167 @@ describe('reservations vertical HTTP routes', () => {
       });
     });
   });
+
+  describe('booking source and market segment codes', () => {
+    it('create with codes returns them on GET and front-desk list', async () => {
+      const actor = 'user_res_segments_1';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 2);
+      const reservationId = 'res_seg_1';
+
+      const book = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId,
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: departure,
+            sourceCode: 'WALKIN',
+            marketSegmentCode: 'LEISURE',
+            idempotencyKey: `idem-seg-book-${crypto.randomUUID()}`,
+          }),
+        }),
+        env,
+      );
+      expect(book.status).toBe(201);
+
+      const getRes = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(getRes.status).toBe(200);
+      expect(await getRes.json()).toMatchObject({
+        sourceCode: 'WALKIN',
+        marketSegmentCode: 'LEISURE',
+      });
+
+      const arrivals = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/arrivals?date=${encodeURIComponent(arrival)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(arrivals.status).toBe(200);
+      const arrivalBody = (await arrivals.json()) as { items: Array<Record<string, unknown>> };
+      expect(arrivalBody.items.find((i) => i.reservationId === reservationId)).toMatchObject({
+        sourceCode: 'WALKIN',
+        marketSegmentCode: 'LEISURE',
+      });
+    });
+
+    it('bad format on create returns validation_error', async () => {
+      const actor = 'user_res_segments_2';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const res = await worker.fetch(
+        new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+          body: JSON.stringify({
+            reservationId: 'res_seg_bad',
+            roomTypeId: 'rt_king',
+            guestRef,
+            arrivalDate: arrival,
+            departureDate: addDays(arrival, 1),
+            sourceCode: 'walk-in',
+            idempotencyKey: `idem-seg-bad-${crypto.randomUUID()}`,
+          }),
+        }),
+        env,
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({ ok: false, error: 'validation_error' });
+    });
+
+    it('front-office sets and clears codes with null', async () => {
+      const actor = 'user_res_segments_3';
+      const { propertyId, arrival, guestRef } = await provisionHotel(actor);
+      const departure = addDays(arrival, 2);
+      const reservationId = 'res_seg_fo';
+
+      expect(
+        (
+          await worker.fetch(
+            new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+              body: JSON.stringify({
+                reservationId,
+                roomTypeId: 'rt_king',
+                guestRef,
+                arrivalDate: arrival,
+                departureDate: departure,
+                idempotencyKey: `idem-seg-fo-book-${crypto.randomUUID()}`,
+              }),
+            }),
+            env,
+          )
+        ).status,
+      ).toBe(201);
+
+      const setFo = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/front-office`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              idempotencyKey: `idem-seg-fo-set-${crypto.randomUUID()}`,
+              sourceCode: 'PHONE',
+              marketSegmentCode: 'CORP',
+            }),
+          },
+        ),
+        env,
+      );
+      expect(setFo.status).toBe(200);
+
+      const getAfterSet = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(await getAfterSet.json()).toMatchObject({
+        sourceCode: 'PHONE',
+        marketSegmentCode: 'CORP',
+      });
+
+      const clearFo = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/front-office`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+            body: JSON.stringify({
+              idempotencyKey: `idem-seg-fo-clear-${crypto.randomUUID()}`,
+              sourceCode: null,
+              marketSegmentCode: null,
+            }),
+          },
+        ),
+        env,
+      );
+      expect(clearFo.status).toBe(200);
+
+      const getAfterClear = await worker.fetch(
+        new Request(
+          `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}`,
+          { method: 'GET', headers: { 'x-dev-actor': actor } },
+        ),
+        env,
+      );
+      expect(await getAfterClear.json()).toMatchObject({
+        sourceCode: null,
+        marketSegmentCode: null,
+      });
+    });
+  });
 });

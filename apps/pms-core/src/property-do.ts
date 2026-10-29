@@ -1620,8 +1620,22 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
   return Number(row[0]?.n ?? 0);
 }
 
+const RESERVATION_CODE_RE = /^[A-Z0-9_]{1,32}$/;
+
+function validateOptionalReservationCode(value: string | undefined): typeof VALIDATION_ERROR | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !RESERVATION_CODE_RE.test(value)) return VALIDATION_ERROR;
+  return null;
+}
+
+function validateNullableReservationCode(value: string | null): typeof VALIDATION_ERROR | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !RESERVATION_CODE_RE.test(value)) return VALIDATION_ERROR;
+  return null;
+}
+
 const FRONT_DESK_LIST_SELECT = `reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-  adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id`;
+  adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id, source_code, market_segment_code`;
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
@@ -8182,6 +8196,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       confirmBy?: number;
       expiresAt?: number;
       noPost?: boolean;
+      sourceCode?: string;
+      marketSegmentCode?: string;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -8218,6 +8234,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (input.arrivalDate >= input.departureDate) {
       return { ok: false, error: INVALID_STAY_RANGE };
     }
+    const sourceErr = validateOptionalReservationCode(input.sourceCode);
+    if (sourceErr) return { ok: false, error: sourceErr };
+    const segmentErr = validateOptionalReservationCode(input.marketSegmentCode);
+    if (segmentErr) return { ok: false, error: segmentErr };
 
     let nights: string[];
     try {
@@ -8303,8 +8323,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
                status, adults, children, rate_plan_id, promo_id, cancel_penalty_type, cancel_grace_hours,
                cancel_penalty_nights, cancel_penalty_bps, confirm_by, expires_at, no_post,
-               allocated_room_type_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               allocated_room_type_id, source_code, market_segment_code, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.reservationId,
             input.roomTypeId,
             input.guestRef,
@@ -8324,6 +8344,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             expiresAt,
             input.noPost === true ? 1 : 0,
             allocatedRoomTypeId,
+            input.sourceCode ?? null,
+            input.marketSegmentCode ?? null,
             now,
             now,
           );
@@ -8354,6 +8376,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
               status,
+              ...(input.sourceCode !== undefined ? { sourceCode: input.sourceCode } : {}),
+              ...(input.marketSegmentCode !== undefined ? { marketSegmentCode: input.marketSegmentCode } : {}),
             },
           });
           if (commitsInventory) {
@@ -8376,6 +8400,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               arrivalDate: input.arrivalDate,
               departureDate: input.departureDate,
               status,
+              sourceCode: input.sourceCode ?? null,
+              marketSegmentCode: input.marketSegmentCode ?? null,
             },
             reservationId: input.reservationId,
           });
@@ -10320,6 +10346,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       vipFlag?: boolean;
       dndFlag?: boolean;
       noPost?: boolean;
+      sourceCode?: string | null;
+      marketSegmentCode?: string | null;
     },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
@@ -10327,6 +10355,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof NOT_MODIFIABLE }
+    | { ok: false; error: typeof VALIDATION_ERROR }
     | { ok: false; error: typeof FRONT_OFFICE_COMMENT_TOO_LONG }
     | { ok: false; error: typeof HOLD_EXPIRED | typeof INQUIRY_EXPIRED }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
@@ -10355,7 +10384,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const resRows = this.ctx.storage.sql
             .exec(
-              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag, dnd_flag, no_post
+              `SELECT guest_ref, pii_key_id, status, front_office_comment, vip_flag, dnd_flag, no_post,
+                      source_code, market_segment_code
                FROM reservation WHERE reservation_id = ?`,
               input.reservationId,
             )
@@ -10367,6 +10397,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             vip_flag: number;
             dnd_flag: number;
             no_post: number;
+            source_code: string | null;
+            market_segment_code: string | null;
           }>;
           const reservation = resRows[0];
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
@@ -10383,16 +10415,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const nextVip = input.vipFlag !== undefined ? (input.vipFlag ? 1 : 0) : reservation.vip_flag;
           const nextDnd = input.dndFlag !== undefined ? (input.dndFlag ? 1 : 0) : reservation.dnd_flag;
           const nextNoPost = input.noPost !== undefined ? (input.noPost ? 1 : 0) : reservation.no_post;
+          const nextSource =
+            input.sourceCode !== undefined ? input.sourceCode : reservation.source_code;
+          const nextSegment =
+            input.marketSegmentCode !== undefined ? input.marketSegmentCode : reservation.market_segment_code;
           if (typeof nextComment === 'string' && nextComment.length > 2000) {
             throw new FrontOfficeCommentTooLongError();
           }
+          const sourceErr = validateNullableReservationCode(nextSource);
+          if (sourceErr) throw new Error(sourceErr);
+          const segmentErr = validateNullableReservationCode(nextSegment);
+          if (segmentErr) throw new Error(segmentErr);
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, dnd_flag = ?, no_post = ?, updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET front_office_comment = ?, vip_flag = ?, dnd_flag = ?, no_post = ?,
+             source_code = ?, market_segment_code = ?, updated_at = ? WHERE reservation_id = ?`,
             nextComment,
             nextVip,
             nextDnd,
             nextNoPost,
+            nextSource,
+            nextSegment,
             now,
             input.reservationId,
           );
@@ -10408,6 +10451,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               vipFlag: nextVip === 1,
               dndFlag: nextDnd === 1,
               noPost: nextNoPost === 1,
+              sourceCode: nextSource,
+              marketSegmentCode: nextSegment,
             },
           });
           this.appendAuditLogSync({
@@ -10420,12 +10465,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               vipFlag: reservation.vip_flag === 1,
               dndFlag: reservation.dnd_flag === 1,
               noPost: reservation.no_post === 1,
+              sourceCode: reservation.source_code,
+              marketSegmentCode: reservation.market_segment_code,
             },
             afterJson: {
               frontOfficeComment: nextComment,
               vipFlag: nextVip === 1,
               dndFlag: nextDnd === 1,
               noPost: nextNoPost === 1,
+              sourceCode: nextSource,
+              marketSegmentCode: nextSegment,
             },
             reservationId: input.reservationId,
           });
@@ -10463,6 +10512,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           confirmBy: number | null;
           expiresAt: number | null;
           allocatedRoomTypeId: string;
+          sourceCode: string | null;
+          marketSegmentCode: string | null;
           createdAt: number;
           updatedAt: number;
         };
@@ -10473,7 +10524,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
                 adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, promo_id, cancel_penalty_type,
-                confirm_by, expires_at, allocated_room_type_id, created_at, updated_at
+                confirm_by, expires_at, allocated_room_type_id, source_code, market_segment_code, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
@@ -10497,6 +10548,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       confirm_by: number | null;
       expires_at: number | null;
       allocated_room_type_id: string;
+      source_code: string | null;
+      market_segment_code: string | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -10524,6 +10577,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         confirmBy: row.confirm_by,
         expiresAt: row.expires_at,
         allocatedRoomTypeId: row.allocated_room_type_id,
+        sourceCode: row.source_code,
+        marketSegmentCode: row.market_segment_code,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       },
@@ -10551,6 +10606,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     dnd_flag: number;
     confirm_by: number | null;
     rate_plan_id: string;
+    source_code: string | null;
+    market_segment_code: string | null;
   }) {
     return {
       reservationId: row.reservation_id,
@@ -10567,6 +10624,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       dndFlag: row.dnd_flag === 1,
       confirmBy: row.confirm_by,
       ratePlanId: row.rate_plan_id,
+      sourceCode: row.source_code,
+      marketSegmentCode: row.market_segment_code,
     };
   }
 
@@ -10614,22 +10673,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
              LIMIT ?`,
         ...(cursor ? [date, cursor.reservationId, limit] : [date, limit]),
       )
-      .toArray() as Array<{
-      reservation_id: string;
-      room_type_id: string;
-      guest_ref: string;
-      arrival_date: string;
-      departure_date: string;
-      status: string;
-      room_id: string | null;
-      adults: number;
-      children: number;
-      front_office_comment: string | null;
-      vip_flag: number;
-      dnd_flag: number;
-      confirm_by: number | null;
-      rate_plan_id: string;
-    }>;
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const nextCursor =
       items.length === limit
@@ -10685,22 +10729,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           ? [date, cursor.status, cursor.status, cursor.reservationId, limit]
           : [date, limit]),
       )
-      .toArray() as Array<{
-      reservation_id: string;
-      room_type_id: string;
-      guest_ref: string;
-      arrival_date: string;
-      departure_date: string;
-      status: string;
-      room_id: string | null;
-      adults: number;
-      children: number;
-      front_office_comment: string | null;
-      vip_flag: number;
-      dnd_flag: number;
-      confirm_by: number | null;
-      rate_plan_id: string;
-    }>;
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const last = items[items.length - 1];
     const nextCursor =
@@ -10754,22 +10783,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           ? [cursor.departureDate, cursor.departureDate, cursor.reservationId, limit]
           : [limit]),
       )
-      .toArray() as Array<{
-      reservation_id: string;
-      room_type_id: string;
-      guest_ref: string;
-      arrival_date: string;
-      departure_date: string;
-      status: string;
-      room_id: string | null;
-      adults: number;
-      children: number;
-      front_office_comment: string | null;
-      vip_flag: number;
-      dnd_flag: number;
-      confirm_by: number | null;
-      rate_plan_id: string;
-    }>;
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
     const items = rows.map((row) => this.mapFrontDeskListRow(row));
     const last = items[items.length - 1];
     const nextCursor =
@@ -10918,7 +10932,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const blockRows = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id,
+                source_code, market_segment_code
          FROM reservation
          WHERE status IN ('pending', 'confirmed', 'checked_in')
            AND arrival_date <= ?
@@ -11013,7 +11028,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
-                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id
+                adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id,
+                source_code, market_segment_code
          FROM reservation
          ${whereSql}
          ORDER BY arrival_date DESC, reservation_id DESC

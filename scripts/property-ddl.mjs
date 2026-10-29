@@ -81,6 +81,7 @@ if (process.argv.includes('--self-test')) {
   let CITY_LEDGER_AR_V33_SQL;
   let PROVISIONAL_EXCEPTION_ACTOR_V34_SQL;
   let PRODUCTS_V35_SQL;
+  let RESERVATION_SEGMENTS_V36_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -90,6 +91,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_GUEST_BLIND_INDEX_SQL;
   let ORG_PROPERTY_PII_ASSOCIATION_SQL;
   let ORG_DATA_KEY_VERSION_SQL;
+  let ORG_OPERATIONAL_CONFIG_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -132,6 +134,7 @@ if (process.argv.includes('--self-test')) {
       CITY_LEDGER_AR_V33_SQL,
       PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
       PRODUCTS_V35_SQL,
+      RESERVATION_SEGMENTS_V36_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -141,6 +144,7 @@ if (process.argv.includes('--self-test')) {
       ORG_GUEST_BLIND_INDEX_SQL,
       ORG_PROPERTY_PII_ASSOCIATION_SQL,
       ORG_DATA_KEY_VERSION_SQL,
+      ORG_OPERATIONAL_CONFIG_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -496,6 +500,15 @@ const doPropertyTargets = [
 `,
     sql: PRODUCTS_V35_SQL,
   },
+  {
+    path: join(root, 'migrations/do-property/0036_reservation_segments.sql'),
+    header: `-- PropertyDO reservation source and market segment — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: RESERVATION_SEGMENTS_V36_SQL,
+  },
 ];
 
 const targets = [
@@ -580,6 +593,15 @@ const targets = [
 
 `,
     sql: ORG_DATA_KEY_VERSION_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0010_operational_config.sql'),
+    header: `-- OrgDO property-scoped OPERATIONAL config (R1.6) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_OPERATIONAL_CONFIG_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

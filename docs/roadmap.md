@@ -237,12 +237,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Amended 2026-10-28 ([spec](superpowers/specs/2026-10-28-products-catalog-design.md) §2.3):** a product's tax group **is its charge code's `tax_group`** — shown read-only, never stored on the product, because tax posting already resolves by charge code and a second carrier would be config pms-core does not read. A product in another product class uses another charge code.
   - **Shipped (2026-10-28):** `modules/pms/products` (`pms.products`, `pms.core`) with migration **v35** (`products_category`, `products_item`, archive-only); commands `products.create_category` / `update_category` / `create_item` / `update_item` (INTERACTIVE, FAIL_CLOSED, audited, `products.changed`); routes `get_products` (`folio:read`) and `post_product_categories`, `patch_product_category`, `post_products`, `patch_product` (`settings:configure`). A product's charge code must be operator-postable — not a `SYSTEM_CHARGE_CODES` entry or a tax-rule output — or `charge_code_not_postable`; caps 200 categories / 2,000 items. Settings → **Products** tab; the Folio and Front Desk *Post charge* pickers list postable products by category and prefill code and price, posting through the unchanged `folio.add_item`; with no products they fall back to operator charge codes. The Folio card's existing charge-code list is unchanged. No `product_id` on folio lines yet (spec §6).
 
-- [ ] **R1.6 Amenities / sources / market segments / policies (Settings Property subtabs)**
+- [x] **R1.6 Amenities / sources / market segments / policies (Settings Property subtabs)**
   - **Depends:** R0.11.
   - **Prototype:** `Settings.tsx` Property subtabs `amenities`, `sources`, `policies`, `market_segments`, `split_inventory`, `spaces`.
   - **Live:** Settings property + Inventory rooms/types.
   - **Locked:** Amenities on room types if inventory already has a field — expose in Inventory SPA. Sources + market segments as OPERATIONAL lists used on create-reservation (optional fields). Policies = the Booking keys **once wired** by **R1.4**, which now follows this slice — ship the tab hidden and let R1.4 reveal it. **Spaces** (meeting rooms) and **split inventory** (group allotment UI) → Track 4 / Phase 2; **hide** the tabs until then.
   - **Out:** hardcoded Spaces cards from prototype.
+  - **Shipped (2026-10-28, [spec](superpowers/specs/2026-10-28-property-lists-design.md)):** the first slice of the OPERATIONAL config plane in **OrgDO** (v10 `operational_config` + `operational_config_audit`), allowlisted to `pms.property.sources` and `pms.property.market_segments` (typed named lists, ≤ 50 entries, codes archive-only — dropping a stored code is `config_code_removed`); routes `get_operational_config` (`reservations:read`) and `put_operational_config` (`settings:configure`, `config.put_operational`), read FAIL_CLOSED from OrgDO with the KV projection deferred to R4.2 (§5.1 note). Reservations carry `sourceCode` / `marketSegmentCode` (PropertyDO v36), set on create and edited through the front-office update; PropertyDO checks format only, never the list. Settings → **Sources & segments**; optional Source and Segment selects on Book and the stay's front-office editor. **Amenities** stay hidden (room types have no amenities field; no consumer until R4.2); **Policies** stay hidden for R1.4; **Split inventory** (R4.1) and **Spaces** (R5.12) hidden. OrgDO purge verification now uses a literal table inventory, like PropertyDO — the DO authorizer rejected the old dynamic `COUNT(*)` once the new tables existed.
 
 - [ ] **R1.4 Booking wizard remainder**
   - **Depends:** R0.11 (hide or wire Booking settings), **R1.5** (booking add-ons are products), **R1.6** (sources and market segments) — sequenced after both for that reason.
@@ -807,13 +808,14 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R1.5** (2026-10-28):
+After **R1.6** (2026-10-28):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **94** |
-| `V1_HTTP_ROUTE_AUDIT` | **150** routes, last `patch_product` |
-| `PROPERTY_SCHEMA_HEAD` | **35** |
+| `COMMAND_CATALOG` | length **95** |
+| `V1_HTTP_ROUTE_AUDIT` | **152** routes, last `put_operational_config` |
+| `PROPERTY_SCHEMA_HEAD` | **36** |
+| `ORG_SCHEMA_HEAD` | **10** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 
 After a slice that adds a command/route/migration, **edit this table** in the same PR so the next agent does not use stale heads.

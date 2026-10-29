@@ -6,6 +6,7 @@ import {
   permissionForForbidden,
   selectableRoomTypeIds,
   stayNightsExceedAvailabilityCap,
+  type NamedListEntry,
 } from '@hospai/client-core';
 import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -43,6 +44,15 @@ type GuestSearchHit = {
   guestId: string;
   profile: { displayName: string };
 };
+
+function activeNamedList(
+  items: Array<{ key: string; value: NamedListEntry[] }> | undefined,
+  key: string,
+): NamedListEntry[] {
+  return (items?.find((item) => item.key === key)?.value ?? []).filter(
+    (entry) => entry.status === 'active',
+  );
+}
 
 function asGuestSearchPage(result: unknown): GuestSearchHit[] {
   if (!result || typeof result !== 'object') return [];
@@ -116,6 +126,8 @@ export function BookingScreen() {
   const [adults, setAdults] = useState(1);
   const [children, setChildren] = useState(0);
   const [ratePlanId, setRatePlanId] = useState('');
+  const [sourceCode, setSourceCode] = useState('');
+  const [marketSegmentCode, setMarketSegmentCode] = useState('');
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [guestCreated, setGuestCreated] = useState(false);
   const [contextGuestRef, setContextGuestRef] = useState<string | null>(urlGuestRef);
@@ -277,6 +289,14 @@ export function BookingScreen() {
     retry: false,
   });
 
+  const operationalQ = useQuery({
+    queryKey: ['operational-config', propertyId],
+    queryFn: () => api.listOperationalConfig(propertyId),
+    retry: false,
+  });
+  const activeSources = activeNamedList(operationalQ.data?.items, 'pms.property.sources');
+  const activeSegments = activeNamedList(operationalQ.data?.items, 'pms.property.market_segments');
+
   type PlanRow = { ratePlanId: string; code: string; name: string };
   const plans = (plansQ.data?.plans ?? []) as PlanRow[];
   const plansEmpty = plansQ.isSuccess && plans.length === 0;
@@ -410,6 +430,8 @@ export function BookingScreen() {
         children,
         ratePlanId,
         ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
+        ...(sourceCode ? { sourceCode } : {}),
+        ...(marketSegmentCode ? { marketSegmentCode } : {}),
       });
       return api.createReservation(
         propertyId,
@@ -425,6 +447,8 @@ export function BookingScreen() {
           ratePlanId,
           ...(status === 'confirmed' ? {} : { status }),
           ...(matchedPromo ? { promoCode: normalizedPromoCode } : {}),
+          ...(sourceCode ? { sourceCode } : {}),
+          ...(marketSegmentCode ? { marketSegmentCode } : {}),
         },
         opId,
       );
@@ -606,6 +630,50 @@ export function BookingScreen() {
                 />
               </div>
             </div>
+            {activeSources.length > 0 || activeSegments.length > 0 ? (
+              <div className="ui-row">
+                {activeSources.length > 0 ? (
+                  <Field
+                    size="sm"
+                    label="Source"
+                    control={
+                      <NativeSelect
+                        data-testid="booking-source"
+                        value={sourceCode}
+                        onChange={(e) => setSourceCode(e.target.value)}
+                      >
+                        <option value="">None</option>
+                        {activeSources.map((entry) => (
+                          <option key={entry.code} value={entry.code}>
+                            {entry.name} ({entry.code})
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                ) : null}
+                {activeSegments.length > 0 ? (
+                  <Field
+                    size="sm"
+                    label="Market segment"
+                    control={
+                      <NativeSelect
+                        data-testid="booking-segment"
+                        value={marketSegmentCode}
+                        onChange={(e) => setMarketSegmentCode(e.target.value)}
+                      >
+                        <option value="">None</option>
+                        {activeSegments.map((entry) => (
+                          <option key={entry.code} value={entry.code}>
+                            {entry.name} ({entry.code})
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                ) : null}
+              </div>
+            ) : null}
             {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
             {plansEmpty ? (
               <p className="muted" role="status">

@@ -488,6 +488,58 @@ describe('createClient booking', () => {
       }),
     );
     expect(bodies[0]).not.toHaveProperty('promoCode');
+    expect(bodies[0]).not.toHaveProperty('sourceCode');
+    expect(bodies[0]).not.toHaveProperty('marketSegmentCode');
+  });
+
+  it('createReservation JSON includes source and segment codes when provided', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true, reservationId: 'r1', ariVersion: 1 }), {
+          status: 201,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    const input = {
+      reservationId: 'r1',
+      roomTypeId: 'rt_a',
+      guestRef: 'g1',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      quoteAriVersion: 3,
+      sourceCode: 'WALKIN',
+      marketSegmentCode: 'LEISURE',
+    };
+    await client.createReservation('p', input, bookingReservationOpId(input));
+    expect(bodies[0]?.sourceCode).toBe('WALKIN');
+    expect(bodies[0]?.marketSegmentCode).toBe('LEISURE');
+    expect(bodies[0]).not.toHaveProperty('promoCode');
+  });
+
+  it('updateFrontOffice JSON keeps null source and segment clears', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      transport: mockTransport((_p, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: entitlementsStub(),
+      keyStore: new Map(),
+    });
+    await client.updateFrontOffice('p', 'r1', 'front-office:r1', {
+      frontOfficeComment: 'Late',
+      sourceCode: null,
+      marketSegmentCode: 'LEISURE',
+    });
+    expect(bodies[0]?.sourceCode).toBeNull();
+    expect(bodies[0]?.marketSegmentCode).toBe('LEISURE');
+    expect(bodies[0]?.frontOfficeComment).toBe('Late');
   });
 
   it('createReservation JSON includes ratePlanId when provided', async () => {

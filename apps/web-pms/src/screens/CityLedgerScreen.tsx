@@ -26,6 +26,7 @@ import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { badgeStatusWord } from '../status/badge-status-word.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
 
 type AgingBuckets = {
@@ -248,7 +249,7 @@ export function CityLedgerScreen() {
           subtitle={detail?.name}
           back={<Link to="/city-ledger">← City ledger</Link>}
           actions={
-            detail ? <Badge rung={statusRung(detail.status)}>{detail.status}</Badge> : undefined
+            detail ? <Badge rung={statusRung(detail.status)}>{badgeStatusWord(detail.status)}</Badge> : undefined
           }
         />
         <Card data-testid="city-ledger-detail">
@@ -360,7 +361,6 @@ export function CityLedgerScreen() {
                 </Button>
                 <Button
                   type="button"
-                  intent="destructive"
                   data-testid="city-ledger-archive"
                   disabled={
                     detail.status === 'archived' ||
@@ -602,7 +602,7 @@ export function CityLedgerScreen() {
                       </Link>
                     </DataTableCell>
                     <DataTableCell>
-                      <Badge rung={statusRung(account.status)}>{account.status}</Badge>
+                      <Badge rung={statusRung(account.status)}>{badgeStatusWord(account.status)}</Badge>
                     </DataTableCell>
                     <DataTableCell align="right">{formatMinor(account.creditLimitMinor)}</DataTableCell>
                     <DataTableCell align="right">{formatMinor(account.openBalanceMinor)}</DataTableCell>

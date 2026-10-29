@@ -57,7 +57,10 @@ describe('BoardSummary', () => {
     expect(screen.getByTestId('board-summary').textContent).toMatch(/51/);
     const overstay = screen.getByTestId('board-summary-overstay');
     expect(overstay.className).toMatch(/status-exception/);
-    expect(overstay.textContent).toMatch(/2/);
+    expect(overstay.textContent).toBe('2 overstay');
+    const inHouse = screen.getByRole('link', { name: /In-house/i });
+    expect(inHouse.contains(overstay)).toBe(true);
+    expect(inHouse.getAttribute('href')).toBe('/in-house');
     expect(screen.getByTestId('board-summary').textContent).toMatch(/1 \/ 3/);
     const arrivals = screen.getByRole('link', { name: /Arrivals/i });
     expect(arrivals.getAttribute('href')).toBe('/arrivals?date=2026-08-13');

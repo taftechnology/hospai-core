@@ -327,7 +327,7 @@ describe('TapeChartScreen', () => {
     expect(screen.getByRole('columnheader', { name: 'Type' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Status' })).toBeTruthy();
     expect(await screen.findByText('King')).toBeTruthy();
-    expect(screen.getByText('clean')).toBeTruthy();
+    expect(screen.getByText('Clean')).toBeTruthy();
     expect(screen.getByText('1 vacant')).toBeTruthy();
     expect(screen.getByText(/Vacant sellable inventory/)).toBeTruthy();
   });

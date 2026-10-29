@@ -27,12 +27,12 @@ export function BoardSummary({ date }: { date: string | null }) {
         </Link>
         <Link className="ui-metric" to="/in-house">
           In-house <span className="ui-metric__value">{s.inHouse}</span>
+          {s.overstay > 0 ? (
+            <Badge rung="exception" data-testid="board-summary-overstay">
+              {s.overstay} overstay
+            </Badge>
+          ) : null}
         </Link>
-        {s.overstay > 0 ? (
-          <Badge rung="exception" data-testid="board-summary-overstay">
-            Overstay {s.overstay}
-          </Badge>
-        ) : null}
         <span className="ui-metric">
           Occupancy{' '}
           <span className="ui-metric__value">

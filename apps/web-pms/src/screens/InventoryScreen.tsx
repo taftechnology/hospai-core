@@ -17,12 +17,16 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
+  RoomStatus,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -259,7 +263,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         title="Inventory"
         subtitle={`${rooms.length} rooms · ${types.length} types`}
       />
-      <Card data-testid="inventory-screen" className="inventory-screen__shell">
+      <div className="ui-page-stack" data-testid="inventory-screen">
         {unsavedGuard}
         <nav className="ui-tabs" aria-label="Inventory">
           <Link
@@ -302,6 +306,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         {activeTab === 'types' ? (
           <>
             <Card>
+              <CardHeader>
+                <CardTitle>Create Room Type</CardTitle>
+              </CardHeader>
               <CardContent>
                 <form
                   className="stack inventory__form"
@@ -311,7 +318,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     createType.mutate(undefined, { onSettled: () => setSaving(false) });
                   }}
                 >
-                  <CardTitle>Create Room Type</CardTitle>
                   <Field
                     label="Kind"
                     control={
@@ -424,7 +430,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
             </Card>
 
             {types.length === 0 && typesQ.isSuccess ? (
-              <p className="muted">No room types yet — create one to start selling.</p>
+              <EmptyState title="No room types yet — create one to start selling." />
             ) : (
               <Card>
                 <CardHeader>
@@ -491,11 +497,11 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                               <DataTableCell>
                                 <div className="ui-row">
                                   {!isVirtual ? (
-                                    <Button type="button" intent="primary" onClick={() => saveType.mutate(t)}>
+                                    <Button type="button" onClick={() => saveType.mutate(t)}>
                                       Save Room Type
                                     </Button>
                                   ) : null}
-                                  <Button type="button" intent="destructive" onClick={() => setArchiveTarget(t)}>
+                                  <Button type="button" onClick={() => setArchiveTarget(t)}>
                                     Archive Room Type
                                   </Button>
                                 </div>
@@ -513,6 +519,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         ) : (
           <>
             <Card>
+              <CardHeader>
+                <CardTitle>Create Room</CardTitle>
+              </CardHeader>
               <CardContent>
                 <form
                   className="stack inventory__form"
@@ -522,7 +531,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     addRoom.mutate(undefined, { onSettled: () => setSaving(false) });
                   }}
                 >
-                  <CardTitle>Create Room</CardTitle>
                   <Field
                     label="Room type"
                     control={
@@ -564,7 +572,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                       />
                     }
                   />
-                  <Button type="submit" intent="primary" disabled={saving || virtualRoomTypeSelected}>
+                  <Button type="submit" disabled={saving || virtualRoomTypeSelected}>
                     {saving ? 'Saving…' : 'Create Room'}
                   </Button>
                 </form>
@@ -593,9 +601,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     </CardContent>
                   ) : inType.length === 0 ? (
                     <CardContent>
-                      <p className="muted">
-                        No rooms in this type — create one. Sellable count is still {t.roomCount}.
-                      </p>
+                      <EmptyState
+                        title={`No rooms in this type — create one. Sellable count is still ${t.roomCount}.`}
+                      />
                     </CardContent>
                   ) : (
                     <CardContent flush>
@@ -620,7 +628,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                 <DataTableRow key={room.roomId}>
                                   <DataTableCell>
                                     <Field
-                                      label={`Code for ${room.code}`}
+                                      label={<VisuallyHidden>{`Code for ${room.code}`}</VisuallyHidden>}
                                       control={
                                         <Input
                                           value={edit.code}
@@ -637,7 +645,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                   </DataTableCell>
                                   <DataTableCell>
                                     <Field
-                                      label={`Floor for ${room.code}`}
+                                      label={<VisuallyHidden>{`Floor for ${room.code}`}</VisuallyHidden>}
                                       control={
                                         <Input
                                           value={edit.floor}
@@ -652,7 +660,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                       }
                                     />
                                   </DataTableCell>
-                                  <DataTableCell>{room.status}</DataTableCell>
+                                  <DataTableCell>
+                                    <RoomStatus status={room.status} />
+                                  </DataTableCell>
                                   <DataTableCell>
                                     {room.oooRanges.length
                                       ? room.oooRanges.map((r) => `${r.startDate}–${r.endDate}`).join(', ')
@@ -662,7 +672,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                     <div className="ui-row">
                                       <Button
                                         type="button"
-                                        intent="primary"
                                         onClick={async () => {
                                           setSaving(true);
                                           try {
@@ -683,7 +692,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                                       </Button>
                                       <Button
                                         type="button"
-                                        intent="destructive"
                                         onClick={() =>
                                           setRoomArchiveTarget({ roomId: room.roomId, code: room.code })
                                         }
@@ -707,40 +715,26 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
         )}
 
         {archiveTarget ? (
-          <Card role="dialog" aria-modal="true" className="overscroll-contain">
-            <p>Archive {archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.</p>
-            <Button type="button" onClick={() => setArchiveTarget(null)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              intent="destructive"
-              onClick={() => archiveType.mutate(archiveTarget.roomTypeId)}
-              disabled={archiveType.isPending}
-            >
-              {archiveType.isPending ? 'Archiving…' : 'Archive'}
-            </Button>
-          </Card>
+          <ConfirmDialog
+            title={`Archive ${archiveTarget.code}?`}
+            description={`Archive ${archiveTarget.code}? It will stop being sellable. Existing rooms and history stay.`}
+            confirmLabel="Archive"
+            intent="destructive"
+            onCancel={() => setArchiveTarget(null)}
+            onConfirm={() => archiveType.mutate(archiveTarget.roomTypeId)}
+          />
         ) : null}
         {roomArchiveTarget ? (
-          <Card role="dialog" aria-modal="true" className="overscroll-contain">
-            <p>
-              Archive {roomArchiveTarget.code}? It will free a unit slot. History stays.
-            </p>
-            <Button type="button" onClick={() => setRoomArchiveTarget(null)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              intent="destructive"
-              onClick={() => archiveRoomUnit.mutate({ roomId: roomArchiveTarget.roomId })}
-              disabled={archiveRoomUnit.isPending}
-            >
-              {archiveRoomUnit.isPending ? 'Archiving…' : 'Archive'}
-            </Button>
-          </Card>
+          <ConfirmDialog
+            title={`Archive ${roomArchiveTarget.code}?`}
+            description={`Archive ${roomArchiveTarget.code}? It will free a unit slot. History stays.`}
+            confirmLabel="Archive"
+            intent="destructive"
+            onCancel={() => setRoomArchiveTarget(null)}
+            onConfirm={() => archiveRoomUnit.mutate({ roomId: roomArchiveTarget.roomId })}
+          />
         ) : null}
-      </Card>
+      </div>
     </div>
   );
 }

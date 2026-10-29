@@ -19,6 +19,21 @@ export type StatusRung =
   | 'attention'
   | 'exception';
 
+/** Same members as `@hospai/contracts` `ReservationStatus`. ui-kit does not depend on contracts. */
+export const RESERVATION_STATUSES = [
+  'inquiry',
+  'pending',
+  'confirmed',
+  'cancelled',
+  'checked_in',
+  'checked_out',
+  'no_show',
+] as const;
+
+export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
+
+export type RoomHkStatus = 'clean' | 'dirty' | 'inspected' | 'out_of_order';
+
 export type TestIdProps = {
   'data-testid'?: string;
 };

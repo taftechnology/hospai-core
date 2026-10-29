@@ -14,10 +14,12 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
+  SectionLabel,
   Textarea,
 } from '@hospai/ui-kit';
 import { useMemo, useState, type FormEvent } from 'react';
@@ -308,7 +310,7 @@ export function ExceptionsScreen() {
     <div className="ui-page-stack exceptions-screen">
       <PageHeader title="Exceptions" subtitle={subtitle} />
       {unsavedGuard}
-      <Card data-testid="exceptions-workbench" className="exceptions-screen__shell">
+      <div className="ui-page-stack" data-testid="exceptions-workbench">
       <Card>
       <CardContent>
       <div className="exceptions-filters">
@@ -462,7 +464,7 @@ export function ExceptionsScreen() {
           ) : listQ.isLoading ? (
             <p className="muted">Loading…</p>
           ) : (
-            <p className="muted">No exceptions match these filters.</p>
+            <EmptyState title="No exceptions match these filters." />
           )}
         </div>
       ) : (
@@ -527,18 +529,18 @@ export function ExceptionsScreen() {
                   </DataTableCell>
                   <DataTableCell>
                     {row.affected?.reservationId ? (
-                      <Link to={`/folio/${row.affected.reservationId}`}>Folio</Link>
+                      <Link className="ui-link-btn ui-link-btn--sm" to={`/folio/${row.affected.reservationId}`}>Folio</Link>
                     ) : null}
                     {row.affected?.reservationId && row.commandType === 'reservations.check_in' ? (
                       <>
                         {' '}
-                        <Link to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
+                        <Link className="ui-link-btn ui-link-btn--sm" to={`/check-in/${row.affected.reservationId}`}>Check-in</Link>
                       </>
                     ) : null}
                     {row.affected?.roomId ? (
                       <>
                         {' '}
-                        <Link to="/housekeeping">Room</Link>
+                        <Link className="ui-link-btn ui-link-btn--sm" to="/housekeeping">Room</Link>
                       </>
                     ) : null}
                     {row.affected?.guestRef ? (
@@ -595,7 +597,7 @@ export function ExceptionsScreen() {
       </Card>
       {detailId ? (
         <aside className="exceptions-drawer overscroll-contain">
-          <h2>Detail</h2>
+          <SectionLabel>Detail</SectionLabel>
           {detailQ.isLoading ? <p className="muted">Loading…</p> : null}
           {detail?.exception ? (
             <>
@@ -629,7 +631,7 @@ export function ExceptionsScreen() {
                   <p className="muted">No structured payload</p>
                 )}
               </details>
-              <h3>Actions</h3>
+              <SectionLabel>Actions</SectionLabel>
               <ol>
                 {detail.actions.map((a, i) => (
                   <li key={`${a.at}-${i}`}>
@@ -637,12 +639,14 @@ export function ExceptionsScreen() {
                   </li>
                 ))}
               </ol>
-              <h3>Notes</h3>
-              <ul>
-                {detail.notes.map((n) => (
-                  <li key={n.noteId}>{n.text}</li>
-                ))}
-              </ul>
+              <SectionLabel>Notes</SectionLabel>
+              {detail.notes.length > 0 ? (
+                <ul className="ui-list">
+                  {detail.notes.map((n) => (
+                    <li key={n.noteId}>{n.text}</li>
+                  ))}
+                </ul>
+              ) : null}
               {canWrite ? (
                 <>
                   <form onSubmit={(e) => void onNote(e)}>
@@ -722,7 +726,7 @@ export function ExceptionsScreen() {
           onConfirm={confirm.run}
         />
       ) : null}
-      </Card>
+      </div>
     </div>
   );
 }

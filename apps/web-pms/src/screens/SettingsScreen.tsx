@@ -16,15 +16,19 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
+  SectionLabel,
   Textarea,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { CURRENCIES } from '../config/currencies.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
 import { SourcesSettings } from './settings-sources.js';
@@ -437,6 +441,7 @@ export function SettingsScreen({
   const [propName, setPropName] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [archiveCode, setArchiveCode] = useState<string | null>(null);
+  const [routingArchiveId, setRoutingArchiveId] = useState<string | null>(null);
 
   const [chargeCode, setChargeCode] = useState('');
   const [chargeName, setChargeName] = useState('');
@@ -610,7 +615,7 @@ export function SettingsScreen({
           )
         }
       />
-      <Card data-testid="settings-screen" className="settings-screen__shell">
+      <div className="ui-page-stack" data-testid="settings-screen">
       {unsavedGuard}
       <nav className="ui-tabs" aria-label="Settings">
         <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
@@ -869,16 +874,14 @@ export function SettingsScreen({
                 hint="When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready."
                 {...common}
               />
-              <Card className="settings-property__fx">
-                <CardContent>
-                  <h2>FX Rates</h2>
-                  <p className="muted">
-                    Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
-                    stay’s folio → FX rates.
-                  </p>
-                  <Link to="/in-house">Open in-house board</Link>
-                </CardContent>
-              </Card>
+              <SectionLabel>FX Rates</SectionLabel>
+              <p className="muted">
+                Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
+                stay’s folio → FX rates.
+              </p>
+              <Link className="ui-link-btn" to="/in-house">
+                Open in-house board
+              </Link>
             </CardContent>
           </Card>
         </>
@@ -893,7 +896,7 @@ export function SettingsScreen({
             </CardHeader>
             {charges.length === 0 && chargesQ.isSuccess ? (
               <CardContent>
-                <p className="muted">No charge codes.</p>
+                <EmptyState title="No charge codes." />
               </CardContent>
             ) : (
               <CardContent flush>
@@ -917,7 +920,7 @@ export function SettingsScreen({
                     <DataTableCell>{c.name}</DataTableCell>
                     <DataTableCell>
                       <Badge rung={c.status === 'active' ? 'settled' : 'informational'}>
-                        {c.status}
+                        {badgeStatusWord(c.status)}
                       </Badge>
                     </DataTableCell>
                     <DataTableCell>{c.taxGroup ?? '—'}</DataTableCell>
@@ -932,7 +935,7 @@ export function SettingsScreen({
                           Restore {c.code}
                         </Button>
                       ) : (
-                        <Button type="button" intent="destructive" onClick={() => setArchiveCode(c.code)}>
+                        <Button type="button" onClick={() => setArchiveCode(c.code)}>
                           Archive {c.code}
                         </Button>
                       )}
@@ -994,7 +997,7 @@ export function SettingsScreen({
               Auto-transfer runs at night audit. Destination window must already be open on the stay.
             </p>
             {routingRules.length === 0 && routingRulesQ.isSuccess ? (
-              <p className="muted">No routing rules.</p>
+              <EmptyState title="No routing rules." />
             ) : (
               <DataTable>
                 <DataTableHead>
@@ -1014,9 +1017,8 @@ export function SettingsScreen({
                       <DataTableCell>
                         <Button
                           type="button"
-                          intent="destructive"
                           disabled={archiveRoutingRule.isPending}
-                          onClick={() => archiveRoutingRule.mutate(r.ruleId)}
+                          onClick={() => setRoutingArchiveId(r.ruleId)}
                         >
                           Archive {r.ruleId}
                         </Button>
@@ -1067,7 +1069,6 @@ export function SettingsScreen({
               />
               <Button
                 type="submit"
-                intent="primary"
                 disabled={addRoutingRule.isPending || activeChargeCodes.length === 0}
               >
                 {addRoutingRule.isPending ? 'Saving…' : 'Add routing rule'}
@@ -1257,7 +1258,7 @@ export function SettingsScreen({
                             />
                           }
                         />
-                        <Button type="submit" intent="primary">
+                        <Button type="submit">
                           Supersede
                         </Button>
                       </form>
@@ -1274,17 +1275,29 @@ export function SettingsScreen({
       ) : null}
 
       {archiveCode ? (
-        <Card role="dialog" aria-modal="true">
-          <p>Archive {archiveCode}?</p>
-          <Button type="button" onClick={() => setArchiveCode(null)}>
-            Cancel
-          </Button>
-          <Button type="button" intent="destructive" onClick={() => archiveCharge.mutate(archiveCode)}>
-            Archive
-          </Button>
-        </Card>
+        <ConfirmDialog
+          title={`Archive ${archiveCode}?`}
+          description={`Archive ${archiveCode}?`}
+          confirmLabel="Archive"
+          intent="destructive"
+          onCancel={() => setArchiveCode(null)}
+          onConfirm={() => archiveCharge.mutate(archiveCode)}
+        />
       ) : null}
-      </Card>
+      {routingArchiveId ? (
+        <ConfirmDialog
+          title="Archive routing rule?"
+          description={`Archive routing rule ${routingArchiveId}?`}
+          confirmLabel="Archive"
+          intent="destructive"
+          onCancel={() => setRoutingArchiveId(null)}
+          onConfirm={() => {
+            archiveRoutingRule.mutate(routingArchiveId);
+            setRoutingArchiveId(null);
+          }}
+        />
+      ) : null}
+      </div>
     </div>
   );
 }

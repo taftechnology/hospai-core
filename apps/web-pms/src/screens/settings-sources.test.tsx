@@ -89,7 +89,7 @@ describe('Settings → Sources & segments', () => {
     await waitFor(() => expect(screen.getByText('OTA')).toBeInTheDocument());
     expect(listOperationalConfig).toHaveBeenCalledWith('prop_demo');
     expect(within(rowFor('OTA')).getByText('Online')).toBeInTheDocument();
-    expect(within(rowFor('OTA')).getByText('active')).toBeInTheDocument();
+    expect(within(rowFor('OTA')).getByText('Active')).toBeInTheDocument();
     expect(within(rowFor('GOV')).getByRole('button', { name: 'Restore' })).toBeInTheDocument();
   });
 

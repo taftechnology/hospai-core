@@ -17,10 +17,17 @@ export function Card({ children, className, ...rest }: CardProps) {
 
 export type CardHeaderProps = {
   children?: ReactNode;
+  /** Sentence case. CSS uppercases it. */
+  eyebrow?: string;
 };
 
-export function CardHeader({ children }: CardHeaderProps) {
-  return <div className="ui-card__header">{children}</div>;
+export function CardHeader({ children, eyebrow }: CardHeaderProps) {
+  return (
+    <div className={clsx('ui-card__header', eyebrow && 'ui-card__header--with-eyebrow')}>
+      {eyebrow ? <p className="ui-card__eyebrow">{eyebrow}</p> : null}
+      {children}
+    </div>
+  );
 }
 
 export type CardTitleProps = {

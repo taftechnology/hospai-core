@@ -263,6 +263,11 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 ### R1 — Guests, HK, night audit, settings ops
 
+- [x] **R1.7a Design system re-skin (shadcn neutral)**
+  - **Inserted 2026-10-29** at the user's request, ahead of R1.8. Spec: [shadcn design system re-skin](superpowers/specs/2026-10-29-shadcn-design-system-design.md); source: the *PMS Design System* artifact.
+  - **Locked:** tokens + `ui-kit` styles only — no Tailwind, no shadcn/Radix imports, closed ui-kit API, desktop only. Light and dark token themes; colour gate checks both. New patterns: `StatusBadge`, `RoomStatus`, `CardHeader` eyebrow, `StatField`, `ui-quick-action`. **Not built:** the design system's charts (warehouse, R5.x), bookings side panel, tape-chart rebuild, greeting header.
+  - **Shipped (2026-10-29):** shadcn neutral palette in light and dark tokens (colour gate checks both themes and their drift); Inter + IBM Plex Mono self-hosted. Sidebar-footer theme switch (System / Light / Dark, per-browser `hospai.theme`, pre-paint `theme-init.js` under CSP `'self'`). One 32px button height, one primary per view, destructive only for void/refund; badge dot removed. Overstay sits inside the In-house card; Dashboard and Folios nav icons. Layout pass to spec §10 (card anatomy, no card-in-card, `StatField`, `ui-list`, margin resets) on every screen, including the Shift receipt. No new commands, routes or migrations.
+
 - [ ] **R1.8 Guest CRM depth**
   - **Depends:** R0.4 (property-scoped list).
   - **Prototype:** `GuestsCRM.tsx` (tags, VIP, spend, stays, passport, address, sort by spend).

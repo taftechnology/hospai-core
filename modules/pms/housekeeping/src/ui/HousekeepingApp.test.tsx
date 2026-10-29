@@ -246,4 +246,23 @@ describe('HousekeepingApp assign picker', () => {
     expect(listHousekeepingAssignments).toHaveBeenCalledTimes(1);
     expect(listRoster).toHaveBeenCalledTimes(1);
   });
+
+  it('editable status cell is the select only; out of order stays a read-only RoomStatus', async () => {
+    renderApp(
+      stubApi({
+        listRooms: async () => ({
+          ok: true,
+          rooms: [
+            { roomId: 'rm_1', code: '101', status: 'dirty' },
+            { roomId: 'rm_2', code: '102', status: 'out_of_order' },
+          ],
+        }),
+      }),
+    );
+    const dirty = await screen.findByRole('combobox', { name: 'Status for 101' });
+    expect(dirty.closest('td')?.querySelector('.ui-room-status')).toBeNull();
+    const oooRow = screen.getByText('102').closest('tr');
+    expect(oooRow?.querySelector('.ui-room-status')?.textContent).toBe('Out of order');
+    expect(oooRow?.querySelector('select')).toBeNull();
+  });
 });

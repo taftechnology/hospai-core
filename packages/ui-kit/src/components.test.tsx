@@ -21,6 +21,9 @@ import {
   Input,
   LinkButton,
   NativeSelect,
+  RoomStatus,
+  StatField,
+  StatusBadge,
 } from './index.js';
 
 describe('ui-kit behaviour', () => {
@@ -32,6 +35,7 @@ describe('ui-kit behaviour', () => {
         data-testid="save-btn"
         disabled
         aria-label="Save"
+        aria-pressed={true}
         intent="primary"
       >
         Save
@@ -41,6 +45,7 @@ describe('ui-kit behaviour', () => {
     expect(btn.tagName).toBe('BUTTON');
     expect(btn).toBeDisabled();
     expect(btn).toHaveAttribute('aria-label', 'Save');
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
     expect(ref.current).toBe(btn);
   });
 
@@ -151,6 +156,78 @@ describe('ui-kit behaviour', () => {
   it('Alert keeps role alert', () => {
     render(<Alert>Something failed</Alert>);
     expect(screen.getByRole('alert')).toHaveTextContent('Something failed');
+  });
+
+  it('StatusBadge uses the fixed word and tone for each reservation status', () => {
+    const cases = [
+      ['inquiry', 'Inquiry', 'status-neutral'],
+      ['pending', 'Pending', 'status-attention'],
+      ['confirmed', 'Confirmed', 'status-settled'],
+      ['checked_in', 'In house', 'status-informational'],
+      ['checked_out', 'Checked out', 'status-cancelled'],
+      ['cancelled', 'Cancelled', 'status-cancelled'],
+      ['no_show', 'No-show', 'status-exception'],
+    ] as const;
+    const { rerender } = render(<StatusBadge status="inquiry" />);
+    for (const [status, word, tone] of cases) {
+      rerender(<StatusBadge status={status} />);
+      const pill = screen.getByText(word);
+      expect(pill.className).toMatch(/ui-badge/);
+      expect(pill.className).toMatch(new RegExp(tone));
+    }
+  });
+
+  it('StatusBadge adds a VIP pill without replacing the status word', () => {
+    render(<StatusBadge status="confirmed" vip />);
+    expect(screen.getByText('Confirmed').className).toMatch(/status-settled/);
+    const vip = screen.getByTestId('badge-vip');
+    expect(vip).toHaveTextContent('VIP');
+    expect(vip.className).toMatch(/status-vip/);
+    expect(vip.className).toMatch(/ui-badge/);
+  });
+
+  it('RoomStatus shows a dot and the fixed word, and unknown values stay raw', () => {
+    const cases = [
+      ['clean', 'Clean'],
+      ['dirty', 'Dirty'],
+      ['inspected', 'Inspected'],
+      ['out_of_order', 'Out of order'],
+    ] as const;
+    const { rerender } = render(<RoomStatus status="clean" />);
+    for (const [status, word] of cases) {
+      rerender(<RoomStatus status={status} />);
+      expect(screen.getByText(word)).toBeInTheDocument();
+      expect(document.querySelector('.ui-room-status__dot')).toBeTruthy();
+    }
+    rerender(<RoomStatus status="mystery" />);
+    const fallback = screen.getByText('mystery');
+    expect(fallback.className).toMatch(/status-neutral/);
+    expect(fallback.className).toMatch(/ui-badge/);
+    expect(document.querySelector('.ui-room-status__dot')).toBeNull();
+  });
+
+  it('CardHeader eyebrow sits above the title', () => {
+    render(
+      <Card>
+        <CardHeader eyebrow="Front office / Today">
+          <CardTitle>Rooms available tonight</CardTitle>
+        </CardHeader>
+      </Card>,
+    );
+    const eyebrow = screen.getByText('Front office / Today');
+    expect(eyebrow.className).toMatch(/ui-card__eyebrow/);
+    expect(eyebrow.compareDocumentPosition(screen.getByRole('heading', { level: 2 }))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('StatField stacks a label over a value', () => {
+    render(<StatField label="Vacant, not out of order" value="20" />);
+    const label = screen.getByText('Vacant, not out of order');
+    const value = screen.getByText('20');
+    expect(label.className).toMatch(/ui-stat-field__label/);
+    expect(value.className).toMatch(/ui-stat-field__value/);
+    expect(label.compareDocumentPosition(value)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('LinkButton renders anchor with button classes', () => {

@@ -21,6 +21,8 @@ import {
   PageHeader,
   RowActions,
   Skeleton,
+  isReservationStatus,
+  StatusBadge,
   type StatusRung,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
@@ -258,7 +260,15 @@ export function FoliosDirectoryScreen() {
                 )}
               </DataTableCell>
               <DataTableCell>{hit.reservationId}</DataTableCell>
-              <DataTableCell>{hit.status ? reservationStatusLabel(hit.status) : ''}</DataTableCell>
+              <DataTableCell>
+                {hit.status && isReservationStatus(hit.status) ? (
+                  <StatusBadge status={hit.status} />
+                ) : hit.status ? (
+                  reservationStatusLabel(hit.status)
+                ) : (
+                  ''
+                )}
+              </DataTableCell>
               <DataTableCell align="right">
                 <OpenFolio reservationId={hit.reservationId} />
               </DataTableCell>

@@ -11,12 +11,14 @@ import {
   EmptyState,
   PageHeader,
   Skeleton,
+  StatField,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { ArrowUpRightIcon, CheckIcon, NightAuditIcon, PlusIcon, RoomPlanIcon } from '../shell/icons.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { BoardSummary } from './board-summary.js';
@@ -47,6 +49,8 @@ export function DashboardScreen() {
   });
   const me = meQ.data as PropertyMe | undefined;
   const canRunAudit = Boolean(me && hasPropertyPermission(me, 'night_audit:run'));
+  const canReadDesk = Boolean(me && hasPropertyPermission(me, 'reservations:read'));
+  const canBook = Boolean(me && hasPropertyPermission(me, 'reservations:write'));
 
   const availableQ = useQuery({
     queryKey: ['front-desk-available', tenant.propertyId, today, tomorrow],
@@ -88,28 +92,62 @@ export function DashboardScreen() {
 
   return (
     <div className="dashboard-page">
-      <PageHeader
-        title="Dashboard"
-        subtitle={subtitle}
-        actions={
-          <>
-            {canRunAudit ? (
-              <Link className="ui-link-btn" to="/night-audit">
-                Night audit
-              </Link>
-            ) : null}
-            <Link className="ui-link-btn ui-link-btn--primary" to="/book">
-              New booking
+      <PageHeader title="Dashboard" subtitle={subtitle} />
+
+      {canBook || canReadDesk || canRunAudit ? (
+        <div className="ui-quick-actions">
+          {canBook ? (
+            <Link className="ui-quick-action" to="/book">
+              <span className="ui-quick-action__icon">
+                <PlusIcon />
+              </span>
+              <span className="ui-quick-action__arrow">
+                <ArrowUpRightIcon />
+              </span>
+              <span className="ui-quick-action__label">New booking</span>
             </Link>
-          </>
-        }
-      />
+          ) : null}
+          {canReadDesk ? (
+            <Link className="ui-quick-action" to="/arrivals">
+              <span className="ui-quick-action__icon">
+                <CheckIcon />
+              </span>
+              <span className="ui-quick-action__arrow">
+                <ArrowUpRightIcon />
+              </span>
+              <span className="ui-quick-action__label">Arrivals</span>
+            </Link>
+          ) : null}
+          {canReadDesk ? (
+            <Link className="ui-quick-action" to="/board">
+              <span className="ui-quick-action__icon">
+                <RoomPlanIcon />
+              </span>
+              <span className="ui-quick-action__arrow">
+                <ArrowUpRightIcon />
+              </span>
+              <span className="ui-quick-action__label">Room plan</span>
+            </Link>
+          ) : null}
+          {canRunAudit ? (
+            <Link className="ui-quick-action" to="/night-audit">
+              <span className="ui-quick-action__icon">
+                <NightAuditIcon />
+              </span>
+              <span className="ui-quick-action__arrow">
+                <ArrowUpRightIcon />
+              </span>
+              <span className="ui-quick-action__label">Night audit</span>
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       <BoardSummary date={today} />
 
       <div className="dashboard__grid">
         <Card>
-          <CardHeader>
+          <CardHeader eyebrow="Front office / Today">
             <CardTitle>Rooms available tonight</CardTitle>
           </CardHeader>
           <CardContent>
@@ -119,14 +157,11 @@ export function DashboardScreen() {
                   {errorCopy(availableQ.error, 'Could not load available rooms.')}
                 </Alert>
               ) : availableQ.isSuccess ? (
-                <div>
-                  <span className="ui-metric">
-                    <span className="ui-metric__value" data-testid="dashboard-available-rooms">
-                      {availableQ.data.rooms.length}
-                    </span>{' '}
-                    vacant, not out of order
-                  </span>
-                </div>
+                <StatField
+                  data-testid="dashboard-available-rooms"
+                  label="Vacant, not out of order"
+                  value={availableQ.data.rooms.length}
+                />
               ) : (
                 <Skeleton />
               )}

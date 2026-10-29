@@ -11,6 +11,7 @@ import {
   PageHeader,
   RowActions,
   SectionLabel,
+  StatField,
   Tabs,
   Toolbar,
   Total,
@@ -137,6 +138,20 @@ describe('layout primitives', () => {
   it('VisuallyHidden keeps text in the accessibility tree', () => {
     render(<VisuallyHidden>Rate for KDX on 2026-08-16</VisuallyHidden>);
     expect(screen.getByText('Rate for KDX on 2026-08-16')).toBeTruthy();
+  });
+
+  it('StatField sits in a stat grid without stretching the label into a heading', () => {
+    const { container } = render(
+      <div className="ui-stat-grid">
+        <StatField label="Business date" value="2026-08-13" data-testid="stat-business-date" />
+      </div>,
+    );
+    const grid = container.querySelector('.ui-stat-grid');
+    const stat = screen.getByTestId('stat-business-date');
+    expect(grid?.contains(stat)).toBe(true);
+    expect(stat.querySelector('.ui-stat-field__label')?.textContent).toBe('Business date');
+    expect(stat.querySelector('.ui-stat-field__value')?.textContent).toBe('2026-08-13');
+    expect(screen.queryByRole('heading', { name: 'Business date' })).toBeNull();
   });
 
   it('SectionLabel is not a heading, so it cannot outrank the page title', () => {

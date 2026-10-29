@@ -1,4 +1,4 @@
-import { forwardRef, type ReactNode, type Ref } from 'react';
+import { forwardRef, type AriaAttributes, type ReactNode, type Ref } from 'react';
 import { buttonClasses } from './variant-map.js';
 import type { AriaLabelProps, ButtonHandlerProps, ButtonIntent, ControlSize, TestIdProps } from './types.js';
 
@@ -11,6 +11,7 @@ export type ButtonProps = TestIdProps &
     id?: string;
     name?: string;
     children?: ReactNode;
+    'aria-pressed'?: AriaAttributes['aria-pressed'];
   };
 
 export const Button = forwardRef(function Button(
@@ -31,6 +32,7 @@ export const Button = forwardRef(function Button(
     'aria-haspopup': ariaHasPopup,
     'aria-busy': ariaBusy,
     'aria-disabled': ariaDisabled,
+    'aria-pressed': ariaPressed,
     onClick,
     onFocus,
     onBlur,
@@ -56,6 +58,7 @@ export const Button = forwardRef(function Button(
       aria-haspopup={ariaHasPopup}
       aria-busy={ariaBusy}
       aria-disabled={ariaDisabled}
+      aria-pressed={ariaPressed}
       onClick={onClick}
       onFocus={onFocus}
       onBlur={onBlur}

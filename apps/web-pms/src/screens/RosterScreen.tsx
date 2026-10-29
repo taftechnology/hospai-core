@@ -12,6 +12,7 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
@@ -23,6 +24,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 export const ROSTER_EXIT_CONFIRM =
@@ -125,17 +127,14 @@ export function RosterScreen() {
     },
   });
 
-  function onExit(row: RosterRow) {
-    if (!window.confirm(ROSTER_EXIT_CONFIRM)) return;
-    exitMutation.mutate(row.staffId);
-  }
+  const [exitTarget, setExitTarget] = useState<RosterRow | null>(null);
 
   const { subtitle } = usePropertySubtitle('Scheduled staff');
 
   return (
     <div className="ui-page-stack roster-screen">
       <PageHeader title="Roster" subtitle={subtitle} />
-      <Card data-testid="roster-screen" className="roster-screen__shell">
+      <div className="ui-page-stack" data-testid="roster-screen">
         <Card>
           <CardHeader>
             <CardTitle>Add staff</CardTitle>
@@ -241,7 +240,7 @@ export function RosterScreen() {
           </CardHeader>
           {staff.length === 0 && listQuery.isSuccess ? (
             <CardContent>
-              <p>Add someone to the roster</p>
+              <EmptyState title="Add someone to the roster" />
             </CardContent>
           ) : (
             <CardContent flush>
@@ -282,7 +281,7 @@ export function RosterScreen() {
                           </DataTableCell>
                           <DataTableCell>
                             {exited ? null : (
-                              <Button type="button" intent="destructive" onClick={() => onExit(row)}>
+                              <Button type="button" onClick={() => setExitTarget(row)}>
                                 Exit {label}
                               </Button>
                             )}
@@ -296,7 +295,20 @@ export function RosterScreen() {
             </CardContent>
           )}
         </Card>
-      </Card>
+      </div>
+      {exitTarget ? (
+        <ConfirmDialog
+          title={`Exit ${exitTarget.displayName ?? exitTarget.staffId}?`}
+          description={ROSTER_EXIT_CONFIRM}
+          confirmLabel="Exit"
+          intent="destructive"
+          onCancel={() => setExitTarget(null)}
+          onConfirm={() => {
+            exitMutation.mutate(exitTarget.staffId);
+            setExitTarget(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

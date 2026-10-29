@@ -6,7 +6,8 @@ describe('reservationStatusLabel', () => {
     expect(reservationStatusLabel('pending')).toBe('Pending');
     expect(reservationStatusLabel('confirmed')).toBe('Confirmed');
     expect(reservationStatusLabel('checked_in')).toBe('In house');
-    expect(reservationStatusLabel('checked_out')).toBe('Departed');
+    expect(reservationStatusLabel('checked_out')).toBe('Checked out');
+    expect(reservationStatusLabel('inquiry')).toBe('Inquiry');
     expect(reservationStatusLabel('no_show')).toBe('No-show');
     expect(reservationStatusLabel('cancelled')).toBe('Cancelled');
   });

@@ -9,6 +9,7 @@ export {
   Metric,
   Metrics,
   RowActions,
+  StatField,
   Tabs,
   Toolbar,
   Total,
@@ -19,6 +20,7 @@ export type {
   MetricProps,
   MetricsProps,
   RowActionsProps,
+  StatFieldProps,
   TabsProps,
   ToolbarProps,
   TotalProps,
@@ -67,11 +69,17 @@ export type {
 export { LinkButton } from './LinkButton.js';
 export type { LinkButtonProps } from './LinkButton.js';
 
+export { RoomStatus, StatusBadge, isReservationStatus, isRoomHkStatus, reservationStatusWord, roomStatusWord } from './status.js';
+export type { RoomStatusProps, StatusBadgeProps } from './status.js';
+
 export type {
   AlertIntent,
   ButtonIntent,
   ControlSize,
   FieldSize,
+  ReservationStatus,
+  RoomHkStatus,
   StatusRung,
   TotalTone,
 } from './types.js';
+export { RESERVATION_STATUSES } from './types.js';

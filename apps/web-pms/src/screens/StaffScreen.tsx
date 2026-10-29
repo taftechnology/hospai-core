@@ -27,6 +27,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 type OrgRole = 'owner' | 'admin' | 'staff';
@@ -115,6 +116,11 @@ export function StaffScreen() {
   const [propRole, setPropRole] = useState<PropertyWriteRole>('staff');
   const [orgEmail, setOrgEmail] = useState('');
   const [orgRole, setOrgRole] = useState<OrgRole>('staff');
+  const [pendingRemove, setPendingRemove] = useState<{
+    title: string;
+    description: string;
+    run: () => Promise<void>;
+  } | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
 
   const meQuery = useQuery({
@@ -241,44 +247,48 @@ export function StaffScreen() {
     }
   }
 
-  async function removePropertyMember(m: PropertyMember) {
+  function requestRemoveProperty(m: PropertyMember) {
     if (!me) return;
     const self = m.userId === me.userId;
+    let description = 'Remove this member from the property?';
     if (self) {
-      const copy = m.hasOrgRole
+      description = m.hasOrgRole
         ? 'Remove your property override? Your company role will still apply here.'
         : 'Remove yourself from this property? You will lose access here.';
-      if (!window.confirm(copy)) return;
     } else if (m.hasOrgRole) {
-      if (
-        !window.confirm(
-          'Remove their property override? Their company role will still apply here.',
-        )
-      ) {
-        return;
-      }
+      description = 'Remove their property override? Their company role will still apply here.';
     }
-    try {
-      await api.deletePropertyMember(propertyId, m.userId);
-      setMessage('Removed from property.');
-      await invalidateLists(m.userId);
-    } catch (err) {
-      setMessage(membershipWriteMessage(err));
-    }
+    setPendingRemove({
+      title: 'Remove from property?',
+      description,
+      run: async () => {
+        try {
+          await api.deletePropertyMember(propertyId, m.userId);
+          setMessage('Removed from property.');
+          await invalidateLists(m.userId);
+        } catch (err) {
+          setMessage(membershipWriteMessage(err));
+        }
+      },
+    });
   }
 
-  async function removeOrgMember(userId: string) {
+  function requestRemoveOrg(userId: string) {
     if (!me) return;
     const self = userId === me.userId;
-    const copy = self ? SELF_ORG_DELETE_COPY : ORG_DELETE_CASCADE_COPY;
-    if (!window.confirm(copy)) return;
-    try {
-      await api.deleteOrgMember(orgId, userId);
-      setMessage(self ? null : 'Removed from organization.');
-      await invalidateLists(userId);
-    } catch (err) {
-      setMessage(membershipWriteMessage(err));
-    }
+    setPendingRemove({
+      title: 'Remove from organization?',
+      description: self ? SELF_ORG_DELETE_COPY : ORG_DELETE_CASCADE_COPY,
+      run: async () => {
+        try {
+          await api.deleteOrgMember(orgId, userId);
+          setMessage(self ? null : 'Removed from organization.');
+          await invalidateLists(userId);
+        } catch (err) {
+          setMessage(membershipWriteMessage(err));
+        }
+      },
+    });
   }
 
   if (!me) {
@@ -295,7 +305,7 @@ export function StaffScreen() {
   return (
     <div className="ui-page-stack staff-screen">
       <PageHeader title="Staff" subtitle={subtitle} />
-      <Card data-testid="staff-screen" className="staff-screen__shell">
+      <div className="ui-page-stack" data-testid="staff-screen">
         {message ? (
           <Alert data-testid="staff-message">{message}</Alert>
         ) : null}
@@ -428,7 +438,7 @@ export function StaffScreen() {
                           </DataTableCell>
                           <DataTableCell align="left">
                             {canWriteStaff ? (
-                              <Button type="button" intent="destructive" onClick={() => void removePropertyMember(m)}>
+                              <Button type="button" onClick={() => requestRemoveProperty(m)}>
                                 Remove
                               </Button>
                             ) : null}
@@ -500,7 +510,7 @@ export function StaffScreen() {
                       </NativeSelect>
                     }
                   />
-                  <Button type="submit" intent="primary" disabled={addOrgMut.isPending}>
+                  <Button type="submit" disabled={addOrgMut.isPending}>
                     Add
                   </Button>
                 </form>
@@ -566,7 +576,7 @@ export function StaffScreen() {
                                 </NativeSelect>
                               </DataTableCell>
                               <DataTableCell align="left">
-                                <Button type="button" intent="destructive" onClick={() => void removeOrgMember(m.userId)}>
+                                <Button type="button" onClick={() => requestRemoveOrg(m.userId)}>
                                   Remove
                                 </Button>
                               </DataTableCell>
@@ -581,7 +591,21 @@ export function StaffScreen() {
             </>
           )}
         </Card>
-      </Card>
+      </div>
+      {pendingRemove ? (
+        <ConfirmDialog
+          title={pendingRemove.title}
+          description={pendingRemove.description}
+          confirmLabel="Remove"
+          intent="destructive"
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            const job = pendingRemove;
+            setPendingRemove(null);
+            void job.run();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

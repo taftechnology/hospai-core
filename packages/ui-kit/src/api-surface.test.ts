@@ -2,11 +2,15 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type {
   AlertProps,
   ButtonProps,
+  CardHeaderProps,
   EmptyStateProps,
   FieldProps,
   InputProps,
   LinkButtonProps,
   PageHeaderProps,
+  RoomStatusProps,
+  StatFieldProps,
+  StatusBadgeProps,
   TotalProps,
 } from './index.js';
 
@@ -70,11 +74,35 @@ describe('ui-kit API surface', () => {
     expectTypeOf<TotalProps['tone']>().toEqualTypeOf<'neutral' | 'credit' | 'due' | undefined>();
   });
 
+  it('StatusBadge, RoomStatus, StatField, and CardHeader reject className and style', () => {
+    expectTypeOf<StatusBadgeProps>().not.toHaveProperty('className');
+    expectTypeOf<StatusBadgeProps>().not.toHaveProperty('style');
+    expectTypeOf<RoomStatusProps>().not.toHaveProperty('className');
+    expectTypeOf<RoomStatusProps>().not.toHaveProperty('style');
+    expectTypeOf<StatFieldProps>().not.toHaveProperty('className');
+    expectTypeOf<StatFieldProps>().not.toHaveProperty('style');
+    expectTypeOf<CardHeaderProps>().not.toHaveProperty('className');
+    expectTypeOf<CardHeaderProps>().not.toHaveProperty('style');
+    expectTypeOf<CardHeaderProps['eyebrow']>().toEqualTypeOf<string | undefined>();
+    // @ts-expect-error className is forbidden on ui-kit components
+    const badStatus: StatusBadgeProps = { status: 'confirmed', className: 'x' };
+    void badStatus;
+    // @ts-expect-error style is forbidden on ui-kit components
+    const badRoom: RoomStatusProps = { status: 'clean', style: { margin: 0 } };
+    void badRoom;
+    // @ts-expect-error className is forbidden on ui-kit components
+    const badStat: StatFieldProps = { label: 'Rooms', value: '2', className: 'x' };
+    void badStat;
+  });
+
   it('Button intent and size are closed unions', () => {
     expectTypeOf<ButtonProps['intent']>().toEqualTypeOf<
       'default' | 'primary' | 'destructive' | 'ghost' | undefined
     >();
     expectTypeOf<ButtonProps['size']>().toEqualTypeOf<'sm' | 'md' | undefined>();
+    expectTypeOf<ButtonProps['aria-pressed']>().toEqualTypeOf<
+      boolean | 'true' | 'false' | 'mixed' | undefined
+    >();
     // @ts-expect-error invalid intent
     const badIntent: ButtonProps = { intent: 'large' };
     void badIntent;

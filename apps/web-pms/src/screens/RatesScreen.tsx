@@ -9,6 +9,8 @@ import {
   Card,
   CardContent,
   CardFooter,
+  CardHeader,
+  CardTitle,
   Checkbox,
   DataTable,
   DataTableBody,
@@ -460,6 +462,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
     null,
   );
   const [archivePlan, setArchivePlan] = useState<RatePlanRow | null>(null);
+  const [archivePromo, setArchivePromo] = useState<{ promoId: string; code: string } | null>(null);
   const [promoCode, setPromoCode] = useState('');
   const [promoName, setPromoName] = useState('');
   const [promoKind, setPromoKind] = useState<'percent' | 'fixed_per_night'>('percent');
@@ -782,7 +785,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
           Restrictions
         </Link>
       </nav>
-      <Card data-testid="rates-screen">
+      <div className="ui-page-stack" data-testid="rates-screen">
         {unsavedGuard}
         {notice || bulkFailure || plansFailClosed || typesFailClosed ? (
           <div className="rates-screen__notices">
@@ -809,6 +812,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
       {activeTab === 'plans' && !plansFailClosed ? (
         <>
+          <Card>
           <CardContent flush>
             <div className="rates-plans__table">
               <DataTable>
@@ -835,7 +839,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   <DataTableCell>{p.cancelPenaltyType}</DataTableCell>
                   <DataTableCell>
                     {p.ratePlanId === 'BAR' ? null : (
-                      <Button type="button" intent="destructive" onClick={() => setArchivePlan(p)}>
+                      <Button type="button" onClick={() => setArchivePlan(p)}>
                         Archive {p.code}
                       </Button>
                     )}
@@ -846,7 +850,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               </DataTable>
             </div>
           </CardContent>
-          <CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Create Rate Plan</CardTitle>
+            </CardHeader>
+            <CardContent>
             <form
               className="stack rates-plans__form"
             onSubmit={(e) => {
@@ -854,7 +863,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               createPlan.mutate();
             }}
           >
-            <h2>Create Rate Plan</h2>
             <Field
               label="Code"
               control={
@@ -980,11 +988,16 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               {createPlan.isPending ? 'Saving…' : 'Create Rate Plan'}
             </Button>
             </form>
-          </CardContent>
+            </CardContent>
+          </Card>
 
-          <CardContent>
-            <h2>Promo codes</h2>
-            <ul data-testid="promo-list">
+          <Card>
+            <CardHeader>
+              <CardTitle>Promo codes</CardTitle>
+            </CardHeader>
+            <CardContent>
+            {promos.length > 0 ? (
+            <ul className="ui-list" data-testid="promo-list">
             {promos.map((p) => (
               <li key={p.promoId}>
                 <span translate="no">
@@ -992,15 +1005,15 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 </span>{' '}
                 <Button
                   type="button"
-                  intent="destructive"
                   data-testid={`promo-archive-${p.code}`}
-                  onClick={() => doArchivePromo.mutate(p.promoId)}
+                  onClick={() => setArchivePromo({ promoId: p.promoId, code: p.code })}
                 >
                   Archive
                 </Button>
               </li>
             ))}
             </ul>
+            ) : null}
             <form
               className="stack rates-plans__form rates-plans__promo-form"
             onSubmit={(e) => {
@@ -1122,7 +1135,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             />
             <Button
               type="submit"
-              intent="primary"
               data-testid="promo-create"
               disabled={createPromo.isPending}
             >
@@ -1130,6 +1142,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             </Button>
             </form>
           </CardContent>
+          </Card>
         </>
       ) : null}
 
@@ -1140,6 +1153,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
           <p className="muted">Create a room type first.</p>
         ) : (
           <>
+            <Card>
             <Toolbar>
               <Field
                 size="xs"
@@ -1265,8 +1279,13 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 <span className="muted">Edit the parent plan’s rates.</span>
               </CardFooter>
             ) : null}
+            </Card>
 
             {!isDerivedMatrix ? (
+              <Card>
+              <CardHeader>
+                <CardTitle>Bulk fill</CardTitle>
+              </CardHeader>
               <CardContent>
                 <form
                   className="stack rates-matrix__bulk"
@@ -1286,7 +1305,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   }}
                 >
                   <div className="rates-matrix__bulk-options">
-                    <h2>Bulk fill</h2>
                     <div className="rates-matrix__bulk-range">
                       <Field
                         size="xs"
@@ -1382,6 +1400,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   </div>
                 </form>
               </CardContent>
+              </Card>
             ) : null}
           </>
         )
@@ -1399,7 +1418,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             })}
           </Alert>
         ) : (
-          <>
+          <Card>
             <CardContent>
               <p className="muted">Stop sell hides the type from sale without changing inventory.</p>
               <p className="muted">
@@ -1475,10 +1494,23 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 </DataTable>
               </div>
             </CardContent>
-          </>
+          </Card>
         )
       ) : null}
 
+      {archivePromo ? (
+        <ConfirmDialog
+          title={`Archive ${archivePromo.code}?`}
+          description={`Archive promo ${archivePromo.code}? It will stop applying to new quotes.`}
+          confirmLabel="Archive"
+          intent="destructive"
+          onCancel={() => setArchivePromo(null)}
+          onConfirm={() => {
+            doArchivePromo.mutate(archivePromo.promoId);
+            setArchivePromo(null);
+          }}
+        />
+      ) : null}
       {archivePlan ? (
         <ConfirmDialog
           title="Archive rate plan?"
@@ -1492,7 +1524,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
           }}
         />
       ) : null}
-      </Card>
+      </div>
     </div>
   );
 }

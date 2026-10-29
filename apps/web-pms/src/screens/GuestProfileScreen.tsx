@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -16,16 +15,18 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   PageHeader,
-  type StatusRung,
+  StatField,
+  isReservationStatus,
+  StatusBadge,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
-import type { StatusSeverity } from '../status/types.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
 type GuestProfile = { displayName: string; email?: string; phone?: string };
@@ -73,21 +74,7 @@ function asStayPage(result: unknown): { items: StayItem[]; nextCursor: string | 
   return { items, nextCursor: typeof next === 'string' ? next : null };
 }
 
-function staySeverity(status: string): StatusSeverity {
-  if (status === 'checked_in') return 'neutral';
-  if (status === 'pending' || status === 'no_show') return 'attention';
-  if (status === 'cancelled' || status === 'checked_out' || status === 'inquiry') return 'informational';
-  return 'informational';
-}
-
 const STAY_ACTIVE_STATUSES = new Set(['checked_in', 'confirmed', 'pending']);
-
-function stayBadgeRung(status: string): StatusRung {
-  if (status === 'checked_in') return 'informational';
-  if (status === 'pending') return 'attention';
-  if (status === 'confirmed') return 'settled';
-  return 'neutral';
-}
 
 function formatGuestDate(iso: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -223,9 +210,11 @@ export function GuestProfileScreen() {
                 const roomCode = stay.roomId ? (roomsById.get(stay.roomId) ?? null) : null;
                 return (
                   <>
-                    <Badge rung={stayBadgeRung(stay.status)}>
-                      {reservationStatusLabel(stay.status)}
-                    </Badge>
+                    {isReservationStatus(stay.status) ? (
+                      <StatusBadge status={stay.status} vip={stay.vipFlag} />
+                    ) : (
+                      reservationStatusLabel(stay.status)
+                    )}
                     {roomCode ? (
                       <>
                         <span className="sep">·</span> Room {roomCode}
@@ -266,24 +255,11 @@ export function GuestProfileScreen() {
               PII: <strong>{guest.erased ? 'Erased' : 'Live'}</strong>
             </p>
             {guest.erased ? null : (
-              <dl className="guest-contact">
-                <div>
-                  <dt>Name</dt>
-                  <dd>{guest.profile.displayName}</dd>
-                </div>
-                {guest.profile.email ? (
-                  <div>
-                    <dt>Email</dt>
-                    <dd>{guest.profile.email}</dd>
-                  </div>
-                ) : null}
-                {guest.profile.phone ? (
-                  <div>
-                    <dt>Phone</dt>
-                    <dd>{guest.profile.phone}</dd>
-                  </div>
-                ) : null}
-              </dl>
+              <div className="ui-stat-grid">
+                <StatField label="Name" value={guest.profile.displayName} />
+                {guest.profile.email ? <StatField label="Email" value={guest.profile.email} /> : null}
+                {guest.profile.phone ? <StatField label="Phone" value={guest.profile.phone} /> : null}
+              </div>
             )}
             {canWrite && !guest.erased ? (
               editing ? (
@@ -338,7 +314,6 @@ export function GuestProfileScreen() {
                     {canErase ? (
                       <Button
                         type="button"
-                        intent="destructive"
                         data-testid="guest-erase"
                         onClick={() => setConfirmErase(true)}
                       >
@@ -361,7 +336,6 @@ export function GuestProfileScreen() {
               {canErase && !guest.erased && !editing ? (
                 <Button
                   type="button"
-                  intent="destructive"
                   data-testid="guest-erase"
                   onClick={() => setConfirmErase(true)}
                 >
@@ -397,7 +371,7 @@ export function GuestProfileScreen() {
           ) : staysQ.isLoading ? (
             <p className="muted">Loading…</p>
           ) : stays.items.length === 0 ? (
-            <p className="muted">No stays at this property.</p>
+            <EmptyState title="No stays at this property." />
           ) : (
             <DataTable>
               <caption>Stays at this property.</caption>
@@ -414,20 +388,23 @@ export function GuestProfileScreen() {
                 {stays.items.map((row) => (
                   <DataTableRow key={row.reservationId}>
                     <DataTableCell>
-                      <Link to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
+                      <Link className="ui-link-btn ui-link-btn--sm" to={`/folio/${encodeURIComponent(row.reservationId)}`}>View folio</Link>
                     </DataTableCell>
                     <DataTableCell>
                       {formatGuestDate(row.arrivalDate)} → {formatGuestDate(row.departureDate)}
                     </DataTableCell>
-                    <DataTableCell rung={staySeverity(row.status)}>
-                      {reservationStatusLabel(row.status)}
+                    <DataTableCell>
+                      {isReservationStatus(row.status) ? (
+                        <StatusBadge status={row.status} vip={row.vipFlag} />
+                      ) : (
+                        reservationStatusLabel(row.status)
+                      )}
                     </DataTableCell>
                     <DataTableCell>
                       {row.roomId ? (roomsById.get(row.roomId) ?? '') : ''}
                     </DataTableCell>
                     <DataTableCell>
                       {row.adults}+{row.children}
-                      {row.vipFlag ? <span data-testid="badge-vip"> VIP</span> : null}
                       {row.dndFlag ? <span data-testid="badge-dnd"> DND</span> : null}
                     </DataTableCell>
                   </DataTableRow>

@@ -26,6 +26,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { badgeStatusWord } from '../status/badge-status-word.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { NON_INCIDENTAL_CODES } from './board-dialogs.js';
 
@@ -217,7 +218,7 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                       </span>
                     </DataTableCell>
                     <DataTableCell>
-                      <Badge rung={c.status === 'active' ? 'settled' : 'neutral'}>{c.status}</Badge>
+                      <Badge rung={c.status === 'active' ? 'settled' : 'neutral'}>{badgeStatusWord(c.status)}</Badge>
                     </DataTableCell>
                     <DataTableCell align="right">
                       <RowActions>
@@ -235,7 +236,6 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                           <Button
                             type="button"
                             size="sm"
-                            intent="destructive"
                             onClick={() => setArchiveTarget({ kind: 'category', row: c })}
                           >
                             Archive
@@ -314,9 +314,9 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                     </DataTableCell>
                     <DataTableCell>
                       {i.status === 'archived' ? (
-                        <Badge rung="neutral">archived</Badge>
+                        <Badge rung="neutral">Archived</Badge>
                       ) : i.postable ? (
-                        <Badge rung="settled">active</Badge>
+                        <Badge rung="settled">Active</Badge>
                       ) : (
                         <Badge rung="attention">not postable</Badge>
                       )}
@@ -344,7 +344,6 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                           <Button
                             type="button"
                             size="sm"
-                            intent="destructive"
                             onClick={() => setArchiveTarget({ kind: 'item', row: i })}
                           >
                             Archive

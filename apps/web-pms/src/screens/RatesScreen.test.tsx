@@ -278,7 +278,7 @@ describe('RatesScreen', () => {
   it('bulk fill posts the form date range', async () => {
     renderRates('/rates/matrix?from=2026-01-01&to=2026-06-01&plan=BAR');
     expect(inclusiveDayCount('2026-01-01', '2026-06-01')).toBeGreaterThan(90);
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     fireEvent.change(within(form).getByLabelText('Bulk amount'), { target: { value: '200.00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Fill Selected Days' }));
     await waitFor(() => expect(bulkUpdateRates).toHaveBeenCalled());
@@ -526,7 +526,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/plans');
     await screen.findByText('Corporate');
-    const planForm = screen.getByRole('heading', { name: 'Create Rate Plan' }).closest('form')!;
+    const planForm = screen.getByRole('heading', { name: 'Create Rate Plan' }).closest('.ui-card')!.querySelector('form')!;
     fireEvent.change(within(planForm).getByLabelText('Derived from'), { target: { value: 'BAR' } });
     fireEvent.change(within(planForm).getByLabelText('Derive percent'), { target: { value: '-15' } });
     fireEvent.change(within(planForm).getByLabelText('Code'), { target: { value: 'BAR15' } });
@@ -615,6 +615,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/plans');
     fireEvent.click(await screen.findByTestId('promo-archive-SUMMER15'));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     await waitFor(() => expect(archiveRatePromo).toHaveBeenCalledWith('prop_demo', 'p1'));
   });
 
@@ -692,7 +693,7 @@ describe('RatesScreen', () => {
 
   it('disables bulk submit when the range is inverted or longer than 366 days', async () => {
     renderRates('/rates/matrix?from=2026-01-01&to=2026-01-14&plan=BAR');
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     fireEvent.change(within(form).getByLabelText('Bulk amount'), { target: { value: '10.00' } });
     fireEvent.change(within(form).getByLabelText('Fill to'), { target: { value: '2025-12-01' } });
     expect(screen.getByRole('button', { name: 'Fill Selected Days' })).toBeDisabled();
@@ -709,7 +710,7 @@ describe('RatesScreen', () => {
 
   it('disables bulk submit when no cells match', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26&plan=BAR');
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     fireEvent.change(within(form).getByLabelText('Bulk amount'), { target: { value: '10.00' } });
     fireEvent.click(within(form).getByLabelText('KNG'));
     expect(await screen.findByText(/Sets 0 rates — 0 types × 14 days/)).toBeTruthy();
@@ -720,7 +721,7 @@ describe('RatesScreen', () => {
     const from = '2026-08-01';
     const to = '2026-08-14';
     renderRates(`/rates/matrix?from=${from}&to=${to}&plan=BAR`);
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     fireEvent.click(within(form).getByLabelText('Sun'));
     fireEvent.change(within(form).getByLabelText('Bulk amount'), { target: { value: '20.00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Fill Selected Days' }));
@@ -753,7 +754,7 @@ describe('RatesScreen', () => {
       })),
     });
     renderRates(`/rates/matrix?from=${from}&to=${to}&plan=BAR`);
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     expect(await screen.findByText('Sets 1200 rates — 4 types × 300 days')).toBeTruthy();
     fireEvent.change(within(form).getByLabelText('Bulk amount'), { target: { value: '10.00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Fill Selected Days' }));
@@ -777,7 +778,7 @@ describe('RatesScreen', () => {
 
   it('pluralises a one-cell bulk preview and save', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     expect(await screen.findByText('Sets 1 rate — 1 type × 1 day')).toBeTruthy();
     expect(within(form).getByLabelText('Fill from')).toHaveValue('2026-08-13');
     expect(within(form).getByLabelText('Fill to')).toHaveValue('2026-08-13');
@@ -812,7 +813,7 @@ describe('RatesScreen', () => {
       .mockRejectedValueOnce(new Error('chunk failed'))
       .mockResolvedValueOnce({ classified: { class: 'live' }, body: { ok: true } });
     renderRates(`/rates/matrix?from=${from}&to=${to}&plan=BAR`);
-    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('form')!;
+    const form = (await screen.findByRole('heading', { name: 'Bulk fill' })).closest('.ui-card')!.querySelector('form')!;
     fireEvent.change(await within(form).findByLabelText('Bulk amount'), {
       target: { value: '10.00' },
     });
@@ -849,6 +850,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/plans');
     fireEvent.click(await screen.findByTestId('promo-archive-SUMMER15'));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Saved.');
     expect(alert.className).toContain('ui-alert');

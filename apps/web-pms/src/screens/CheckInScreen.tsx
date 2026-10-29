@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -13,7 +12,8 @@ import {
   Field,
   NativeSelect,
   PageHeader,
-  type StatusRung,
+  isReservationStatus,
+  StatusBadge,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -30,17 +30,6 @@ function bodyErrorCode(body: unknown): string | null {
 }
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
-
-const RESERVATION_RUNG: Record<string, StatusRung> = {
-  checked_in: 'informational',
-  confirmed: 'settled',
-  pending: 'attention',
-  checked_out: 'informational',
-};
-
-function reservationRung(status: string): StatusRung {
-  return RESERVATION_RUNG[status] ?? 'neutral';
-}
 
 function formatCheckInDate(iso: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -216,9 +205,11 @@ export function CheckInScreen() {
                 const roomLabel = roomTypeLabel;
                 return (
                   <>
-                    <Badge rung={reservationRung(res.status)}>
-                      {reservationStatusLabel(res.status)}
-                    </Badge>
+                    {isReservationStatus(res.status) ? (
+                      <StatusBadge status={res.status} />
+                    ) : (
+                      reservationStatusLabel(res.status)
+                    )}
                     {roomLabel ? (
                       <>
                         <span className="sep">·</span> {roomLabel}
@@ -305,19 +296,15 @@ export function CheckInScreen() {
       </Card>
 
       {res ? (
-        <Card>
-          <CardContent>
-            <FrontOfficeEditor
-              reservationId={reservationId}
-              frontOfficeComment={res.frontOfficeComment}
-              vipFlag={res.vipFlag}
-              dndFlag={res.dndFlag}
-              sourceCode={res.sourceCode}
-              marketSegmentCode={res.marketSegmentCode}
-              disabled={editorDisabled}
-            />
-          </CardContent>
-        </Card>
+        <FrontOfficeEditor
+          reservationId={reservationId}
+          frontOfficeComment={res.frontOfficeComment}
+          vipFlag={res.vipFlag}
+          dndFlag={res.dndFlag}
+          sourceCode={res.sourceCode}
+          marketSegmentCode={res.marketSegmentCode}
+          disabled={editorDisabled}
+        />
       ) : null}
 
       <Card>

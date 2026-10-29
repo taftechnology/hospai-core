@@ -1,6 +1,6 @@
 import type { ReservationRead } from '@hospai/client-core';
 
-import { Badge, Button } from '@hospai/ui-kit';
+import { Badge, Button, SectionLabel } from '@hospai/ui-kit';
 
 export function RegistrationCard({
   propertyName,
@@ -22,7 +22,7 @@ export function RegistrationCard({
   const roomTypeText = roomTypeLabel ?? 'unavailable';
   return (
     <div data-testid="reg-card" className="reg-card">
-      <h2>Registration card</h2>
+      <SectionLabel>Registration card</SectionLabel>
       {propertyName ? <p>{propertyName}</p> : null}
       {reservation ? (
         <>

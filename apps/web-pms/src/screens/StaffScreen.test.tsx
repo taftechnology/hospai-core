@@ -204,10 +204,9 @@ describe('StaffScreen', () => {
     await waitFor(() => expect(screen.getByTestId('org-member-user_other')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('org-member-user_other').querySelector('button')!);
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringMatching(/company and all property roles/i),
-    );
+    expect(screen.getByText(/company and all property roles/i)).toBeTruthy();
     expect(deleteOrgMember).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     confirm.mockClear();
     fireEvent.change(screen.getByLabelText('Org role for user_owner'), {
@@ -220,8 +219,6 @@ describe('StaffScreen', () => {
   });
 
   it('#11 self org-DELETE → harsh confirm → no-access shell', async () => {
-    const confirm = vi.fn().mockReturnValue(true);
-    vi.stubGlobal('confirm', confirm);
     deleteOrgMember.mockResolvedValue({ ok: true, userId: 'user_owner' });
 
     let meCalls = 0;
@@ -268,9 +265,8 @@ describe('StaffScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('org-member-user_owner')).toBeTruthy());
     fireEvent.click(screen.getByTestId('org-member-user_owner').querySelector('button')!);
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringMatching(/lose all access to this organization/i),
-    );
+    expect(screen.getByText(/lose all access to this organization/i)).toBeTruthy();
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     await waitFor(() => expect(deleteOrgMember).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('me-no-access')).toBeTruthy());
     expect(screen.queryByTestId('staff-screen')).toBeNull();

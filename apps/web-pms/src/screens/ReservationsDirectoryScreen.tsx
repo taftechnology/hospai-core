@@ -8,7 +8,6 @@ import {
 } from '@hospai/client-core';
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -24,7 +23,8 @@ import {
   NativeSelect,
   PageHeader,
   RowActions,
-  type StatusRung,
+  isReservationStatus,
+  StatusBadge,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -44,16 +44,6 @@ const WINDOW_TABS: Array<{ id: DirWindow; label: string }> = [
   { id: 'week', label: 'This Week' },
   { id: 'all', label: 'All' },
 ];
-
-const DIRECTORY_RUNG: Record<string, StatusRung> = {
-  confirmed: 'neutral',
-  checked_in: 'informational',
-  checked_out: 'settled',
-  cancelled: 'exception',
-  pending: 'attention',
-  no_show: 'attention',
-  inquiry: 'neutral',
-};
 
 function formatLongDate(iso: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -340,9 +330,11 @@ export function ReservationsDirectoryScreen() {
                 )}
               </DataTableCell>
               <DataTableCell>
-                <Badge rung={DIRECTORY_RUNG[row.status] ?? 'neutral'}>
-                  {reservationStatusLabel(row.status)}
-                </Badge>
+                {isReservationStatus(row.status) ? (
+                  <StatusBadge status={row.status} />
+                ) : (
+                  reservationStatusLabel(row.status)
+                )}
               </DataTableCell>
               <DataTableCell align="right">
                 <RowActions>

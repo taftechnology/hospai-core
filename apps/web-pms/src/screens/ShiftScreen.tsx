@@ -1,6 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Alert, Badge, Button, Card, Field, Input, PageHeader } from '@hospai/ui-kit';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Field,
+  Input,
+  PageHeader,
+  StatField,
+} from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
@@ -21,6 +34,12 @@ type ShiftBody = {
     status: 'OPEN' | 'CLOSED' | 'FORCE_CLOSED';
     unattributedCashCount: number;
   };
+};
+
+const SHIFT_STATUS_WORD: Record<ShiftBody['shift']['status'], string> = {
+  OPEN: 'Open',
+  CLOSED: 'Closed',
+  FORCE_CLOSED: 'Force closed',
 };
 
 export function ShiftScreen() {
@@ -102,16 +121,20 @@ function ShiftCloseForm() {
     | undefined;
   if (!open?.shift) {
     return (
-      <>
+      <div className="ui-page-stack">
         <PageHeader title="Close shift" />
-        <Card className="stack">
-        <p className="muted">
-          No open shift. Open one from the strip above, or review a recent shift from the force-close
-          callout when shown.
-        </p>
-        <Link to="/arrivals">Back to board</Link>
-      </Card>
-      </>
+        <Card>
+          <CardContent>
+            <p className="muted">
+              No open shift. Open one from the strip above, or review a recent shift from the force-close
+              callout when shown.
+            </p>
+            <Link className="ui-link-btn" to="/arrivals">
+              Back to board
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -119,49 +142,50 @@ function ShiftCloseForm() {
   const { businessDate, openingFloat } = open.shift;
 
   return (
-    <>
+    <div className="ui-page-stack">
       <PageHeader title="Close shift" />
-      <Card className="stack">
-      <p>
-        {businessDate ? (
-          <>
-            Business date <strong>{businessDate}</strong>
-            {openingFloat != null ? (
+      <Card>
+        <CardContent>
+          <p>
+            {businessDate ? (
               <>
-                {' '}
-                · opening float <strong>{formatMinor(openingFloat)}</strong>
+                Business date <strong>{businessDate}</strong>
+                {openingFloat != null ? (
+                  <>
+                    {' '}
+                    · opening float <strong>{formatMinor(openingFloat)}</strong>
+                  </>
+                ) : null}{' '}
+                — enter closing count (blind; expected cash is not shown).
               </>
-            ) : null}
-            {' '}
-            — enter closing count (blind; expected cash is not shown).
-          </>
-        ) : (
-          <>Enter closing count (blind; expected cash is not shown).</>
-        )}
-      </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          closeMut.mutate(shiftId);
-        }}
-      >
-        <Field
-          label="Closing count"
-          control={
-            <Input
-              aria-label="closing-count"
-              value={closingMajor}
-              onChange={(e) => setClosingMajor(e.target.value)}
+            ) : (
+              <>Enter closing count (blind; expected cash is not shown).</>
+            )}
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              closeMut.mutate(shiftId);
+            }}
+          >
+            <Field
+              label="Closing count"
+              control={
+                <Input
+                  aria-label="closing-count"
+                  value={closingMajor}
+                  onChange={(e) => setClosingMajor(e.target.value)}
+                />
+              }
             />
-          }
-        />
-        <Button type="submit" disabled={closeMut.isPending}>
-          Close shift
-        </Button>
-      </form>
-      {message ? <p className="muted">{message}</p> : null}
-    </Card>
-    </>
+            <Button type="submit" disabled={closeMut.isPending}>
+              Close shift
+            </Button>
+          </form>
+          {message ? <Alert>{message}</Alert> : null}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -207,39 +231,40 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         : formatVarianceMinor(shift.variance);
 
   return (
-    <>
+    <div className="ui-page-stack">
       <PageHeader title="Shift receipt" />
-      <Card className="stack" data-testid="shift-receipt">
-      <Badge rung={sev} data-testid="receipt-status">
-        {shift.status}
-      </Badge>
-      <dl>
-        <div>
-          <dt>Business date</dt>
-          <dd>{shift.businessDate}</dd>
-        </div>
-        <div>
-          <dt>Opening float</dt>
-          <dd>{formatMinor(shift.openingFloat)}</dd>
-        </div>
-        <div>
-          <dt>Closing count</dt>
-          <dd>{shift.closingCount == null ? '—' : formatMinor(shift.closingCount)}</dd>
-        </div>
-        <div>
-          <dt>Variance</dt>
-          <dd data-testid="receipt-variance">{varianceCopy}</dd>
-        </div>
-        <div>
-          <dt>Unattributed cash posts</dt>
-          <dd data-testid="receipt-unattributed">{shift.unattributedCashCount}</dd>
-        </div>
-      </dl>
-      {shift.status === 'FORCE_CLOSED' ? (
-        <Badge rung="exception">Drawer never counted.</Badge>
-      ) : null}
-      <Link to="/arrivals">Back to board</Link>
-    </Card>
-    </>
+      <Card data-testid="shift-receipt">
+        <CardHeader>
+          <CardTitle>Shift</CardTitle>
+          <Badge rung={sev} data-testid="receipt-status">
+            {SHIFT_STATUS_WORD[shift.status]}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-stat-grid">
+            <StatField label="Business date" value={shift.businessDate} />
+            <StatField label="Opening float" value={formatMinor(shift.openingFloat)} />
+            <StatField
+              label="Closing count"
+              value={shift.closingCount == null ? '—' : formatMinor(shift.closingCount)}
+            />
+            <StatField
+              label="Variance"
+              value={<span data-testid="receipt-variance">{varianceCopy}</span>}
+            />
+            <StatField
+              label="Unattributed cash posts"
+              value={<span data-testid="receipt-unattributed">{shift.unattributedCashCount}</span>}
+            />
+          </div>
+          {shift.status === 'FORCE_CLOSED' ? <Alert>Drawer never counted.</Alert> : null}
+        </CardContent>
+        <CardFooter>
+          <Link className="ui-link-btn" to="/arrivals">
+            Back to board
+          </Link>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }

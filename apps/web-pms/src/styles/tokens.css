@@ -1,63 +1,78 @@
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2") format("woff2");
+  src: url("/fonts/inter/inter-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Medium.woff2") format("woff2");
+  src: url("/fonts/inter/inter-latin-500-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2") format("woff2");
+  src: url("/fonts/inter/inter-latin-600-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "IBM Plex Mono";
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600;
   font-display: swap;
-  src: url("/fonts/ibm-plex-sans/IBMPlexSans-Bold.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-mono/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   /* --- primitives (literals allowed only on --color-*) --- */
-  --color-ink: #2D2926;
-  --color-muted: #575245;
-  --color-line: #E8E4D8;
-  --color-bg: #F9F8F4;
+  --color-bg: #ffffff;
   --color-surface-base: #ffffff;
-  --color-selected: #F1EFE9;
-  --color-primary: #4A5D4E;
-  --color-accent: #C18C5D;
+  --color-ink: #0a0a0a;
+  --color-muted: #6b6b6b;
+  --color-line: #e5e5e5;
+  --color-selected: #f5f5f5;
+  --color-primary: #171717;
+  --color-sidebar: #fafafa;
+  --color-focus: #0a0a0a;
 
-  --color-status-settled-fg: #0d5c2e;
-  --color-status-settled-surface: #E8F2EA;
-  --color-status-informational-fg: #3A4F40;
-  --color-status-informational-surface: #EEF1EC;
-  --color-status-attention-fg: #8a5a00;
-  --color-status-attention-surface: #FBF4E8;
-  --color-status-exception-fg: #9b1c1c;
-  --color-status-exception-surface: #FBF3F0;
+  --color-action-primary-surface: #171717;
+  --color-action-primary-fg: #fafafa;
+  --color-action-destructive-surface: #e7000b;
+  --color-action-destructive-fg: #fafafa;
 
-  --color-action-primary-fg: #ffffff;
-  --color-action-primary-surface: #4A5D4E;
-  --color-action-destructive-fg: #ffffff;
-  --color-action-destructive-surface: #9b1c1c;
+  --color-status-settled-fg: #007a55;
+  --color-status-settled-surface: #d0fae5;
+  --color-status-informational-fg: #0069a8;
+  --color-status-informational-surface: #dff2fe;
+  --color-status-attention-fg: #bb4d00;
+  --color-status-attention-surface: #fef3c6;
+  --color-status-exception-fg: #c10007;
+  --color-status-exception-surface: #ffe2e2;
+  --color-status-vip-fg: #7008e7;
+  --color-status-vip-surface: #ede9fe;
+  --color-status-cancelled-fg: #525252;
+
+  --color-room-clean: #009966;
+  --color-room-dirty: #e17100;
+  --color-room-inspected: #0084d1;
+  --color-room-ooo: #e7000b;
 
   --color-badge-fg-on-exception: #ffffff;
+
+  /* 5% black. 8-digit hex so shadow composites stay off the literal rule. */
+  --color-shadow: #0000000d;
+  --color-shadow-overlay: #00000026;
+  /* Same black scrim in both themes. 8-digit hex. */
+  --color-scrim: #00000080;
 
   /* --- chrome aliases (no literals) --- */
   --ink: var(--color-ink);
@@ -67,10 +82,20 @@
   --panel: var(--color-surface-base);
   --selected: var(--color-selected);
   --primary: var(--color-primary);
+  --sidebar: var(--color-sidebar);
+  --focus: var(--color-focus);
+  --scrim: var(--color-scrim);
+  --room-clean: var(--color-room-clean);
+  --room-dirty: var(--color-room-dirty);
+  --room-inspected: var(--color-room-inspected);
+  --room-ooo: var(--color-room-ooo);
   --danger: var(--color-status-exception-fg);
   --warn: var(--color-status-attention-fg);
 
-  --radius: 8px;
+  --radius: 6px;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   /* --- status semantics --- */
   --status-settled-fg: var(--color-status-settled-fg);
@@ -101,14 +126,159 @@
     var(--status-exception-fg) 35%,
     var(--color-surface-base)
   );
+  --status-vip-fg: var(--color-status-vip-fg);
+  --status-vip-surface: var(--color-status-vip-surface);
+  --status-vip-border: color-mix(
+    in srgb,
+    var(--status-vip-fg) 35%,
+    var(--color-surface-base)
+  );
+  --status-cancelled-fg: var(--color-status-cancelled-fg);
+  --status-cancelled-surface: var(--selected);
+  --status-cancelled-border: color-mix(
+    in srgb,
+    var(--status-cancelled-fg) 35%,
+    var(--color-surface-base)
+  );
 
-  /* --- action intent (destructive unexercised this slice) --- */
+  /* --- action intent --- */
   --action-default-fg: var(--color-ink);
-  --action-default-surface: var(--color-surface-base);
+  --action-default-surface: var(--color-bg);
   --action-primary-fg: var(--color-action-primary-fg);
   --action-primary-surface: var(--color-action-primary-surface);
   --action-destructive-fg: var(--color-action-destructive-fg);
   --action-destructive-surface: var(--color-action-destructive-surface);
 
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0a0a0a;
+    --color-surface-base: #171717;
+    --color-ink: #fafafa;
+    --color-muted: #a1a1a1;
+    --color-line: #2e2e2e;
+    --color-selected: #262626;
+    --color-primary: #e5e5e5;
+    --color-sidebar: #171717;
+    --color-focus: #fafafa;
+
+    --color-action-primary-surface: #e5e5e5;
+    --color-action-primary-fg: #171717;
+    --color-action-destructive-surface: #ff6467;
+    --color-action-destructive-fg: #171717;
+
+    --color-status-settled-fg: #5ee9b5;
+    --color-status-settled-surface: #0e2d25;
+    --color-status-informational-fg: #74d4ff;
+    --color-status-informational-surface: #0f2b3b;
+    --color-status-attention-fg: #ffd230;
+    --color-status-attention-surface: #3f2210;
+    --color-status-exception-fg: #ffa2a2;
+    --color-status-exception-surface: #421718;
+    --color-status-vip-fg: #c4b4ff;
+    --color-status-vip-surface: #2d174b;
+    --color-status-cancelled-fg: #a1a1a1;
+
+    --color-room-clean: #00d492;
+    --color-room-dirty: #ffb900;
+    --color-room-inspected: #00bcff;
+    --color-room-ooo: #ff6467;
+
+    --color-badge-fg-on-exception: #171717;
+    --color-scrim: #00000080;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0a0a0a;
+  --color-surface-base: #171717;
+  --color-ink: #fafafa;
+  --color-muted: #a1a1a1;
+  --color-line: #2e2e2e;
+  --color-selected: #262626;
+  --color-primary: #e5e5e5;
+  --color-sidebar: #171717;
+  --color-focus: #fafafa;
+
+  --color-action-primary-surface: #e5e5e5;
+  --color-action-primary-fg: #171717;
+  --color-action-destructive-surface: #ff6467;
+  --color-action-destructive-fg: #171717;
+
+  --color-status-settled-fg: #5ee9b5;
+  --color-status-settled-surface: #0e2d25;
+  --color-status-informational-fg: #74d4ff;
+  --color-status-informational-surface: #0f2b3b;
+  --color-status-attention-fg: #ffd230;
+  --color-status-attention-surface: #3f2210;
+  --color-status-exception-fg: #ffa2a2;
+  --color-status-exception-surface: #421718;
+  --color-status-vip-fg: #c4b4ff;
+  --color-status-vip-surface: #2d174b;
+  --color-status-cancelled-fg: #a1a1a1;
+
+  --color-room-clean: #00d492;
+  --color-room-dirty: #ffb900;
+  --color-room-inspected: #00bcff;
+  --color-room-ooo: #ff6467;
+
+  --color-badge-fg-on-exception: #171717;
+  --color-scrim: #00000080;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Registration card stays black on white, including a forced dark theme. */
+@media print {
+  :root,
+  :root:not([data-theme="light"]),
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --color-bg: #ffffff;
+    --color-surface-base: #ffffff;
+    --color-ink: #0a0a0a;
+    --color-muted: #6b6b6b;
+    --color-line: #e5e5e5;
+    --color-selected: #f5f5f5;
+    --color-primary: #171717;
+    --color-sidebar: #fafafa;
+    --color-focus: #0a0a0a;
+
+    --color-action-primary-surface: #171717;
+    --color-action-primary-fg: #fafafa;
+    --color-action-destructive-surface: #e7000b;
+    --color-action-destructive-fg: #fafafa;
+
+    --color-status-settled-fg: #007a55;
+    --color-status-settled-surface: #d0fae5;
+    --color-status-informational-fg: #0069a8;
+    --color-status-informational-surface: #dff2fe;
+    --color-status-attention-fg: #bb4d00;
+    --color-status-attention-surface: #fef3c6;
+    --color-status-exception-fg: #c10007;
+    --color-status-exception-surface: #ffe2e2;
+    --color-status-vip-fg: #7008e7;
+    --color-status-vip-surface: #ede9fe;
+    --color-status-cancelled-fg: #525252;
+
+    --color-room-clean: #009966;
+    --color-room-dirty: #e17100;
+    --color-room-inspected: #0084d1;
+    --color-room-ooo: #e7000b;
+
+    --color-badge-fg-on-exception: #ffffff;
+
+    --color-shadow: #0000000d;
+    --color-shadow-overlay: #00000026;
+    --color-scrim: #00000080;
+  }
 }

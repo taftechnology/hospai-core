@@ -64,6 +64,21 @@ export function Metric({ label, value, 'data-testid': dataTestId }: MetricProps)
   );
 }
 
+export type StatFieldProps = TestIdProps & {
+  label: ReactNode;
+  value: ReactNode;
+};
+
+/** Muted label over a value. Not a control. */
+export function StatField({ label, value, 'data-testid': dataTestId }: StatFieldProps) {
+  return (
+    <div className="ui-stat-field" data-testid={dataTestId}>
+      <div className="ui-stat-field__label">{label}</div>
+      <div className="ui-stat-field__value">{value}</div>
+    </div>
+  );
+}
+
 /* --- row actions -------------------------------------------------------- */
 
 export type RowActionsProps = {

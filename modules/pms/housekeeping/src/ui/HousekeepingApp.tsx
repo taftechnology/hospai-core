@@ -14,26 +14,13 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  RoomStatus,
   Toolbar,
+  roomStatusWord,
 } from '@hospai/ui-kit';
 import { useMemo, useState } from 'react';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'clean':
-      return 'Clean';
-    case 'dirty':
-      return 'Dirty';
-    case 'inspected':
-      return 'Inspected';
-    case 'out_of_order':
-      return 'Out of order';
-    default:
-      return status;
-  }
-}
 
 export type HousekeepingOooRange = {
   oooId: string;
@@ -403,7 +390,7 @@ export function HousekeepingApp({
                     <DataTableCell>{room.code}</DataTableCell>
                     <DataTableCell>
                       {room.status === 'out_of_order' ? (
-                        <span>Out of order</span>
+                        <RoomStatus status={room.status} />
                       ) : (
                         <NativeSelect
                           aria-label={`Status for ${room.code}`}
@@ -417,7 +404,7 @@ export function HousekeepingApp({
                         >
                           {STATUSES.map((s) => (
                             <option key={s} value={s}>
-                              {statusLabel(s)}
+                              {roomStatusWord(s)}
                             </option>
                           ))}
                         </NativeSelect>

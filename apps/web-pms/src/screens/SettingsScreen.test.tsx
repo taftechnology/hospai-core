@@ -298,6 +298,7 @@ describe('SettingsScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: /add routing rule/i }));
     await waitFor(() => expect(putFolioRoutingRule).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('button', { name: /archive rr_1/i }));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     await waitFor(() =>
       expect(archiveFolioRoutingRule).toHaveBeenCalledWith('prop_demo', 'rr_1'),
     );

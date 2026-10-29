@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { FrontDeskItem } from '@hospai/client-core';
-import { Alert, Button, Field, Input, NativeSelect, Skeleton } from '@hospai/ui-kit';
+import { Alert, Button, Field, Input, NativeSelect, Skeleton, roomStatusWord } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { formatMinor, parseMajorToMinor } from '../money.js';
@@ -115,7 +115,7 @@ export function AssignRoomDialog({
           <NativeSelect value={chosen} onChange={(e) => setRoomId(e.target.value)}>
             {rooms.map((r) => (
               <option key={r.roomId} value={r.roomId}>
-                {r.code} · {r.status}
+                {r.code} · {roomStatusWord(r.status)}
               </option>
             ))}
           </NativeSelect>

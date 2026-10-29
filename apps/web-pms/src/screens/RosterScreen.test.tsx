@@ -118,15 +118,16 @@ describe('RosterScreen (not E2E)', () => {
 
   it('32: exit confirm names removal and retained employment record', async () => {
     listRoster.mockResolvedValue({ ok: true, staff: [ada] });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderRoster();
     fireEvent.click(await screen.findByRole('button', { name: /exit ada/i }));
-    expect(confirm).toHaveBeenCalledWith(
-      'The name and contact will be removed. The employment record is kept. This cannot be undone.',
-    );
+    expect(
+      screen.getByText(
+        'The name and contact will be removed. The employment record is kept. This cannot be undone.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
     await waitFor(() => {
       expect(exitRoster).toHaveBeenCalledWith('prop_demo', 'staff_ada', expect.any(String));
     });
-    confirm.mockRestore();
   });
 });

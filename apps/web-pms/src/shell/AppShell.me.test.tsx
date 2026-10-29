@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -80,6 +80,8 @@ describe('AppShell /me states', () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
     vi.restoreAllMocks();
   });
 
@@ -128,6 +130,38 @@ describe('AppShell /me states', () => {
     const chip = screen.getByTestId('business-date-chip');
     expect(chip.textContent).toMatch(/Business date/);
     expect(chip.textContent).toContain(propertyLocalToday('UTC'));
+  });
+
+  it('theme switch sits in the sidebar footer and Dark stores data-theme', async () => {
+    getMe.mockResolvedValue(liveOwner);
+    renderShell();
+    const group = await screen.findByRole('group', { name: 'Theme' });
+    const system = screen.getByRole('button', { name: 'System theme' });
+    const light = screen.getByRole('button', { name: 'Light theme' });
+    const dark = screen.getByRole('button', { name: 'Dark theme' });
+    expect(group.contains(system)).toBe(true);
+    expect(group.contains(light)).toBe(true);
+    expect(group.contains(dark)).toBe(true);
+    expect(system.getAttribute('aria-pressed')).toBe('true');
+    expect(light.getAttribute('aria-pressed')).toBe('false');
+    expect(dark.getAttribute('aria-pressed')).toBe('false');
+    expect(group.closest('.app-sidebar-footer')).toBeTruthy();
+    expect(document.querySelector('.ops-rail [role="group"][aria-label="Theme"]')).toBeNull();
+    fireEvent.click(dark);
+    expect(dark.getAttribute('aria-pressed')).toBe('true');
+    expect(system.getAttribute('aria-pressed')).toBe('false');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(localStorage.getItem('hospai.theme')).toBe('dark');
+  });
+
+  it('every sidebar nav item carries an icon', async () => {
+    getMe.mockResolvedValue(liveOwner);
+    renderShell();
+    const nav = await screen.findByRole('navigation', { name: 'HospAI PMS' });
+    await waitFor(() => expect(within(nav).getByRole('link', { name: 'Dashboard' })).toBeTruthy());
+    const links = within(nav).getAllByRole('link');
+    const missing = links.filter((a) => !a.querySelector('svg')).map((a) => a.textContent);
+    expect(missing).toEqual([]);
   });
 
   it('T3: sidebar brand is p not h1', async () => {

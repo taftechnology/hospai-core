@@ -29,8 +29,10 @@ import {
   NativeSelect,
   PageHeader,
   Skeleton,
+  StatField,
   Total,
-  type StatusRung,
+  isReservationStatus,
+  StatusBadge,
 } from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
@@ -119,17 +121,6 @@ function tenderLabel(p: FolioPaymentRow): string {
     return `Card •••• ${p.cardLast4}`;
   }
   return 'Card';
-}
-
-const RESERVATION_RUNG: Record<string, StatusRung> = {
-  checked_in: 'informational',
-  confirmed: 'settled',
-  pending: 'attention',
-  checked_out: 'informational',
-};
-
-function reservationRung(status: string): StatusRung {
-  return RESERVATION_RUNG[status] ?? 'neutral';
 }
 
 function formatFolioDate(iso: string, timeZone: string): string {
@@ -1245,9 +1236,11 @@ export function FolioScreen() {
                 const res = reservationQ.data;
                 return (
                   <>
-                    <Badge rung={reservationRung(res.status)}>
-                      {reservationStatusLabel(res.status)}
-                    </Badge>
+                    {isReservationStatus(res.status) ? (
+                      <StatusBadge status={res.status} vip={res.vipFlag === true} />
+                    ) : (
+                      reservationStatusLabel(res.status)
+                    )}
                     {roomCode ? (
                       <>
                         <span className="sep">·</span> Room {roomCode}
@@ -1373,12 +1366,10 @@ export function FolioScreen() {
         </CardContent>
         {!folioQ.isError ? (
           <CardFooter>
-            <dl className="ui-summary">
-              <dt>Charges</dt>
-              <dd>{formatMinor(ledgerChargesMinor)}</dd>
-              <dt>Payments</dt>
-              <dd>{formatMinor(-ledgerPaymentsMinor)}</dd>
-            </dl>
+            <div className="ui-summary">
+              <StatField label="Charges" value={formatMinor(ledgerChargesMinor)} />
+              <StatField label="Payments" value={formatMinor(-ledgerPaymentsMinor)} />
+            </div>
           </CardFooter>
         ) : null}
       </Card>
@@ -1671,6 +1662,7 @@ export function FolioScreen() {
                             {canPost ? (
                               <Button
                                 type="button"
+                                intent="destructive"
                                 data-testid={`void-payment-${p.paymentId}`}
                                 disabled={voidPay.isPending}
                                 onClick={() => setVoidPaymentId(p.paymentId)}
@@ -1694,6 +1686,7 @@ export function FolioScreen() {
                             />
                             <Button
                               type="button"
+                              intent="destructive"
                               data-testid={`refund-payment-${p.paymentId}`}
                               disabled={refundPay.isPending}
                               onClick={() =>
@@ -1734,10 +1727,13 @@ export function FolioScreen() {
       ) : null}
 
       {activeInvoiceId && invoiceQ.isSuccess ? (
-        <section data-testid="invoice-view">
-          <h2>Invoice</h2>
+        <Card data-testid="invoice-view">
+          <CardHeader>
+            <CardTitle>Invoice</CardTitle>
+          </CardHeader>
+          <CardContent>
           {invoiceSnapshot?.lines && invoiceSnapshot.lines.length > 0 ? (
-            <ul>
+            <ul className="ui-list">
               {invoiceSnapshot.lines.map((line, i) => (
                 <li key={`${line.chargeName ?? line.chargeCode ?? 'line'}-${i}`}>
                   {line.chargeName ?? line.chargeCode ?? 'Line'}{' '}
@@ -1751,7 +1747,7 @@ export function FolioScreen() {
             <p className="muted">No lines</p>
           )}
           {showInvoiceTax && invoiceSnapshot?.taxSummary && invoiceSnapshot.taxSummary.length > 0 ? (
-            <ul>
+            <ul className="ui-list">
               {invoiceSnapshot.taxSummary.map((t, i) => (
                 <li key={`${t.taxRuleId ?? t.label ?? 'tax'}-${i}`}>
                   {t.label ?? 'Tax'} {t.amountMinor ?? 0}
@@ -1772,6 +1768,7 @@ export function FolioScreen() {
           {canAdjust ? (
             <Button
               type="button"
+              intent="destructive"
               data-testid="invoice-void"
               disabled={voidInv.isPending || folioDegraded}
               onClick={() => setVoidInvoiceOpen(true)}
@@ -1779,7 +1776,8 @@ export function FolioScreen() {
               Void invoice
             </Button>
           ) : null}
-        </section>
+          </CardContent>
+        </Card>
       ) : null}
 
       {message ? <Alert data-testid="folio-message">{message}</Alert> : null}
@@ -2230,7 +2228,7 @@ export function FolioScreen() {
               <Skeleton aria-label="Loading FX rates" />
             ) : (
             <>
-            <ul>
+            <ul className="ui-list">
               {(fxRatesQ.data?.rates ?? [])
                 .filter((r) => r.effectiveTo === null)
                 .map((r) => (

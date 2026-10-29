@@ -159,7 +159,7 @@ describe('InventoryScreen', () => {
     renderInventory('rooms');
     expect(await screen.findByText('ROH')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Room type'), { target: { value: 'rt_roh' } });
-    const createForm = screen.getByRole('heading', { name: 'Create Room' }).closest('form')!;
+    const createForm = screen.getByRole('heading', { name: 'Create Room' }).closest('.ui-card')!.querySelector('form')!;
     expect(within(createForm).getByText('Virtual types do not have room units.')).toBeTruthy();
     expect(within(createForm).getByRole('button', { name: 'Create Room' }).hasAttribute('disabled')).toBe(true);
   });

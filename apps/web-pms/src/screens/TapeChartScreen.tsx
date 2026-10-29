@@ -31,7 +31,7 @@ import {
   PageHeader,
   Tabs,
   Toolbar,
-  type StatusRung,
+  RoomStatus,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
@@ -169,20 +169,6 @@ type RoomTypeLabel = { roomTypeId: string; name?: string; code?: string };
 function typeLabel(id: string, types: RoomTypeLabel[]): string {
   const hit = types.find((t) => t.roomTypeId === id);
   return hit?.name || hit?.code || 'Room type unavailable';
-}
-
-function roomStatusRung(status: string): StatusRung {
-  switch (status) {
-    case 'clean':
-    case 'inspected':
-      return 'settled';
-    case 'dirty':
-      return 'attention';
-    case 'out_of_order':
-      return 'exception';
-    default:
-      return 'neutral';
-  }
 }
 
 function StayBlock({
@@ -415,7 +401,7 @@ export function TapeChartScreen() {
                     </DataTableCell>
                     <DataTableCell>{typeLabel(r.roomTypeId, typeRows)}</DataTableCell>
                     <DataTableCell>
-                      <Badge rung={roomStatusRung(r.status)}>{r.status}</Badge>
+                      <RoomStatus status={r.status} />
                     </DataTableCell>
                     <DataTableCell align="right">
                       <Link
@@ -496,7 +482,7 @@ export function TapeChartScreen() {
               >
                 <div className="tape-room min-w-0 truncate">
                   {room.code}{' '}
-                  <Badge rung={roomStatusRung(room.status)}>{room.status}</Badge>
+                  <RoomStatus status={room.status} />
                 </div>
                 {dates.map((d, i) =>
                   today != null && d >= today ? (

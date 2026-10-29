@@ -2,7 +2,9 @@
 /**
  * web-pms colour gate:
  * 1) Colour literals only on declarations whose property starts with `--color-`
- * 2) Every `--status-*-fg` clears WCAG AA 4.5:1 vs paired `-surface` and `--color-surface-base`
+ * 2) Every chrome pair and every `--status-*-fg` clears WCAG AA 4.5:1
+ *    vs its surface (and the panel) in BOTH light and dark. A dark
+ *    primitive wins when `@media (prefers-color-scheme: dark)` redefines it.
  *
  *   node scripts/web-pms-colors-check.mjs
  *   node scripts/web-pms-colors-check.mjs --self-test
@@ -230,6 +232,125 @@ function collectCustomProps(cssText) {
   return props;
 }
 
+function matchingClose(css, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < css.length; i++) {
+    const ch = css[i];
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function mediaRanges(css, test) {
+  const ranges = [];
+  for (const m of css.matchAll(/@media\b([^{]*)\{/g)) {
+    if (!test(m[1])) continue;
+    const open = m.index + m[0].length - 1;
+    const close = matchingClose(css, open);
+    if (close < 0) continue;
+    ranges.push({ start: m.index, end: close + 1, inner: css.slice(open + 1, close) });
+  }
+  return ranges;
+}
+
+function excise(css, ranges) {
+  const sorted = [...ranges].sort((a, b) => b.start - a.start);
+  let out = css;
+  for (const range of sorted) out = out.slice(0, range.start) + out.slice(range.end);
+  return out;
+}
+
+/** Custom props declared on `:root` selectors, including `:root:not(...)` and `:root[data-theme]`. */
+function collectRootProps(css) {
+  const props = new Map();
+  for (const m of css.matchAll(/:root(?![a-zA-Z0-9_-])[^{]*\{/g)) {
+    const open = m.index + m[0].length - 1;
+    const close = matchingClose(css, open);
+    if (close < 0) continue;
+    for (const [key, value] of collectCustomProps(css.slice(open + 1, close))) {
+      props.set(key, value);
+    }
+  }
+  return props;
+}
+
+function insideRange(ranges, index) {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+/** Top-level `:root[data-theme="dark"]` rules. Skips copies nested in print or the OS-dark media. */
+function dataThemeDarkBlocks(css, skipRanges) {
+  const blocks = [];
+  for (const m of css.matchAll(/:root\[data-theme="dark"\][^{]*\{/g)) {
+    if (insideRange(skipRanges, m.index)) continue;
+    const open = m.index + m[0].length - 1;
+    const close = matchingClose(css, open);
+    if (close < 0) continue;
+    blocks.push({ start: m.index, end: close + 1, inner: css.slice(open + 1, close) });
+  }
+  return blocks;
+}
+
+function mergeProps(target, source) {
+  for (const [key, value] of source) target.set(key, value);
+}
+
+function darkBlockDrift(mediaProps, attrProps) {
+  if (mediaProps.size === 0 && attrProps.size === 0) return [];
+  const errors = [];
+  const keys = new Set([...mediaProps.keys(), ...attrProps.keys()]);
+  for (const key of [...keys].sort()) {
+    if (!mediaProps.has(key)) {
+      errors.push(`dark blocks differ: ${key} missing from prefers-color-scheme dark`);
+    } else if (!attrProps.has(key)) {
+      errors.push(`dark blocks differ: ${key} missing from :root[data-theme="dark"]`);
+    } else if (mediaProps.get(key) !== attrProps.get(key)) {
+      errors.push(
+        `dark blocks differ: ${key} is ${mediaProps.get(key)} in prefers-color-scheme dark and ${attrProps.get(key)} in :root[data-theme="dark"]`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Light props are every custom prop outside the dark and print blocks.
+ * Dark starts from light and overrides primitives the dark `:root` redefines.
+ * The OS-dark block and `:root[data-theme="dark"]` must declare the same custom props.
+ * Print is excluded so it cannot mask a dark value or a light one.
+ */
+function themeMaps(cssByFile, errors) {
+  const lightParts = [];
+  const darkOverrides = new Map();
+  for (const raw of Object.values(cssByFile)) {
+    const css = stripComments(raw);
+    const darkRanges = mediaRanges(css, (prelude) => /prefers-color-scheme\s*:\s*dark/.test(prelude));
+    const printRanges = mediaRanges(css, (prelude) => /\bprint\b/.test(prelude));
+    const mediaProps = new Map();
+    for (const range of darkRanges) mergeProps(mediaProps, collectRootProps(range.inner));
+    const attrBlocks = dataThemeDarkBlocks(css, [...darkRanges, ...printRanges]);
+    const attrProps = new Map();
+    for (const block of attrBlocks) mergeProps(attrProps, collectCustomProps(block.inner));
+    for (const drift of darkBlockDrift(mediaProps, attrProps)) errors.push(drift);
+    mergeProps(darkOverrides, mediaProps.size > 0 ? mediaProps : attrProps);
+    lightParts.push(excise(css, [...darkRanges, ...printRanges, ...attrBlocks]));
+  }
+  const light = collectCustomProps(lightParts.join('\n'));
+  const dark = new Map(light);
+  for (const [key, value] of darkOverrides) dark.set(key, value);
+  return { light, dark };
+}
+
+function chromePairs(props) {
+  const pairs = CHROME_PAIRS.slice();
+  if (props.has('--sidebar')) pairs.push(['--ink', '--color-sidebar']);
+  return pairs;
+}
+
 function resolveToHex(value, props, depth = 0) {
   if (depth > 8) return null;
   const v = value.trim();
@@ -251,11 +372,9 @@ function resolveToHex(value, props, depth = 0) {
 export function checkColors({ cssByFile }) {
   const errors = [];
   let literalOk = 0;
-  const allCss = [];
 
   for (const [rel, raw] of Object.entries(cssByFile)) {
     const css = stripComments(raw);
-    allCss.push(css);
 
     for (const m of css.matchAll(DECL_RE)) {
       const prop = m[1].trim();
@@ -274,32 +393,50 @@ export function checkColors({ cssByFile }) {
     }
   }
 
-  const props = collectCustomProps(allCss.join('\n'));
+  const { light, dark } = themeMaps(cssByFile, errors);
+  const lightStats = assertThemeContrast(light, 'light', errors);
+  const darkStats = assertThemeContrast(dark, 'dark', errors);
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    stats: {
+      fileCount: Object.keys(cssByFile).length,
+      literalOk,
+      statusFgCount: lightStats.statusFgCount,
+      contrastOk: lightStats.contrastOk + darkStats.contrastOk,
+    },
+  };
+}
+
+function assertThemeContrast(props, theme, errors) {
+  let contrastOk = 0;
   const panel = resolveToHex(props.get('--color-surface-base') ?? '', props);
   if (!panel) {
-    errors.push('Missing resolvable --color-surface-base hex primitive');
+    errors.push(`${theme}: Missing resolvable --color-surface-base hex primitive`);
   }
 
   const statusFgs = [...props.keys()].filter((k) => /^--status-.+-fg$/.test(k));
   if (statusFgs.length === 0) {
-    errors.push('No --status-*-fg custom properties found');
+    errors.push(`${theme}: No --status-*-fg custom properties found`);
   }
 
-  let contrastOk = 0;
-  for (const [fgProp, surfaceProp] of CHROME_PAIRS) {
+  for (const [fgProp, surfaceProp] of chromePairs(props)) {
     const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
     const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
     if (!fgHex) {
-      errors.push(`${fgProp}: could not resolve to hex for chrome pair check`);
+      errors.push(`${theme}: ${fgProp}: could not resolve to hex for chrome pair check`);
       continue;
     }
     if (!surfaceHex) {
-      errors.push(`${surfaceProp}: could not resolve to hex for chrome pair check`);
+      errors.push(`${theme}: ${surfaceProp}: could not resolve to hex for chrome pair check`);
       continue;
     }
     const ratio = contrastRatio(fgHex, surfaceHex);
     if (ratio < MIN_CONTRAST) {
-      errors.push(`${fgProp} vs ${surfaceProp}: contrast ${ratio.toFixed(2)} < ${MIN_CONTRAST}`);
+      errors.push(
+        `${theme}: ${fgProp} vs ${surfaceProp}: contrast ${ratio.toFixed(2)} < ${MIN_CONTRAST}`,
+      );
     } else {
       contrastOk += 1;
     }
@@ -311,17 +448,17 @@ export function checkColors({ cssByFile }) {
     const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
     const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
     if (!fgHex) {
-      errors.push(`${fgProp}: could not resolve to hex for contrast check`);
+      errors.push(`${theme}: ${fgProp}: could not resolve to hex for contrast check`);
       continue;
     }
     if (!surfaceHex) {
-      errors.push(`${surfaceProp}: could not resolve to hex for contrast check`);
+      errors.push(`${theme}: ${surfaceProp}: could not resolve to hex for contrast check`);
       continue;
     }
     const vsSurface = contrastRatio(fgHex, surfaceHex);
     if (vsSurface < MIN_CONTRAST) {
       errors.push(
-        `${fgProp} vs ${surfaceProp}: contrast ${vsSurface.toFixed(2)} < ${MIN_CONTRAST}`,
+        `${theme}: ${fgProp} vs ${surfaceProp}: contrast ${vsSurface.toFixed(2)} < ${MIN_CONTRAST}`,
       );
     } else {
       contrastOk += 1;
@@ -330,7 +467,7 @@ export function checkColors({ cssByFile }) {
       const vsPanel = contrastRatio(fgHex, panel);
       if (vsPanel < MIN_CONTRAST) {
         errors.push(
-          `${fgProp} vs --color-surface-base: contrast ${vsPanel.toFixed(2)} < ${MIN_CONTRAST}`,
+          `${theme}: ${fgProp} vs --color-surface-base: contrast ${vsPanel.toFixed(2)} < ${MIN_CONTRAST}`,
         );
       } else {
         contrastOk += 1;
@@ -338,16 +475,7 @@ export function checkColors({ cssByFile }) {
     }
   }
 
-  return {
-    ok: errors.length === 0,
-    errors,
-    stats: {
-      fileCount: Object.keys(cssByFile).length,
-      literalOk,
-      statusFgCount: statusFgs.length,
-      contrastOk,
-    },
-  };
+  return { contrastOk, statusFgCount: statusFgs.length };
 }
 
 function selfTest() {
@@ -401,6 +529,106 @@ function selfTest() {
   });
   if (uiKitBad.ok || !uiKitBad.errors.some((e) => /colour literal/.test(e))) {
     console.error('self-test C4 FAILED: expected literal rejection in ui-kit fixture', uiKitBad);
+    failed = true;
+  }
+
+  // C5 — a pair that passes in light and fails once the dark block redefines it.
+  const darkFail = checkColors({
+    cssByFile: {
+      'fixture.css': `
+        :root {
+          --color-ink: #000000;
+          --color-muted: #000000;
+          --color-bg: #ffffff;
+          --color-surface-base: #ffffff;
+          --color-selected: #ffffff;
+          --color-primary: #000000;
+          --color-action-primary-fg: #ffffff;
+          --color-action-primary-surface: #000000;
+          --color-action-destructive-fg: #ffffff;
+          --color-action-destructive-surface: #000000;
+          --ink: var(--color-ink);
+          --muted: var(--color-muted);
+          --bg: var(--color-bg);
+          --panel: var(--color-surface-base);
+          --selected: var(--color-selected);
+          --primary: var(--color-primary);
+          --action-primary-fg: var(--color-action-primary-fg);
+          --action-primary-surface: var(--color-action-primary-surface);
+          --action-destructive-fg: var(--color-action-destructive-fg);
+          --action-destructive-surface: var(--color-action-destructive-surface);
+          --color-demo-fg: #000000;
+          --status-demo-fg: var(--color-demo-fg);
+          --status-demo-surface: var(--color-surface-base);
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --color-ink: #777777;
+            --color-bg: #ffffff;
+          }
+        }
+      `,
+    },
+  });
+  const darkContrast = darkFail.errors.filter((e) => e.startsWith('dark:') && /contrast/.test(e));
+  if (darkFail.ok || darkContrast.length === 0 || !darkContrast.some((e) => /--ink vs --bg/.test(e))) {
+    console.error('self-test C5 FAILED: expected a failing dark --ink/--bg pair', darkFail.errors);
+    failed = true;
+  }
+  if (darkFail.errors.some((e) => e.startsWith('light:'))) {
+    console.error('self-test C5 FAILED: light theme of the fixture must pass', darkFail.errors);
+    failed = true;
+  }
+
+  // C6 — 8-digit hex is a colour literal, and it is legal on --color-*.
+  const eightRejected = checkColors({
+    cssByFile: {
+      'fixture.css': `.swatch { box-shadow: 0 1px 3px 0 #0000000d; }`,
+    },
+  });
+  if (!eightRejected.errors.some((e) => e.includes('#0000000d') && /colour literal/.test(e))) {
+    console.error('self-test C6 FAILED: 8-digit hex must count as a colour literal', eightRejected.errors);
+    failed = true;
+  }
+  const eightAllowed = checkColors({
+    cssByFile: {
+      'fixture.css': `--color-shadow: #0000000d;`,
+    },
+  });
+  if (eightAllowed.errors.some((e) => /#0000000d/.test(e) && /colour literal/.test(e))) {
+    console.error('self-test C6 FAILED: 8-digit hex on --color-* must be allowed', eightAllowed.errors);
+    failed = true;
+  }
+
+  // C7 — the two dark blocks must declare the same custom properties.
+  const drift = checkColors({
+    cssByFile: {
+      'fixture.css': `
+        :root { --color-ink: #000000; --color-bg: #ffffff; }
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-theme="light"]) { --color-ink: #ffffff; --color-bg: #000000; }
+        }
+        :root[data-theme="dark"] { --color-ink: #eeeeee; --color-bg: #000000; }
+      `,
+    },
+  });
+  if (!drift.errors.some((e) => /dark blocks differ/.test(e) && /--color-ink/.test(e))) {
+    console.error('self-test C7 FAILED: differing dark blocks must be reported', drift.errors);
+    failed = true;
+  }
+  const matched = checkColors({
+    cssByFile: {
+      'fixture.css': `
+        :root { --color-ink: #000000; --color-bg: #ffffff; }
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-theme="light"]) { --color-ink: #ffffff; --color-bg: #000000; }
+        }
+        :root[data-theme="dark"] { --color-ink: #ffffff; --color-bg: #000000; }
+      `,
+    },
+  });
+  if (matched.errors.some((e) => /dark blocks differ/.test(e))) {
+    console.error('self-test C7 FAILED: matching dark blocks must not drift', matched.errors);
     failed = true;
   }
 

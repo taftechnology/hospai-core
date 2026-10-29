@@ -24,6 +24,7 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { badgeStatusWord } from '../status/badge-status-word.js';
 import { FormDialog } from '../shell/FormDialog.js';
 
 const CODE_RE = /^[A-Z0-9_]{1,32}$/;
@@ -195,7 +196,7 @@ export function SourcesSettings({ onMessage }: { onMessage: (message: string) =>
                         <DataTableCell>{entry.name}</DataTableCell>
                         <DataTableCell>
                           <Badge rung={entry.status === 'active' ? 'settled' : 'neutral'}>
-                            {entry.status}
+                            {badgeStatusWord(entry.status)}
                           </Badge>
                         </DataTableCell>
                         <DataTableCell align="right">
@@ -219,7 +220,6 @@ export function SourcesSettings({ onMessage }: { onMessage: (message: string) =>
                               <Button
                                 type="button"
                                 size="sm"
-                                intent="destructive"
                                 onClick={() =>
                                   setArchiveTarget({ key: list.key, noun: list.noun, entry })
                                 }

@@ -111,7 +111,16 @@ describe('ShiftScreen', () => {
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(screen.getByTestId('receipt-variance').textContent).toMatch(/never counted/i);
     expect(screen.getByTestId('receipt-unattributed').textContent).toBe('2');
-    expect(screen.getByTestId('receipt-status').textContent).toMatch(/FORCE_CLOSED/);
+    expect(screen.getByTestId('receipt-status').textContent).toMatch(/Force closed/);
+    const receipt = screen.getByTestId('shift-receipt');
+    expect(receipt.querySelectorAll('.ui-stat-field').length).toBe(5);
+    expect(receipt.querySelector('.ui-stat-grid')).toBeTruthy();
+    for (const label of ['Business date', 'Opening float', 'Closing count', 'Variance', 'Unattributed cash posts']) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    const back = screen.getByRole('link', { name: 'Back to board' });
+    expect(back.className).toContain('ui-link-btn');
+    expect(back.getAttribute('href')).toBe('/arrivals');
   });
 
   it('close form and receipt hide wire shift ids', async () => {

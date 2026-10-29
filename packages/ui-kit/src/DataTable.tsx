@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import type {
   HTMLAttributes,
   ReactNode,
@@ -53,7 +54,7 @@ export function DataTableRow({
 }: DataTableRowProps) {
   return (
     <tr
-      className={rung ? statusRungClass(rung) : undefined}
+      className={clsx('ui-table__row', rung && statusRungClass(rung))}
       data-testid={dataTestId}
       data-focused={dataFocused}
       onClick={onClick}

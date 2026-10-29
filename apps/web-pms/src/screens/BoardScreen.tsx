@@ -15,6 +15,8 @@ import {
   Alert,
   Badge,
   Button,
+  isReservationStatus,
+  StatusBadge,
   Card,
   CardContent,
   CardFooter,
@@ -102,31 +104,6 @@ function nightsBetween(arrival: string, departure: string): number {
   return Math.max(0, Math.round(ms / 86_400_000));
 }
 
-function boardStatusBadge(
-  mode: BoardMode,
-  status: string,
-): { rung: 'settled' | 'neutral' | 'informational' | 'attention' | 'exception'; label: string } {
-  const s = asReservationStatus(status);
-  if (mode === 'departures' && s === 'checked_in') return { rung: 'attention', label: 'Due out' };
-  if (mode === 'in-house' && s === 'checked_in') return { rung: 'informational', label: 'In house' };
-  switch (s) {
-    case 'confirmed':
-      return { rung: 'neutral', label: 'Confirmed' };
-    case 'pending':
-      return { rung: 'attention', label: 'Pending' };
-    case 'checked_out':
-      return { rung: 'neutral', label: 'Departed' };
-    case 'no_show':
-      return { rung: 'attention', label: 'No-show' };
-    case 'cancelled':
-      return { rung: 'neutral', label: 'Cancelled' };
-    case 'inquiry':
-      return { rung: 'neutral', label: 'Inquiry' };
-    default:
-      return { rung: 'neutral', label: status };
-  }
-}
-
 function ConfirmPendingButton({ reservationId }: { reservationId: string }) {
   const queryClient = useQueryClient();
   const confirm = useMutation({
@@ -198,7 +175,6 @@ function BoardTable({
           const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
           const guestSev = guestSeverity(guestState);
           const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
-          const badge = boardStatusBadge(mode, row.status);
           const nights =
             typeof row.arrivalDate === 'string'
               ? nightsBetween(row.arrivalDate, row.departureDate)
@@ -208,9 +184,6 @@ function BoardTable({
               <DataTableCell rung={guestSev}>
                 <GuestNameLink state={guestState} guestRef={row.guestRef} />
                 {overstay ? ' (overstay)' : ''}
-                {row.vipFlag === true ? (
-                  <span data-testid="badge-vip"> VIP</span>
-                ) : null}
                 {row.dndFlag === true ? (
                   <span data-testid="badge-dnd"> DND</span>
                 ) : null}
@@ -228,7 +201,11 @@ function BoardTable({
                 </span>
               </DataTableCell>
               <DataTableCell>
-                <Badge rung={badge.rung}>{badge.label}</Badge>
+                {status && isReservationStatus(status) ? (
+                  <StatusBadge status={status} vip={row.vipFlag === true} />
+                ) : (
+                  row.status
+                )}
               </DataTableCell>
               <DataTableCell align="right">
                 {mode === 'arrivals' && status === 'pending' ? (
@@ -255,7 +232,7 @@ function BoardTable({
                 ) : mode === 'arrivals' ? (
                   <RowActions>
                     <Link
-                      className="ui-link-btn ui-link-btn--sm ui-link-btn--primary"
+                      className="ui-link-btn ui-link-btn--sm"
                       to={`/check-in/${encodeURIComponent(row.reservationId)}`}
                     >
                       Check in

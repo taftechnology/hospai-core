@@ -1,7 +1,19 @@
 import type { NamedListEntry } from '@hospai/client-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, Badge, Button, Checkbox, Field, NativeSelect, Textarea } from '@hospai/ui-kit';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Checkbox,
+  Field,
+  NativeSelect,
+  Textarea,
+} from '@hospai/ui-kit';
 import { api, tenant } from '../client.js';
 
 const COMMENT_MAX = 2000;
@@ -104,8 +116,11 @@ export function FrontOfficeEditor({
   const saveDisabled = Boolean(disabled) || tooLong || save.isPending;
 
   return (
-    <section className="stack" data-testid="front-office-editor">
-      <h2>Front office</h2>
+    <Card data-testid="front-office-editor">
+      <CardHeader>
+        <CardTitle>Front office</CardTitle>
+      </CardHeader>
+      <CardContent>
       <div className="ui-row">
         {vip ? (
           <Badge rung="attention" data-testid="vip-badge">
@@ -207,7 +222,6 @@ export function FrontOfficeEditor({
       <div className="ui-row">
         <Button
           type="button"
-          intent="primary"
           data-testid="front-office-save"
           disabled={saveDisabled}
           onClick={() => save.mutate()}
@@ -218,6 +232,7 @@ export function FrontOfficeEditor({
       </div>
       {tooLong ? <Alert>Comment must be 2000 characters or fewer.</Alert> : null}
       {message ? <Alert data-testid="front-office-message">{message}</Alert> : null}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

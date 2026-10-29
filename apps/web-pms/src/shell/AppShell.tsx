@@ -18,11 +18,16 @@ import {
   BedIcon,
   BookIcon,
   CalendarIcon,
+  MonitorIcon,
+  MoonIcon,
+  SunIcon,
   CheckIcon,
   CreditCardIcon,
+  DashboardIcon,
   NightAuditIcon,
   PlusIcon,
   PropertyIcon,
+  ReceiptIcon,
   RoomPlanIcon,
   RosterIcon,
   SearchIcon,
@@ -33,6 +38,7 @@ import {
 import { ALL_NAV } from './module-ui-registry.js';
 import type { NavEntry } from './nav.js';
 import { PropertyTimeZoneProvider, usePropertyTimeZone } from './PropertyTimeZone.js';
+import { useThemeChoice } from './theme.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
@@ -49,6 +55,7 @@ type SearchHit = {
 };
 
 const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
+  dashboard: DashboardIcon,
   board: RoomPlanIcon,
   arrivals: CheckIcon,
   reservations: CalendarIcon,
@@ -56,6 +63,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   housekeeping: BedIcon,
   guests: UserIcon,
   rates: CreditCardIcon,
+  folios: ReceiptIcon,
   'city-ledger': BookIcon,
   'night-audit': NightAuditIcon,
   settings: SettingsIcon,
@@ -185,6 +193,44 @@ function ReservationSearch() {
   );
 }
 
+function ThemeSwitch() {
+  const [choice, choose] = useThemeChoice();
+  return (
+    <div className="ui-theme-switch" role="group" aria-label="Theme">
+      <Button
+        type="button"
+        intent="ghost"
+        size="sm"
+        aria-label="System theme"
+        aria-pressed={choice === 'system'}
+        onClick={() => choose('system')}
+      >
+        <MonitorIcon />
+      </Button>
+      <Button
+        type="button"
+        intent="ghost"
+        size="sm"
+        aria-label="Light theme"
+        aria-pressed={choice === 'light'}
+        onClick={() => choose('light')}
+      >
+        <SunIcon />
+      </Button>
+      <Button
+        type="button"
+        intent="ghost"
+        size="sm"
+        aria-label="Dark theme"
+        aria-pressed={choice === 'dark'}
+        onClick={() => choose('dark')}
+      >
+        <MoonIcon />
+      </Button>
+    </div>
+  );
+}
+
 function OpsRail({ authority }: { authority: Authority }) {
   const propertyId = tenant.propertyId;
   const timeZone = usePropertyTimeZone();
@@ -206,7 +252,7 @@ function OpsRail({ authority }: { authority: Authority }) {
       ) : (
         <div className="ops-rail-search" />
       )}
-      <div>
+      <div className="ops-rail-meta">
         {propertyName ? (
           <span data-testid="property-name">{propertyName}</span>
         ) : null}{' '}
@@ -225,7 +271,7 @@ function NavItems({ entries }: { entries: NavEntry[] }) {
     const Icon = NAV_ICONS[entry.id];
     return (
       <NavLink key={entry.id} to={entry.path} end={entry.id !== 'rates' && entry.id !== 'settings'}>
-        {Icon ? <Icon size={14} /> : null}
+        {Icon ? <Icon size={16} /> : null}
         {entry.label}
       </NavLink>
     );
@@ -304,10 +350,11 @@ export function AppShell() {
             </nav>
           </div>
           <footer className="app-sidebar-footer">
+            <ThemeSwitch />
             {authority.kind === 'live' ? (
-              <>
+              <div className="app-sidebar-footer__account">
                 <span data-testid="shell-role">
-                  <UserIcon size={14} />
+                  <UserIcon size={16} />
                   {roleLabel(authority.me.role)}
                 </span>
                 <Button
@@ -318,7 +365,7 @@ export function AppShell() {
                 >
                   Log out
                 </Button>
-              </>
+              </div>
             ) : null}
             {logoutOpen ? <LogoutModal onCancel={() => setLogoutOpen(false)} /> : null}
           </footer>

@@ -18,8 +18,11 @@ import {
   Input,
   LinkButton,
   NativeSelect,
+  RoomStatus,
   Separator,
   Skeleton,
+  StatField,
+  StatusBadge,
   Textarea,
 } from '@hospai/ui-kit';
 
@@ -122,6 +125,23 @@ export function UiGallery() {
             <Badge rung="attention">Attention</Badge>
             <Badge rung="exception">Exception</Badge>
           </div>
+          <div className="stack-row">
+            <StatusBadge status="inquiry" />
+            <StatusBadge status="pending" />
+            <StatusBadge status="confirmed" vip />
+            <StatusBadge status="checked_in" />
+            <StatusBadge status="checked_out" />
+            <StatusBadge status="cancelled" />
+            <StatusBadge status="no_show" />
+          </div>
+          <div className="stack-row">
+            <RoomStatus status="clean" />
+            <RoomStatus status="dirty" />
+            <RoomStatus status="inspected" />
+            <RoomStatus status="out_of_order" />
+            <RoomStatus status="mystery" />
+          </div>
+          <StatField label="Vacant, not out of order" value="20" />
         </CardContent>
       </Card>
     </Card>

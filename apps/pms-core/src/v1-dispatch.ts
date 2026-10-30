@@ -187,6 +187,8 @@ import {
   isHousekeepingInventoryCategory,
   isHousekeepingInventoryMovementKind,
   isHousekeepingPriorityLevelInput,
+  isMaintenanceCategory,
+  isMaintenancePriority,
   UNDECLARED_CONFIG_PREFIX,
   UNKNOWN_COMMAND,
   VALIDATION_ERROR,
@@ -4092,6 +4094,308 @@ async function handleGetHousekeepingInventoryMovements(ctx: V1DispatchContext): 
     if (!result.ok) {
       return json({ ok: false, error: result.error }, 404);
     }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostMaintenanceTicket(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.ticketId !== 'string' ||
+    !body.ticketId ||
+    typeof body?.roomId !== 'string' ||
+    !body.roomId ||
+    typeof body?.description !== 'string' ||
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.category !== undefined && !isMaintenanceCategory(body.category)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.priority !== undefined && !isMaintenancePriority(body.priority)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.taskTypeId !== undefined && body.taskTypeId !== null && typeof body.taskTypeId !== 'string') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    ticketId: body.ticketId,
+    roomId: body.roomId,
+    description: body.description,
+    ...(body.category !== undefined ? { category: body.category } : {}),
+    ...(body.priority !== undefined ? { priority: body.priority } : {}),
+    ...(body.taskTypeId !== undefined ? { taskTypeId: body.taskTypeId } : {}),
+  };
+  const fingerprint = await commandFingerprint('maintenance.create_ticket', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryCreateMaintenanceTicket']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'maintenance.create_ticket',
+      routeId: 'post_maintenance_ticket',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateMaintenanceTicket(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'maintenance:write',
+    successStatus: 201,
+  });
+}
+
+async function handlePatchMaintenanceTicket(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ticketId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body?.idempotencyKey !== 'string' || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.ticketId !== undefined && body.ticketId !== ticketId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.priority !== undefined && !isMaintenancePriority(body.priority)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.checklistDone !== undefined && !Array.isArray(body.checklistDone)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (
+    body.assigneeRef !== undefined &&
+    body.assigneeRef !== null &&
+    typeof body.assigneeRef !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    ticketId,
+    ...(body.priority !== undefined ? { priority: body.priority } : {}),
+    ...(body.description !== undefined ? { description: body.description } : {}),
+    ...(body.assigneeRef !== undefined
+      ? { assigneeRef: body.assigneeRef as string | null }
+      : {}),
+    ...(body.checklistDone !== undefined ? { checklistDone: body.checklistDone } : {}),
+    ...(body.status !== undefined ? { status: body.status } : {}),
+    ...(body.resolutionNote !== undefined ? { resolutionNote: body.resolutionNote } : {}),
+  };
+  const fingerprint = await commandFingerprint('maintenance.update_ticket', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryUpdateMaintenanceTicket']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'maintenance.update_ticket',
+      routeId: 'patch_maintenance_ticket',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateMaintenanceTicket(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'maintenance:write',
+    successStatus: 200,
+  });
+}
+
+async function handleGetMaintenanceTickets(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const url = new URL(ctx.request.url);
+  const statusParam = url.searchParams.get('status');
+  const roomId = url.searchParams.get('roomId') ?? undefined;
+  let status: 'active' | 'open' | 'in_progress' | 'closed' | 'all' = 'active';
+  if (statusParam !== null) {
+    if (
+      statusParam !== 'active' &&
+      statusParam !== 'open' &&
+      statusParam !== 'in_progress' &&
+      statusParam !== 'closed' &&
+      statusParam !== 'all'
+    ) {
+      return json({ error: 'invalid_body' }, 400);
+    }
+    status = statusParam;
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readMaintenanceTicketsList(status, roomId);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostMaintenanceTaskType(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.taskTypeId !== 'string' ||
+    !body.taskTypeId ||
+    typeof body?.name !== 'string' ||
+    !isMaintenanceCategory(body.category) ||
+    !isMaintenancePriority(body.defaultPriority) ||
+    !Array.isArray(body.checklist) ||
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    taskTypeId: body.taskTypeId,
+    name: body.name,
+    category: body.category,
+    defaultPriority: body.defaultPriority,
+    checklist: body.checklist,
+  };
+  const fingerprint = await commandFingerprint('maintenance.create_task_type', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryCreateMaintenanceTaskType']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'maintenance.create_task_type',
+      routeId: 'post_maintenance_task_type',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateMaintenanceTaskType(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === VALIDATION_ERROR) return json({ error: 'invalid_body' }, 400);
+      return null;
+    },
+  });
+}
+
+async function handlePatchMaintenanceTaskType(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const taskTypeId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey ||
+    typeof body?.name !== 'string' ||
+    !isMaintenanceCategory(body.category) ||
+    !isMaintenancePriority(body.defaultPriority) ||
+    !Array.isArray(body.checklist) ||
+    typeof body?.active !== 'boolean'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.taskTypeId !== undefined && body.taskTypeId !== taskTypeId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    taskTypeId,
+    name: body.name,
+    category: body.category,
+    defaultPriority: body.defaultPriority,
+    checklist: body.checklist,
+    active: body.active,
+  };
+  const fingerprint = await commandFingerprint('maintenance.update_task_type', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryUpdateMaintenanceTaskType']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'maintenance.update_task_type',
+      routeId: 'patch_maintenance_task_type',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateMaintenanceTaskType(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === VALIDATION_ERROR) return json({ error: 'invalid_body' }, 400);
+      return null;
+    },
+  });
+}
+
+async function handleGetMaintenanceTaskTypes(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readMaintenanceTaskTypesList();
     return json(result, 200);
   } catch (e) {
     if (isPropertyDoTransportFailure(e, ctx.env)) {
@@ -8994,6 +9298,64 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'roster.set_ops',
     entitlement: 'pms.core',
     handler: handlePutRosterOps,
+  },
+  {
+    id: 'post_maintenance_ticket',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/tickets$/,
+    permission: 'maintenance:write',
+    commandId: 'maintenance.create_ticket',
+    entitlement: 'pms.core',
+    handler: handlePostMaintenanceTicket,
+  },
+  {
+    id: 'patch_maintenance_ticket',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/tickets\/([^/]+)$/,
+    permission: 'maintenance:write',
+    commandId: 'maintenance.update_ticket',
+    entitlement: 'pms.core',
+    handler: handlePatchMaintenanceTicket,
+  },
+  {
+    id: 'get_maintenance_tickets',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/tickets$/,
+    permission: 'maintenance:read',
+    entitlement: 'pms.core',
+    handler: handleGetMaintenanceTickets,
+  },
+  {
+    id: 'post_maintenance_task_type',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/task-types$/,
+    permission: 'settings:configure',
+    commandId: 'maintenance.create_task_type',
+    entitlement: 'pms.core',
+    handler: handlePostMaintenanceTaskType,
+  },
+  {
+    id: 'patch_maintenance_task_type',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/task-types\/([^/]+)$/,
+    permission: 'settings:configure',
+    commandId: 'maintenance.update_task_type',
+    entitlement: 'pms.core',
+    handler: handlePatchMaintenanceTaskType,
+  },
+  {
+    id: 'get_maintenance_task_types',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/maintenance\/task-types$/,
+    permission: 'maintenance:read',
+    entitlement: 'pms.core',
+    handler: handleGetMaintenanceTaskTypes,
   },
 ];
 

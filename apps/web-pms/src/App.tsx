@@ -16,6 +16,7 @@ import { ShiftScreen } from './screens/ShiftScreen.js';
 import { GuestsDirectoryScreen } from './screens/GuestsDirectoryScreen.js';
 import { GuestProfileScreen } from './screens/GuestProfileScreen.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
+import { MaintenanceScreen } from './screens/MaintenanceScreen.js';
 import { CityLedgerScreen } from './screens/CityLedgerScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
@@ -146,6 +147,11 @@ export function App() {
                   <SettingsScreen tab="products" />
                 </Suspense>
               } />
+              <Route path="maintenance" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="maintenance" />
+                </Suspense>
+              } />
               <Route path="sources" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="sources" />
@@ -159,6 +165,9 @@ export function App() {
             </Route>
             <Route path="housekeeping/*" element={<PermissionRoute permission="housekeeping:read" />}>
               <Route path="*" element={<HousekeepingScreen />} />
+            </Route>
+            <Route path="maintenance" element={<PermissionRoute permission="maintenance:read" />}>
+              <Route index element={<MaintenanceScreen />} />
             </Route>
           </Route>
           <Route path="sign-in" element={<SignInScreen />} />

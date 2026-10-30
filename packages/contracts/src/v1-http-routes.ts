@@ -964,6 +964,48 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'roster.set_ops',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_maintenance_ticket',
+    scope: 'property',
+    permission: 'maintenance:write',
+    commandId: 'maintenance.create_ticket',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'patch_maintenance_ticket',
+    scope: 'property',
+    permission: 'maintenance:write',
+    commandId: 'maintenance.update_ticket',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_maintenance_tickets',
+    scope: 'property',
+    permission: 'maintenance:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_maintenance_task_type',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'maintenance.create_task_type',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'patch_maintenance_task_type',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'maintenance.update_task_type',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_maintenance_task_types',
+    scope: 'property',
+    permission: 'maintenance:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

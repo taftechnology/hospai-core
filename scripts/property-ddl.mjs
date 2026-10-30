@@ -84,6 +84,7 @@ if (process.argv.includes('--self-test')) {
   let RESERVATION_SEGMENTS_V36_SQL;
   let HOUSEKEEPING_PRIORITY_V37_SQL;
   let HOUSEKEEPING_INVENTORY_V38_SQL;
+  let MAINTENANCE_V39_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -140,6 +141,7 @@ if (process.argv.includes('--self-test')) {
       RESERVATION_SEGMENTS_V36_SQL,
       HOUSEKEEPING_PRIORITY_V37_SQL,
       HOUSEKEEPING_INVENTORY_V38_SQL,
+      MAINTENANCE_V39_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -532,6 +534,15 @@ const doPropertyTargets = [
 
 `,
     sql: HOUSEKEEPING_INVENTORY_V38_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0039_maintenance.sql'),
+    header: `-- PropertyDO maintenance — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: MAINTENANCE_V39_SQL,
   },
 ];
 

@@ -11,6 +11,7 @@ describe('module UI nav merge', () => {
       'reservations',
       'book',
       'housekeeping',
+      'maintenance',
       'guests',
       'rates',
       'folios',

@@ -185,6 +185,10 @@ import {
   INVENTORY_ITEM_EXISTS,
   INVENTORY_ITEM_ARCHIVED,
   INSUFFICIENT_STOCK,
+  TICKET_NOT_FOUND,
+  TICKET_CLOSED,
+  INVALID_TICKET_TRANSITION,
+  TASK_TYPE_NOT_FOUND,
   CONFIG_KEY_NOT_WRITABLE,
   CONFIG_CODE_REMOVED,
   type CommandError,
@@ -235,6 +239,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case GUEST_EXISTS:
     case INVENTORY_ITEM_EXISTS:
     case INVENTORY_ITEM_ARCHIVED:
+    case TICKET_CLOSED:
+    case INVALID_TICKET_TRANSITION:
     case PRODUCT_EXISTS:
     case PRODUCT_CATEGORY_EXISTS:
     case PRODUCT_SKU_TAKEN:
@@ -248,6 +254,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case PRODUCT_CATEGORY_NOT_FOUND:
     case PRODUCT_NOT_FOUND:
     case INVENTORY_ITEM_NOT_FOUND:
+    case TICKET_NOT_FOUND:
+    case TASK_TYPE_NOT_FOUND:
     case TAX_RULE_NOT_FOUND:
     case SHIFT_NOT_FOUND:
     case CITY_LEDGER_ACCOUNT_NOT_FOUND:

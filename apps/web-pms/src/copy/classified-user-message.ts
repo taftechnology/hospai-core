@@ -79,6 +79,10 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
   inventory_item_exists: () => 'An item with that name or id already exists.',
   inventory_item_archived: () => 'Archived items cannot be adjusted — unarchive or pick another item.',
   insufficient_stock: () => 'Not enough on hand for that issue quantity.',
+  ticket_not_found: () => 'That maintenance ticket no longer exists — refresh the list.',
+  ticket_closed: () => 'This ticket is already closed and cannot be changed.',
+  invalid_ticket_transition: () => 'That status change is not allowed for this ticket.',
+  task_type_not_found: () => 'That task type no longer exists — refresh settings.',
   limit_exceeded: () => 'This property has reached the catalog limit.',
   config_code_removed: () =>
     'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',

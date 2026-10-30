@@ -50,6 +50,49 @@ function extractSchemaTables(manifestSrc) {
   return [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
 }
 
+function extractSubscribes(manifestSrc) {
+  const m = manifestSrc.match(/\bsubscribes\s*:\s*\[([\s\S]*?)\],/);
+  if (!m) return [];
+  const out = [];
+  for (const block of m[1].matchAll(/\{\s*event\s*:\s*['"]([^'"]+)['"]\s*,\s*handler\s*:\s*['"]([^'"]+)['"]\s*\}/g)) {
+    out.push({ event: block[1], handler: block[2] });
+  }
+  return out;
+}
+
+function extractPublishes(manifestSrc) {
+  const m = manifestSrc.match(/\bpublishes\s*:\s*\[([^\]]*)\]/s);
+  if (!m) return [];
+  return [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]);
+}
+
+function extractIndexExports(indexSrc) {
+  const names = new Set();
+  for (const m of indexSrc.matchAll(/\bexport\s*\{\s*([^}]+)\s*\}/g)) {
+    for (const part of m[1].split(',')) {
+      const trimmed = part.trim();
+      const asMatch = trimmed.match(/\bas\s+(\w+)\s*$/);
+      if (asMatch) names.add(asMatch[1]);
+      else {
+        const id = trimmed.match(/^(\w+)/);
+        if (id) names.add(id[1]);
+      }
+    }
+  }
+  for (const m of indexSrc.matchAll(/\bexport\s+(?:async\s+)?function\s+(\w+)/g)) {
+    names.add(m[1]);
+  }
+  return names;
+}
+
+function catalogEventTypes(catalogSrc) {
+  const events = new Set();
+  for (const m of catalogSrc.matchAll(/\bevents\s*:\s*\[([^\]]*)\]/g)) {
+    for (const ev of m[1].matchAll(/['"]([^'"]+)['"]/g)) events.add(ev[1]);
+  }
+  return events;
+}
+
 function walkTsFiles(dir, out = []) {
   if (!existsSync(dir)) return out;
   for (const name of readdirSync(dir)) {
@@ -112,6 +155,15 @@ export function checkModuleManifests(opts = {}) {
   const registrySrc =
     opts.registrySrc ?? readText(join(root, 'packages/kernel/src/registry.ts'));
   const moduleDirs = opts.moduleDirs ?? listModuleDirs();
+  const catalogSrc =
+    opts.catalogSrc ?? readText(join(root, 'packages/contracts/src/commands/catalog.ts'));
+  const catalogEvents = catalogEventTypes(catalogSrc);
+  const allPublishes = new Set();
+  for (const dir of moduleDirs) {
+    const manifestPath = join(dir, 'src/module.manifest.ts');
+    const manifestSrc = opts.manifestSrcByDir?.[dir] ?? readText(manifestPath);
+    for (const ev of extractPublishes(manifestSrc)) allPublishes.add(ev);
+  }
   const errors = [];
   const ownedBy = new Map(); // table -> moduleId
 
@@ -215,6 +267,25 @@ export function checkModuleManifests(opts = {}) {
     for (const { name, src } of readFiles) {
       if (hasWriteSql(src)) {
         errors.push(`${id}: read-path ${name} must not INSERT/UPDATE/DELETE`);
+      }
+    }
+
+    const subscribes = extractSubscribes(manifestSrc);
+    if (subscribes.length > 0) {
+      const indexPath = join(dir, 'src/index.ts');
+      const indexSrc = opts.indexSrcByDir?.[dir] ?? (existsSync(indexPath) ? readText(indexPath) : '');
+      const exports = extractIndexExports(indexSrc);
+      for (const sub of subscribes) {
+        if (!allPublishes.has(sub.event) && !catalogEvents.has(sub.event)) {
+          errors.push(
+            `${id}: subscribes event ${JSON.stringify(sub.event)} is not published by any module or listed in COMMAND_CATALOG events[]`,
+          );
+        }
+        if (!exports.has(sub.handler)) {
+          errors.push(
+            `${id}: subscribes handler ${JSON.stringify(sub.handler)} is not exported from src/index.ts`,
+          );
+        }
       }
     }
   }
@@ -487,6 +558,53 @@ export default manifest;
   });
   if (!o4.some((e) => /could not parse schema\.tables/.test(e))) {
     console.error('self-test O4 unparseable schema.tables should fail:\n' + o4.join('\n'));
+    failed = true;
+  }
+
+  const badSubManifest = `
+const manifest = {
+  id: 'pms.badsub',
+  writes: ['maintenance_ticket'],
+  schema: { tables: ['maintenance_ticket'] },
+  publishes: [],
+  subscribes: [{ event: 'fake.unpublished.event', handler: 'onFake' }],
+} as const;
+export default manifest;
+`;
+  const eSub = checkModuleManifests({
+    registrySrc: `import bad from '@hospai/pms-bad'; export const MODULE_REGISTRY = [bad];`,
+    moduleDirs: ['/virtual/bad'],
+    manifestSrcByDir: { '/virtual/bad': badSubManifest },
+    catalogSrc: 'export const COMMAND_CATALOG = [{ events: [] }];',
+    indexSrcByDir: { '/virtual/bad': 'export function onFake() {}' },
+    pmsCoreSrcByFile: {},
+  });
+  if (!eSub.some((e) => /fake\.unpublished\.event/.test(e))) {
+    console.error('self-test subscribes unknown event should fail:\n' + eSub.join('\n'));
+    failed = true;
+  }
+
+  const eHandler = checkModuleManifests({
+    registrySrc: `import bad from '@hospai/pms-bad'; export const MODULE_REGISTRY = [bad];`,
+    moduleDirs: ['/virtual/bad2'],
+    manifestSrcByDir: {
+      '/virtual/bad2': `
+const manifest = {
+  id: 'pms.badsub2',
+  writes: ['maintenance_ticket'],
+  schema: { tables: ['maintenance_ticket'] },
+  publishes: ['fake.unpublished.event'],
+  subscribes: [{ event: 'fake.unpublished.event', handler: 'missingHandler' }],
+} as const;
+export default manifest;
+`,
+    },
+    catalogSrc: 'export const COMMAND_CATALOG = [{ events: [] }];',
+    indexSrcByDir: { '/virtual/bad2': 'export function other() {}' },
+    pmsCoreSrcByFile: {},
+  });
+  if (!eHandler.some((e) => /missingHandler/.test(e))) {
+    console.error('self-test subscribes missing handler export should fail:\n' + eHandler.join('\n'));
     failed = true;
   }
 

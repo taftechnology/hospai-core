@@ -31,6 +31,7 @@ import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
+import { MaintenanceSettings } from './settings-maintenance.js';
 import { SourcesSettings } from './settings-sources.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
@@ -432,7 +433,7 @@ function PropertyNameField(props: {
 export function SettingsScreen({
   tab,
 }: {
-  tab?: 'property' | 'charges' | 'products' | 'sources' | 'tax';
+  tab?: 'property' | 'charges' | 'products' | 'maintenance' | 'sources' | 'tax';
 }) {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
@@ -621,6 +622,7 @@ export function SettingsScreen({
         <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
         <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
         <Link className="ui-tab" to="/settings/products" aria-current={activeTab === 'products' ? 'page' : undefined}>Products</Link>
+        <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
       </nav>
@@ -1080,6 +1082,7 @@ export function SettingsScreen({
       ) : null}
 
       {activeTab === 'products' ? <ProductsSettings onMessage={setMessage} /> : null}
+      {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'tax' ? (
         <>

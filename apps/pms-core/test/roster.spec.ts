@@ -184,6 +184,14 @@ describe('OrgDO roster RPCs', () => {
       ok: true,
       staffId: refs.staffId,
     });
+    expect(await org.assertStaffAssignable(refs.staffId, 'maintenance', propertyId)).toEqual({
+      ok: true,
+      staffId: refs.staffId,
+    });
+    expect(await org.assertStaffAssignable(refs.staffId, 'maintenance', 'prop_other_hotel')).toEqual({
+      ok: false,
+      error: STAFF_NOT_ASSIGNABLE,
+    });
   });
 
   it('7: exit drops identity keys, keeps employment, emits roster.exited refs only', async () => {

@@ -26,3 +26,4 @@ export * from './guest-crm.js';
 export * from './housekeeping-priority.js';
 export * from './housekeeping-inventory.js';
 export * from './roster-ops.js';
+export * from './maintenance.js';

@@ -34,6 +34,7 @@ import {
   SettingsIcon,
   UserIcon,
   WarningIcon,
+  WrenchIcon,
 } from './icons.js';
 import { ALL_NAV } from './module-ui-registry.js';
 import type { NavEntry } from './nav.js';
@@ -61,6 +62,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   reservations: CalendarIcon,
   book: PlusIcon,
   housekeeping: BedIcon,
+  maintenance: WrenchIcon,
   guests: UserIcon,
   rates: CreditCardIcon,
   folios: ReceiptIcon,

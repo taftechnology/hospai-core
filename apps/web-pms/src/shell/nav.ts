@@ -16,6 +16,13 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'arrivals', label: 'Front Desk', path: '/arrivals', order: 20, permission: 'reservations:read' },
   { id: 'reservations', label: 'Reservations', path: '/reservations', order: 30, permission: 'reservations:read' },
   { id: 'book', label: 'New Booking', path: '/book', order: 40, permission: 'reservations:write' },
+  {
+    id: 'maintenance',
+    label: 'Maintenance',
+    path: '/maintenance',
+    order: 51,
+    permission: 'maintenance:read',
+  },
   { id: 'guests', label: 'Guests', path: '/guests', order: 60, permission: 'guests:read' },
   { id: 'rates', label: 'Rates', path: '/rates', order: 70, permission: 'rates:write' },
   { id: 'folios', label: 'Folios', path: '/folios', order: 72, permission: 'folio:read' },

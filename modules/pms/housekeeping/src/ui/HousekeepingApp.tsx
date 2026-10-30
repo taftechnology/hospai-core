@@ -19,7 +19,7 @@ import {
   Toolbar,
   roomStatusWord,
 } from '@hospai/ui-kit';
-import { useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
@@ -97,6 +97,7 @@ function HousekeepingBoard({
   const [oooStart, setOooStart] = useState('');
   const [oooReturn, setOooReturn] = useState('');
   const [oooReason, setOooReason] = useState('');
+  const [oooTicketAlert, setOooTicketAlert] = useState(false);
   const queryClient = useQueryClient();
 
   const roomsQuery = useQuery({
@@ -236,8 +237,10 @@ function HousekeepingBoard({
         idempotencyKey: crypto.randomUUID(),
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
       await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+      await queryClient.invalidateQueries({ queryKey: ['maintenance-tickets', propertyId] });
+      if (!variables.oooId) setOooTicketAlert(true);
     },
   });
 
@@ -274,6 +277,12 @@ function HousekeepingBoard({
         }
       />
       <HousekeepingNav view="board" />
+      {oooTicketAlert ? (
+        <Alert intent="informational">
+          Room is out of order. A maintenance ticket was opened.{' '}
+          <Link to="/maintenance">View maintenance</Link>
+        </Alert>
+      ) : null}
       <Card>
         <Toolbar>
           <Field

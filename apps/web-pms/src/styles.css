@@ -367,6 +367,38 @@ a {
   white-space: nowrap;
 }
 
+.maintenance-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+}
+
+.maintenance-desc {
+  display: inline-block;
+  max-width: 16rem;
+}
+
+.maintenance-report {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  align-items: end;
+  column-gap: var(--space-3);
+  row-gap: var(--space-4);
+  margin: 0;
+}
+
+.maintenance-report__wide {
+  grid-column: 1 / -1;
+}
+
+.maintenance-checklist-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
 .text-wrap-balance {
   text-wrap: balance;
 }

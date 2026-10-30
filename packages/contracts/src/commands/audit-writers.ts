@@ -71,6 +71,10 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'housekeeping.inventory_create_item',
   'housekeeping.inventory_update_item',
   'housekeeping.inventory_adjust',
+  'maintenance.create_ticket',
+  'maintenance.update_ticket',
+  'maintenance.create_task_type',
+  'maintenance.update_task_type',
 ]);
 
 /** Entitled commands that deliberately do not write PropertyDO audit_log. */

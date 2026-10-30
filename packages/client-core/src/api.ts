@@ -7,6 +7,11 @@ import type {
   HousekeepingPriorityLevel,
   HousekeepingPriorityLevelInput,
   HousekeepingPriorityQueueRow,
+  MaintenanceCategory,
+  MaintenancePriority,
+  MaintenanceStatus,
+  MaintenanceTaskTypeRow,
+  MaintenanceTicketRow,
   OrgScopedPermission,
   PropertyScopedPermission,
 } from '@hospai/contracts';
@@ -1775,6 +1780,110 @@ export function createClient(opts: {
         `/v1/properties/${enc(propertyId)}/housekeeping/inventory/items/${enc(itemId)}/adjust`,
         {
           method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+
+    async getMaintenanceTickets(
+      propertyId: string,
+      query?: { status?: 'active' | 'open' | 'in_progress' | 'closed' | 'all'; roomId?: string },
+    ): Promise<{ tickets: MaintenanceTicketRow[] }> {
+      const qs = new URLSearchParams();
+      if (query?.status) qs.set('status', query.status);
+      if (query?.roomId) qs.set('roomId', query.roomId);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/maintenance/tickets${q ? `?${q}` : ''}`,
+      );
+      return body as { tickets: MaintenanceTicketRow[] };
+    },
+    async createMaintenanceTicket(
+      propertyId: string,
+      input: {
+        ticketId: string;
+        roomId: string;
+        description: string;
+        category?: MaintenanceCategory;
+        priority?: MaintenancePriority;
+        taskTypeId?: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/maintenance/tickets`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateMaintenanceTicket(
+      propertyId: string,
+      ticketId: string,
+      input: {
+        priority?: MaintenancePriority;
+        description?: string;
+        assigneeRef?: string | null;
+        checklistDone?: boolean[];
+        status?: MaintenanceStatus;
+        resolutionNote?: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/maintenance/tickets/${enc(ticketId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+    async getMaintenanceTaskTypes(
+      propertyId: string,
+    ): Promise<{ taskTypes: MaintenanceTaskTypeRow[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/maintenance/task-types`,
+      );
+      return body as { taskTypes: MaintenanceTaskTypeRow[] };
+    },
+    async createMaintenanceTaskType(
+      propertyId: string,
+      input: {
+        taskTypeId: string;
+        name: string;
+        category: MaintenanceCategory;
+        defaultPriority: MaintenancePriority;
+        checklist: string[];
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/maintenance/task-types`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateMaintenanceTaskType(
+      propertyId: string,
+      taskTypeId: string,
+      input: {
+        name: string;
+        category: MaintenanceCategory;
+        defaultPriority: MaintenancePriority;
+        checklist: string[];
+        active: boolean;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/maintenance/task-types/${enc(taskTypeId)}`,
+        {
+          method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ ...input, idempotencyKey }),
         },

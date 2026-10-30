@@ -2537,6 +2537,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async assertStaffAssignable(
     staffId: string,
     kind: RosterKind,
+    propertyId?: string,
   ): Promise<
     | { ok: true; staffId: string }
     | { ok: false; error: typeof STAFF_NOT_FOUND | typeof STAFF_EXITED | typeof STAFF_NOT_ASSIGNABLE }
@@ -2549,6 +2550,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       .exec(`SELECT 1 AS one FROM roster_kind WHERE staff_id = ? AND kind = ? LIMIT 1`, staffId, kind)
       .toArray() as Array<{ one: number }>;
     if (row.status !== 'active' || matched.length === 0) {
+      return { ok: false, error: STAFF_NOT_ASSIGNABLE };
+    }
+    if (propertyId !== undefined && !this.isStaffLinkedToPropertySync(staffId, propertyId)) {
       return { ok: false, error: STAFF_NOT_ASSIGNABLE };
     }
     return { ok: true, staffId };

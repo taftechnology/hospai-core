@@ -57,6 +57,7 @@ import {
   RESERVATION_SEGMENTS_V36_SQL,
   HOUSEKEEPING_PRIORITY_V37_SQL,
   HOUSEKEEPING_INVENTORY_V38_SQL,
+  MAINTENANCE_V39_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -254,16 +255,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 38', () => {
+  it('applies property migrations through version 39', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(38);
+    expect(v1).toBe(39);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(38);
-    expect(sql.schemaVersion).toHaveLength(38);
+    expect(v2).toBe(39);
+    expect(sql.schemaVersion).toHaveLength(39);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -705,7 +706,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(38);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(39);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -1091,5 +1092,23 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(HOUSEKEEPING_INVENTORY_V38_SQL.trim());
+  });
+
+  it('property schema head is 39 after maintenance', () => {
+    const v39 = PROPERTY_MIGRATIONS.find((m) => m.version === 39);
+    expect(v39?.name).toBe('maintenance');
+    expect(v39?.statements[0]).toContain('maintenance_task_type');
+  });
+
+  it('migrations/do-property/0039_maintenance.sql matches MAINTENANCE_V39_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0039_maintenance.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(MAINTENANCE_V39_SQL.trim());
   });
 });

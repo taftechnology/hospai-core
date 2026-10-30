@@ -224,7 +224,23 @@ import {
   type UpdateCategoryInput,
   type UpdateItemInput,
 } from '@hospai/pms-products';
+import {
+  createTaskType,
+  createTicket,
+  readMaintenanceTaskTypes,
+  readMaintenanceTickets,
+  updateTaskType,
+  updateTicket,
+  type CreateTaskTypeInput,
+  type CreateTicketInput,
+  type UpdateTaskTypeInput,
+  type UpdateTicketInput,
+} from '@hospai/pms-maintenance';
 import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
+import {
+  dispatchModuleSubscribers,
+  subscribersForEvent,
+} from './module-outbox-dispatch.js';
 import {
 
   PROPERTY_MIGRATIONS,
@@ -1566,6 +1582,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'housekeeping_priority',
   'housekeeping_inventory_item',
   'housekeeping_inventory_movement',
+  'maintenance_task_type',
+  'maintenance_ticket',
   'idempotency',
   'invoice',
   'night_audit_report',
@@ -1612,6 +1630,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM housekeeping_priority) +
       (SELECT COUNT(*) FROM housekeeping_inventory_item) +
       (SELECT COUNT(*) FROM housekeeping_inventory_movement) +
+      (SELECT COUNT(*) FROM maintenance_task_type) +
+      (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_report) +
@@ -1675,6 +1695,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private postRoomChargesFailureAfterCountForTest: number | null = null;
   private transportBlockedForTest = false;
   private simulateBugForTest = false;
+  /** In-transaction module subscriber depth — only depth 0 dispatches handlers. */
+  private moduleSubscriberDepth = { n: 0 };
   private pspSimulateOutcomeForTest: PspSimulateOutcome | null = null;
   /** Vitest only — DO bindings always have simulate on; force the production refuse path. */
   private forcePspUnavailableForTest = false;
@@ -1902,8 +1924,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return this.gateOrgRef(orgId, (org) => org.assertGuestRef(guestRef));
   }
 
-  private async gateStaffRef(orgId: string, staffId: string) {
-    return this.gateOrgRef(orgId, (org) => org.assertStaffAssignable(staffId, 'housekeeper'));
+  private async gateStaffRef(
+    orgId: string,
+    staffId: string,
+    kind: 'housekeeper' | 'maintenance',
+    propertyId?: string,
+  ) {
+    return this.gateOrgRef(orgId, (org) => org.assertStaffAssignable(staffId, kind, propertyId));
   }
 
   private assertRpcAvailable(): void {
@@ -7120,6 +7147,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               endDate: isRelease ? old!.end_date : input.endDate,
               action,
               reason: nextReason,
+              actorRef: this.auditActorSync(actor),
             },
           });
 
@@ -7541,7 +7569,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: INVALID_ASSIGNEE_REF };
     }
 
-    const staffGate = await this.gateStaffRef(orgId, input.assigneeRef);
+    const staffGate = await this.gateStaffRef(orgId, input.assigneeRef, 'housekeeper');
     if (!staffGate.ok) return staffGate;
 
     try {
@@ -13455,6 +13483,185 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { result, before: null, after: result.item };
       },
     );
+  }
+
+  private async runMaintenanceWrite<R extends { ok: true }>(
+    actor: ActorContext,
+    permission: 'maintenance:write' | 'settings:configure',
+    idem: IdempotencyKey,
+    audit: {
+      commandId:
+        | 'maintenance.create_ticket'
+        | 'maintenance.update_ticket'
+        | 'maintenance.create_task_type'
+        | 'maintenance.update_task_type';
+      entityType: 'maintenance_ticket' | 'maintenance_task_type';
+      entityId: string;
+    },
+    execute: (ctx: ModuleTxnCtx) => { result: R; before: unknown | null; after: unknown },
+  ): Promise<
+    | R
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, permission);
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const out = execute(this.moduleTxnCtx(orgId, propertyId));
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: audit.commandId,
+            entityType: audit.entityType,
+            entityId: audit.entityId,
+            beforeJson: out.before,
+            afterJson: out.after,
+          });
+          return out.result as Sync<R>;
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryCreateMaintenanceTicket(
+    actor: ActorContext,
+    input: CreateTicketInput,
+    idem: IdempotencyKey,
+  ) {
+    const createdBy = this.auditActorSync(actor);
+    return this.runMaintenanceWrite(
+      actor,
+      'maintenance:write',
+      idem,
+      {
+        commandId: 'maintenance.create_ticket',
+        entityType: 'maintenance_ticket',
+        entityId: input.ticketId,
+      },
+      (ctx) => {
+        const businessDate = this.readBusinessDateSync();
+        if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+        const result = createTicket(ctx, input, createdBy, businessDate);
+        return { result, before: null, after: result.ticket };
+      },
+    );
+  }
+
+  async tryUpdateMaintenanceTicket(
+    actor: ActorContext,
+    input: UpdateTicketInput,
+    idem: IdempotencyKey,
+  ) {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false as const, error: ORG_ID_UNSET };
+
+    if (input.assigneeRef != null && input.assigneeRef !== '') {
+      const propertyId = this.getPropertyIdSync();
+      if (!propertyId) return { ok: false as const, error: PROPERTY_ID_UNSET };
+      const staffGate = await this.gateStaffRef(orgId, input.assigneeRef, 'maintenance', propertyId);
+      if (!staffGate.ok) return staffGate;
+    }
+
+    return this.runMaintenanceWrite(
+      actor,
+      'maintenance:write',
+      idem,
+      {
+        commandId: 'maintenance.update_ticket',
+        entityType: 'maintenance_ticket',
+        entityId: input.ticketId,
+      },
+      (ctx) => {
+        const businessDate = this.readBusinessDateSync();
+        if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+        const r = updateTicket(ctx, input, businessDate);
+        return { result: { ok: true as const, ticket: r.ticket }, before: r.before, after: r.ticket };
+      },
+    );
+  }
+
+  async tryCreateMaintenanceTaskType(
+    actor: ActorContext,
+    input: CreateTaskTypeInput,
+    idem: IdempotencyKey,
+  ) {
+    return this.runMaintenanceWrite(
+      actor,
+      'settings:configure',
+      idem,
+      {
+        commandId: 'maintenance.create_task_type',
+        entityType: 'maintenance_task_type',
+        entityId: input.taskTypeId,
+      },
+      (ctx) => {
+        const result = createTaskType(ctx, input);
+        return { result, before: null, after: result.taskType };
+      },
+    );
+  }
+
+  async tryUpdateMaintenanceTaskType(
+    actor: ActorContext,
+    input: UpdateTaskTypeInput,
+    idem: IdempotencyKey,
+  ) {
+    return this.runMaintenanceWrite(
+      actor,
+      'settings:configure',
+      idem,
+      {
+        commandId: 'maintenance.update_task_type',
+        entityType: 'maintenance_task_type',
+        entityId: input.taskTypeId,
+      },
+      (ctx) => {
+        const r = updateTaskType(ctx, input);
+        return {
+          result: { ok: true as const, taskType: r.taskType },
+          before: r.before,
+          after: r.taskType,
+        };
+      },
+    );
+  }
+
+  async readMaintenanceTicketsList(
+    status: 'active' | 'open' | 'in_progress' | 'closed' | 'all',
+    roomId?: string,
+  ) {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+    return readMaintenanceTickets(this.ctx.storage.sql, { status, roomId, businessDate });
+  }
+
+  async readMaintenanceTaskTypesList() {
+    this.assertRpcAvailable();
+    return readMaintenanceTaskTypes(this.ctx.storage.sql);
   }
 
   /** `get_products` — bounded list with each item's charge-code tax group and postability. */
@@ -19988,6 +20195,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { do: 'property', id };
   }
 
+  /**
+   * Append an outbox row inside `transactionSync` only. Dispatches module subscribers
+   * at depth 0; nested appends from handlers write outbox but do not re-dispatch.
+   */
   private appendPropertyOutbox(row: {
     eventId: string;
     eventType: string;
@@ -19995,6 +20206,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }): void {
     appendOutbox(this.ctx.storage.sql, { ...row, source: this.outboxSourceSync() });
     this.maybeBroadcastFrontOffice(row.eventType, row.payload);
+
+    const subs = subscribersForEvent(row.eventType);
+    if (subs.length === 0) return;
+
+    const orgId = this.getOrgIdSync();
+    const propertyId = this.getPropertyIdSync();
+    if (!orgId || !propertyId) {
+      throw new Error('module_subscriber_context_missing');
+    }
+
+    const txnCtx = this.moduleTxnCtx(orgId, propertyId);
+    dispatchModuleSubscribers({
+      depth: this.moduleSubscriberDepth,
+      eventType: row.eventType,
+      ctx: txnCtx,
+      payload: row.payload,
+    });
   }
 
   private validateFolioLineMoney(

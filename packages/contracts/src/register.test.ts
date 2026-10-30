@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(71);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -786,10 +786,17 @@ describe('command catalog', () => {
       commandId: 'roster.set_ops',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(160);
+    expect(V1_HTTP_ROUTE_AUDIT[165]?.id).toBe('get_maintenance_task_types');
+    expect(V1_HTTP_ROUTE_AUDIT[165]).toMatchObject({
+      scope: 'property',
+      permission: 'maintenance:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(166);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(71);
-    expect(COMMAND_CATALOG).toHaveLength(100);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
+    expect(COMMAND_CATALOG).toHaveLength(104);
     const setOps = COMMAND_CATALOG.find((c) => c.id === 'roster.set_ops');
     expect(setOps?.lane).toBe('INTERACTIVE');
     expect(setOps?.degraded).toBe('FAIL_CLOSED');

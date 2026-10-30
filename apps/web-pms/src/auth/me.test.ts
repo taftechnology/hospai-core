@@ -48,7 +48,9 @@ describe('me authority helpers', () => {
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
           e.id !== 'settings' &&
-          e.id !== 'guests',
+          e.id !== 'guests' &&
+          e.id !== 'housekeeping' &&
+          e.id !== 'maintenance',
       ),
     );
     const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
@@ -110,6 +112,8 @@ describe('me authority helpers', () => {
         'folio:post',
         'housekeeping:read',
         'housekeeping:write',
+        'maintenance:read',
+        'maintenance:write',
         'roster:read',
       ],
       orgPermissions: ['org:read'],
@@ -121,6 +125,19 @@ describe('me authority helpers', () => {
     expect(filtered.map((e) => e.id)).not.toContain('rates');
     expect(filtered.map((e) => e.id)).not.toContain('settings');
     expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
+    expect(filtered.some((e) => e.id === 'maintenance')).toBe(true);
+  });
+
+  it('filterNavEntries: staff without maintenance:read hides Maintenance', () => {
+    const me: PropertyMe = {
+      ...baseMe,
+      role: 'staff',
+      permissions: ['property:read', 'reservations:read', 'housekeeping:read'],
+      orgPermissions: ['org:read'],
+    };
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id)).not.toContain(
+      'maintenance',
+    );
   });
 
   it('#8 filterNavEntries: fabricated me with roster:write → show Roster', () => {

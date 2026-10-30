@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HousekeepingApp,
@@ -26,22 +27,31 @@ function renderApp(
         canReadRoster?: boolean;
         canSetOoo?: boolean;
         defaultBusinessDate?: string;
+        path?: string;
+        formatError?: (err: unknown) => string;
+        client?: QueryClient;
       } = true,
 ) {
   const flags = typeof opts === 'boolean' ? { canAssign: opts } : opts;
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const client =
+    ('client' in flags ? flags.client : undefined) ??
+    new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  const path = 'path' in flags ? flags.path : undefined;
   return render(
     <QueryClientProvider client={client}>
-      <HousekeepingApp
-        propertyId="prop_1"
-        defaultBusinessDate={flags.defaultBusinessDate ?? '2026-08-12'}
-        api={api}
-        canAssign={flags.canAssign ?? true}
-        canReadRoster={flags.canReadRoster}
-        canSetOoo={flags.canSetOoo}
-      />
+      <MemoryRouter initialEntries={[path ?? '/housekeeping']}>
+        <HousekeepingApp
+          propertyId="prop_1"
+          defaultBusinessDate={flags.defaultBusinessDate ?? '2026-08-12'}
+          api={api}
+          canAssign={flags.canAssign ?? true}
+          canReadRoster={flags.canReadRoster}
+          canSetOoo={flags.canSetOoo}
+          formatError={'formatError' in flags ? flags.formatError : undefined}
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -53,6 +63,8 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
     updateRoomStatus: async () => ({ ok: true }),
     listRoster: async () => ({ ok: true, staff: [] }),
     assignHousekeeping: async () => ({ ok: true }),
+    getHousekeepingPriorities: async () => ({ ok: true, date: '2026-08-12', queue: [] }),
+    setHousekeepingPriority: async () => ({ ok: true }),
     ...overrides,
   };
 }
@@ -264,5 +276,184 @@ describe('HousekeepingApp assign picker', () => {
     const oooRow = screen.getByText('102').closest('tr');
     expect(oooRow?.querySelector('.ui-room-status')?.textContent).toBe('Out of order');
     expect(oooRow?.querySelector('select')).toBeNull();
+  });
+
+  it('shows a level badge beside the room code when a level is set', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [
+            {
+              roomId: 'rm_1',
+              code: '101',
+              floor: '1',
+              level: 'rush',
+              score: 100,
+              reasons: ['rush'],
+              stay: 'vacant',
+              vip: false,
+              dnd: false,
+              assigneeRef: null,
+            },
+          ],
+        }),
+      }),
+    );
+    expect(await screen.findByText('Rush')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Housekeeping' })).toBeTruthy();
+  });
+});
+
+const VIP_ROW = {
+  roomId: 'rm_vip',
+  code: '201',
+  floor: '2',
+  level: 'vip' as const,
+  score: 180,
+  reasons: ['vip' as const],
+  stay: 'vacant' as const,
+  vip: false,
+  dnd: false,
+  assigneeRef: 'staff_hk_1',
+};
+
+const ARRIVING_ROW = {
+  roomId: 'rm_arr',
+  code: '150',
+  floor: '1',
+  level: null,
+  score: 165,
+  reasons: ['stay_vip' as const, 'arriving' as const],
+  stay: 'arriving' as const,
+  vip: true,
+  dnd: false,
+  assigneeRef: null,
+};
+
+describe('Housekeeping priority view', () => {
+  it('renders rows in the order the queue returns, with rank and reason words', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [VIP_ROW, ARRIVING_ROW],
+        }),
+        listRoster: async () => ({ ok: true, staff: [ADA] }),
+      }),
+      { path: '/housekeeping/priority', canAssign: true, canReadRoster: true },
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Housekeeping priority' })).toBeTruthy();
+    const table = await screen.findByTestId('hk-priority');
+    const codes = Array.from(table.querySelectorAll('tbody tr')).map(
+      (row) => row.querySelectorAll('td')[1]?.textContent,
+    );
+    expect(codes).toEqual(['201', '150']);
+    expect(table.querySelector('tbody tr')?.querySelector('td')?.textContent).toBe('1');
+    expect(screen.getAllByText('VIP').length).toBeGreaterThan(0);
+    expect(screen.getByText('Stay VIP')).toBeTruthy();
+    expect(screen.getAllByText('Arriving').length).toBeGreaterThan(0);
+    expect(screen.getByText('Vacant')).toBeTruthy();
+    expect(screen.getAllByText('Ada Housekeeper').length).toBeGreaterThan(0);
+  });
+
+  it('changes a level with a fresh op id and invalidates the consumer keys', async () => {
+    const setHousekeepingPriority = vi.fn().mockResolvedValue({ ok: true });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [VIP_ROW],
+        }),
+        setHousekeepingPriority,
+      }),
+      { path: '/housekeeping/priority', canAssign: true, client },
+    );
+
+    const select = await screen.findByRole('combobox', { name: 'Level for 201' });
+    fireEvent.change(select, { target: { value: 'rush' } });
+    fireEvent.change(select, { target: { value: 'high' } });
+
+    await waitFor(() => {
+      expect(setHousekeepingPriority).toHaveBeenCalledTimes(2);
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['housekeeping-priorities', 'prop_1', '2026-08-12'],
+      });
+    });
+    const opIds = setHousekeepingPriority.mock.calls.map((call) => call[2] as string);
+    expect(opIds[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(opIds[1]).not.toBe(opIds[0]);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['housekeeping-priorities', 'prop_1', '2026-08-12'],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['housekeeping-assignments', 'prop_1', '2026-08-12'],
+    });
+  });
+
+  it('disables the level select without housekeeping write and says why', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [VIP_ROW],
+        }),
+      }),
+      { path: '/housekeeping/priority', canAssign: false },
+    );
+    const select = await screen.findByRole('combobox', { name: 'Level for 201' });
+    expect((select as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByText('Housekeeping write is required to change the level.')).toBeTruthy();
+  });
+
+  it('keeps empty, error, and loading as distinct states', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: () => new Promise(() => {}),
+      }),
+      { path: '/housekeeping/priority' },
+    );
+    expect(await screen.findByTestId('hk-priority-loading')).toBeTruthy();
+    expect(screen.queryByTestId('hk-priority-empty')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    cleanup();
+
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => {
+          throw new Error('boom');
+        },
+      }),
+      {
+        path: '/housekeeping/priority',
+        formatError: () => 'Could not load the cleaning queue.',
+      },
+    );
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe('Could not load the cleaning queue.');
+    expect(screen.queryByTestId('hk-priority-empty')).toBeNull();
+    expect(screen.queryByTestId('hk-priority')).toBeNull();
+    cleanup();
+
+    renderApp(
+      stubApi({
+        getHousekeepingPriorities: async () => ({ ok: true, date: '2026-08-12', queue: [] }),
+      }),
+      { path: '/housekeeping/priority' },
+    );
+    expect(await screen.findByText('No rooms waiting to be cleaned.')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('hk-priority-loading')).toBeNull();
   });
 });

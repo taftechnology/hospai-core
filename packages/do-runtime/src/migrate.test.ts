@@ -54,6 +54,7 @@ import {
   PROVISIONAL_EXCEPTION_ACTOR_V34_SQL,
   PRODUCTS_V35_SQL,
   RESERVATION_SEGMENTS_V36_SQL,
+  HOUSEKEEPING_PRIORITY_V37_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -247,16 +248,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 36', () => {
+  it('applies property migrations through version 37', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(36);
+    expect(v1).toBe(37);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(36);
-    expect(sql.schemaVersion).toHaveLength(36);
+    expect(v2).toBe(37);
+    expect(sql.schemaVersion).toHaveLength(37);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -686,7 +687,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(36);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(37);
     expect(ORG_SCHEMA_HEAD).toBe(10);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -1036,5 +1037,23 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(RESERVATION_SEGMENTS_V36_SQL.trim());
+  });
+
+  it('property schema head is 37 after housekeeping_priority', () => {
+    const v37 = PROPERTY_MIGRATIONS.find((m) => m.version === 37);
+    expect(v37?.name).toBe('housekeeping_priority');
+    expect(v37?.statements[0]).toContain('housekeeping_priority');
+  });
+
+  it('migrations/do-property/0037_housekeeping_priority.sql matches HOUSEKEEPING_PRIORITY_V37_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0037_housekeeping_priority.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(HOUSEKEEPING_PRIORITY_V37_SQL.trim());
   });
 });

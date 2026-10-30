@@ -912,6 +912,19 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'settings:configure',
     commandId: 'config.put_operational',
   },
+  {
+    id: 'put_housekeeping_priority',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.set_priority',
+  },
+  {
+    id: 'get_housekeeping_priorities',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

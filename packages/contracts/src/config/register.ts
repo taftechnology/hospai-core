@@ -53,7 +53,7 @@ function entry(
   } as ConfigEntry;
 }
 
-/** Ops/data bags excluded from the 89-key config register. */
+/** Data bags served by module tables, excluded from the config register. */
 export const EXCLUDED_PROTOTYPE_KEYS = [
   'pms_email_delivery_logs',
   'pms_email_templates',

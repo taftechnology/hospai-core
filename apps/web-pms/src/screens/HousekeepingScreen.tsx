@@ -1,12 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { HousekeepingApp as HousekeepingBoard } from '@hospai/pms-housekeeping/ui';
+import { useLocation } from 'react-router';
 import {
   hasPropertyPermission,
   meShellStateFromQuery,
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 
 export function HousekeepingScreen() {
@@ -37,6 +40,10 @@ export function HousekeepingScreen() {
   const canAssign = liveMe ? hasPropertyPermission(liveMe, 'housekeeping:write') : false;
   const canReadRoster = liveMe ? hasPropertyPermission(liveMe, 'roster:read') : false;
   const canSetOoo = liveMe ? hasPropertyPermission(liveMe, 'inventory:write') : false;
+  const priority = useLocation().pathname.endsWith('/priority');
+  const { subtitle } = usePropertySubtitle(
+    priority ? 'Cleaning queue' : 'Room status and assignments',
+  );
 
   return (
     <HousekeepingBoard
@@ -46,7 +53,11 @@ export function HousekeepingScreen() {
       canAssign={canAssign}
       canReadRoster={canReadRoster}
       canSetOoo={canSetOoo}
+      subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
+      formatError={(err) =>
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not load housekeeping priority' })
+      }
     />
   );
 }

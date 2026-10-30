@@ -2,7 +2,20 @@ import type { ModuleSql } from '@hospai/contracts';
 
 /** In-memory SqlStorageLike for module-unit tests (not used in production). */
 class MemorySql implements ModuleSql {
-  rooms = new Map<string, { room_id: string; status: string; updated_at: number }>();
+  rooms = new Map<
+    string,
+    { room_id: string; status: string; updated_at: number; archived_at?: number | null }
+  >();
+  priorities = new Map<
+    string,
+    {
+      room_id: string;
+      business_date: string;
+      level: string;
+      set_by: string;
+      updated_at: number;
+    }
+  >();
   assignments = new Map<
     string,
     {
@@ -17,6 +30,15 @@ class MemorySql implements ModuleSql {
 
   exec(query: string, ...bindings: unknown[]): { toArray(): unknown[] } {
     const q = query.replace(/\s+/g, ' ').trim();
+
+    if (q.startsWith('SELECT room_id, archived_at FROM room')) {
+      const roomId = bindings[0] as string;
+      const row = this.rooms.get(roomId);
+      return {
+        toArray: () =>
+          row ? [{ room_id: row.room_id, archived_at: row.archived_at ?? null }] : [],
+      };
+    }
 
     if (q.startsWith('SELECT room_id FROM room')) {
       const roomId = bindings[0] as string;
@@ -56,6 +78,31 @@ class MemorySql implements ModuleSql {
       const key = `${bindings[0]}|${bindings[1]}`;
       const row = this.assignments.get(key);
       return { toArray: () => (row ? [{ assignment_id: row.assignment_id }] : []) };
+    }
+
+    if (q.startsWith('DELETE FROM housekeeping_priority')) {
+      const key = `${bindings[0]}|${bindings[1]}`;
+      this.priorities.delete(key);
+      return { toArray: () => [] };
+    }
+
+    if (q.startsWith('INSERT INTO housekeeping_priority')) {
+      const [roomId, businessDate, level, setBy, updatedAt] = bindings as [
+        string,
+        string,
+        string,
+        string,
+        number,
+      ];
+      const key = `${roomId}|${businessDate}`;
+      this.priorities.set(key, {
+        room_id: roomId,
+        business_date: businessDate,
+        level,
+        set_by: setBy,
+        updated_at: updatedAt,
+      });
+      return { toArray: () => [] };
     }
 
     if (q.startsWith('INSERT INTO housekeeping_assignment')) {

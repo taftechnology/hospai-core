@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -18,70 +19,22 @@ import {
   Toolbar,
   roomStatusWord,
 } from '@hospai/ui-kit';
+import { useLocation } from 'react-router';
 import { useMemo, useState } from 'react';
+import { HousekeepingPriority } from './HousekeepingPriority.js';
+import { HousekeepingNav } from './housekeeping-nav.js';
+import { PRIORITY_LEVEL_LABEL } from './priority-labels.js';
+import type { HousekeepingApi, HousekeepingRosterPerson } from './housekeeping-types.js';
+
+export type {
+  HousekeepingApi,
+  HousekeepingAssignment,
+  HousekeepingOooRange,
+  HousekeepingRoom,
+  HousekeepingRosterPerson,
+} from './housekeeping-types.js';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
-
-export type HousekeepingOooRange = {
-  oooId: string;
-  startDate: string;
-  endDate: string;
-  reason: string | null;
-};
-
-export type HousekeepingRoom = {
-  roomId: string;
-  code: string;
-  status: string;
-  floor?: string | null;
-  oooRanges?: HousekeepingOooRange[];
-};
-
-export type HousekeepingAssignment = {
-  roomId: string;
-  assigneeRef: string;
-};
-
-export type HousekeepingRosterPerson = {
-  staffId: string;
-  displayName?: string;
-  status: string;
-  exitedAt: number | null;
-  kinds: string[];
-};
-
-export type HousekeepingApi = {
-  listRooms: (propertyId: string) => Promise<{ ok: true; rooms: HousekeepingRoom[] }>;
-  listHousekeepingAssignments: (
-    propertyId: string,
-    businessDate: string,
-  ) => Promise<{ ok: true; assignments: HousekeepingAssignment[] }>;
-  updateRoomStatus: (
-    propertyId: string,
-    roomId: string,
-    status: string,
-    opId: string,
-  ) => Promise<unknown>;
-  listRoster: (
-    propertyId: string,
-    query?: { kind?: string },
-  ) => Promise<{ ok: true; staff: HousekeepingRosterPerson[] }>;
-  assignHousekeeping: (
-    propertyId: string,
-    input: { roomId: string; businessDate: string; assigneeRef: string; idempotencyKey: string },
-  ) => Promise<unknown>;
-  setOooRange?: (
-    propertyId: string,
-    roomId: string,
-    input: {
-      startDate: string;
-      endDate: string;
-      oooId?: string;
-      reason?: string;
-      idempotencyKey: string;
-    },
-  ) => Promise<unknown>;
-};
 
 export type HousekeepingAppProps = {
   propertyId: string;
@@ -92,6 +45,9 @@ export type HousekeepingAppProps = {
   canReadRoster?: boolean;
   canSetOoo?: boolean;
   classifyError?: (err: unknown) => { class?: string } | undefined;
+  /** Live property name, already composed by the host. */
+  subtitle?: string;
+  formatError?: (err: unknown) => string;
 };
 
 function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
@@ -108,7 +64,7 @@ function addOneDay(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function HousekeepingApp({
+function HousekeepingBoard({
   propertyId,
   defaultBusinessDate,
   api,
@@ -116,6 +72,7 @@ export function HousekeepingApp({
   canReadRoster,
   canSetOoo = false,
   classifyError,
+  subtitle,
 }: HousekeepingAppProps) {
   const readRoster = canReadRoster ?? canAssign;
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
@@ -138,10 +95,23 @@ export function HousekeepingApp({
     queryFn: () => api.listHousekeepingAssignments(propertyId, businessDate),
   });
 
+  const prioritiesQuery = useQuery({
+    queryKey: ['housekeeping-priorities', propertyId, businessDate],
+    queryFn: () => api.getHousekeepingPriorities(propertyId, businessDate),
+  });
+
   const rosterQuery = useQuery({
     queryKey: ['roster', propertyId, 'housekeeper'],
     queryFn: () => api.listRoster(propertyId, { kind: 'housekeeper' }),
   });
+
+  const levelByRoom = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of prioritiesQuery.data?.queue ?? []) {
+      if (row.level) map.set(row.roomId, PRIORITY_LEVEL_LABEL[row.level]);
+    }
+    return map;
+  }, [prioritiesQuery.data]);
 
   const byRoom = useMemo(() => {
     const map = new Map<string, string>();
@@ -217,6 +187,9 @@ export function HousekeepingApp({
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
+        queryKey: ['housekeeping-priorities', propertyId, businessDate],
+      });
+      await queryClient.invalidateQueries({
         queryKey: ['housekeeping-assignments', propertyId, businessDate],
       });
     },
@@ -269,11 +242,14 @@ export function HousekeepingApp({
       <PageHeader
         title="Housekeeping"
         subtitle={
-          <>
-            {businessDateLabel} <span className="sep">·</span> room status and assignments
-          </>
+          subtitle ?? (
+            <>
+              {businessDateLabel} <span className="sep">·</span> room status and assignments
+            </>
+          )
         }
       />
+      <HousekeepingNav view="board" />
       <Card>
         <Toolbar>
           <Field
@@ -387,7 +363,14 @@ export function HousekeepingApp({
                   : '—';
                 return (
                   <DataTableRow key={room.roomId}>
-                    <DataTableCell>{room.code}</DataTableCell>
+                    <DataTableCell>
+                      <span className="ui-row">
+                        {room.code}
+                        {levelByRoom.get(room.roomId) ? (
+                          <Badge rung="attention">{levelByRoom.get(room.roomId)}</Badge>
+                        ) : null}
+                      </span>
+                    </DataTableCell>
                     <DataTableCell>
                       {room.status === 'out_of_order' ? (
                         <RoomStatus status={room.status} />
@@ -546,4 +529,23 @@ export function HousekeepingApp({
       ) : null}
     </div>
   );
+}
+
+export function HousekeepingApp(props: HousekeepingAppProps) {
+  const location = useLocation();
+  const readRoster = props.canReadRoster ?? props.canAssign;
+  if (location.pathname.endsWith('/priority')) {
+    return (
+      <HousekeepingPriority
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canAssign={props.canAssign}
+        canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+      />
+    );
+  }
+  return <HousekeepingBoard {...props} />;
 }

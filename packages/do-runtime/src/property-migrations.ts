@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 36. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 37. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1203,6 +1203,20 @@ export const RESERVATION_SEGMENTS_V36_STATEMENTS = [
 export const RESERVATION_SEGMENTS_V36_SQL =
   RESERVATION_SEGMENTS_V36_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v37 — manager cleaning priority, one row per room per business date (R1.9 A). */
+export const HOUSEKEEPING_PRIORITY_V37_STATEMENTS = [
+  `CREATE TABLE housekeeping_priority (
+  room_id       TEXT NOT NULL,
+  business_date TEXT NOT NULL,
+  level         TEXT NOT NULL CHECK (level IN ('vip','guest_waiting','high','rush','early_arrival')),
+  set_by        TEXT NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (room_id, business_date)
+)`,
+] as const;
+export const HOUSEKEEPING_PRIORITY_V37_SQL =
+  HOUSEKEEPING_PRIORITY_V37_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1383,5 +1397,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 36,
     name: 'reservation_segments',
     statements: RESERVATION_SEGMENTS_V36_STATEMENTS,
+  },
+  {
+    version: 37,
+    name: 'housekeeping_priority',
+    statements: HOUSEKEEPING_PRIORITY_V37_STATEMENTS,
   },
 ] as const;

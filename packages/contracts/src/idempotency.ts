@@ -25,6 +25,8 @@ export const VIRTUAL_CONSTITUENTS_ON_PHYSICAL = 'virtual_constituents_on_physica
 export const CONSTITUENT_IN_USE = 'constituent_in_use' as const;
 export const VIRTUAL_TYPE_NO_ROOMS = 'virtual_type_no_rooms' as const;
 export const NOT_FOUND = 'not_found' as const;
+/** Unknown or archived physical room on a housekeeping write. */
+export const ROOM_NOT_FOUND = 'room_not_found' as const;
 export const PROPERTY_ID_UNSET = 'property_id_unset' as const;
 export const BUSINESS_DATE_UNSET = 'business_date_unset' as const;
 /** Replay rejected — operator's believed business date is before the DO open date. */

@@ -269,6 +269,18 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'Client businessDate is the scheduling target, deliberately unbounded vs the DO open ' +
       'business date. Format-validated only; GET filters by businessDate.',
   },
+  {
+    id: 'housekeeping.set_priority',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'QUEUE_PROVISIONAL',
+    idempotent: true,
+    events: ['housekeeping.priority_changed'],
+    permission: 'housekeeping:write',
+    notes:
+      'Per room per business date. standard deletes the row. businessDate is format-validated ' +
+      'only, same as housekeeping.assign. Idempotency key is JSON idempotencyKey.',
+  },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
     id: 'folio.add_item',

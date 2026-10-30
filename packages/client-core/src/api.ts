@@ -1,5 +1,11 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
-import type { OrgScopedPermission, PropertyScopedPermission } from '@hospai/contracts';
+import type {
+  HousekeepingPriorityLevel,
+  HousekeepingPriorityLevelInput,
+  HousekeepingPriorityQueueRow,
+  OrgScopedPermission,
+  PropertyScopedPermission,
+} from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
 import type { FolioLine } from './folio-fold.js';
@@ -1404,6 +1410,16 @@ export function createClient(opts: {
         }>;
       };
     },
+    async getHousekeepingPriorities(
+      propertyId: string,
+      date: string,
+    ): Promise<{ ok: true; date: string; queue: HousekeepingPriorityQueueRow[] }> {
+      const qs = new URLSearchParams({ date });
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/priorities?${qs}`,
+      );
+      return body as { ok: true; date: string; queue: HousekeepingPriorityQueueRow[] };
+    },
     async updateRoomStatus(
       propertyId: string,
       roomId: string,
@@ -1627,6 +1643,38 @@ export function createClient(opts: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
       });
+    },
+    async setHousekeepingPriority(
+      propertyId: string,
+      input: {
+        roomId: string;
+        businessDate: string;
+        level: HousekeepingPriorityLevelInput;
+      },
+      opId: string,
+    ): Promise<{
+      classified: ClassifiedResponse;
+      body: {
+        ok: true;
+        roomId: string;
+        businessDate: string;
+        level: HousekeepingPriorityLevel | null;
+      };
+    }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/priority`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      }) as Promise<{
+        classified: ClassifiedResponse;
+        body: {
+          ok: true;
+          roomId: string;
+          businessDate: string;
+          level: HousekeepingPriorityLevel | null;
+        };
+      }>;
     },
 
     async listRoomTypes(

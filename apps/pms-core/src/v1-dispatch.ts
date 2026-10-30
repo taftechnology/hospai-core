@@ -179,6 +179,7 @@ import {
   TENANT_NOT_ACTIVE,
   TIMEZONE_UNSET,
   isCommandError,
+  isHousekeepingPriorityLevelInput,
   UNDECLARED_CONFIG_PREFIX,
   UNKNOWN_COMMAND,
   VALIDATION_ERROR,
@@ -3708,6 +3709,92 @@ async function handleGetHousekeepingAssignments(ctx: V1DispatchContext): Promise
 
   try {
     const result = await resolvedCtx.resolved.stub.readHousekeepingAssignments(businessDate);
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePutHousekeepingPriority(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    roomId: string;
+    businessDate: string;
+    level: unknown;
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.roomId !== 'string' ||
+    !body.roomId ||
+    typeof body.businessDate !== 'string' ||
+    !body.businessDate ||
+    typeof body.idempotencyKey !== 'string' ||
+    !body.idempotencyKey ||
+    !isHousekeepingPriorityLevelInput(body.level)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    roomId: body.roomId,
+    businessDate: body.businessDate,
+    level: body.level,
+  };
+  const fingerprint = await commandFingerprint('housekeeping.set_priority', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetHousekeepingPriority']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.set_priority',
+      routeId: 'put_housekeeping_priority',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySetHousekeepingPriority(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === 'invalid_business_date') {
+        return json({ ok: false, error: result.error }, 400);
+      }
+      return null;
+    },
+  });
+}
+
+async function handleGetHousekeepingPriorities(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const date = new URL(ctx.request.url).searchParams.get('date');
+  if (!date) {
+    return json({ error: 'invalid_body', detail: 'date_required' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingPriorities(date);
     if (!result.ok) {
       return json({ ok: false, error: result.error }, 422);
     }
@@ -8540,6 +8627,24 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'settings:configure',
     commandId: 'config.put_operational',
     handler: handlePutOperationalConfig,
+  },
+  {
+    id: 'put_housekeeping_priority',
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/priority$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.set_priority',
+    handler: handlePutHousekeepingPriority,
+  },
+  {
+    id: 'get_housekeeping_priorities',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/priorities$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingPriorities,
   },
 ];
 

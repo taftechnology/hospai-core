@@ -63,6 +63,16 @@ export type ReplayTarget = {
     idem: { key: string; fingerprint: string },
     ctx: ProvisionalContext,
   ) => Promise<{ ok: boolean; error?: string }>;
+  trySetHousekeepingPriority: (
+    actor: ActorContext,
+    payload: {
+      roomId: string;
+      businessDate: string;
+      level: 'vip' | 'guest_waiting' | 'high' | 'rush' | 'early_arrival' | 'standard';
+    },
+    idem: { key: string; fingerprint: string },
+    ctx: ProvisionalContext,
+  ) => Promise<{ ok: boolean; error?: string }>;
 };
 
 type ReplayDispatch = {
@@ -157,6 +167,20 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
       stub.tryAssignHousekeeping(
         actor,
         payload as { roomId: string; businessDate: string; assigneeRef: string },
+        idem,
+        ctx,
+      ),
+  },
+  'housekeeping.set_priority': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, actor, payload, idem, ctx) =>
+      stub.trySetHousekeepingPriority(
+        actor,
+        payload as {
+          roomId: string;
+          businessDate: string;
+          level: 'vip' | 'guest_waiting' | 'high' | 'rush' | 'early_arrival' | 'standard';
+        },
         idem,
         ctx,
       ),

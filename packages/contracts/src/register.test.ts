@@ -754,10 +754,29 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[149]?.id).toBe('patch_product');
     expect(V1_HTTP_ROUTE_AUDIT[150]?.id).toBe('get_operational_config');
     expect(V1_HTTP_ROUTE_AUDIT[151]?.id).toBe('put_operational_config');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(152);
+    expect(V1_HTTP_ROUTE_AUDIT[152]?.id).toBe('put_housekeeping_priority');
+    expect(V1_HTTP_ROUTE_AUDIT[152]).toMatchObject({
+      scope: 'property',
+      permission: 'housekeeping:write',
+      commandId: 'housekeeping.set_priority',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[153]?.id).toBe('get_housekeeping_priorities');
+    expect(V1_HTTP_ROUTE_AUDIT[153]).toMatchObject({
+      scope: 'property',
+      permission: 'housekeeping:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[153] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(154);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
-    expect(COMMAND_CATALOG).toHaveLength(95);
+    expect(COMMAND_CATALOG).toHaveLength(96);
+    const setPriority = COMMAND_CATALOG.find((c) => c.id === 'housekeeping.set_priority');
+    expect(setPriority?.lane).toBe('INTERACTIVE');
+    expect(setPriority?.degraded).toBe('QUEUE_PROVISIONAL');
+    expect(setPriority?.permission).toBe('housekeeping:write');
+    expect(setPriority?.events).toEqual(['housekeeping.priority_changed']);
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

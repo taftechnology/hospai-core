@@ -18,6 +18,8 @@ import {
   OCCUPANCY_EXCEEDED,
   FRONT_OFFICE_COMMENT_TOO_LONG,
   NOT_FOUND,
+  ROOM_NOT_FOUND,
+  isHousekeepingPriorityLevelInput,
   NOTE_TOO_LONG,
   NOTE_LIMIT,
   NO_AVAILABILITY,
@@ -176,6 +178,9 @@ import {
   isStaffRef,
   type ActorContext,
   type EventSource,
+  type HousekeepingPriorityLevel,
+  type HousekeepingPriorityLevelInput,
+  type HousekeepingPriorityQueueRow,
   type IdempotencyKey,
   type ModuleTxnCtx,
   type Sync,
@@ -195,6 +200,8 @@ import {
   isCleanlinessStatus,
   isRoomStatus,
   readAssignments,
+  readHousekeepingPriorities as readHousekeepingPriorityQueue,
+  setHousekeepingPriority,
   updateRoomStatus,
 } from '@hospai/pms-housekeeping';
 import {
@@ -1368,6 +1375,7 @@ export function affectedFromPayload(commandType: string, payload: unknown): Affe
         };
       }
       case 'housekeeping.assign':
+      case 'housekeeping.set_priority':
         return {
           reservationId: null,
           roomId: optionalString(rec.roomId),
@@ -1547,6 +1555,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'folio_window',
   'fx_rate',
   'housekeeping_assignment',
+  'housekeeping_priority',
   'idempotency',
   'invoice',
   'night_audit_report',
@@ -1590,6 +1599,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM folio_window) +
       (SELECT COUNT(*) FROM fx_rate) +
       (SELECT COUNT(*) FROM housekeeping_assignment) +
+      (SELECT COUNT(*) FROM housekeeping_priority) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_report) +
@@ -7553,6 +7563,89 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * Set or clear a manager cleaning priority for one room and business date.
+   * Implements `housekeeping.set_priority`.
+   * Fingerprint allowlist: `{ roomId, businessDate, level }`.
+   * `standard` deletes the row. businessDate is format-validated only.
+   */
+  async trySetHousekeepingPriority(
+    actor: ActorContext,
+    input: { roomId: string; businessDate: string; level: HousekeepingPriorityLevelInput },
+    idem: IdempotencyKey,
+    provisional?: ProvisionalContext,
+  ): Promise<
+    | { ok: true; roomId: string; businessDate: string; level: HousekeepingPriorityLevel | null }
+    | { ok: false; error: typeof ROOM_NOT_FOUND }
+    | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof INVALID_BUSINESS_DATE | typeof VALIDATION_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const cached = this.replayPrecheckSync<Awaited<ReturnType<typeof this.trySetHousekeepingPriority>>>(
+      actor,
+      idem,
+      provisional,
+    );
+    if (cached !== null) return cached;
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (!STAY_DATE_RE.test(input.businessDate)) {
+      return { ok: false, error: INVALID_BUSINESS_DATE };
+    }
+    if (!isHousekeepingPriorityLevelInput(input.level)) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+
+    const setBy = actor.kind === 'user' ? actor.userId : 'system';
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          this.assertProvisionalBusinessDateOpen(provisional);
+          const result = setHousekeepingPriority(this.moduleTxnCtx(orgId, propertyId, provisional), {
+            roomId: input.roomId,
+            businessDate: input.businessDate,
+            level: input.level,
+            setBy,
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorForCommandSync(actor, provisional),
+            commandId: 'housekeeping.set_priority',
+            entityType: 'room',
+            entityId: input.roomId,
+            afterJson: {
+              roomId: input.roomId,
+              businessDate: input.businessDate,
+              level: result.level,
+            },
+          });
+          return result;
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+        return { ok: false, error: ROOM_NOT_FOUND };
+      }
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
   async listRooms(filters?: {
     roomTypeId?: string;
     status?: string;
@@ -7653,6 +7746,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: 'invalid_business_date' };
     }
     return readAssignments(this.ctx.storage.sql, { businessDate });
+  }
+
+  async readHousekeepingPriorities(date: string): Promise<
+    | { ok: true; date: string; queue: HousekeepingPriorityQueueRow[] }
+    | { ok: false; error: 'invalid_business_date' }
+  > {
+    this.assertRpcAvailable();
+    if (!STAY_DATE_RE.test(date)) {
+      return { ok: false, error: 'invalid_business_date' };
+    }
+    return readHousekeepingPriorityQueue(this.ctx.storage.sql, { date });
   }
 
   private assertOccupancySync(roomTypeId: string, adults: number, children: number): void {

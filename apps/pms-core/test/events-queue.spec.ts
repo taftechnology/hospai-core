@@ -287,6 +287,7 @@ describe('handleDomainEvent contract assertions', () => {
       'room.ooo_changed',
       'reservation.room_assigned',
       'housekeeping.assigned',
+      'housekeeping.priority_changed',
     ] as const) {
       await expect(
         handleDomainEvent(

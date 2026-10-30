@@ -159,6 +159,7 @@ export async function handleDomainEvent(
     case 'room.status_changed':
     case 'room.ooo_changed':
     case 'housekeeping.assigned':
+    case 'housekeeping.priority_changed':
     case 'night_audit.started':
     case 'night_audit.completed':
     case 'night_audit.step_retried':

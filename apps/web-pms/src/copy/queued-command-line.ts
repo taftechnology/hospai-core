@@ -15,6 +15,7 @@ const COMMAND_ID_LABELS: Record<string, string> = {
   'rooms.update_status': 'Room status update',
   'rooms.bulk_update_status': 'Bulk room status',
   'housekeeping.assign': 'Housekeeping assignment',
+  'housekeeping.set_priority': 'Housekeeping priority',
 };
 
 export function queuedCommandLine(entry: QueuedCommandEntry): string {

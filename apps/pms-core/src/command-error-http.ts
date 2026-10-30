@@ -86,6 +86,7 @@ import {
   NO_AVAILABILITY,
   NO_SHOW_BEFORE_ARRIVAL,
   NOT_FOUND,
+  ROOM_NOT_FOUND,
   NOT_MEMBER,
   NOT_MODIFIABLE,
   NOT_EARLY_DEPARTABLE,
@@ -245,6 +246,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CITY_LEDGER_ACCOUNT_NOT_FOUND:
     case CITY_LEDGER_STATEMENT_NOT_FOUND:
     case NOT_FOUND:
+    case ROOM_NOT_FOUND:
     case GUEST_NOT_FOUND:
     case STAFF_NOT_FOUND:
       return 404;

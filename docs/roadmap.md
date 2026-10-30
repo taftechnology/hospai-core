@@ -284,6 +284,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Locked Phase 1:** **priority** (ordered rooms; un-exclude `pms_hk_manager_priorities`); **inventory** (linens/stock OPERATIONAL list; un-exclude `pms_hk_inventory`; not a warehouse); **`pms.maintenance` module** — work-order table, task types, checklists; consume `room.ooo_changed` (do not invent tickets inside HK). **Staff** = `/roster` + shifts/skills/capacity (roster leftover 7).
   - **Drop:** budgeting, metrics charts, a catalogue-style HK Reports tab (the pilot's housekeeping reports are the named **R4.14** set), valet/coffee tickets (R5.2), SLA email. *Mobile attendant is superseded — attendant work moves to the **R4.10** mobile app.* Depth extras (lost and found, damage cases, inspections, minibar and amenity posting) are **R4.11** (Track P), not Phase 1.
   - **Tests:** assign + status; OOO still fail-closed if assigned; inventory round-trip; `room.ooo_changed` opens a maintenance ticket when the module exists.
+  - **In progress ([spec](superpowers/specs/2026-10-30-housekeeping-core-extras-design.md), four commits A–D):** **A Priority shipped 2026-10-30** — per-room manager level per business date, score computed on read, Priority tab. B inventory, C staff ops, D maintenance module to follow.
 
 - [ ] **R1.10 Night audit operator job**
   - **Depends:** R0.7 (full V7: N1/L5/L7/L8/G3/P6).

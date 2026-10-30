@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
@@ -19,11 +19,29 @@ const POST_F1_ME_PREPARE_TOTAL = 2;
 /** pms.core entitlement routes add one snapshot prepare beyond /me. */
 const POST_F1_ENTITLED_PROPERTY_PREPARE_TOTAL = POST_F1_ME_PREPARE_TOTAL + 1;
 
-function countPrepareCalls(
-  spy: { mock: { calls: unknown[][] } },
-  sqlFragment: string,
-): number {
-  return spy.mock.calls.filter(([sql]) => String(sql).includes(sqlFragment)).length;
+/**
+ * Counts registry prepares made by one request only. Spying on the shared
+ * `env.PLATFORM_DB` also counted the queue consumer draining other specs' events.
+ */
+function countingEnv(): { env: typeof env; prepares: string[] } {
+  const prepares: string[] = [];
+  const db = new Proxy(env.PLATFORM_DB, {
+    get(target, prop) {
+      if (prop === 'prepare') {
+        return (sql: string) => {
+          prepares.push(sql);
+          return target.prepare(sql);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { env: { ...env, PLATFORM_DB: db }, prepares };
+}
+
+function countPrepareCalls(prepares: readonly string[], sqlFragment: string): number {
+  return prepares.filter((sql) => sql.includes(sqlFragment)).length;
 }
 
 async function postOrg(orgId: string, name: string, actor: string) {
@@ -63,12 +81,12 @@ async function provisionHotel(owner: string) {
   return { orgId, propertyId, org };
 }
 
-async function fetchMe(propertyId: string, actor: string) {
+async function fetchMe(propertyId: string, actor: string, requestEnv: typeof env = env) {
   return worker.fetch(
     new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/me`, {
       headers: { 'x-dev-actor': actor },
     }),
-    env,
+    requestEnv,
   );
 }
 
@@ -78,13 +96,18 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchFolio(propertyId: string, reservationId: string, actor: string) {
+async function fetchFolio(
+  propertyId: string,
+  reservationId: string,
+  actor: string,
+  requestEnv: typeof env = env,
+) {
   return worker.fetch(
     new Request(
       `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/reservations/${encodeURIComponent(reservationId)}/folio`,
       { headers: { 'x-dev-actor': actor } },
     ),
-    env,
+    requestEnv,
   );
 }
 
@@ -165,14 +188,13 @@ describe('dispatch registry dedup — GET /v1/properties/:id/me', () => {
     const owner = `user_dedup_${crypto.randomUUID()}`;
     const { propertyId } = await provisionHotel(owner);
 
-    const prepareSpy = vi.spyOn(env.PLATFORM_DB, 'prepare');
+    const counted = countingEnv();
     const t0 = performance.now();
-    const res = await fetchMe(propertyId, owner);
+    const res = await fetchMe(propertyId, owner, counted.env);
     const elapsedMs = performance.now() - t0;
 
-    const totalPrepares = prepareSpy.mock.calls.length;
-    const propertyPrepares = countPrepareCalls(prepareSpy, 'FROM property WHERE property_id');
-    prepareSpy.mockRestore();
+    const totalPrepares = counted.prepares.length;
+    const propertyPrepares = countPrepareCalls(counted.prepares, 'FROM property WHERE property_id');
 
     expect(res.status).toBe(200);
     console.info('[F1 baseline]', { elapsedMs, prepareCalls: totalPrepares, propertyPrepares });
@@ -203,11 +225,10 @@ describe('dispatch registry dedup — GET folio (mutating-family read)', () => {
         .status,
     ).toBe(201);
 
-    const prepareSpy = vi.spyOn(env.PLATFORM_DB, 'prepare');
-    const res = await fetchFolio(propertyId, reservationId, owner);
-    const totalPrepares = prepareSpy.mock.calls.length;
-    const propertyPrepares = countPrepareCalls(prepareSpy, 'FROM property WHERE property_id');
-    prepareSpy.mockRestore();
+    const counted = countingEnv();
+    const res = await fetchFolio(propertyId, reservationId, owner, counted.env);
+    const totalPrepares = counted.prepares.length;
+    const propertyPrepares = countPrepareCalls(counted.prepares, 'FROM property WHERE property_id');
 
     expect(res.status).toBe(200);
     expect(propertyPrepares).toBe(1);

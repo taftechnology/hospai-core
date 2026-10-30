@@ -5,6 +5,9 @@ export type GuestProfile = {
   displayName: string;
   email?: string;
   phone?: string;
+  tags?: string[];
+  vip?: boolean;
+  notes?: string;
 };
 
 export type StaffProfile = {

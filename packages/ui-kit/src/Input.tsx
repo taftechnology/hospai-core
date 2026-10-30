@@ -28,6 +28,7 @@ export type InputProps = TestIdProps &
     min?: string | number;
     max?: string | number;
     step?: string | number;
+    maxLength?: number;
     autoComplete?: string;
     id?: string;
     name?: string;
@@ -47,6 +48,7 @@ export const Input = forwardRef(function Input(
     min,
     max,
     step,
+    maxLength,
     autoComplete,
     id,
     name,
@@ -81,6 +83,7 @@ export const Input = forwardRef(function Input(
       min={min}
       max={max}
       step={step}
+      maxLength={maxLength}
       autoComplete={autoComplete}
       id={id}
       name={name}
@@ -171,6 +174,7 @@ export type TextareaProps = TestIdProps &
     readOnly?: boolean;
     required?: boolean;
     rows?: number;
+    maxLength?: number;
     id?: string;
     name?: string;
     autoComplete?: string;
@@ -185,6 +189,7 @@ export const Textarea = forwardRef(function Textarea(
     readOnly,
     required,
     rows,
+    maxLength,
     id,
     name,
     autoComplete,
@@ -213,6 +218,7 @@ export const Textarea = forwardRef(function Textarea(
       readOnly={readOnly}
       required={required}
       rows={rows}
+      maxLength={maxLength}
       id={id}
       name={name}
       autoComplete={autoComplete}

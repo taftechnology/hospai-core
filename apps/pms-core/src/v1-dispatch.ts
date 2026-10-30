@@ -7,6 +7,9 @@ import {
   GUEST_ALREADY_ERASED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
+  guestCrmBodyTypesValid,
+  guestCrmExceedsCaps,
+  normalizeGuestCrmFields,
   IDEM_KEY_REUSED,
   INVALID_STATUS_TRANSITION,
   LEDGER_INCONSISTENT,
@@ -1263,11 +1266,17 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
     displayName: string;
     email?: string;
     phone?: string;
+    tags?: string[];
+    vip?: boolean;
+    notes?: string;
     idempotencyKey: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.guestId || !body.displayName || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!guestCrmBodyTypesValid(body)) {
     return json({ error: 'invalid_body' }, 400);
   }
 
@@ -1276,9 +1285,17 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
-  if (body.email !== undefined) profile.email = body.email;
-  if (body.phone !== undefined) profile.phone = body.phone;
+  const profile = normalizeGuestCrmFields({
+    displayName: body.displayName,
+    ...(body.email !== undefined ? { email: body.email } : {}),
+    ...(body.phone !== undefined ? { phone: body.phone } : {}),
+    ...(body.tags !== undefined ? { tags: body.tags } : {}),
+    ...(body.vip !== undefined ? { vip: body.vip } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes } : {}),
+  });
+  if (guestCrmExceedsCaps(profile)) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
   const fingerprint = await commandFingerprint('guests.create', { guestId: body.guestId, ...profile });
 
   try {
@@ -1314,11 +1331,17 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     displayName: string;
     email?: string;
     phone?: string;
+    tags?: string[];
+    vip?: boolean;
+    notes?: string;
     idempotencyKey: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.displayName || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!guestCrmBodyTypesValid(body)) {
     return json({ error: 'invalid_body' }, 400);
   }
 
@@ -1327,9 +1350,17 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
 
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
-  const profile: { displayName: string; email?: string; phone?: string } = { displayName: body.displayName };
-  if (body.email !== undefined) profile.email = body.email;
-  if (body.phone !== undefined) profile.phone = body.phone;
+  const profile = normalizeGuestCrmFields({
+    displayName: body.displayName,
+    ...(body.email !== undefined ? { email: body.email } : {}),
+    ...(body.phone !== undefined ? { phone: body.phone } : {}),
+    ...(body.tags !== undefined ? { tags: body.tags } : {}),
+    ...(body.vip !== undefined ? { vip: body.vip } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes } : {}),
+  });
+  if (guestCrmExceedsCaps(profile)) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
   const fingerprint = await commandFingerprint('guests.update', { guestId, ...profile });
 
   try {

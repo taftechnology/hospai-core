@@ -1563,6 +1563,51 @@ details.side-panel summary {
   gap: var(--space-4);
 }
 
+.guest-preferences-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.guest-preferences-badges .ui-badge {
+  flex: 0 0 auto;
+}
+
+.guest-notes-body {
+  white-space: pre-line;
+}
+
+.guest-tag-list {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: var(--space-2);
+}
+
+.guest-tag-add-row {
+  flex-wrap: nowrap;
+}
+
+.guest-tag-add-row .ui-field {
+  flex: 0 1 var(--field-md);
+  min-inline-size: 0;
+}
+
+.guest-profile__title-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.guest-directory__name-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* Front desk boards stack cards vertically with the shell's rhythm. */
 .board-page {
   display: flex;

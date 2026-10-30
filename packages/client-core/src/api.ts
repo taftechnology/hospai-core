@@ -1104,7 +1104,15 @@ export function createClient(opts: {
 
     async createGuest(
       propertyId: string,
-      input: { guestId: string; displayName: string; email?: string; phone?: string },
+      input: {
+        guestId: string;
+        displayName: string;
+        email?: string;
+        phone?: string;
+        tags?: string[];
+        vip?: boolean;
+        notes?: string;
+      },
       opId: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
@@ -1115,6 +1123,9 @@ export function createClient(opts: {
       };
       if (input.email !== undefined) payload.email = input.email;
       if (input.phone !== undefined) payload.phone = input.phone;
+      if (input.tags !== undefined) payload.tags = input.tags;
+      if (input.vip !== undefined) payload.vip = input.vip;
+      if (input.notes !== undefined) payload.notes = input.notes;
       return getJson(`/v1/properties/${enc(propertyId)}/guests`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1165,7 +1176,14 @@ export function createClient(opts: {
     async updateGuest(
       propertyId: string,
       guestId: string,
-      input: { displayName: string; email?: string; phone?: string },
+      input: {
+        displayName: string;
+        email?: string;
+        phone?: string;
+        tags?: string[];
+        vip?: boolean;
+        notes?: string;
+      },
       opId: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
@@ -1175,6 +1193,9 @@ export function createClient(opts: {
       };
       if (input.email !== undefined) payload.email = input.email;
       if (input.phone !== undefined) payload.phone = input.phone;
+      if (input.tags !== undefined) payload.tags = input.tags;
+      if (input.vip !== undefined) payload.vip = input.vip;
+      if (input.notes !== undefined) payload.notes = input.notes;
       return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },

@@ -93,4 +93,20 @@ describe('blind-index', () => {
       /HOSPAI_ORG_MASTER_KEY must be 64 hex characters/,
     );
   });
+
+  it('tags, vip, and notes do not change blind index rows', async () => {
+    const key = await deriveOrgBlindIndexKeyHex(MASTER_HEX, TEST_ORG);
+    const base = { displayName: 'Ada Lovelace', email: 'ada@ex.com', phone: '555-0100' };
+    const withCrm = {
+      ...base,
+      tags: ['High floor'],
+      vip: true,
+      notes: 'Allergic to feathers',
+    };
+    const baseRows = await blindIndexRows(key, base);
+    const crmRows = await blindIndexRows(key, withCrm);
+    expect(crmRows.map((r) => ({ kind: r.kind, hash: hexOf(r.hash) }))).toEqual(
+      baseRows.map((r) => ({ kind: r.kind, hash: hexOf(r.hash) })),
+    );
+  });
 });

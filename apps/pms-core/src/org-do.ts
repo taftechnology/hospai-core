@@ -39,6 +39,8 @@ import {
   type OrgScopedPermission,
   type Permission,
   type PropertyScopedPermission,
+  guestCrmExceedsCaps,
+  normalizeGuestCrmFields,
 } from '@hospai/contracts';
 import {
   ORG_MIGRATIONS,
@@ -76,6 +78,13 @@ import type { PmsEnv } from './env.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
 import { SqlKeyStore } from './org-key-store.js';
 import { ORG_DO_TRANSPORT_BLOCKED_MESSAGE } from './org-do-transport.js';
+
+type GuestProfileDirectory = Omit<GuestProfile, 'notes'>;
+
+function guestProfileForDirectory(profile: GuestProfile): GuestProfileDirectory {
+  const { notes: _notes, ...rest } = profile;
+  return rest;
+}
 
 type MembershipError =
   | 'not_member'
@@ -1731,7 +1740,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_EXISTS | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof GUEST_EXISTS | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -1748,6 +1757,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
+    const profile = normalizeGuestCrmFields(input.profile) as GuestProfile;
+    if (guestCrmExceedsCaps(profile)) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+
     try {
       const replay = readIdempotentReplay<
         { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
@@ -1760,8 +1774,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (existing[0]) return { ok: false, error: GUEST_EXISTS };
 
       const vault = await this.vault();
-      const material = await vault.prepareGuestRecord('guest', input.guestId, input.profile);
-      const indexRows = await blindIndexRows(await this.blindIndexKey(), input.profile);
+      const material = await vault.prepareGuestRecord('guest', input.guestId, profile);
+      const indexRows = await blindIndexRows(await this.blindIndexKey(), profile);
 
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
@@ -1821,7 +1835,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -1838,6 +1852,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
+    const profile = normalizeGuestCrmFields(input.profile) as GuestProfile;
+    if (guestCrmExceedsCaps(profile)) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+
     try {
       const replay = readIdempotentReplay<
         { ok: true; guestId: string; piiKeyId: string } | { ok: false; error: CommandError }
@@ -1852,8 +1871,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (guest.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
 
       const vault = await this.vault();
-      const sealed = await vault.prepareProfileSeal(guest.pii_key_id, input.profile);
-      const indexRows = await blindIndexRows(await this.blindIndexKey(), input.profile);
+      const sealed = await vault.prepareProfileSeal(guest.pii_key_id, profile);
+      const indexRows = await blindIndexRows(await this.blindIndexKey(), profile);
 
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
@@ -2589,7 +2608,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   ): Promise<
     | {
         ok: true;
-        items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }>;
+        items: Array<{ guestId: string; erased: false; profile: GuestProfileDirectory; createdAt: number }>;
         nextCursor: { createdAt: number; guestId: string } | null;
       }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
@@ -2638,7 +2657,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           )
     ).toArray() as Array<{ guest_id: string; created_at: number }>;
 
-    const items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }> = [];
+    const items: Array<{ guestId: string; erased: false; profile: GuestProfileDirectory; createdAt: number }> = [];
     for (const row of rows) {
       const entry = await this.readGuestEntry(row.guest_id);
       if (!entry.ok) continue;
@@ -2646,7 +2665,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       items.push({
         guestId: entry.guestId,
         erased: false,
-        profile: entry.profile,
+        profile: guestProfileForDirectory(entry.profile),
         createdAt: row.created_at,
       });
     }
@@ -2667,7 +2686,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   ): Promise<
     | {
         ok: true;
-        items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }>;
+        items: Array<{ guestId: string; erased: false; profile: GuestProfileDirectory; createdAt: number }>;
         nextCursor: { guestId: string } | null;
       }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
@@ -2721,7 +2740,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       : capped;
     const pageIds = afterCursor.slice(0, input.limit);
 
-    const items: Array<{ guestId: string; erased: false; profile: GuestProfile; createdAt: number }> = [];
+    const items: Array<{ guestId: string; erased: false; profile: GuestProfileDirectory; createdAt: number }> = [];
     for (const guestId of pageIds) {
       const created = this.ctx.storage.sql
         .exec(`SELECT created_at FROM guest WHERE guest_id = ?`, guestId)
@@ -2732,7 +2751,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       items.push({
         guestId: entry.guestId,
         erased: false,
-        profile: entry.profile,
+        profile: guestProfileForDirectory(entry.profile),
         createdAt: created[0]?.created_at ?? 0,
       });
     }

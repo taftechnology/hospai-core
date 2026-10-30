@@ -23,7 +23,7 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
-type GuestProfile = { displayName: string; email?: string; phone?: string };
+type GuestProfile = { displayName: string; email?: string; phone?: string; vip?: boolean };
 type GuestDirItem = {
   guestId: string;
   erased: false;
@@ -117,13 +117,16 @@ export function GuestsDirectoryScreen() {
           {page.items.map((row) => (
             <DataTableRow key={row.guestId}>
               <DataTableCell>
-                <Link
-                  to={`/guests/${encodeURIComponent(row.guestId)}`}
-                  className="guest-directory__name"
-                  data-testid="guest-profile-link"
-                >
-                  {row.profile.displayName}
-                </Link>
+                <span className="guest-directory__name-row">
+                  <Link
+                    to={`/guests/${encodeURIComponent(row.guestId)}`}
+                    className="guest-directory__name"
+                    data-testid="guest-profile-link"
+                  >
+                    {row.profile.displayName}
+                  </Link>
+                  {row.profile.vip ? <Badge rung="attention">VIP</Badge> : null}
+                </span>
                 <div translate="no" className="muted truncate" title={row.guestId}>
                   {row.guestId}
                 </div>

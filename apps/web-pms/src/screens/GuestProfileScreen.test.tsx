@@ -1,4 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
+import { GUEST_NOTES_LENGTH_MAX, GUEST_TAG_LENGTH_MAX, GUEST_TAGS_MAX } from '@hospai/contracts';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -32,11 +33,30 @@ import { GuestProfileScreen } from './GuestProfileScreen.js';
 const liveGuest = {
   guestId: 'g1',
   erased: false,
-  profile: { displayName: 'Ada Lovelace', email: 'ada@ex.com', phone: '5550100' },
+  profile: {
+    displayName: 'Ada Lovelace',
+    email: 'ada@ex.com',
+    phone: '5550100',
+    tags: ['High floor'],
+    vip: true,
+    notes: 'Line one\nLine two',
+  },
 };
 
 function renderProfile() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/guests/g1']}>
+        <Routes>
+          <Route path="/guests/:guestRef" element={<GuestProfileScreen />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+function renderProfileWithClient(client: QueryClient) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/guests/g1']}>
@@ -100,9 +120,36 @@ describe('GuestProfileScreen', () => {
 
   afterEach(() => cleanup());
 
+  it('shows empty preference and notes states', async () => {
+    getGuest.mockResolvedValue({
+      guestId: 'g2',
+      erased: false,
+      profile: { displayName: 'Empty CRM' },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/guests/g2']}>
+          <Routes>
+            <Route path="/guests/:guestRef" element={<GuestProfileScreen />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('No preferences recorded.')).toBeTruthy());
+    expect(screen.getByText('No notes.')).toBeTruthy();
+  });
+
+  it('shows VIP badge, preference tags, and notes on saved profile', async () => {
+    renderProfile();
+    await waitFor(() => expect(screen.getAllByText('VIP').length).toBeGreaterThan(0));
+    expect(screen.getByText('High floor')).toBeTruthy();
+    expect(screen.getByText(/Line one/)).toBeTruthy();
+  });
+
   it('shows contact, stay folio link, and Book href; no merge or consent', async () => {
     renderProfile();
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Ada Lovelace'));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Ada Lovelace'));
     expect(screen.getByText('ada@ex.com')).toBeTruthy();
     expect(screen.getByText('5550100')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'View folio' }).getAttribute('href')).toBe(
@@ -113,6 +160,118 @@ describe('GuestProfileScreen', () => {
     expect(screen.getByTestId('guest-book').getAttribute('href')).toBe('/book?guestRef=g1');
     expect(screen.queryByText(/merge/i)).toBeNull();
     expect(screen.queryByText(/consent/i)).toBeNull();
+  });
+
+  it('two consecutive saves use distinct guest-update opIds', async () => {
+    updateGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderProfile();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const tagInput = () => screen.getByTestId('guest-tag-input');
+    fireEvent.change(tagInput(), { target: { value: 'First tag' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(updateGuest).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(tagInput(), { target: { value: 'Second tag' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(updateGuest).toHaveBeenCalledTimes(2));
+
+    const opId1 = updateGuest.mock.calls[0]?.[3] as string;
+    const opId2 = updateGuest.mock.calls[1]?.[3] as string;
+    expect(opId1).toMatch(/^guest-update:g1:/);
+    expect(opId2).toMatch(/^guest-update:g1:/);
+    expect(opId1).not.toBe(opId2);
+  });
+
+  it('tag and notes inputs forward maxLength from contracts', async () => {
+    renderProfile();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByTestId('guest-tag-input')).toHaveProperty('maxLength', GUEST_TAG_LENGTH_MAX);
+    expect(screen.getByTestId('guest-notes-input')).toHaveProperty(
+      'maxLength',
+      GUEST_NOTES_LENGTH_MAX,
+    );
+    expect(GUEST_TAG_LENGTH_MAX).toBe(40);
+    expect(GUEST_NOTES_LENGTH_MAX).toBe(2000);
+  });
+
+  it('edit CRM fields and save sends normalised profile; invalidates guest and directory keys', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    updateGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderProfileWithClient(client);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const tagInput = () => screen.getByTestId('guest-tag-input');
+    fireEvent.change(tagInput(), { target: { value: 'Feather allergy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByLabelText('Remove tag Feather allergy')).toBeTruthy();
+
+    fireEvent.change(tagInput(), { target: { value: 'Extra' } });
+    fireEvent.keyDown(tagInput(), { key: 'Enter', code: 'Enter' });
+    expect(screen.getByLabelText('Remove tag Extra')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove tag Feather allergy' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'VIP guest' }));
+    fireEvent.change(screen.getByTestId('guest-notes-input'), { target: { value: 'Desk note' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(updateGuest).toHaveBeenCalled());
+    const payload = updateGuest.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      displayName: 'Ada Lovelace',
+      email: 'ada@ex.com',
+      phone: '5550100',
+      tags: ['High floor', 'Extra'],
+      notes: 'Desk note',
+    });
+    expect(payload).not.toHaveProperty('vip');
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
+    expect(invalidateSpy.mock.calls.some((c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['guest', 'prop_demo', 'g1'] }))).toBe(true);
+    expect(invalidateSpy.mock.calls.some((c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: ['guests-directory', 'prop_demo'] }))).toBe(true);
+  });
+
+  it('save shows catalog limit message on limit_exceeded', async () => {
+    updateGuest.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'limit_exceeded' },
+        retryAfterMs: null,
+      }),
+    );
+    renderProfile();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(screen.getByText('This property has reached the catalog limit.')).toBeTruthy(),
+    );
+  });
+
+  it('disables Add at 20 tags with cap message', async () => {
+    getGuest.mockResolvedValue({
+      ...liveGuest,
+      profile: {
+        ...liveGuest.profile,
+        tags: Array.from({ length: GUEST_TAGS_MAX }, (_, i) => `tag-${i}`),
+      },
+    });
+    renderProfile();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add' })).toHaveProperty('disabled', true),
+    );
+    expect(screen.getByText('Maximum of 20 tags.')).toBeTruthy();
   });
 
   it('erase confirm then tombstone', async () => {

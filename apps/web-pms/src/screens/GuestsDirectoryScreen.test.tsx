@@ -76,6 +76,31 @@ describe('GuestsDirectoryScreen', () => {
     expect(searchGuests).not.toHaveBeenCalled();
   });
 
+  it('shows VIP badge on VIP rows only', async () => {
+    listGuests.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          guestId: 'g_vip',
+          erased: false,
+          profile: { displayName: 'VIP Guest', vip: true },
+          createdAt: Date.UTC(2026, 7, 1),
+        },
+        {
+          guestId: 'g_plain',
+          erased: false,
+          profile: { displayName: 'Plain Guest' },
+          createdAt: Date.UTC(2026, 7, 2),
+        },
+      ],
+      nextCursor: null,
+    });
+    renderDirectory();
+    await waitFor(() => expect(screen.getByText('VIP Guest')).toBeTruthy());
+    const vipBadges = screen.getAllByText('VIP');
+    expect(vipBadges).toHaveLength(1);
+  });
+
   it('typing Ada calls searchGuests not listGuests; name links to profile', async () => {
     listGuests.mockResolvedValue({
       ok: true,

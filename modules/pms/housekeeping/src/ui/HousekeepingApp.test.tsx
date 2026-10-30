@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,6 +18,25 @@ const ADA: HousekeepingRosterPerson = {
   exitedAt: null,
   kinds: ['housekeeper'],
 };
+
+function TestDialog({
+  title,
+  children,
+  actions,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  actions: ReactNode;
+}) {
+  return (
+    <div role="dialog">
+      <h2>{title}</h2>
+      {children}
+      {actions}
+    </div>
+  );
+}
 
 function renderApp(
   api: HousekeepingApi,
@@ -50,6 +70,7 @@ function renderApp(
           canReadRoster={flags.canReadRoster}
           canSetOoo={flags.canSetOoo}
           formatError={'formatError' in flags ? flags.formatError : undefined}
+          Dialog={TestDialog}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -65,6 +86,11 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
     assignHousekeeping: async () => ({ ok: true }),
     getHousekeepingPriorities: async () => ({ ok: true, date: '2026-08-12', queue: [] }),
     setHousekeepingPriority: async () => ({ ok: true }),
+    getHousekeepingInventory: async () => ({ ok: true, items: [] }),
+    getHousekeepingInventoryMovements: async () => ({ ok: true, movements: [] }),
+    createHousekeepingInventoryItem: async () => ({ ok: true }),
+    updateHousekeepingInventoryItem: async () => ({ ok: true }),
+    adjustHousekeepingInventoryItem: async () => ({ ok: true }),
     ...overrides,
   };
 }
@@ -455,5 +481,106 @@ describe('Housekeeping priority view', () => {
     expect(await screen.findByText('No rooms waiting to be cleaned.')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByTestId('hk-priority-loading')).toBeNull();
+  });
+});
+
+const LOW_ITEM = {
+  itemId: 'item_1',
+  name: 'Towels',
+  category: 'towels' as const,
+  unit: 'each',
+  parLevel: 10,
+  onHand: 3,
+  archived: false,
+  low: true,
+};
+
+describe('HousekeepingApp inventory', () => {
+  it('renders Low badge and low count in the header', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingInventory: async () => ({ ok: true, items: [LOW_ITEM] }),
+      }),
+      { path: '/housekeeping/inventory' },
+    );
+    expect(await screen.findByRole('heading', { name: 'Housekeeping inventory' })).toBeTruthy();
+    await screen.findByTestId('hk-inventory-table');
+    expect(screen.getByText('Low')).toBeTruthy();
+    expect(screen.getByText(/1 low/)).toBeTruthy();
+  });
+
+  it('adjust invalidates inventory and movements keys with fresh op ids', async () => {
+    const adjustHousekeepingInventoryItem = vi.fn().mockResolvedValue({ ok: true });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateQueries = vi.spyOn(client, 'invalidateQueries');
+    renderApp(
+      stubApi({
+        getHousekeepingInventory: async () => ({ ok: true, items: [LOW_ITEM] }),
+        adjustHousekeepingInventoryItem,
+      }),
+      { path: '/housekeeping/inventory', canAssign: true, client },
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Receive Towels' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(adjustHousekeepingInventoryItem).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: 'Receive Towels' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(adjustHousekeepingInventoryItem).toHaveBeenCalledTimes(2));
+    const firstOp = adjustHousekeepingInventoryItem.mock.calls[0]?.[3] as string;
+    const secondOp = adjustHousekeepingInventoryItem.mock.calls[1]?.[3] as string;
+    expect(firstOp).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(secondOp).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(secondOp).not.toBe(firstOp);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['housekeeping-inventory', 'prop_1'],
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['housekeeping-inventory-movements', 'prop_1', 'item_1'],
+    });
+  });
+
+  it('disables write actions without permission and shows three states', async () => {
+    renderApp(
+      stubApi({
+        getHousekeepingInventory: async () => ({ ok: true, items: [LOW_ITEM] }),
+      }),
+      { path: '/housekeeping/inventory', canAssign: false },
+    );
+    expect(await screen.findByText(/housekeeping write permission/i)).toBeTruthy();
+    expect((await screen.findByRole('button', { name: 'Add item' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((await screen.findByRole('button', { name: 'Receive Towels' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    cleanup();
+
+    renderApp(
+      stubApi({
+        getHousekeepingInventory: async () => {
+          throw new Error('down');
+        },
+      }),
+      {
+        path: '/housekeeping/inventory',
+        formatError: () => 'Inventory failed to load',
+      },
+    );
+    expect(await screen.findByText('Inventory failed to load')).toBeTruthy();
+    cleanup();
+
+    renderApp(
+      stubApi({ getHousekeepingInventory: () => new Promise(() => {}) }),
+      { path: '/housekeeping/inventory' },
+    );
+    expect(await screen.findByTestId('hk-inventory-loading')).toBeTruthy();
+    cleanup();
+
+    renderApp(stubApi({ getHousekeepingInventory: async () => ({ ok: true, items: [] }) }), {
+      path: '/housekeeping/inventory',
+    });
+    expect(await screen.findByText('No inventory items yet.')).toBeTruthy();
   });
 });

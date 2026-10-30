@@ -9,6 +9,7 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { FormDialog } from '../shell/FormDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 
@@ -40,9 +41,11 @@ export function HousekeepingScreen() {
   const canAssign = liveMe ? hasPropertyPermission(liveMe, 'housekeeping:write') : false;
   const canReadRoster = liveMe ? hasPropertyPermission(liveMe, 'roster:read') : false;
   const canSetOoo = liveMe ? hasPropertyPermission(liveMe, 'inventory:write') : false;
-  const priority = useLocation().pathname.endsWith('/priority');
+  const path = useLocation().pathname;
+  const priority = path.endsWith('/priority');
+  const inventory = path.endsWith('/inventory');
   const { subtitle } = usePropertySubtitle(
-    priority ? 'Cleaning queue' : 'Room status and assignments',
+    inventory ? 'Par levels and stock counts' : priority ? 'Cleaning queue' : 'Room status and assignments',
   );
 
   return (
@@ -55,8 +58,15 @@ export function HousekeepingScreen() {
       canSetOoo={canSetOoo}
       subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
+      Dialog={FormDialog}
       formatError={(err) =>
-        classifiedUserMessage(asClassified(err), { fallback: 'Could not load housekeeping priority' })
+        classifiedUserMessage(asClassified(err), {
+          fallback: inventory
+            ? 'Could not load housekeeping inventory'
+            : priority
+              ? 'Could not load housekeeping priority'
+              : 'Could not load housekeeping',
+        })
       }
     />
   );

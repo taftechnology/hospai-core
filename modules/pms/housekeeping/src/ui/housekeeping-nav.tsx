@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 
-export function HousekeepingNav({ view }: { view: 'board' | 'priority' }) {
+export function HousekeepingNav({ view }: { view: 'board' | 'priority' | 'inventory' }) {
   return (
     <nav className="ui-tabs" aria-label="Housekeeping">
       <Link
@@ -16,6 +16,13 @@ export function HousekeepingNav({ view }: { view: 'board' | 'priority' }) {
         aria-current={view === 'priority' ? 'page' : undefined}
       >
         Priority
+      </Link>
+      <Link
+        className="ui-tab"
+        to="/housekeeping/inventory"
+        aria-current={view === 'inventory' ? 'page' : undefined}
+      >
+        Inventory
       </Link>
     </nav>
   );

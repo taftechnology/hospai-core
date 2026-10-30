@@ -68,6 +68,9 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'products.update_category',
   'products.create_item',
   'products.update_item',
+  'housekeeping.inventory_create_item',
+  'housekeeping.inventory_update_item',
+  'housekeeping.inventory_adjust',
 ]);
 
 /** Entitled commands that deliberately do not write PropertyDO audit_log. */

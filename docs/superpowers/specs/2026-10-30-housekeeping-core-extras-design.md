@@ -295,3 +295,12 @@ Route ids are final at build time if a sibling's naming differs; the AGENTS pin 
 - An arriving booking wins over an in-house stay on the same room for the stay label (turnover: clean for the arrival).
 - The manager level badge uses `rung="attention"` on both Board and Priority; other reasons are informational, DND is attention.
 - `@hospai/pms-housekeeping` gains a `react-router` peer dependency for the route tabs.
+
+### Part B — Inventory (2026-10-30)
+
+- Routes `post_housekeeping_inventory_item`, `patch_housekeeping_inventory_item`, `post_housekeeping_inventory_adjust`, `get_housekeeping_inventory`, `get_housekeeping_inventory_movements`. Idempotency key: JSON body `idempotencyKey`; SPA sends `crypto.randomUUID()` per attempt.
+- Property schema **38** (`0038_housekeeping_inventory.sql`); both tables in the purge inventory. Pins: commands **99**, routes **159** (last `get_housekeeping_inventory_movements`), `AUDIT_WRITER_COMMAND_IDS` **71** — entitled FAIL_CLOSED PropertyDO writers (unlike `set_priority`, which is QUEUE_PROVISIONAL without entitlement).
+- Movement `quantity` is always the positive request magnitude; direction is the movement `kind`. Issue stores `quantity = q` with `on_hand -= q`.
+- Inventory dialogs use the host `FormDialog` (the existing `.app-modal`), not a second overlay.
+- Fixed on review: restoring an archived item re-checks the 200 live-item cap and the live-name rule; editing an archived item no longer collides with a live item's name, and keeps its original `archived_at`. Row actions carry item-specific accessible names (`Receive Bath towels`), and the add form resets fully after a save.
+- Known, not fixed here: the shared `FormDialog` does not submit on Enter and has one width, so the history table is narrow. Both are shell-wide; change them in the shell, not per screen.

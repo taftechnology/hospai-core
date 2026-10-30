@@ -1,5 +1,9 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type {
+  HousekeepingInventoryCategory,
+  HousekeepingInventoryItemRow,
+  HousekeepingInventoryMovementKind,
+  HousekeepingInventoryMovementRow,
   HousekeepingPriorityLevel,
   HousekeepingPriorityLevelInput,
   HousekeepingPriorityQueueRow,
@@ -1675,6 +1679,84 @@ export function createClient(opts: {
           level: HousekeepingPriorityLevel | null;
         };
       }>;
+    },
+    async getHousekeepingInventory(
+      propertyId: string,
+      query?: { archived?: boolean },
+    ): Promise<{ ok: true; items: HousekeepingInventoryItemRow[] }> {
+      const qs = new URLSearchParams();
+      if (query?.archived) qs.set('archived', '1');
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/inventory${q ? `?${q}` : ''}`,
+      );
+      return body as { ok: true; items: HousekeepingInventoryItemRow[] };
+    },
+    async getHousekeepingInventoryMovements(
+      propertyId: string,
+      itemId: string,
+    ): Promise<{ ok: true; movements: HousekeepingInventoryMovementRow[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/inventory/items/${enc(itemId)}/movements`,
+      );
+      return body as { ok: true; movements: HousekeepingInventoryMovementRow[] };
+    },
+    async createHousekeepingInventoryItem(
+      propertyId: string,
+      input: {
+        itemId: string;
+        name: string;
+        category: HousekeepingInventoryCategory;
+        unit: string;
+        parLevel: number;
+        onHand: number;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/inventory/items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updateHousekeepingInventoryItem(
+      propertyId: string,
+      itemId: string,
+      input: {
+        name: string;
+        category: HousekeepingInventoryCategory;
+        unit: string;
+        parLevel: number;
+        archived: boolean;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/inventory/items/${enc(itemId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
+    },
+    async adjustHousekeepingInventoryItem(
+      propertyId: string,
+      itemId: string,
+      input: { kind: HousekeepingInventoryMovementKind; quantity: number; note?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/inventory/items/${enc(itemId)}/adjust`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, idempotencyKey }),
+        },
+      );
     },
 
     async listRoomTypes(

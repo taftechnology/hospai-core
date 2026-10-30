@@ -181,6 +181,10 @@ import {
   PRODUCT_INVALID_AMOUNT,
   PRODUCT_CATEGORY_NOT_FOUND,
   PRODUCT_NOT_FOUND,
+  INVENTORY_ITEM_NOT_FOUND,
+  INVENTORY_ITEM_EXISTS,
+  INVENTORY_ITEM_ARCHIVED,
+  INSUFFICIENT_STOCK,
   CONFIG_KEY_NOT_WRITABLE,
   CONFIG_CODE_REMOVED,
   type CommandError,
@@ -229,6 +233,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case NO_AVAILABILITY:
     case GUEST_ALREADY_ERASED:
     case GUEST_EXISTS:
+    case INVENTORY_ITEM_EXISTS:
+    case INVENTORY_ITEM_ARCHIVED:
     case PRODUCT_EXISTS:
     case PRODUCT_CATEGORY_EXISTS:
     case PRODUCT_SKU_TAKEN:
@@ -241,6 +247,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CHARGE_CODE_NOT_FOUND:
     case PRODUCT_CATEGORY_NOT_FOUND:
     case PRODUCT_NOT_FOUND:
+    case INVENTORY_ITEM_NOT_FOUND:
     case TAX_RULE_NOT_FOUND:
     case SHIFT_NOT_FOUND:
     case CITY_LEDGER_ACCOUNT_NOT_FOUND:
@@ -390,6 +397,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case DECRYPT_UNRESOLVED:
     case KEY_SHRED_FAILED:
     case LIMIT_EXCEEDED:
+    case INSUFFICIENT_STOCK:
       return 422;
     case IDEM_KEY_REUSED:
     case ROOM_TYPE_EXISTS:

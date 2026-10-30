@@ -88,4 +88,12 @@ describe('HousekeepingScreen', () => {
     );
     await waitFor(() => expect(screen.getByText(/Cleaning queue · Harbor Inn/)).toBeTruthy());
   });
+
+  it('inventory subtitle uses par levels copy', async () => {
+    renderScreen('/housekeeping/inventory');
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Housekeeping inventory' })).toBeTruthy(),
+    );
+    await waitFor(() => expect(screen.getByText(/Par levels and stock counts · Harbor Inn/)).toBeTruthy());
+  });
 });

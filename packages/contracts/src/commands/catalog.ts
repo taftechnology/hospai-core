@@ -42,6 +42,10 @@ export const PROPERTY_UPDATE_DETAILS_FAIL_CLOSED_NOTES =
 export const INVENTORY_FAIL_CLOSED_NOTES =
   'Inventory-affecting — must not invent stock during outage.';
 
+/** Par-stock commands. Not the availability `INVENTORY_FAIL_CLOSED_NOTES` family. */
+export const HOUSEKEEPING_INVENTORY_NOTES =
+  'Housekeeping par stock. Idempotency key is JSON idempotencyKey. FAIL_CLOSED — no replay.';
+
 export const ROSTER_FAMILY_NOTES =
   'Roster family (Staff-class PII / per-staff key), distinct from membership staff.* ' +
   '(access revocation). §4.8: staff exit is not deletion — identity is pseudonymized and ' +
@@ -280,6 +284,39 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes:
       'Per room per business date. standard deletes the row. businessDate is format-validated ' +
       'only, same as housekeeping.assign. Idempotency key is JSON idempotencyKey.',
+  },
+  {
+    id: 'housekeeping.inventory_create_item',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['housekeeping.inventory_changed'],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes: HOUSEKEEPING_INVENTORY_NOTES,
+  },
+  {
+    id: 'housekeeping.inventory_update_item',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['housekeeping.inventory_changed'],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes: HOUSEKEEPING_INVENTORY_NOTES,
+  },
+  {
+    id: 'housekeeping.inventory_adjust',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['housekeeping.inventory_changed'],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes: HOUSEKEEPING_INVENTORY_NOTES,
   },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {

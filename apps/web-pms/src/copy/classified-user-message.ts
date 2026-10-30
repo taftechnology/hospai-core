@@ -75,6 +75,10 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
   invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
   category_not_found: () => 'That category is missing or archived — pick an active category.',
   product_not_found: () => 'That product no longer exists — refresh the list.',
+  inventory_item_not_found: () => 'That inventory item no longer exists — refresh the list.',
+  inventory_item_exists: () => 'An item with that name or id already exists.',
+  inventory_item_archived: () => 'Archived items cannot be adjusted — unarchive or pick another item.',
+  insufficient_stock: () => 'Not enough on hand for that issue quantity.',
   limit_exceeded: () => 'This property has reached the catalog limit.',
   config_code_removed: () =>
     'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',

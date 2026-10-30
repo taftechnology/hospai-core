@@ -20,11 +20,16 @@ import {
   roomStatusWord,
 } from '@hospai/ui-kit';
 import { useLocation } from 'react-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { PRIORITY_LEVEL_LABEL } from './priority-labels.js';
-import type { HousekeepingApi, HousekeepingRosterPerson } from './housekeeping-types.js';
+import type {
+  HousekeepingApi,
+  HousekeepingFormDialogProps,
+  HousekeepingRosterPerson,
+} from './housekeeping-types.js';
 
 export type {
   HousekeepingApi,
@@ -35,6 +40,8 @@ export type {
 } from './housekeeping-types.js';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
+
+export type { HousekeepingFormDialogProps } from './housekeeping-types.js';
 
 export type HousekeepingAppProps = {
   propertyId: string;
@@ -48,6 +55,8 @@ export type HousekeepingAppProps = {
   /** Live property name, already composed by the host. */
   subtitle?: string;
   formatError?: (err: unknown) => string;
+  /** Host form dialog (`.app-modal`). Inventory does not ship its own overlay. */
+  Dialog?: (props: HousekeepingFormDialogProps) => ReactNode;
 };
 
 function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
@@ -544,6 +553,18 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         canReadRoster={readRoster}
         subtitle={props.subtitle}
         formatError={props.formatError}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/inventory')) {
+    return (
+      <HousekeepingInventory
+        propertyId={props.propertyId}
+        api={props.api}
+        canAssign={props.canAssign}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        Dialog={props.Dialog}
       />
     );
   }

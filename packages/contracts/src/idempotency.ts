@@ -175,6 +175,12 @@ export const PRODUCT_INVALID_AMOUNT = 'invalid_amount' as const;
 export const PRODUCT_CATEGORY_NOT_FOUND = 'category_not_found' as const;
 export const PRODUCT_NOT_FOUND = 'product_not_found' as const;
 
+/** Housekeeping inventory wire codes (R1.9 B) */
+export const INVENTORY_ITEM_NOT_FOUND = 'inventory_item_not_found' as const;
+export const INVENTORY_ITEM_EXISTS = 'inventory_item_exists' as const;
+export const INVENTORY_ITEM_ARCHIVED = 'inventory_item_archived' as const;
+export const INSUFFICIENT_STOCK = 'insufficient_stock' as const;
+
 /** OPERATIONAL config wire codes (R1.6) */
 export const CONFIG_KEY_NOT_WRITABLE = 'config_key_not_writable' as const;
 export const CONFIG_CODE_REMOVED = 'config_code_removed' as const;

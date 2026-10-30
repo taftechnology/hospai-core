@@ -190,8 +190,10 @@ import {
   type ProvisionalExceptionRow,
 } from '@hospai/contracts';
 import {
+  adjustInventoryItem,
   assignHousekeeping,
   bulkUpdateRoomStatus,
+  createInventoryItem,
   deleteFutureHousekeepingAssignments,
   HousekeepingOooViaRangeError,
   HousekeepingRoomNotFoundError,
@@ -200,9 +202,15 @@ import {
   isCleanlinessStatus,
   isRoomStatus,
   readAssignments,
+  readHousekeepingInventory,
+  readHousekeepingInventoryMovements,
   readHousekeepingPriorities as readHousekeepingPriorityQueue,
   setHousekeepingPriority,
+  updateInventoryItem,
   updateRoomStatus,
+  type AdjustInventoryInput,
+  type CreateInventoryItemInput,
+  type UpdateInventoryItemInput,
 } from '@hospai/pms-housekeeping';
 import {
   createProductCategory,
@@ -1556,6 +1564,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'fx_rate',
   'housekeeping_assignment',
   'housekeeping_priority',
+  'housekeeping_inventory_item',
+  'housekeeping_inventory_movement',
   'idempotency',
   'invoice',
   'night_audit_report',
@@ -1600,6 +1610,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM fx_rate) +
       (SELECT COUNT(*) FROM housekeeping_assignment) +
       (SELECT COUNT(*) FROM housekeeping_priority) +
+      (SELECT COUNT(*) FROM housekeeping_inventory_item) +
+      (SELECT COUNT(*) FROM housekeeping_inventory_movement) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_report) +
@@ -7759,6 +7771,29 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return readHousekeepingPriorityQueue(this.ctx.storage.sql, { date });
   }
 
+  async readHousekeepingInventoryList(includeArchived: boolean): Promise<
+    ReturnType<typeof readHousekeepingInventory>
+  > {
+    this.assertRpcAvailable();
+    return readHousekeepingInventory(this.ctx.storage.sql, { includeArchived });
+  }
+
+  async readHousekeepingInventoryMovementsForItem(itemId: string): Promise<
+    | ReturnType<typeof readHousekeepingInventoryMovements>
+    | { ok: false; error: 'inventory_item_not_found' }
+  > {
+    this.assertRpcAvailable();
+    try {
+      return readHousekeepingInventoryMovements(this.ctx.storage.sql, itemId);
+    } catch (e) {
+      const mapped = mapPropertyCommandError(e);
+      if (mapped && 'error' in mapped && mapped.error === 'inventory_item_not_found') {
+        return mapped as { ok: false; error: 'inventory_item_not_found' };
+      }
+      throw e;
+    }
+  }
+
   private assertOccupancySync(roomTypeId: string, adults: number, children: number): void {
     const rows = this.ctx.storage.sql
       .exec(`SELECT max_occupancy, max_adults FROM room_type WHERE room_type_id = ?`, roomTypeId)
@@ -13284,6 +13319,140 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       (ctx) => {
         const r = updateProductItem(ctx, input, { systemChargeCodes: SYSTEM_CHARGE_CODES });
         return { result: { ok: true as const, item: r.item }, before: r.before, after: r.item };
+      },
+    );
+  }
+
+  /** Shared write path for housekeeping inventory (R1.9 B). */
+  private async runHousekeepingInventoryWrite<R extends { ok: true }>(
+    actor: ActorContext,
+    idem: IdempotencyKey,
+    audit: {
+      commandId:
+        | 'housekeeping.inventory_create_item'
+        | 'housekeeping.inventory_update_item'
+        | 'housekeeping.inventory_adjust';
+      entityId: string;
+    },
+    execute: (ctx: ModuleTxnCtx) => { result: R; before: unknown | null; after: unknown },
+  ): Promise<
+    | R
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const out = execute(this.moduleTxnCtx(orgId, propertyId));
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: audit.commandId,
+            entityType: 'housekeeping_inventory_item',
+            entityId: audit.entityId,
+            beforeJson: out.before,
+            afterJson: out.after,
+          });
+          return out.result as Sync<R>;
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryCreateHousekeepingInventoryItem(
+    actor: ActorContext,
+    input: Omit<CreateInventoryItemInput, 'actorRef' | 'businessDate'>,
+    idem: IdempotencyKey,
+  ) {
+    const actorRef = actor.kind === 'user' ? actor.userId : 'system';
+    return this.runHousekeepingInventoryWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.inventory_create_item',
+        entityId: input.itemId,
+      },
+      (ctx) => {
+        const businessDate = this.readBusinessDateSync();
+        if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+        const result = createInventoryItem(ctx, {
+          ...input,
+          actorRef,
+          businessDate,
+        });
+        return { result, before: null, after: result.item };
+      },
+    );
+  }
+
+  async tryUpdateHousekeepingInventoryItem(
+    actor: ActorContext,
+    input: UpdateInventoryItemInput,
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingInventoryWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.inventory_update_item',
+        entityId: input.itemId,
+      },
+      (ctx) => {
+        const r = updateInventoryItem(ctx, input);
+        return {
+          result: { ok: true as const, item: r.item },
+          before: r.before,
+          after: r.item,
+        };
+      },
+    );
+  }
+
+  async tryAdjustHousekeepingInventoryItem(
+    actor: ActorContext,
+    input: Omit<AdjustInventoryInput, 'actorRef' | 'businessDate'>,
+    idem: IdempotencyKey,
+  ) {
+    const actorRef = actor.kind === 'user' ? actor.userId : 'system';
+    return this.runHousekeepingInventoryWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.inventory_adjust',
+        entityId: input.itemId,
+      },
+      (ctx) => {
+        const businessDate = this.readBusinessDateSync();
+        if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+        const result = adjustInventoryItem(ctx, {
+          ...input,
+          actorRef,
+          businessDate,
+        });
+        return { result, before: null, after: result.item };
       },
     );
   }

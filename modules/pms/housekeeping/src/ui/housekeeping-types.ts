@@ -1,7 +1,20 @@
+import type { ReactNode } from 'react';
 import type {
+  HousekeepingInventoryCategory,
+  HousekeepingInventoryItemRow,
+  HousekeepingInventoryMovementKind,
+  HousekeepingInventoryMovementRow,
   HousekeepingPriorityLevelInput,
   HousekeepingPriorityQueueRow,
 } from '@hospai/contracts';
+
+/** Same shape as the operator SPA `FormDialog` — the one `.app-modal` overlay. */
+export type HousekeepingFormDialogProps = {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  actions: ReactNode;
+};
 
 export type HousekeepingOooRange = {
   oooId: string;
@@ -58,6 +71,44 @@ export type HousekeepingApi = {
   setHousekeepingPriority: (
     propertyId: string,
     input: { roomId: string; businessDate: string; level: HousekeepingPriorityLevelInput },
+    opId: string,
+  ) => Promise<unknown>;
+  getHousekeepingInventory: (
+    propertyId: string,
+    query?: { archived?: boolean },
+  ) => Promise<{ ok: true; items: HousekeepingInventoryItemRow[] }>;
+  getHousekeepingInventoryMovements: (
+    propertyId: string,
+    itemId: string,
+  ) => Promise<{ ok: true; movements: HousekeepingInventoryMovementRow[] }>;
+  createHousekeepingInventoryItem: (
+    propertyId: string,
+    input: {
+      itemId: string;
+      name: string;
+      category: HousekeepingInventoryCategory;
+      unit: string;
+      parLevel: number;
+      onHand: number;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  updateHousekeepingInventoryItem: (
+    propertyId: string,
+    itemId: string,
+    input: {
+      name: string;
+      category: HousekeepingInventoryCategory;
+      unit: string;
+      parLevel: number;
+      archived: boolean;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  adjustHousekeepingInventoryItem: (
+    propertyId: string,
+    itemId: string,
+    input: { kind: HousekeepingInventoryMovementKind; quantity: number; note?: string },
     opId: string,
   ) => Promise<unknown>;
   setOooRange?: (

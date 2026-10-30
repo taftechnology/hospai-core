@@ -925,6 +925,38 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_housekeeping_inventory_item',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_create_item',
+  },
+  {
+    id: 'patch_housekeeping_inventory_item',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_update_item',
+  },
+  {
+    id: 'post_housekeeping_inventory_adjust',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_adjust',
+  },
+  {
+    id: 'get_housekeeping_inventory',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_housekeeping_inventory_movements',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

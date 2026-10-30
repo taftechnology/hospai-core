@@ -179,6 +179,8 @@ import {
   TENANT_NOT_ACTIVE,
   TIMEZONE_UNSET,
   isCommandError,
+  isHousekeepingInventoryCategory,
+  isHousekeepingInventoryMovementKind,
   isHousekeepingPriorityLevelInput,
   UNDECLARED_CONFIG_PREFIX,
   UNKNOWN_COMMAND,
@@ -3797,6 +3799,231 @@ async function handleGetHousekeepingPriorities(ctx: V1DispatchContext): Promise<
     const result = await resolvedCtx.resolved.stub.readHousekeepingPriorities(date);
     if (!result.ok) {
       return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostHousekeepingInventoryItem(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.itemId !== 'string' ||
+    !body.itemId ||
+    typeof body?.name !== 'string' ||
+    typeof body?.unit !== 'string' ||
+    !isHousekeepingInventoryCategory(body.category) ||
+    !Number.isInteger(body.parLevel) ||
+    !Number.isInteger(body.onHand) ||
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    itemId: body.itemId,
+    name: body.name,
+    category: body.category,
+    unit: body.unit,
+    parLevel: body.parLevel,
+    onHand: body.onHand,
+  };
+  const fingerprint = await commandFingerprint('housekeeping.inventory_create_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryCreateHousekeepingInventoryItem']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.inventory_create_item',
+      routeId: 'post_housekeeping_inventory_item',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateHousekeepingInventoryItem(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === VALIDATION_ERROR) return json({ error: 'invalid_body' }, 400);
+      return null;
+    },
+  });
+}
+
+async function handlePatchHousekeepingInventoryItem(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const itemId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.name !== 'string' ||
+    typeof body?.unit !== 'string' ||
+    !isHousekeepingInventoryCategory(body.category) ||
+    !Number.isInteger(body.parLevel) ||
+    typeof body?.archived !== 'boolean' ||
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.itemId !== undefined && body.itemId !== itemId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    itemId,
+    name: body.name,
+    category: body.category,
+    unit: body.unit,
+    parLevel: body.parLevel,
+    archived: body.archived,
+  };
+  const fingerprint = await commandFingerprint('housekeeping.inventory_update_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryUpdateHousekeepingInventoryItem']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.inventory_update_item',
+      routeId: 'patch_housekeeping_inventory_item',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateHousekeepingInventoryItem(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === VALIDATION_ERROR) return json({ error: 'invalid_body' }, 400);
+      return null;
+    },
+  });
+}
+
+async function handlePostHousekeepingInventoryAdjust(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const itemId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    !isHousekeepingInventoryMovementKind(body.kind) ||
+    !Number.isInteger(body.quantity) ||
+    typeof body?.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.note !== undefined && typeof body.note !== 'string') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.itemId !== undefined && body.itemId !== itemId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    itemId,
+    kind: body.kind,
+    quantity: body.quantity,
+    ...(body.note !== undefined ? { note: body.note } : {}),
+  };
+  const fingerprint = await commandFingerprint('housekeeping.inventory_adjust', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryAdjustHousekeepingInventoryItem']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.inventory_adjust',
+      routeId: 'post_housekeeping_inventory_adjust',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryAdjustHousekeepingInventoryItem(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === VALIDATION_ERROR) return json({ error: 'invalid_body' }, 400);
+      return null;
+    },
+  });
+}
+
+async function handleGetHousekeepingInventory(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const archivedParam = new URL(ctx.request.url).searchParams.get('archived');
+  const includeArchived = archivedParam === '1';
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingInventoryList(includeArchived);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetHousekeepingInventoryMovements(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const itemId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingInventoryMovementsForItem(itemId);
+    if (!result.ok) {
+      return json({ ok: false, error: result.error }, 404);
     }
     return json(result, 200);
   } catch (e) {
@@ -8645,6 +8872,51 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingPriorities,
+  },
+  {
+    id: 'post_housekeeping_inventory_item',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inventory\/items$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_create_item',
+    handler: handlePostHousekeepingInventoryItem,
+  },
+  {
+    id: 'patch_housekeeping_inventory_item',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inventory\/items\/([^/]+)$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_update_item',
+    handler: handlePatchHousekeepingInventoryItem,
+  },
+  {
+    id: 'post_housekeeping_inventory_adjust',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inventory\/items\/([^/]+)\/adjust$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.inventory_adjust',
+    handler: handlePostHousekeepingInventoryAdjust,
+  },
+  {
+    id: 'get_housekeeping_inventory',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inventory$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingInventory,
+  },
+  {
+    id: 'get_housekeeping_inventory_movements',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inventory\/items\/([^/]+)\/movements$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingInventoryMovements,
   },
 ];
 

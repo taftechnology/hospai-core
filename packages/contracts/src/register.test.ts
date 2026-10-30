@@ -266,7 +266,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(71);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -768,15 +768,39 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[153] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(154);
+    expect(V1_HTTP_ROUTE_AUDIT[154]?.id).toBe('post_housekeeping_inventory_item');
+    expect(V1_HTTP_ROUTE_AUDIT[155]?.id).toBe('patch_housekeeping_inventory_item');
+    expect(V1_HTTP_ROUTE_AUDIT[156]?.id).toBe('post_housekeeping_inventory_adjust');
+    expect(V1_HTTP_ROUTE_AUDIT[157]?.id).toBe('get_housekeeping_inventory');
+    expect(V1_HTTP_ROUTE_AUDIT[158]?.id).toBe('get_housekeeping_inventory_movements');
+    expect(V1_HTTP_ROUTE_AUDIT[158]).toMatchObject({
+      scope: 'property',
+      permission: 'housekeeping:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(159);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(68);
-    expect(COMMAND_CATALOG).toHaveLength(96);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(71);
+    expect(COMMAND_CATALOG).toHaveLength(99);
     const setPriority = COMMAND_CATALOG.find((c) => c.id === 'housekeeping.set_priority');
     expect(setPriority?.lane).toBe('INTERACTIVE');
     expect(setPriority?.degraded).toBe('QUEUE_PROVISIONAL');
     expect(setPriority?.permission).toBe('housekeeping:write');
     expect(setPriority?.events).toEqual(['housekeeping.priority_changed']);
+    for (const id of [
+      'housekeeping.inventory_create_item',
+      'housekeeping.inventory_update_item',
+      'housekeeping.inventory_adjust',
+    ] as const) {
+      const cmd = COMMAND_CATALOG.find((c) => c.id === id);
+      expect(cmd?.lane).toBe('INTERACTIVE');
+      expect(cmd?.degraded).toBe('FAIL_CLOSED');
+      expect(cmd?.entitlement).toBe('pms.core');
+      expect(cmd?.permission).toBe('housekeeping:write');
+      expect(cmd?.events).toEqual(['housekeeping.inventory_changed']);
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
+    }
     expect(PLATFORM_GAPS).toEqual([]);
     for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();

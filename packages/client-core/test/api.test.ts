@@ -334,6 +334,12 @@ describe('createClient degraded writes', () => {
     await client.getRoster('prop_1', 'staff_1');
     await client.addRoster('prop_1', { displayName: 'Ada', kinds: ['housekeeper'] }, 'op-add');
     await client.updateRoster('prop_1', 'staff_1', { displayName: 'Ada K' }, 'op-upd');
+    await client.setRosterOps(
+      'prop_1',
+      'staff_1',
+      { shift: 'morning', maxRooms: 8, skills: ['linen'] },
+      'op-ops',
+    );
     await client.setRosterStatus('prop_1', 'staff_1', 'inactive', 'op-st');
     await client.exitRoster('prop_1', 'staff_1', 'op-ex');
     await client.assignHousekeeping('prop_1', {
@@ -347,6 +353,7 @@ describe('createClient degraded writes', () => {
       'GET /v1/properties/prop_1/roster/staff_1',
       'POST /v1/properties/prop_1/roster',
       'PATCH /v1/properties/prop_1/roster/staff_1',
+      'PUT /v1/properties/prop_1/roster/staff_1/ops',
       'POST /v1/properties/prop_1/roster/staff_1/status',
       'POST /v1/properties/prop_1/roster/staff_1/exit',
       'POST /v1/properties/prop_1/housekeeping/assignments',

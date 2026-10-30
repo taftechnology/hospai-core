@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
@@ -582,5 +582,104 @@ describe('HousekeepingApp inventory', () => {
       path: '/housekeeping/inventory',
     });
     expect(await screen.findByText('No inventory items yet.')).toBeTruthy();
+  });
+});
+
+const BEA: HousekeepingRosterPerson = {
+  staffId: 'staff_bea',
+  displayName: 'Bea',
+  status: 'active',
+  exitedAt: null,
+  kinds: ['housekeeper'],
+  ops: { shift: 'morning', maxRooms: 8, skills: [] },
+};
+
+const CARA: HousekeepingRosterPerson = {
+  staffId: 'staff_cara',
+  displayName: 'Cara',
+  status: 'active',
+  exitedAt: null,
+  kinds: ['housekeeper'],
+  ops: {
+    shift: 'night',
+    maxRooms: 2,
+    skills: ['linen', 'suites', 'turndown', 'vip'],
+  },
+};
+
+const CAPACITY_ASSIGNMENTS: HousekeepingAssignment[] = [
+  { roomId: 'rm_1', assigneeRef: 'staff_bea' },
+  { roomId: 'rm_2', assigneeRef: 'staff_cara' },
+  { roomId: 'rm_3', assigneeRef: 'staff_cara' },
+];
+
+function capacityApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
+  return stubApi({
+    listRooms: async () => ({
+      ok: true,
+      rooms: [
+        { roomId: 'rm_1', code: '101', status: 'dirty' },
+        { roomId: 'rm_2', code: '102', status: 'dirty' },
+        { roomId: 'rm_3', code: '103', status: 'dirty' },
+      ],
+    }),
+    listRoster: async () => ({ ok: true, staff: [CARA, BEA] }),
+    listHousekeepingAssignments: async () => ({ ok: true, assignments: CAPACITY_ASSIGNMENTS }),
+    ...overrides,
+  });
+}
+
+describe('Housekeeping roster capacity labels', () => {
+  it('workload shows n / max and a Full badge at capacity', async () => {
+    renderApp(capacityApi());
+    expect(await screen.findByText(/Bea: 1 \/ 8/)).toBeTruthy();
+    const workload = screen.getByTestId('hk-workload');
+    expect(workload.textContent).toMatch(/Cara: 2 \/ 2/);
+    expect(within(workload).getByText('Full')).toBeTruthy();
+    expect(within(workload).getAllByText('Full')).toHaveLength(1);
+  });
+
+  it('assign picker labels capacity and sorts under-capacity people first', async () => {
+    const assignHousekeeping = vi.fn().mockResolvedValue({ ok: true });
+    renderApp(capacityApi({ assignHousekeeping }));
+
+    const select = await screen.findByRole('combobox', { name: 'Assign 101' });
+    const labels = Array.from(select.querySelectorAll('option')).map((option) => option.textContent);
+    expect(labels).toEqual([
+      'Assign',
+      'Bea · Morning · 1/8',
+      'Cara · Night · 2/2 · linen, suites, turndown +1',
+    ]);
+    const cara = select.querySelector('option[value="staff_cara"]');
+    expect(cara?.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.change(select, { target: { value: 'staff_cara' } });
+    await waitFor(() => {
+      expect(assignHousekeeping).toHaveBeenCalledWith(
+        'prop_1',
+        expect.objectContaining({ assigneeRef: 'staff_cara', roomId: 'rm_1' }),
+      );
+    });
+  });
+
+  it('priority assign picker uses the same label and order', async () => {
+    renderApp(
+      capacityApi({
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [{ ...VIP_ROW, code: '301', assigneeRef: null }],
+        }),
+      }),
+      { path: '/housekeeping/priority' },
+    );
+
+    const select = await screen.findByRole('combobox', { name: 'Assign 301' });
+    const labels = Array.from(select.querySelectorAll('option')).map((option) => option.textContent);
+    expect(labels).toEqual([
+      'Assign',
+      'Bea · Morning · 1/8',
+      'Cara · Night · 2/2 · linen, suites, turndown +1',
+    ]);
   });
 });

@@ -217,14 +217,14 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R1.9 part B (housekeeping inventory, 2026-10-30) — update this table when you bump them:
+After roadmap R1.9 part C (staff ops, 2026-10-30) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **99** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **159** routes, last id **`get_housekeeping_inventory_movements`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `COMMAND_CATALOG` length | **100** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **160** routes, last id **`put_roster_ops`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `PROPERTY_SCHEMA_HEAD` | **38** | `packages/do-runtime` migrate tests |
-| `ORG_SCHEMA_HEAD` | **10** | `packages/do-runtime` migrate tests |
+| `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 
 There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.

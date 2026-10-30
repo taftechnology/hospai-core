@@ -825,6 +825,21 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes: ROSTER_FAIL_CLOSED_NOTES + ' ' + ROSTER_FAMILY_NOTES,
   },
   {
+    id: 'roster.set_ops',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['roster.updated'],
+    entitlement: 'pms.core',
+    permission: 'roster:write',
+    notes:
+      ROSTER_FAIL_CLOSED_NOTES +
+      ' ' +
+      ROSTER_FAMILY_NOTES +
+      ' Per-property shift, max rooms and operational skill tags on roster_property for the URL property. Idempotency key is JSON idempotencyKey. Skills are not compensation data.',
+  },
+  {
     id: 'inventory.add_room_type',
     prototypeAction: 'ADD_ROOM_TYPE',
     lane: 'INTERACTIVE',

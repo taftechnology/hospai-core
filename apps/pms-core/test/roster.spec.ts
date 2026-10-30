@@ -59,15 +59,29 @@ describe('OrgDO roster RPCs', () => {
     ).toEqual({ ok: false, error: EMPTY_KINDS });
   });
 
-  it('4: kinds including maintenance → invalid_kinds', async () => {
+  it('4: kinds including maintenance are stored', async () => {
     const org = await provisionedOrg(`org-roster-4-${crypto.randomUUID()}`);
     const input = { profile: { displayName: 'Ada' }, kinds: ['housekeeper', 'maintenance'] };
+    const created = await org.tryCreateRoster(
+      TEST_OWNER_ACTOR,
+      'prop_roster',
+      input,
+      await idemFor('roster-maintenance-kinds', input),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const read = await org.readRoster(TEST_OWNER_ACTOR, 'prop_roster', created.staffId);
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect([...read.kinds].sort()).toEqual(['housekeeper', 'maintenance']);
+
+    const unknown = { profile: { displayName: 'Bea' }, kinds: ['concierge'] };
     expect(
       await org.tryCreateRoster(
         TEST_OWNER_ACTOR,
         'prop_roster',
-        input,
-        await idemFor('roster-invalid-kinds', input),
+        unknown,
+        await idemFor('roster-unknown-kind', unknown),
       ),
     ).toEqual({ ok: false, error: INVALID_KINDS });
   });
@@ -130,7 +144,7 @@ describe('OrgDO roster RPCs', () => {
     const propertyId = 'prop_roster';
     const refs = await createHousekeeper(org, propertyId, 'Ada');
 
-    expect(await org.assertStaffAssignable(refs.staffId)).toEqual({ ok: true, staffId: refs.staffId });
+    expect(await org.assertStaffAssignable(refs.staffId, 'housekeeper')).toEqual({ ok: true, staffId: refs.staffId });
 
     const inactiveInput = { staffId: refs.staffId, status: 'inactive' as const };
     expect(
@@ -141,7 +155,7 @@ describe('OrgDO roster RPCs', () => {
         await idemFor('roster-inactive', inactiveInput),
       ),
     ).toMatchObject({ ok: true, staffId: refs.staffId });
-    expect(await org.assertStaffAssignable(refs.staffId)).toEqual({
+    expect(await org.assertStaffAssignable(refs.staffId, 'housekeeper')).toEqual({
       ok: false,
       error: STAFF_NOT_ASSIGNABLE,
     });
@@ -155,7 +169,21 @@ describe('OrgDO roster RPCs', () => {
         await idemFor('roster-active', activeInput),
       ),
     ).toMatchObject({ ok: true, staffId: refs.staffId });
-    expect(await org.assertStaffAssignable(refs.staffId)).toEqual({ ok: true, staffId: refs.staffId });
+    expect(await org.assertStaffAssignable(refs.staffId, 'housekeeper')).toEqual({ ok: true, staffId: refs.staffId });
+  });
+
+  it('maintenance-only staff is assignable as maintenance and not as a housekeeper', async () => {
+    const org = await provisionedOrg(`org-roster-kind-${crypto.randomUUID()}`);
+    const propertyId = 'prop_roster';
+    const refs = await createHousekeeper(org, propertyId, 'Moe', { kinds: ['maintenance'] });
+    expect(await org.assertStaffAssignable(refs.staffId, 'housekeeper')).toEqual({
+      ok: false,
+      error: STAFF_NOT_ASSIGNABLE,
+    });
+    expect(await org.assertStaffAssignable(refs.staffId, 'maintenance')).toEqual({
+      ok: true,
+      staffId: refs.staffId,
+    });
   });
 
   it('7: exit drops identity keys, keeps employment, emits roster.exited refs only', async () => {

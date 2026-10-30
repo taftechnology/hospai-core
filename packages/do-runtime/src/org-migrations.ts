@@ -237,6 +237,59 @@ const ORG_OPERATIONAL_CONFIG_STATEMENTS = [
 
 export const ORG_OPERATIONAL_CONFIG_SQL = ORG_OPERATIONAL_CONFIG_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * Freeze-gate rebuild of `roster_kind` (SQLite cannot ALTER a CHECK) plus
+ * per-property operational columns. Keep the kind list in sync with
+ * `ROSTER_KINDS` in `@hospai/contracts`. The only index on the old table was
+ * its primary key, recreated with the new table. Exit triggers are dropped
+ * with the old table and recreated with the v6 bodies.
+ */
+export const ORG_ROSTER_OPS_V11_STATEMENTS = [
+  `CREATE TABLE roster_kind_v11 (
+  staff_id TEXT NOT NULL,
+  kind     TEXT NOT NULL CHECK (kind IN ('housekeeper', 'maintenance')),
+  PRIMARY KEY (staff_id, kind),
+  FOREIGN KEY (staff_id) REFERENCES roster(staff_id)
+)`,
+
+  `INSERT INTO roster_kind_v11 (staff_id, kind)
+SELECT staff_id, kind FROM roster_kind`,
+
+  `DROP TABLE roster_kind`,
+
+  `ALTER TABLE roster_kind_v11 RENAME TO roster_kind`,
+
+  `CREATE TRIGGER roster_kind_insert
+BEFORE INSERT ON roster_kind
+BEGIN
+  SELECT RAISE(ABORT, 'roster_kind frozen after exit')
+  WHERE EXISTS (SELECT 1 FROM roster WHERE staff_id = NEW.staff_id AND exited_at IS NOT NULL);
+END`,
+
+  `CREATE TRIGGER roster_kind_update
+BEFORE UPDATE ON roster_kind
+BEGIN
+  SELECT RAISE(ABORT, 'roster_kind frozen after exit')
+  WHERE EXISTS (SELECT 1 FROM roster WHERE staff_id = NEW.staff_id AND exited_at IS NOT NULL)
+     OR EXISTS (SELECT 1 FROM roster WHERE staff_id = OLD.staff_id AND exited_at IS NOT NULL);
+END`,
+
+  `CREATE TRIGGER roster_kind_delete
+BEFORE DELETE ON roster_kind
+BEGIN
+  SELECT RAISE(ABORT, 'roster_kind frozen after exit')
+  WHERE EXISTS (SELECT 1 FROM roster WHERE staff_id = OLD.staff_id AND exited_at IS NOT NULL);
+END`,
+
+  `ALTER TABLE roster_property ADD COLUMN shift TEXT CHECK (shift IN ('morning', 'evening', 'night', 'any'))`,
+
+  `ALTER TABLE roster_property ADD COLUMN max_rooms INTEGER CHECK (max_rooms BETWEEN 1 AND 50)`,
+
+  `ALTER TABLE roster_property ADD COLUMN ops_skills TEXT`,
+] as const;
+
+export const ORG_ROSTER_OPS_V11_SQL = ORG_ROSTER_OPS_V11_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -287,5 +340,10 @@ export const ORG_MIGRATIONS = [
     version: 10,
     name: '0010_operational_config',
     statements: ORG_OPERATIONAL_CONFIG_STATEMENTS,
+  },
+  {
+    version: 11,
+    name: '0011_roster_ops',
+    statements: ORG_ROSTER_OPS_V11_STATEMENTS,
   },
 ] as const;

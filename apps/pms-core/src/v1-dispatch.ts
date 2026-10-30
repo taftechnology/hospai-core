@@ -156,6 +156,11 @@ import {
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
   ROSTER_KINDS_MAX,
+  ROSTER_OPS_SKILLS_MAX,
+  normalizeRosterOpsSkills,
+  rosterOpsFieldsValid,
+  rosterOpsSkillsExceedCaps,
+  type RosterSetOpsPayload,
   NIGHT_AUDIT_NOT_DUE,
   NIGHT_AUDIT_STEP_NOT_FAILED,
   NIGHT_AUDIT_WORKFLOW_EXISTS,
@@ -1776,6 +1781,68 @@ async function handlePostRosterExit(ctx: V1DispatchContext): Promise<Response> {
     if (isOrgDoTransportFailure(e, ctx.env)) {
       return json(
         { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.exit' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
+async function handlePutRosterOps(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const staffId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (typeof body.idempotencyKey !== 'string' || body.idempotencyKey.length === 0) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (!('shift' in body) || !('maxRooms' in body) || !('skills' in body)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const candidate = { shift: body.shift, maxRooms: body.maxRooms, skills: body.skills };
+  if (!rosterOpsFieldsValid(candidate)) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (candidate.skills.length > ROSTER_OPS_SKILLS_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+  const skills = normalizeRosterOpsSkills(candidate.skills);
+  if (rosterOpsSkillsExceedCaps(skills)) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const payload: RosterSetOpsPayload = {
+    staffId,
+    propertyId,
+    shift: candidate.shift,
+    maxRooms: candidate.maxRooms,
+    skills,
+  };
+  const fingerprint = await commandFingerprint('roster.set_ops', payload);
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const result = await org.trySetRosterOps(actor, payload, { key: body.idempotencyKey, fingerprint });
+    if (!result.ok) {
+      return commandErrorResponse(result.error, 'roster:write');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'roster.set_ops' },
         503,
         { 'Retry-After': '30' },
       );
@@ -8917,6 +8984,16 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingInventoryMovements,
+  },
+  {
+    id: 'put_roster_ops',
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/roster\/([^/]+)\/ops$/,
+    permission: 'roster:write',
+    commandId: 'roster.set_ops',
+    entitlement: 'pms.core',
+    handler: handlePutRosterOps,
   },
 ];
 

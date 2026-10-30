@@ -94,6 +94,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_PROPERTY_PII_ASSOCIATION_SQL;
   let ORG_DATA_KEY_VERSION_SQL;
   let ORG_OPERATIONAL_CONFIG_SQL;
+  let ORG_ROSTER_OPS_V11_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -149,6 +150,7 @@ if (process.argv.includes('--self-test')) {
       ORG_PROPERTY_PII_ASSOCIATION_SQL,
       ORG_DATA_KEY_VERSION_SQL,
       ORG_OPERATIONAL_CONFIG_SQL,
+      ORG_ROSTER_OPS_V11_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -624,6 +626,15 @@ const targets = [
 
 `,
     sql: ORG_OPERATIONAL_CONFIG_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0011_roster_ops.sql'),
+    header: `-- OrgDO roster kind rebuild + per-property ops (R1.9c) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_ROSTER_OPS_V11_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

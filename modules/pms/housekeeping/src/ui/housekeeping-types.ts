@@ -36,12 +36,19 @@ export type HousekeepingAssignment = {
   assigneeRef: string;
 };
 
+export type HousekeepingRosterOps = {
+  shift: 'morning' | 'evening' | 'night' | 'any' | null;
+  maxRooms: number | null;
+  skills: string[];
+};
+
 export type HousekeepingRosterPerson = {
   staffId: string;
   displayName?: string;
   status: string;
   exitedAt: number | null;
   kinds: string[];
+  ops?: HousekeepingRosterOps;
 };
 
 export type HousekeepingApi = {

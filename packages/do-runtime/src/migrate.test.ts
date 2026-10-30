@@ -16,6 +16,7 @@ import {
   ORG_PROPERTY_PII_ASSOCIATION_SQL,
   ORG_DATA_KEY_VERSION_SQL,
   ORG_OPERATIONAL_CONFIG_SQL,
+  ORG_ROSTER_OPS_V11_SQL,
   ORG_SCHEMA_HEAD,
   ORG_SPINE_SQL,
   PLATFORM_REGISTRY_SQL,
@@ -244,6 +245,10 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE data_key ADD COLUMN key_version')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('INSERT INTO roster_kind_v11')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE roster_kind')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE roster_kind_v11 RENAME TO roster_kind')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE roster_property ADD COLUMN')) return { toArray: () => [] };
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
@@ -637,6 +642,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(ORG_OPERATIONAL_CONFIG_SQL.trim());
   });
 
+  it('migrations/do-org/0011_roster_ops.sql matches ORG_ROSTER_OPS_V11_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-org/0011_roster_ops.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(ORG_ROSTER_OPS_V11_SQL.trim());
+  });
+
   it('migrations/d1-platform/0001_tenant_registry.sql matches PLATFORM_REGISTRY_SQL', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const path = join(here, '../../../migrations/d1-platform/0001_tenant_registry.sql');
@@ -673,9 +690,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(10);
-    expect(sql.schemaVersion).toHaveLength(10);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(11);
+    expect(sql.schemaVersion).toHaveLength(11);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -689,7 +706,7 @@ describe('freeAvailability', () => {
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(38);
-    expect(ORG_SCHEMA_HEAD).toBe(10);
+    expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
 

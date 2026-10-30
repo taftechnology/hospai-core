@@ -25,6 +25,11 @@ import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { PRIORITY_LEVEL_LABEL } from './priority-labels.js';
+import {
+  assignPickerLabel,
+  assignedCounts,
+  sortAssignableHousekeepers,
+} from './roster-assign-label.js';
 import type {
   HousekeepingApi,
   HousekeepingFormDialogProps,
@@ -138,9 +143,18 @@ function HousekeepingBoard({
     return map;
   }, [rosterQuery.data]);
 
+  const counts = useMemo(
+    () => assignedCounts(assignmentsQuery.data?.assignments ?? []),
+    [assignmentsQuery.data],
+  );
+
   const assignable = useMemo(
-    () => (rosterQuery.data?.staff ?? []).filter(isAssignableHousekeeper),
-    [rosterQuery.data],
+    () =>
+      sortAssignableHousekeepers(
+        (rosterQuery.data?.staff ?? []).filter(isAssignableHousekeeper),
+        counts,
+      ),
+    [rosterQuery.data, counts],
   );
 
   const rooms = roomsQuery.data?.rooms ?? [];
@@ -156,22 +170,23 @@ function HousekeepingBoard({
   }, [rooms, statusFilter, floorFilter, assignedFilter, byRoom]);
 
   const workload = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const a of assignmentsQuery.data?.assignments ?? []) {
-      counts.set(a.assigneeRef, (counts.get(a.assigneeRef) ?? 0) + 1);
-    }
     const assignedRoomIds = new Set(
       (assignmentsQuery.data?.assignments ?? []).map((a) => a.roomId),
     );
+    const byId = new Map((rosterQuery.data?.staff ?? []).map((person) => [person.staffId, person]));
     return {
-      rows: [...counts.entries()].map(([staffId, count]) => ({
-        staffId,
-        label: displayNameByStaffId.get(staffId) ?? staffId,
-        count,
-      })),
+      rows: [...counts.entries()].map(([staffId, count]) => {
+        const person = byId.get(staffId);
+        return {
+          staffId,
+          label: person?.displayName ?? displayNameByStaffId.get(staffId) ?? staffId,
+          count,
+          maxRooms: person?.ops?.maxRooms ?? null,
+        };
+      }),
       unassigned: rooms.length - assignedRoomIds.size,
     };
-  }, [assignmentsQuery.data, displayNameByStaffId, rooms.length]);
+  }, [assignmentsQuery.data, counts, displayNameByStaffId, rosterQuery.data, rooms.length]);
 
   const statusMutation = useMutation({
     mutationFn: (input: { roomId: string; status: string }) =>
@@ -345,7 +360,10 @@ function HousekeepingBoard({
             <div data-testid="hk-workload" className="ui-metrics">
               {workload.rows.map((row) => (
                 <span key={row.staffId} className="ui-metric">
-                  {row.label}: {row.count}
+                  {row.label}: {row.maxRooms != null ? `${row.count} / ${row.maxRooms}` : row.count}
+                  {row.maxRooms != null && row.count >= row.maxRooms ? (
+                    <Badge rung="attention">Full</Badge>
+                  ) : null}
                 </span>
               ))}
               <span className="ui-metric">Unassigned: {workload.unassigned}</span>
@@ -450,7 +468,7 @@ function HousekeepingBoard({
                           </option>
                           {assignable.map((person) => (
                             <option key={person.staffId} value={person.staffId}>
-                              {person.displayName ?? person.staffId}
+                              {assignPickerLabel(person, counts.get(person.staffId) ?? 0)}
                             </option>
                           ))}
                         </NativeSelect>

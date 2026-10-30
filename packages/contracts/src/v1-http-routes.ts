@@ -957,6 +957,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'put_roster_ops',
+    scope: 'property',
+    permission: 'roster:write',
+    commandId: 'roster.set_ops',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

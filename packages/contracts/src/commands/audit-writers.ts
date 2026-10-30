@@ -90,6 +90,7 @@ export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string
   { id: 'roster.update', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.status', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.exit', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
+  { id: 'roster.set_ops', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   {
     id: 'city_ledger.archive_account',
     reason: 'Terminal status flip; appendAuditLogSync in txn (same pattern as config.put_domain exemption class)',

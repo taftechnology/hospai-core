@@ -15,6 +15,7 @@ import {
   STAFF_EXITED,
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
+  NOT_FOUND,
   ORG_ID_UNSET,
   NOT_MEMBER,
   SCOPE_MISMATCH,
@@ -41,6 +42,15 @@ import {
   type PropertyScopedPermission,
   guestCrmExceedsCaps,
   normalizeGuestCrmFields,
+  ROSTER_KINDS,
+  ROSTER_OPS_SKILLS_MAX,
+  normalizeRosterOpsSkills,
+  rosterOpsFieldsValid,
+  rosterOpsSkillsExceedCaps,
+  isRosterShift,
+  type RosterKind,
+  type RosterOps,
+  type RosterSetOpsPayload,
 } from '@hospai/contracts';
 import {
   ORG_MIGRATIONS,
@@ -199,12 +209,31 @@ class StaffExitedError extends Error {
   }
 }
 
-const PHASE1_ROSTER_KINDS = ['housekeeper'] as const;
+const PHASE1_ROSTER_KINDS: readonly RosterKind[] = ROSTER_KINDS;
 
 function rosterKindsError(kinds: string[]): typeof EMPTY_KINDS | typeof INVALID_KINDS | null {
   if (kinds.length === 0) return EMPTY_KINDS;
   if (kinds.some((k) => !(PHASE1_ROSTER_KINDS as readonly string[]).includes(k))) return INVALID_KINDS;
   return null;
+}
+
+function parseRosterOps(shift: string | null, maxRooms: number | null, opsSkills: string | null): RosterOps {
+  let skills: string[] = [];
+  if (opsSkills) {
+    try {
+      const parsed = JSON.parse(opsSkills) as unknown;
+      if (Array.isArray(parsed) && parsed.every((skill) => typeof skill === 'string')) {
+        skills = parsed;
+      }
+    } catch {
+      skills = [];
+    }
+  }
+  return {
+    shift: isRosterShift(shift) ? shift : null,
+    maxRooms: typeof maxRooms === 'number' ? maxRooms : null,
+    skills,
+  };
 }
 
 function profileHasCompensation(profile: Partial<StaffProfileCreate> | undefined): boolean {
@@ -2047,6 +2076,19 @@ export class OrgDO extends DurableObject<PmsEnv> {
     return rows.map((r) => r.kind);
   }
 
+  private loadRosterOps(staffId: string, propertyId: string): RosterOps {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT shift, max_rooms, ops_skills FROM roster_property WHERE staff_id = ? AND property_id = ?`,
+        staffId,
+        propertyId,
+      )
+      .toArray() as Array<{ shift: string | null; max_rooms: number | null; ops_skills: string | null }>;
+    const row = rows[0];
+    if (!row) return { shift: null, maxRooms: null, skills: [] };
+    return parseRosterOps(row.shift, row.max_rooms, row.ops_skills);
+  }
+
   private replaceRosterKinds(staffId: string, kinds: string[]): void {
     this.ctx.storage.sql.exec(`DELETE FROM roster_kind WHERE staff_id = ?`, staffId);
     for (const kind of [...new Set(kinds)]) {
@@ -2395,8 +2437,106 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async trySetRosterOps(
+    actor: ActorContext,
+    input: RosterSetOpsPayload,
+    idem: IdempotencyKey,
+  ): Promise<
+    | RosterWriteOk
+    | {
+        ok: false;
+        error:
+          | typeof NOT_FOUND
+          | typeof STAFF_EXITED
+          | typeof LIMIT_EXCEEDED
+          | typeof VALIDATION_ERROR
+          | typeof IDEM_KEY_REUSED;
+      }
+    | RosterGateError
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, input.propertyId, 'roster:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    if (
+      !rosterOpsFieldsValid({
+        shift: input.shift,
+        maxRooms: input.maxRooms,
+        skills: input.skills,
+      })
+    ) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    if (input.skills.length > ROSTER_OPS_SKILLS_MAX) return { ok: false, error: LIMIT_EXCEEDED };
+    const skills = normalizeRosterOpsSkills(input.skills);
+    if (rosterOpsSkillsExceedCaps(skills)) return { ok: false, error: LIMIT_EXCEEDED };
+
+    try {
+      const replay = readIdempotentReplay<RosterWriteOk | { ok: false; error: CommandError }>(
+        this.ctx.storage.sql,
+        idem,
+        actor,
+      );
+      if (replay) return replay;
+
+      const row = this.loadRosterRow(input.staffId);
+      if (!row || !this.isStaffLinkedToPropertySync(input.staffId, input.propertyId)) {
+        return { ok: false, error: NOT_FOUND };
+      }
+      if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
+
+      const shift = input.shift;
+      const maxRooms = input.maxRooms;
+      const opsSkills = skills.length > 0 ? JSON.stringify(skills) : null;
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const again = this.loadRosterRow(input.staffId);
+          if (!again || !this.isStaffLinkedToPropertySync(input.staffId, input.propertyId)) {
+            throw new StaffNotFoundError();
+          }
+          if (again.exited_at != null) throw new StaffExitedError();
+
+          this.ctx.storage.sql.exec(
+            `UPDATE roster_property
+             SET shift = ?, max_rooms = ?, ops_skills = ?
+             WHERE staff_id = ? AND property_id = ?`,
+            shift,
+            maxRooms,
+            opsSkills,
+            input.staffId,
+            input.propertyId,
+          );
+
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'roster.updated',
+            payload: { orgId, staffRef: input.staffId, piiKeyId: row.pii_key_id },
+          });
+
+          return { ok: true as const, staffId: input.staffId, piiKeyId: row.pii_key_id };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof StaffNotFoundError) return { ok: false, error: NOT_FOUND };
+      if (e instanceof StaffExitedError) return { ok: false, error: STAFF_EXITED };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
   async assertStaffAssignable(
     staffId: string,
+    kind: RosterKind,
   ): Promise<
     | { ok: true; staffId: string }
     | { ok: false; error: typeof STAFF_NOT_FOUND | typeof STAFF_EXITED | typeof STAFF_NOT_ASSIGNABLE }
@@ -2405,10 +2545,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const row = this.loadRosterRow(staffId);
     if (!row) return { ok: false, error: STAFF_NOT_FOUND };
     if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
-    const housekeeper = this.ctx.storage.sql
-      .exec(`SELECT 1 AS one FROM roster_kind WHERE staff_id = ? AND kind = 'housekeeper' LIMIT 1`, staffId)
+    const matched = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM roster_kind WHERE staff_id = ? AND kind = ? LIMIT 1`, staffId, kind)
       .toArray() as Array<{ one: number }>;
-    if (row.status !== 'active' || housekeeper.length === 0) {
+    if (row.status !== 'active' || matched.length === 0) {
       return { ok: false, error: STAFF_NOT_ASSIGNABLE };
     }
     return { ok: true, staffId };
@@ -2426,6 +2566,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
         kinds: string[];
         status: 'active' | 'inactive';
         exitedAt: number | null;
+        ops: RosterOps;
       }
     | { ok: false; error: typeof STAFF_NOT_FOUND }
     | RosterGateError
@@ -2459,6 +2600,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       kinds: this.loadRosterKinds(staffId),
       status: row.status,
       exitedAt: row.exited_at,
+      ops: this.loadRosterOps(staffId, propertyId),
     };
   }
 
@@ -2474,6 +2616,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
           kinds: string[];
           status: 'active' | 'inactive';
           exitedAt: number | null;
+          ops: RosterOps;
         }>;
       }
     | RosterGateError
@@ -2490,13 +2633,16 @@ export class OrgDO extends DurableObject<PmsEnv> {
 
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT r.staff_id, r.pii_key_id, r.profile_cipher, r.profile_iv, r.status, r.exited_at
+        `SELECT r.staff_id, r.pii_key_id, r.profile_cipher, r.profile_iv, r.status, r.exited_at,
+                rp.shift, rp.max_rooms, rp.ops_skills
          FROM roster r
          INNER JOIN roster_property rp ON rp.staff_id = r.staff_id AND rp.property_id = ?
          ORDER BY r.staff_id`,
         propertyId,
       )
-      .toArray() as unknown as RosterRow[];
+      .toArray() as unknown as Array<
+        RosterRow & { shift: string | null; max_rooms: number | null; ops_skills: string | null }
+      >;
     const vault = await this.vault();
     const staff = [];
     for (const row of rows) {
@@ -2511,6 +2657,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
         kinds: this.loadRosterKinds(row.staff_id),
         status: row.status,
         exitedAt: row.exited_at,
+        ops: parseRosterOps(row.shift, row.max_rooms, row.ops_skills),
       });
     }
     return { ok: true, staff };

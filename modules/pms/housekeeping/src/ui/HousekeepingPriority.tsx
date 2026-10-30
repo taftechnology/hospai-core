@@ -23,6 +23,11 @@ import { useMemo, useState } from 'react';
 import type { HousekeepingApi, HousekeepingRosterPerson } from './housekeeping-types.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { PRIORITY_LEVEL_LABEL, STAY_LABEL, priorityReasonLabel } from './priority-labels.js';
+import {
+  assignPickerLabel,
+  assignedCounts,
+  sortAssignableHousekeepers,
+} from './roster-assign-label.js';
 
 const LEVEL_OPTIONS: Array<{ value: HousekeepingPriorityLevelInput; label: string }> = [
   { value: 'standard', label: 'Standard' },
@@ -82,9 +87,18 @@ export function HousekeepingPriority({
     return map;
   }, [rosterQuery.data]);
 
+  const counts = useMemo(
+    () => assignedCounts(assignmentsQuery.data?.assignments ?? []),
+    [assignmentsQuery.data],
+  );
+
   const assignable = useMemo(
-    () => (rosterQuery.data?.staff ?? []).filter(isAssignableHousekeeper),
-    [rosterQuery.data],
+    () =>
+      sortAssignableHousekeepers(
+        (rosterQuery.data?.staff ?? []).filter(isAssignableHousekeeper),
+        counts,
+      ),
+    [rosterQuery.data, counts],
   );
 
   const showPicker = canAssign && readRoster && assignable.length > 0;
@@ -190,6 +204,7 @@ export function HousekeepingPriority({
                     canAssign={canAssign}
                     showPicker={showPicker}
                     assignable={assignable}
+                    assignedCounts={counts}
                     onLevel={(level) => priorityMutation.mutate({ roomId: row.roomId, level })}
                     onAssign={(assigneeRef) => assignMutation.mutate({ roomId: row.roomId, assigneeRef })}
                   />
@@ -216,6 +231,7 @@ function PriorityRow({
   canAssign,
   showPicker,
   assignable,
+  assignedCounts: counts,
   onLevel,
   onAssign,
 }: {
@@ -225,6 +241,7 @@ function PriorityRow({
   canAssign: boolean;
   showPicker: boolean;
   assignable: HousekeepingRosterPerson[];
+  assignedCounts: Map<string, number>;
   onLevel: (level: HousekeepingPriorityLevelInput) => void;
   onAssign: (assigneeRef: string) => void;
 }) {
@@ -287,7 +304,7 @@ function PriorityRow({
             </option>
             {assignable.map((person) => (
               <option key={person.staffId} value={person.staffId}>
-                {person.displayName ?? person.staffId}
+                {assignPickerLabel(person, counts.get(person.staffId) ?? 0)}
               </option>
             ))}
           </NativeSelect>

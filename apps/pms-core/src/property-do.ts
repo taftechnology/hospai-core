@@ -1903,7 +1903,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private async gateStaffRef(orgId: string, staffId: string) {
-    return this.gateOrgRef(orgId, (org) => org.assertStaffAssignable(staffId));
+    return this.gateOrgRef(orgId, (org) => org.assertStaffAssignable(staffId, 'housekeeper'));
   }
 
   private assertRpcAvailable(): void {

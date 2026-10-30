@@ -1455,6 +1455,11 @@ export function createClient(opts: {
           hourlyRate?: { amountMinor: number; currency: string };
           rating?: number;
           skills?: string[];
+          ops: {
+            shift: 'morning' | 'evening' | 'night' | 'any' | null;
+            maxRooms: number | null;
+            skills: string[];
+          };
         }>;
       };
     },
@@ -1511,6 +1516,23 @@ export function createClient(opts: {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(`/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}`, {
         method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async setRosterOps(
+      propertyId: string,
+      staffId: string,
+      input: {
+        shift: 'morning' | 'evening' | 'night' | 'any' | null;
+        maxRooms: number | null;
+        skills: string[];
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/roster/${enc(staffId)}/ops`, {
+        method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...input, idempotencyKey }),
       });

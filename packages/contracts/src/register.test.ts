@@ -779,10 +779,25 @@ describe('command catalog', () => {
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(159);
+    expect(V1_HTTP_ROUTE_AUDIT[159]?.id).toBe('put_roster_ops');
+    expect(V1_HTTP_ROUTE_AUDIT[159]).toMatchObject({
+      scope: 'property',
+      permission: 'roster:write',
+      commandId: 'roster.set_ops',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(160);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(71);
-    expect(COMMAND_CATALOG).toHaveLength(99);
+    expect(COMMAND_CATALOG).toHaveLength(100);
+    const setOps = COMMAND_CATALOG.find((c) => c.id === 'roster.set_ops');
+    expect(setOps?.lane).toBe('INTERACTIVE');
+    expect(setOps?.degraded).toBe('FAIL_CLOSED');
+    expect(setOps?.entitlement).toBe('pms.core');
+    expect(setOps?.permission).toBe('roster:write');
+    expect(setOps?.events).toEqual(['roster.updated']);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('roster.set_ops')).toBe(false);
+    expect(AUDIT_WRITER_EXEMPTIONS.some((e) => e.id === 'roster.set_ops')).toBe(true);
     const setPriority = COMMAND_CATALOG.find((c) => c.id === 'housekeeping.set_priority');
     expect(setPriority?.lane).toBe('INTERACTIVE');
     expect(setPriority?.degraded).toBe('QUEUE_PROVISIONAL');

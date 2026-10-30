@@ -1,4 +1,4 @@
-import type { Permission } from '@hospai/contracts';
+import type { Permission, RosterOps } from '@hospai/contracts';
 import { currencyCode, money, type Money } from '@hospai/money';
 import type { StaffProfile } from '@hospai/crypto-shredding';
 
@@ -8,6 +8,7 @@ export type RosterOperational = {
   status: 'active' | 'inactive';
   exitedAt: number | null;
   displayName?: string;
+  ops: RosterOps;
 };
 
 export type RosterHttpRow = RosterOperational & {
@@ -51,6 +52,7 @@ export function stripRosterRow(
     status: 'active' | 'inactive';
     exitedAt: number | null;
     profile: StaffProfile;
+    ops: RosterOps;
   },
 ): RosterHttpRow {
   const out: RosterHttpRow = {
@@ -58,6 +60,7 @@ export function stripRosterRow(
     kinds: row.kinds,
     status: row.status,
     exitedAt: row.exitedAt,
+    ops: row.ops,
   };
   if (row.profile.displayName !== undefined) out.displayName = row.profile.displayName;
   if (grants.includes('roster:write')) {

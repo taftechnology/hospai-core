@@ -12,6 +12,11 @@ enforce boundaries at the platform level — microservice isolation at monolith 
 Distribution is structural from day one on Cloudflare, but keep the Worker count small
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
+> **Revision 2026-10-31.** BluePMS's module-page inventories read against the pilot's 58 ticks.
+> §16.6 corrected (live room view, Manager Report, two new module rows, open forks); §7.3 gains
+> open folio, §7.4 in-house changes, §7.8 the Manager Report, §7.9 buyer tax identity and
+> classification. Evidence: `docs/research/2026-10-31-bluepms-inventory-vs-slices.md`.
+>
 > **Revision 2026-08-13.** Prototype-holes decisions closed; INQUIRY/PENDING drift closed;
 > `rooms.set_ooo_range`, `folio.transfer_charge`, and `folio.split_charge_v2` shipped.
 > Multi-currency folio + payments↔folio event contract designed in
@@ -1406,6 +1411,14 @@ destination`), and may transfer automatically at night audit. Three constraints:
 3. **A closed window rejects postings.** Late charges against a checked-out, closed window go to
    the exception path, never silently reopen it.
 
+**Open folio (bill on hold, roadmap R4.23, amended 2026-10-31).** Checkout normally leaves a
+window open, and today nothing stops a charge reaching a checked-out stay through it. An approved
+**hold** is what makes that legitimate: a record on the guest window with reason, approver,
+follow-up and close-by dates. With an active hold, a checked-out stay can take a charge; without
+one, the posting is refused. Rule 3 still stands: a hold keeps an open window open and never
+reopens a closed one. Holds read the guest window only, so COMPANY windows and city-ledger AR are
+unaffected, and night-audit checks on them run inside `PRE_CHECK` without a new step.
+
 **Splitting a charge** follows the same rule and this is where the prototype diverges most
 sharply: its `splitFolioCharge(id, itemId, newAmount)` mutates the line in place. Here, a
 $100 charge split 60/40 is **one reversal plus two new postings**, all in one atomic write,
@@ -1481,6 +1494,12 @@ INQUIRY → PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT
 
 Every transition emits a domain event and writes an audit record. Reservations are long-lived,
 high-value, and constantly disputed.
+
+**An in-house stay changes through a named command** (roadmap R4.24, amended 2026-10-31).
+`reservations.modify` refuses `CHECKED_IN`, because it assumes no night has posted. Extending, or
+changing type or plan after check-in, applies from the next unposted night, moves `sold` in the
+same transaction (§7.1) and never touches posted lines. Shortening stays
+`reservations.early_depart`.
 
 **Group blocks and allotments** are a separate aggregate, not a reservation with a flag: block
 inventory, rooming lists, cutoff dates, wash, and pickup tracking. Bolting this onto individual
@@ -1612,6 +1631,10 @@ them, and in fiscalized markets they are submitted. A report re-derived later fr
 that has since been compacted, corrected, or partially purged will not match the filed copy.
 Generate once, store immutably, serve the stored artifact forever.
 
+**The Manager Report (roadmap R4.32, 2026-10-31) is on the OLTP side:** closed-period totals over a
+date range for one property, built from those snapshots and `availability_day`. It is not a trend,
+and it is not a live scan of folios or reservations.
+
 Two consequences worth stating: no OLTP report may fan out across properties (§7.6), and no
 warehouse query may be on the path of an operator action — seconds-old data is fine for a
 dashboard and unacceptable for a check-in decision.
@@ -1662,6 +1685,11 @@ than retrofitting India afterwards.
    accommodation tax can itself fall within the HST base, so the engine applies levies in a
    defined sequence rather than summing a list. Getting the order wrong mis-states every invoice
    by a small amount — the kind of error that survives testing and fails an audit.
+9. **An issued tax document keeps a buyer snapshot and a line classification** (added 2026-10-31,
+   roadmap R4.22). Editing a company or guest later must not change an issued invoice. Plaintext
+   stays out of the invoice's R2 snapshot, so an individual's details are held encrypted in OrgDO,
+   keyed by invoice. Classification (HSN/SAC in India) is one attribute of the product class, not
+   a copy on each product.
 
 **First market: India — the pilot client** (decided 2026-10-27; supersedes the 2026-09-12
 Canada-first call for R3.6). The pilot is one Indian hotel switching from BluePMS; what it uses is
@@ -1674,10 +1702,13 @@ market this engine was shaped for: requirements 2–5 and 7 all exist because of
 | **Sales tax on accommodation** | GST at a **slab keyed to the per-night value of supply**. Components follow the **place of supply** — `CGST` + `SGST` intra-state, `IGST` inter-state (requirement 5) |
 | **F&B in the hotel** | The restaurant's GST rate depends on whether the hotel is a **specified premises** — a test on the hotel's own declared room tariff for the financial year. A product class's rate can therefore depend on a **property-level declaration**, not only on the charge (requirement 2) |
 | **Local levy** | None at municipal level for GST; state levies outside GST are out of scope until a property needs one |
-| **Fiscalization** | **e-invoicing** for B2B invoices above the aggregate-turnover threshold: IRN and signed QR from the Invoice Registration Portal, with the guest's **GSTIN** on the invoice (requirement 7, **R5.5**) |
+| **Fiscalization** | **e-invoicing** for B2B invoices above the aggregate-turnover threshold: IRN and signed QR from the Invoice Registration Portal, with the guest's **GSTIN** on the invoice (requirement 7, **R5.5**). Failures are corrected and rebuilt with a preview; a lost callback is acknowledged by hand with the official IRN and QR |
 | **Invoice numbering** | One consecutive series per **financial year (April–March)**, unique per GSTIN, with a length limit — R1.12 numbering must reset on the financial year, not the calendar year |
-| **Guest registration** | **Form C** to the Bureau of Immigration for foreign nationals within 24 hours of arrival (**R6.2**) |
+| **Guest registration** | **Form C** to the Bureau of Immigration for foreign nationals within 24 hours of arrival (**R6.2**). The duty is per person and the party is `adults` / `children`, so a second foreign national in a room is an open fork (**F4**, roadmap Track P) |
 | **Registration** | GSTIN is per state, so it is a **property** attribute — the same reason jurisdiction is per property below |
+| **Buyer details** | Registered or unregistered buyer; GSTIN, legal and trade name, address, state, PIN and place of supply. Captured on the city-ledger account, on the guest profile and at invoice time, and snapshotted on issue (requirement 9, **R4.22**) |
+| **Classification** | HSN/SAC per line on the tax invoice (requirement 9, **R4.22**). What the invoice must show is for the advisor |
+| **Plans and packages — open** | Whether a meal plan joins the room amount when choosing the slab, and when a room-and-meal stay is a composite supply. BluePMS makes both configurable. The answer may add inputs to requirement 2 and change R4.13's rule that each package line carries its own tax. **Advisor first; decide before R3.6 posts** |
 
 > As above: slab boundaries, the specified-premises tariff test and the e-invoicing threshold move.
 > The table records shape. Confirm current values with the client's tax advisor before R3.6 posts
@@ -2555,13 +2586,26 @@ that holds the OTA connections (roadmap **R4.3**, Track P). All seven ticked dis
 are met by the channel manager plus that connector. Four rows change
 production home only (Front Office, Housekeeping, guest CRM, AI Copilot) — they move into roadmap
 Track P. Every other row stands, and the blank modules confirm them.
+**Amended 2026-10-31 from the module-page inventories.** The checklist came from a summary that
+omitted each module page's feature inventory. Read against all 58 ticks
+([`docs/research/2026-10-31-bluepms-inventory-vs-slices.md`](docs/research/2026-10-31-bluepms-inventory-vs-slices.md)),
+27 are covered, 29 partly and 2 missing. The classification holds: Front Office and Housekeeping
+stay *Core*, and POS and channels stay *Integrate*, with every gap inside the room-night and folio
+rule below. Roadmap **R4.22–R4.32** close them. The site now lists **19 modules**: Tax & Compliance
+and Guest Experience were not on the checklist, so a blank there means "not asked". All of this is
+marketing material read from public pages, not checked in a live system, so a **live walkthrough**
+with the client comes first. Four collisions with existing locks stay **open forks** for the user
+(roadmap *Open forks*): line transfer to another room, the 26-day grid, the closed report list, and
+per-person Form C. The locks hold until those are decided.
 
 | BluePMS module | Prototype surface | Decision | Production home |
 |---|---|---|---|
-| Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; packages, proforma and document templates in R4.13 on R3.2 / R3.3, guest ID documents in R4.15 and the operational report set in R4.14 — all Track P. `RoomOpsLiveView` is covered by `/board` — no second grid |
-| Housekeeping | `Housekeeping` | **Core** | R1.9; lost and found, damage, guest audit, inspections, linen, minibar and amenity posting in R4.11 (Track P, desktop capture first); attendant capture moves to the R4.10 mobile app when it ships |
+| Front Office | `FrontDesk`, `Reservations`, `BookingWizard`, `TapeChart`, `RoomOpsLiveView`, `PackageMaster` | **Core** | Tracks 0–2; all Track P from here: packages, proforma and document templates in R4.13 on R3.2 / R3.3, guest ID documents in R4.15, the operational report set in R4.14, the Manager Report in R4.32, open folio in R4.23, billing depth in R4.29, in-house changes in R4.24, advances and receipts in R4.25, room at booking in R4.26. `RoomOpsLiveView` is R4.27, a status view of rooms by condition; `/board` remains the only date grid, deepened in R4.28 (corrected 2026-10-31: `/board` does not cover the live view) |
+| Housekeeping | `Housekeeping` | **Core** | R1.9; task record, status history and block detail in R4.30; lost and found, damage, guest audit, inspections, linen, minibar and amenity dispatch in R4.11; supervisor dashboard in R4.31 (all Track P, desktop capture first); attendant capture moves to the R4.10 mobile app when it ships |
 | Channel Distribution | `ChannelManager`, `DistributionSettings` | **Integrate — through a channel manager connector** (amended 2026-10-28) | R4.3 on R4.5 (Track P), keyed `channel_manager.enabled`: ARI push, booking receipt into the existing reservation commands, room and rate mapping, the unmapped-booking queue, commission per booking and distribution reports (R4.14). OTA connections, OTA certification and content are the channel manager's. No direct OTA integration is built |
 | Communications | `WhistleHub` | **Core** | R5.2 (all of Whistle) and R4.10 at the Canada launch; WhatsApp in R6.1 (Track 6 — the pilot left Communications blank) |
+| Tax & Compliance | — | **Core** (added 2026-10-31; not on the pilot's checklist) | R3.6 tax model, R4.22 buyer details and HSN/SAC, R5.5 e-invoicing and its queue (`compliance.fiscalization`). Country packs, an adapter registry and GST return registers are not built unless the client names them |
+| Guest Experience | — | **Undecided** (added 2026-10-31; not asked of the client) | Nothing built for the pilot, which left Communications and the booking engine blank. It overlaps R5.2 (messages, tasks) and R4.2 (direct booking). Reviews, social publishing, guest pages and a website builder have no slice, and building them needs a decision here first (rule 4) |
 | Accounts Receivable | `FoliosBilling` AR surfaces | **Core** | Shipped city ledger (aging, statements); company AR posting is audit L1 |
 | CRM — guest side | `GuestsCRM` | **Core** | R1.8 tags, VIP and notes; consent and ID documents in R4.15 (Track P); campaigns in R5.2 |
 | AI Copilot Home | `CopilotHome` | **Core, extended** | R4.16 read-only copilot first (Track P): answers with sources, summaries and suggested actions under the asking user's permissions. Then R4.6, R5.9, R5.10, R5.11 (§10.2) — agents act through the command catalog rather than only answer |
@@ -2589,7 +2633,8 @@ mirrors them as report catalogues. Production ships a small set of operational a
 a report builder over the warehouse (§7.8), and agent access (§10.2) for the long tail. A catalogue
 entry in the prototype is not a report anyone has committed to build. The small set is named in
 roadmap **R4.14** — the front-office, housekeeping, POS and distribution reports the pilot ticked —
-and nothing outside that list is in scope without a new slice.
+and nothing outside that list is in scope without a new slice. The **Manager Report (R4.32)** is
+such a slice. Whether R4.14's list is rewritten from the client's own list is open fork **F3**.
 
 **Added, not in BluePMS.** Accounting export (R4.12): revenue, tax components, payments, deposits
 and AR as journal-ready summaries — **Tally and Zoho Books first** for the India pilot, QuickBooks
@@ -2606,10 +2651,12 @@ without us building any of them.
 2. The prototype's Settings → Add-ons toggles are a local demo switch. Production gating is the
    entitlement plane (§6) and nothing else.
 3. Sequencing follows the segments, as roadmap Track P then Tracks 4–6. **India pilot (Track P):**
-   GST e-invoicing (R5.5) and Form C (R6.2), a channel manager connector, accounting export to Tally and Zoho Books,
-   packages and front-office depth, housekeeping depth, guest documents and consent, the named
-   report set, the on-property interface framework with a POS connector, the read-only copilot,
-   and a BluePMS importer. **Canada launch
+   GST e-invoicing with buyer details (R4.22, R5.5) and Form C (R6.2), a channel manager connector,
+   accounting export to Tally and Zoho Books, packages and front-office depth (open folio, billing
+   depth, in-house changes, advances, room at booking, live room view, grid depth), housekeeping
+   depth (tasks, status history, supervisor dashboard), guest documents and consent, the named
+   report set and the Manager Report, the on-property interface framework with a POS connector,
+   the read-only copilot, and a BluePMS importer. **Canada launch
    (Track 4):** Ontario and British Columbia jurisdictions, the mobile app, booking engine, payments,
    guest engagement (all of Whistle — inbox, automations, campaigns, email and SMS), QuickBooks and
    Xero export targets, Canadian importers, self-serve plans and billing. **Upscale properties and

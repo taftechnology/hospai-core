@@ -1,6 +1,6 @@
 # Development speed — where the time goes and how to get it back
 
-**Researched:** 2026-10-28 · **Purpose:** the India pilot needs about 45 more roadmap slices plus go-live work ([`docs/roadmap.md`](../roadmap.md) Track P). This note measures how development has actually gone in this repo and ranks the changes that would shorten the path to the pilot.
+**Researched:** 2026-10-28 · **Purpose:** the India pilot needs about 45 more roadmap slices plus go-live work ([`docs/roadmap.md`](../roadmap.md) Track P). The 2026-10-31 [BluePMS comparison](2026-10-31-bluepms-inventory-vs-slices.md) added eleven more (R4.22–R4.32) and widened others, so that figure is now about 56; the measurements below are unchanged. This note measures how development has actually gone in this repo and ranks the changes that would shorten the path to the pilot.
 
 ## Read this first
 

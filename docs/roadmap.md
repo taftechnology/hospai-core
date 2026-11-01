@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-10-27 India pilot pass — the pilot client's returned BluePMS checklist ([research](research/2026-10-27-pilot-client-checklist.md)) becomes the scope of a new **Track P** ahead of the Canada launch. **R3.6** decides India first (Canada follows as **R4.19**). Moves **R4.5**, **R4.3**, **R4.12**, **R4.8** out of Track 4, **R4.13** and **R4.11** out of Track 5 and **R5.5** out of Track 6 into Track P; adds **R4.14** (named report set), **R4.15** (guest ID documents + consent), **R4.16** (read-only copilot), **R4.18** (India tenders fork), **R4.19** (Canada readiness), **R6.2** (Form C), **R4.21** (POS connector) with **R4.9** pulled forward from Track 5, and **R4.17** (built-in POS, parked in Track 6). 2026-10-28: **R4.3** becomes a connector to a third-party channel manager (§16.6 *Integrate*) — no channel manager of our own, no direct OTA integration. After the client confirmed every tick is a must-have: **R4.20** (day-wise rate override); guest preferences join R4.15, guest requests join R4.11. **R5.4** loses its POS-lite scope; **R4.11** no longer waits on R4.10. Prior: 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Sequencing pass: **R4.5** opens Track 4 (R4.3 depends on it); **R1.4** follows **R1.5** and **R1.6**; **R4.8** Stage B moved into **R5.7**; **R5.8** back in numeric order; **R3.6** and **R3.10** added to the Track 4 gate; **R1.5** tax group locked to a §7.9 product class; card-capture references point at **R4.7**. Stage resequencing: Track 4 is the **Canada launch** (R4.5, R4.7, R5.2, R4.2, R4.3, R4.12, R4.10, R4.8, R5.6), Track 5 **upscale properties and groups**, new Track 6 **India and later bets** with **R6.1** (WhatsApp); resolves the **R4.2** email fork and the **R5.7** sequencing flag. Moves `held` behaviour out of R5.5 into new **R5.13** after R5.7, since group central reservations need TTL holds before India. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
+**Revision:** 2026-10-31 BluePMS inventory pass — the feature inventories on the module pages were read against all 58 ticks ([comparison](research/2026-10-31-bluepms-inventory-vs-slices.md)): 27 covered, 29 partly, 2 missing. Adds **R4.22–R4.32** to Track P, widens **R4.11**, **R4.13**, **R4.15**, **R4.16**, **R4.18**, **R4.20**, **R4.21**, **R5.5**, corrects **R1.19**, moves **R4.16** after the reports, adds four [open forks](#open-forks--the-users-decision) and a live walkthrough to the go-live checklist. Track and queue rules are unchanged. Prior: 2026-10-27 India pilot pass — the pilot client's returned BluePMS checklist ([research](research/2026-10-27-pilot-client-checklist.md)) becomes the scope of a new **Track P** ahead of the Canada launch. **R3.6** decides India first (Canada follows as **R4.19**). Moves **R4.5**, **R4.3**, **R4.12**, **R4.8** out of Track 4, **R4.13** and **R4.11** out of Track 5 and **R5.5** out of Track 6 into Track P; adds **R4.14** (named report set), **R4.15** (guest ID documents + consent), **R4.16** (read-only copilot), **R4.18** (India tenders fork), **R4.19** (Canada readiness), **R6.2** (Form C), **R4.21** (POS connector) with **R4.9** pulled forward from Track 5, and **R4.17** (built-in POS, parked in Track 6). 2026-10-28: **R4.3** becomes a connector to a third-party channel manager (§16.6 *Integrate*) — no channel manager of our own, no direct OTA integration. After the client confirmed every tick is a must-have: **R4.20** (day-wise rate override); guest preferences join R4.15, guest requests join R4.11. **R5.4** loses its POS-lite scope; **R4.11** no longer waits on R4.10. Prior: 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Sequencing pass: **R4.5** opens Track 4 (R4.3 depends on it); **R1.4** follows **R1.5** and **R1.6**; **R4.8** Stage B moved into **R5.7**; **R5.8** back in numeric order; **R3.6** and **R3.10** added to the Track 4 gate; **R1.5** tax group locked to a §7.9 product class; card-capture references point at **R4.7**. Stage resequencing: Track 4 is the **Canada launch** (R4.5, R4.7, R5.2, R4.2, R4.3, R4.12, R4.10, R4.8, R5.6), Track 5 **upscale properties and groups**, new Track 6 **India and later bets** with **R6.1** (WhatsApp); resolves the **R4.2** email fork and the **R5.7** sequencing flag. Moves `held` behaviour out of R5.5 into new **R5.13** after R5.7, since group central reservations need TTL holds before India. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
 
 ---
 
@@ -80,12 +80,12 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 |---|---|
 | 7-day occupancy Recharts on Dashboard | **Warehouse** (§7.8). Phase 1 Dashboard is **today’s** OLTP (`get_front_desk_summary`). |
 | Guest LTV / merge / passport / ID files | Guest CRM spec deferred LTV and merge; LTV trends = warehouse. ID documents and consent are **R4.15** (Track P). Stay history already ships. |
-| Additional named guests as extra `guest_ref`s | Holes sweep: party = `adults`/`children` only. No second profiles. |
+| Additional named guests as extra `guest_ref`s | Holes sweep: party = `adults`/`children` only. No second profiles. Holds unless fork **F4** changes it. |
 | Inventory `held` / wizard “hold a room without selling” | `held` unused until **R5.13** (Track 5, §7.1). Live **Hold** = `PENDING` (`sold++`), via `reservations.hold` / create-as-pending. |
 | CHECK / VOUCHER / GIFT tenders | Cashiering spec settled `CARD` \| `CASH` only. Do not widen the CHECK. |
 | Transactional email in Phase 1 | Guest engagement is **R5.2** in Track 4 (Canada launch), not Track 1. |
 | Valet / coffee tickets inside HK | §16.1 **maintenance module** = work orders. Concierge tickets = Whistle **tasks** (R5.2). OOO emits `room.ooo_changed`; tickets subscribe (HK leftover 5). |
-| HK reports tab | Not a catalogue tab. The pilot's housekeeping reports are the named **R4.14** set. Workload counts already on the HK board. |
+| HK reports tab | Not a catalogue tab. The pilot's housekeeping reports are the named **R4.14** set (fork **F3**). Workload counts already on the HK board. |
 | Products as a Settings tab stuffed into PropertyDO | §11 **`products` module**. Charge-code registry stays the posting reference. |
 | Settings Logs inventing `audit.append` HTTP | Audit-log spec: append is private. `get_audit_log` already exists for read. |
 | ARI KV / purge Workflow as greenfield | Specs + code **already shipped**. Do not rebuild. |
@@ -114,7 +114,7 @@ Reviewer workflow (if in force): spec → plan → implement per task, `composer
 | Plan-scoped restrictions | Type-wide `*` until channel-manager phase |
 | Rate-plan inclusions JSON | Deferred with recurring |
 | PAN / CVV / raw card fields | Never in PMS. Guarantee **workflow** is Phase 1 (R1.20); card capture is payments Worker (R5.4) |
-| Folio transfer to **another reservation** | Rejected (`transfer_cross_reservation`). Charges move between **windows on the same stay** (GUEST/COMPANY) |
+| Folio transfer to **another reservation** | Rejected (`transfer_cross_reservation`). Charges move between **windows on the same stay** (GUEST/COMPANY). Holds unless fork **F1** changes it. |
 | “Add 5 Arrivals”, booking-engine simulation chrome, Opera fake sync, competitor scrape | Investor theater — never build |
 | Dynamic Yield / Forecast tabs that `alert()` a +20% surge | Not Phase 1. **R5.1** must be a real RM module, not that stub |
 
@@ -320,6 +320,8 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Prototype:** `Reservations.tsx` (not just the list — the selected-stay card: modify dates/type, confirm pending, inquiry filter, cancel + policy penalty, no-show, cancel check-in, confirmation code, add-ons, damage-deposit checkbox).
   - **Live:** `ReservationsDirectoryScreen.tsx` is a **list**. Folio and Check-in are separate routes. Commands for hold/confirm/cancel/no-show already exist — **wire the stay card**, do not invent new status verbs.
   - **Locked:** Add `/reservations/:id` (or split pane). **Wire existing commands** — do not invent verbs. Modify = `reservations.modify` (client-core method likely missing — add it). Cancel/no-show = existing DO paths + snapshotted penalty ([lifecycle spec](superpowers/specs/2026-08-12-reservations-lifecycle-completion-design.md)). Cancel check-in = `reservations.cancel_check_in`. Confirm pending = existing `confirmReservation`. Damage = FolioScreen `folio.authorize` `purpose=DAMAGE`; void = release; post `DAMAGE` + capture = forfeit ([money-ops](superpowers/specs/2026-08-12-folio-money-operations-design.md)). Front-office editor already on Check-in/Folio — reuse. Inquiry/pending/confirmed filters on the directory already exist as status query.
+  - **Check-in action:** the stay card links to the existing check-in for a confirmed stay (pilot checklist *Check-in from the reservation screen*).
+  - **In-house stays:** `reservations.modify` refuses `checked_in` (`NOT_MODIFIABLE`). The card shows that and links to **R4.24**; do not widen modify here.
   - **Out:** extra named guests; dirty-room force check-in; recurring engine; second folio UI; PAN; new deposit commands.
   - **Tests:** cancel outside window posts one penalty line; modify dates moves availability; cancel-check-in returns confirmed without deleting folio history; DAMAGE void leaves stay capture-due untouched.
 
@@ -342,10 +344,10 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Locked:** deep-link / embed the Inventory screens (types, rooms, floors, OOO, amenities). **Do not** build a second editor. Spaces / split-inventory tabs stay hidden until Track 4.
 
 - [ ] **R1.19 In-house room move**
-  - **Depends:** R0.6. Type change is R1.15 modify.
+  - **Depends:** R0.6. Type change on an in-house stay is **R4.24**: `reservations.modify` refuses `checked_in`.
   - **Prototype:** Front Desk `showMoveModal` (target room + reason).
   - **Live:** `assignRoom` is used on Check-in only.
-  - **Locked:** POST existing `reservations.assign_room` for a `checked_in` stay to another **clean, vacant, same-type** room with a required reason (front-office comment or audit details). Invalidate `['board']`. Different type = **R1.15** `reservations.modify`. Not a $0 reservation. Not drag-on-tape.
+  - **Locked:** POST existing `reservations.assign_room` for a `checked_in` stay to another **clean, vacant, same-type** room with a required reason (front-office comment or audit details). Invalidate `['board']`. Different type = **R4.24** (Track P). Not a $0 reservation. Not drag-on-tape.
   - **Tests:** old room free, new room occupied; dirty/OOO/occupied target rejected.
 
 - [ ] **R1.20 Guarantee + check-in auth workflow (no PAN)**
@@ -353,7 +355,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Later, not a dependency:** real card capture is **R4.7** (first acquirer); terminals and further gateways are **R5.4**. This slice uses the simulate path only.
   - **Prototype:** Booking wizard step “Billing & Guarantee”; Front Desk pre-auth modal with card number/CVV.
   - **Locked:** Do **not** add `guaranteeMethod` if the folio payment already records the guarantee. Consume `pms.booking.require_prepayment` inside confirm/check-in (hide the toggle until then — R0.11). Card path = existing **simulate** authorize ([payments simulate](superpowers/specs/2026-08-06-payments-ledger-simulate-design.md), [card last4](superpowers/specs/2026-08-14-card-last4-brand-design.md)). Check-in shows last4/brand if present — never PAN/CVV. Cash / pay-at-hotel = no authorize required unless the config is on.
-  - **Out:** PAN/expiry/CVV; `held` inventory; a second payments Worker.
+  - **Out:** PAN/expiry/CVV; `held` inventory; a second payments Worker; the desk's advance collection and numbered receipt (**R4.25**).
   - **Tests:** require_prepayment blocks check-in with zero captured/authorized STAY money; simulate authorize unblocks; no card-number input in web-pms.
 
 ---
@@ -413,7 +415,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
   - **Locked:** build the eight requirements in §7.9 — jurisdiction *stack* (not a country enum), rate as a **function** of `(jurisdiction, date, taxable base, product class)`, computed **inside the PropertyDO transaction** (§5.1) and **per night at posting**, a levy that can **split into components**, inclusive-vs-exclusive as a **jurisdiction property**, a nullable **fiscal-document hook** on the invoice engine, and **ordered levies** where one can sit inside another's base.
   - **Locked (India):** jurisdiction stack country → state; **GSTIN per property**. Room GST is a **slab keyed to the per-night value of supply**, so a discount or an upgrade can move a night across a boundary — that is why the rate is resolved inside the transaction. Components are `CGST` + `SGST` or `IGST` by **place of supply**. The F&B rate depends on the property's **specified-premises** declaration for the financial year: a dated, property-level DOMAIN key read inside the DO transaction — never from KV.
   - **Locked:** record tax jurisdiction **per property, not per org**. Keep a **tax-inclusive jurisdiction fixture** in the engine's tests; neither India nor Canada exercises requirement 6.
-  - **Verify first:** slab boundaries, the specified-premises tariff test and the e-invoicing threshold with the client's tax advisor before the first rupee posts.
+  - **Verify first:** slab boundaries, the specified-premises tariff test and the e-invoicing threshold with the client's tax advisor before the first rupee posts. **Also ask (2026-10-31):** does a meal plan join the room amount when choosing the slab, and when is a room-and-meal stay a composite supply? BluePMS's Tax & Compliance page makes both configurable, and this engine resolves the slab on the room value alone. The answer may change requirement 2's inputs and R4.13's package lock.
   - **Scope out:** Canadian provinces (**R4.19**); Quebec; Australia. Fiscalization is **R5.5** (Track P); `held` behaviour is **R5.13**.
 
 - [x] **R3.7 Cross-store purge Workflow**
@@ -436,13 +438,34 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 ## Track P — India pilot client (switching from BluePMS)
 
-The first paying operator: one Indian hotel replacing BluePMS. Its returned checklist ([`docs/research/2026-10-27-pilot-client-checklist.md`](research/2026-10-27-pilot-client-checklist.md)) is the scope — Front Office, Housekeeping, Point of Sale, Channel Distribution and AI Copilot in full, plus Guest 360, GST e-invoicing and a Tally / Zoho export. This track is what it needs to switch, and nothing it left blank.
+The first paying operator: one Indian hotel replacing BluePMS. Its returned checklist ([`docs/research/2026-10-27-pilot-client-checklist.md`](research/2026-10-27-pilot-client-checklist.md)) is the scope — Front Office, Housekeeping, Point of Sale, Channel Distribution and AI Copilot in full, plus Guest 360, GST e-invoicing and a Tally / Zoho export. This track is what it needs to switch, and nothing it left blank. What each tick contains is in the [page inventories](research/2026-09-12-bluepms-modules.md#module-page-inventories-read-2026-10-31); the gap behind each one is in the [comparison](research/2026-10-31-bluepms-inventory-vs-slices.md).
 
 Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **R3.3**, **R3.6** (India tax model) and **R3.10** (entitlement catalog) are `[x]`. R3.4, R3.5 and R3.9 may remain. Each gated module follows `ARCHITECTURE.md` §14 Phase 2: core never imports add-ons, and **the first gated module to ship proves the mechanism** — if it needs a special case, fix the mechanism, not the module.
 
 **Provisioning:** the pilot tenant is provisioned by ops on **Growth** with the `pos.enabled` and `ai_ops.enabled` add-ons. Growth grants `payments.enabled` rather than requiring it, so no live acquirer (R4.7) and no self-serve billing (R5.6) is needed for the pilot. The pilot left *embedded card payments* blank — deposits are recorded as tenders.
 
 **Every ticked item is a must-have** (client, 2026-10-27) — none may be scoped out, deferred to a later track or replaced by a link to a later slice. Track P is done when every row of the coverage table in the [checklist research](research/2026-10-27-pilot-client-checklist.md#coverage--ticked-item-to-slice) points at a `[x]` slice. Items the client left blank stay out.
+
+### How this track builds what the client actually uses
+
+1. **Ask before building.** The walkthrough and samples ([Q8](research/2026-10-27-pilot-client-checklist.md#open-questions-for-the-client)) and the advisor sign-off run now, alongside Tracks 1–3 (see [go-live](#pilot-go-live--not-coding-slices)). BluePMS's pages are marketing material, not this hotel's configuration.
+2. **The tick sets the scope; the page explains it.** Each slice names the page group it draws on. Read that group before writing the spec. A page line beyond the tick's wording is a question for the client, not scope; the client's answer goes into the slice.
+3. **Stop at an open fork.** The forks below need the user. The rest of the slice can go ahead where it says so.
+4. **The queue stays serial,** in the order below. **R4.22–R4.32 are drafted from the 2026-10-31 comparison.** They carry no new entitlement key (§6.7).
+5. **The parallel run is the test.** The hotel's own Manager Report, bills and night audit are compared with BluePMS's before cut-over.
+
+### Open forks — the user's decision
+
+Each collides with an existing lock, so **the lock holds until the user decides**. When a fork is decided, amend the lock named here in the same change-set. A client answer informs a fork; it does not settle one.
+
+| Fork | Collision | Recommendation | Slices waiting |
+|---|---|---|---|
+| **F1** Line transfer to another room | BluePMS's billing group moves folio lines to another room. AGENTS §2 and the roadmap reject it (`transfer_cross_reservation`, 422). | **Keep the lock until Q17 is answered.** If the desk only needs one payer for several rooms, COMPANY windows already do that. If it really moves lines, lift the lock with one named command: reversal in the source, new line in the destination, tax copied, one source line moved once, a required reason and its own permission. Both stays are in one PropertyDO, so it stays one transaction. Amend AGENTS, the money-ops and split specs together. | R4.29 (that part only) |
+| **F2** 26-day grid | BluePMS shows 26 days plus 7, 14, 30 and custom. AGENTS §4 and audit P13 cap the tape UI at 14 (`MAX_TAPE_UI_DAYS`), because the DOM is rooms × days. | **Keep 14 until Q18 is answered.** If the desk plans further out, raise the cap to 30 and measure at this hotel's room count first; add no virtualizer unless the measurement demands it. Amend AGENTS §4 and P13. | R4.28 (range only) |
+| **F3** R4.14's closed list | The tick ends in "etc.", and BluePMS names many reports R4.14 omits. The R1.10 spec also sends its revenue, daily statistics and end-of-day reports to R4.14, which lists none of them. §16.6 says nothing outside the list without a new slice. | **Keep the closed-list rule and rewrite the list once.** Add exactly what the client names in Q10, plus those three R1.10 reports. Keep the catalogue and the report builder out. Add Excel or PDF only if Q10 shows they are needed. The Manager Report does not need this fork: it is a new slice, which the rule allows. | R4.14, R4.32 (output formats), R4.16 |
+| **F4** Party size vs per-person Form C | AGENTS §4 and the holes sweep allow `adults` / `children` and no second profile. R6.2 owes a record for **each** foreign national but builds it from one profile's documents, so a second foreign national in a room has none. This holds whatever BluePMS does. | **Keep party size for CRM, folio and inventory, and add one narrow exception:** a Form C person record per foreign national on the stay, with document data encrypted in OrgDO and covered by purge. It is not a guest profile, has no `guest_ref` on the stay and no CRM row, and sends no event PII. Confirm the legal duty with the advisor. Wider additional-guest capture waits on Q19. Amend AGENTS §4 and the holes sweep. | R6.2, R4.15 (documents part) |
+
+### Slices
 
 - [ ] **R4.5 Outbox consumers + Queue workers**
   - ARCHITECTURE Phase 2 mechanism proof. **Locked:** required before or with **R4.3**. No special cases inside PropertyDO. Do not start R4.3 if events have no consumer.
@@ -456,45 +479,153 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
   - **Locked (consent):** per-purpose consent with timestamp, source and notice version, read by whatever sends to the guest (R5.2 later). India's DPDP Act sets the notice and withdrawal rules — confirm with the advisor.
   - **Also locked:** **R1.17**'s *require ID at check-in* reads this — check-in fails closed when it is on and no document is recorded.
   - **Tests:** two-property same-org — hotel A cannot list or read hotel B's guest documents (AGENTS §5); purge removes R2 objects and the certificate says so.
+  - **Guest lookup:** the [Front Office page](https://www.bluepms.com/modules/front-office/) (Command Center And Guest Intake) previews photo and ID when choosing a match. Show them **after a match is selected**, through the audited read. Lists stay free of decrypted documents (no decrypt-on-list). Equality blind-index search stays.
+  - **Stay flags (client Q20):** the page's early check-in, late checkout and airport transfer flags belong to the stay, not the profile; add only those the client uses. VIP already ships on the stay.
+  - **Guest documents (client Q11):** this tick may mean the printed set (**R4.13**, **R4.25**) rather than ID scans. Build the ID half regardless, because *Guest lookup* and R6.2 need it.
+  - **Night audit:** add the R1.10 spec's ID-proof check to the shared evaluator. Country and state wait on how PropertyDO can count them without PII.
+  - **Open fork F4:** whether documents can belong to a second person on the stay. Everything else here proceeds.
   - **Scope out:** OCR, document verification services, `guests.merge`.
 
+- [ ] **R4.22 Buyer GST details and tax classification**
+  - **Depends:** **R3.6** (India tax model), **R4.15** (encrypted guest fields on OrgDO). City ledger already ships.
+  - **Pilot checklist:** *GST / e-invoice QR on invoices*. **Page:** [Tax & Compliance](https://www.bluepms.com/modules/tax-compliance/), Buyer Tax Identity And Source Documents, Tax Master And Classification, Statutory Document Output. **Prototype:** none.
+  - **Live:** R5.5 and §7.9 require the buyer's GSTIN on the invoice, but nothing says where it is captured. "GSTIN" is in no code, the `invoice` table has no buyer columns, and `city_ledger_account` holds only name, credit limit and terms. HSN/SAC is nowhere.
+  - **Locked:** one buyer record, captured in three places. **Company:** GST details on the city-ledger account. **Individual guest:** on the OrgDO profile, encrypted, property-scoped on read. **At invoice time:** `invoice.generate` takes buyer type (registered or unregistered) and fields prefilled from those two, editable by the clerk. Fields: GSTIN, legal name, trade name, address, city, state, PIN, state code, place of supply. GSTIN is validated for format and checksum; over-long fields → 422.
+  - **Locked (the snapshot):** the issued invoice keeps a **buyer snapshot** that later edits never change. The invoice spec keeps plaintext out of its R2 snapshot (`guestRef` and `piiKeyId` only), so the snapshot of an individual's details lives encrypted in OrgDO, keyed by invoice id; a company's may sit with the invoice. §4.8 lets financial records survive erasure pseudonymized, but a tax invoice names its buyer: **the advisor confirms how DPDP erasure treats it**, and the purge certificate says what was kept. Events carry `guest_ref` and invoice id only.
+  - **Locked (classification):** HSN/SAC is one attribute of the charge code's product class (§7.9), the same single carrier as the tax group: never a second copy on products. It prints per line on the tax invoice and proforma, with the seller's GSTIN (R3.6) and the tax breakup. **The advisor confirms what a tax invoice must show**, including whether place of supply can differ from the hotel's state for accommodation.
+  - **Tests:** editing an account after issue leaves the issued invoice unchanged; hotel A cannot read hotel B's guest GST details (AGENTS §5); an invalid GSTIN is refused; a B2B invoice with no GSTIN cannot reach the R5.5 queue; the fingerprint hashes the object sent.
+  - **Scope out (client Q14):** provider GSTIN lookup; GST returns and registers; buyer details on a POS bill (**R4.21**).
+
 - [ ] **R5.5 Fiscalization (India e-invoicing)**
-  - **Depends:** **R3.6** (India tax model), **R1.12** (financial-year invoice series), **R4.5** (the portal call is outbox-driven).
+  - **Depends:** **R3.6** (India tax model), **R1.12** (financial-year invoice series), **R4.22** (buyer details and HSN/SAC), **R4.5** (the portal call is outbox-driven).
   - **Moved (2026-10-27):** from Track 6 into the pilot — an Indian hotel above the turnover threshold cannot legally issue a B2B invoice without it.
   - **Locked:** IRN and signed QR from the Invoice Registration Portal for **B2B invoices** (the guest's or company's **GSTIN** on the invoice), through the §7.9 requirement 7 **fiscal-document hook** on the existing invoice engine — not a second invoice path. The portal is called from an outbox consumer, never inside `transactionSync`. A B2B invoice is **not final until its IRN returns**; a portal failure lands in the exception workbench with Retry, and the desk is told plainly — checkout itself is not blocked. Cancellation inside the portal's window, then credit notes. Key `compliance.fiscalization` (every tier, §6.7). Portal credentials are `SECRET` class.
-  - **Scope out:** B2C dynamic QR (only above a much larger turnover threshold — confirm the client is below it); Quebec sales-recording.
+  - **Queue (widened 2026-10-31, [Tax & Compliance](https://www.bluepms.com/modules/tax-compliance/), E-Invoice Queue And Submission):** a view by document, status, IRN, QR and failure, with these actions: inspect the payload; **correct and rebuild** with a preview before replacing it; a dry run where the portal or provider supports one; **manual acknowledgement** requiring the official IRN and QR, for when the portal answered but the callback was lost; cancel a never-submitted item, kept distinct from an IRN cancellation. Every step writes an audit event. Live submission stays outbox-driven.
+  - **Printed output:** IRN, acknowledgement number and date, QR image, seller and buyer GST details, HSN/SAC and tax breakup, on the existing invoice document.
+  - **Reversal guard:** a settlement or bill reversal (**R4.29**) checks IRN state first; an acknowledged invoice is cancelled at the portal or corrected by credit note, never voided locally.
+  - **Night audit:** add the R1.10 spec's tax-document readiness check to the shared evaluator; no new step.
+  - **Scope out:** B2C dynamic QR (only above a much larger turnover threshold — confirm the client is below it); Quebec sales-recording; GST return registers unless client Q14 names them.
 
 - [ ] **R6.2 Form C — foreign-national guest registration (India)**
   - **Depends:** **R4.15** (passport and visa fields).
   - **Not ticked by the pilot, but a legal duty in India** (§7.9): an arrival record for each foreign national to the Bureau of Immigration within 24 hours. Ask the client how they file today (checklist Q5) before building beyond the tracker.
   - **Locked:** a per-stay Form C record built from the profile's documents, with a **24-hour deadline** from check-in; an unfiled record past the deadline is an exception on the workbench. Submission is manual on the government portal unless an official API exists — HospAI produces the data and tracks the filed reference; it does not scrape or auto-submit a portal.
+  - **Open fork F4:** the record is per stay, built from one profile, but the duty is per foreign national. Two foreign nationals sharing a room leave one with no record. Do not build past the tracker until F4 is decided.
   - **Scope out:** C-form departure updates beyond what the portal requires; other countries' guest registration.
 
 - [ ] **R4.18 Desk tenders for India — fork, Blocked until the client answers**
   - **Pilot checklist Q4:** which tenders the desk records today. Indian desks commonly take **UPI** and **bank transfer** alongside cash and card.
   - **Locked:** `tender_type` stays `CARD` \| `CASH` (cashiering spec, AGENTS §2) **until that spec is amended**. If the client needs more, amend [cashiering](superpowers/specs/2026-08-07-cashiering-design.md) first — tender list, shift-close expected amounts and the R4.12 ledger mapping — then implement. Recording a payment taken on an external terminal or UPI app is a tender, **not** a gateway integration (that is R4.7 / R5.4).
+  - **Partial evidence (2026-10-31):** BluePMS's guest-charge payment lists cash, card, UPI, room posting, split and debtor account, with transaction id and notes. That says what the product offers, not what this desk records: still ask.
   - **Scope out:** UPI collect / gateway integration; cheques, vouchers, gift cards unless the amended spec names them.
+
+- [ ] **R4.25 Advance collection and numbered receipts**
+  - **Depends:** **R1.20** (the prepayment rule), **R4.18** (tenders), **R1.12** (numbering), **R1.15** (stay card).
+  - **Pilot checklist:** *Advance / deposit payments in the booking*; part of *Guest documents*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Advance Collection, Receipts And Deposits. **Prototype:** none.
+  - **Live:** `BookingScreen` has no payment step, and R1.20 only gates on `require_prepayment`. `folio.record_cash_payment`, `folio.authorize` and `folio.capture` exist, and the cash path checks only that the reservation exists, so a pre-arrival payment looks possible (read, not run: prove it with a test first).
+  - **Locked:** an advance is a **payment on the guest window through the existing commands**. No new deposit command or money model, and nothing on `availability_day`. Take it after Hold or Confirm on Book, on the stay card, at check-in and on the folio: one flow, reused. Several payment rows per capture, each with its own op id, posted like R1.4's add-ons (Retry re-posts only the failed rows; the booking stands). Method, transaction reference and notes per row, as far as the R4.18 amended spec allows.
+  - **Locked (receipt):** a numbered, printable receipt with its own series configured on R1.12. Never rendered in `DEGRADED`. A panel shows estimated bill, total advance and pending amount from the existing quote and folio reads, with no second money calculation. A refund or cancelled stay uses the existing `folio.refund` and penalty paths.
+  - **Fork — advisor:** must an advance on a future stay carry GST and a statutory receipt voucher? If so, the receipt series and tax lines follow that answer. Do not build the receipt before it comes back.
+  - **Night audit:** add the R1.10 spec's arrival-deposit check to the shared evaluator, reading the R1.20 rule.
+  - **Tests:** two rows post once each on retry; an advance on a confirmed stay reaches the guest window and survives check-in; checkout balance nets it; receipts number consecutively.
+  - **Scope out:** group deposit allocation (**R4.1**); gateway capture (**R4.7**); a standalone advance page unless client Q21 asks for one.
 
 - [ ] **R4.20 Day-wise rate override on a reservation**
   - **Depends:** **R1.4**, **R1.15**, **R3.6**.
   - **Pilot checklist:** *Day-wise rate overrides* in *New reservation*. The rates matrix (shipped) sets a plan's price per day; this is the clerk changing **one booking's** price for chosen nights. Nothing in pms-core supports it today.
   - **Locked:** the override replaces the snapshotted nightly amount on the stay (read the [reservations book](superpowers/specs/2026-07-27-reservations-book-design.md) and [modify](superpowers/specs/2026-07-27-reservations-modify-design.md) specs for where that snapshot lives — do not add a second price column). Integer minor units, a required reason, an audit-log write and its own permission. `POST_ROOM_CHARGES` posts the overridden amount, and **tax resolves per night on the overridden value** — in India that can move a night across a GST slab (§7.9 requirements 2 and 4). Modify keeps overrides on nights that remain.
+  - **Page note (2026-10-31):** BluePMS's day rows also cover plan and package amounts and a show/hide rate toggle. Room nights are this slice; plan and package rows join once **R4.13** has them. An override can also be made at check-in, while the night is unposted.
   - **Tests:** an override that crosses a slab boundary posts that night's tax at the new slab; the other nights do not move; a clerk without the permission gets 403.
+
+- [ ] **R4.26 Room number at booking**
+  - **Depends:** **R1.4**, **R1.15**.
+  - **Pilot checklist:** *New reservation (… room number …)*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Reservations, Rates And Packages. **Prototype:** `BookingWizard.tsx`.
+  - **Live:** `tryCreateReservation` takes no `roomId`; assignment happens later from arrivals (R1.3). `tryAssignRoom` already accepts `pending`, `confirmed` and `checked_in`.
+  - **Locked:** an optional room picker on Book, listing free rooms of the chosen type and dates from `get_front_desk_available_rooms`. After Hold or Confirm, POST the existing `reservations.assign_room`, as R1.4 posts add-ons: the booking stands if assignment fails, and Retry re-sends it. **No new command and no `roomId` on create.** Inventory stays per room type (§7.1). The tape's empty-cell link passes the room to Book as a prefill. Changing the room lives on the stay card.
+  - **Tests:** a picked room is assigned and shows on arrivals; a room taken in between returns `ROOM_ALREADY_ASSIGNED`, and the booking remains; `sold` moves once.
+  - **Scope out (client Q16):** a waitlist status; booker and guest-type fields. The status vocabulary stays §7.4's.
+
+- [ ] **R4.24 In-house stay changes**
+  - **Depends:** **R1.15**, **R1.19**, **R4.20** (nightly amounts), R0.14 (early depart, shipped).
+  - **Pilot checklist:** *Edit reservation and guest preferences*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Check-In, Stay And Checkout (edit check-in). **Prototype:** none.
+  - **Live:** `tryModifyReservation` accepts only `inquiry`, `pending` and `confirmed` (`NOT_MODIFIABLE` otherwise), so **no desk command can extend an in-house guest**. `reservations.early_depart` shortens. Auto-extend is a night-audit setting, not a clerk action. R1.19 moves a guest within one type.
+  - **Locked:** a **named command** (AGENTS §2), not a wider `reservations.modify`: an in-house stay has posted nights, which must not re-price. It covers later departure, room type or rate plan from the next unposted night onward, and party size. `availability_day` moves in the same `transactionSync`: `sold` +1 on each new night, with `freeAvailability` and `no_availability` on shortage, and a type change moves `sold` for remaining nights only. Shortening stays `reservations.early_depart`. Posted folio lines are never touched; new nights price and tax per night at posting. A required reason, an audit write and its own permission. The assigned room must be free for the new nights, or the clerk moves first (R1.19). Invalidate `['board']`, tape and summary.
+  - **Tests:** extending into a sold-out night is refused and changes nothing; `sold` +1 on the new night only; a type change leaves posted nights' lines untouched; auto-extend and a clerk extension on one night do not double-count; a clerk without the permission gets 403.
+  - **Scope out (client Q16, Q20):** BluePMS's early-departure penalty options and manager override; correcting a posted night (reversal through the folio); extra named guests (**F4**).
 
 - [ ] **R4.13 Front Office depth — packages, proforma, document templates**
   - **Depends:** **R3.2** (recurring charges) and **R3.3** (rate-plan inclusions) — packages are built on both. **R1.5** for add-on products.
   - **Prototype:** `PackageMaster.tsx`, the Booking Wizard package mode, proforma and registration-card template switchers.
-  - **Scope (§16.6 *Core*):** package templates (room type, plan, number of nights, fixed price, included add-ons) with a **posting schedule** — every night, arrival day, a set night, or before departure — executed inside the existing `POST_ROOM_CHARGES` step (do **not** grow `NIGHT_AUDIT_STEPS`); add-on scheduling for full stay, arrival, departure, weekends or single days; a proforma invoice from a reservation; selectable templates for the proforma and the registration card.
-  - **Locked:** a package splits into posting lines that each carry their own tax under §7.9 — a bundled price is never taxed as one line. Printable documents never render in `DEGRADED` (§4.6).
-  - **Scope out:** a template *designer*; e-invoicing (**R5.5**).
+  - **Scope (§16.6 *Core*):** package templates (room type, plan, number of nights, fixed price, included add-ons) with a **posting schedule** — every night, arrival day, a set night, or before departure — executed inside the existing `POST_ROOM_CHARGES` step (do **not** grow `NIGHT_AUDIT_STEPS`); add-on scheduling for full stay, arrival, departure, weekends, single days or **chosen dates**; a proforma invoice from a reservation **or a check-in**, showing base, tax summary, pricing warnings, advance paid and balance; selectable templates and print settings for the proforma and the registration card; a registration card from a reservation or a check-in, reprintable from the in-house list; applying a package at check-in as well as at booking.
+  - **Locked:** a package splits into posting lines that each carry their own tax under §7.9 — a bundled price is never taxed as one line. Printable documents never render in `DEGRADED` (§4.6). **Advisor check first (see R3.6):** if India treats a package as a composite supply, or a plan joins the room for the slab, this lock changes before the first package posts.
+  - **Guest documents (client Q11):** this slice plus the **R4.25** receipt are BluePMS's printed set. Document action buttons sit together on the stay card.
+  - **Scope out:** a template *designer*; e-invoicing (**R5.5**); emailing a proforma (client left Communications blank; **R5.2** if ever asked).
+
+- [ ] **R4.23 Open folio (bill on hold)**
+  - **Depends:** **R1.10** (shared check evaluator), **R1.15**.
+  - **Pilot checklist:** *Front-office billing and open folio*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Bill On Hold / Open Folio. **Prototype:** `FrontDesk.tsx` mentions it; the page is the source.
+  - **Live:** a "Depart with open balance" override on checkout (`overrideBalance`), and window reopen. No hold record, approver or follow-up. `tryAddFolioLine` checks only that the reservation exists and the window is `OPEN`, and checkout normally leaves the window open, so **a charge can reach a checked-out stay today with no approval** (read, not run: pin this with a characterization test first).
+  - **Locked (the hold):** one hold record on a stay's GUEST window, with reason, notes, follow-up date, close-by date, approver and expected settlement. Named commands to place, release and extend it, each with a required reason, an audit write and an approval permission separate from `folio:post`. Closing uses the existing `folio.close_window`. Holds are never deleted. Checkout with an active hold passes the balance gate by reference to the hold, not through `overrideBalance`, which stays for its existing config. The hold reads the **guest window only**; COMPANY windows and city-ledger AR are untouched (AGENTS §2).
+  - **Locked (post-stay charges):** §7.3 rule 3 stands: a **closed** window rejects postings and goes to the exception path, and a hold never reopens one silently. A checked-out stay takes a new charge **only with an active hold**; without one, the posting is refused with a named code. This tightens today's behaviour, so characterize it first. The R4.21 POS lookup still refuses checked-out stays.
+  - **Locked (night audit):** the open folio and hold checks in the R1.10 spec's list join the shared evaluator as check ids, counts only: unsettled, past close-by, zero-balance. Auto-open and auto-close at zero are DOMAIN keys the DO reads, run inside an existing step, each row caught separately (AGENTS §2). **`NIGHT_AUDIT_STEPS` does not grow.** No inventory change: remaining-night `sold` rules are unchanged.
+  - **Tests:** a charge posts on a held checked-out stay and is refused without a hold; a closed window refuses either way; a past-close-by hold counts in the preview and in PRE_CHECK; a place-hold replay posts once; a clerk without approval gets 403.
+  - **Scope out:** source-module bypass controls; a generic document-hold layer; POS bill hold (vendor, R4.21); the open-folio register report (**R4.14**, F3).
+  - **Client Q12:** sets who approves and the default dates. It does not remove the slice: the tick is a must-have.
+
+- [ ] **R4.29 Billing depth — draft bill and reversals**
+  - **Depends:** **R4.23**, **R4.13**, **R1.12**. The IRN guard takes effect once **R5.5** lands.
+  - **Pilot checklist:** *Front-office billing and open folio*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), FO Billing And Cashiering, Reversals, Cancellations And Audit Controls. **Prototype:** `FoliosBilling.tsx`.
+  - **Live:** line split, same-stay window transfer, invoice generate and void, payment void and refund. No draft step and no settlement-cancel path.
+  - **Locked (draft):** a read-only draft of the bill from the guest window, with charge review and a tariff check showing posted, unposted and future nights. It takes no invoice number; the existing `invoice.generate` makes it final. Tariff is corrected through the existing posting and reversal paths: nothing edits a line (append-only).
+  - **Locked (splits):** equal, source-based and custom splits build on the existing split and transfer contracts with `allocate`, footing exactly. Tax copies, as in split and transfer today.
+  - **Locked (reversals):** void a pending bill, then regenerate. Cancel a settlement by reversing payment lines through the existing commands. Both require a reason, a separate high-privilege permission and an audit write. A settled hold returns to active. An acknowledged IRN blocks a local void (**R5.5**). A stay is reopened only if no room conflict exists.
+  - **Open fork F1:** line transfer to another room stays rejected until the user decides. The rest of this slice proceeds.
+  - **Tests:** a draft changes nothing; a split foots to the minor unit; a settlement cancel reverses the payment once on replay; a clerk without the privilege gets 403; a transfer to another reservation still returns `transfer_cross_reservation` until F1 says otherwise.
+  - **Scope out:** group master bill (**R4.1**); controlled negative adjustments and facility charge bills unless client Q16 asks.
+
+- [ ] **R4.27 Live room view**
+  - **Depends:** **R1.3**, **R1.9**, **R4.29** (the billed state).
+  - **Pilot checklist:** *Live room view by status*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Room Operations And Availability. **Prototype:** `RoomOpsLiveView.tsx`.
+  - **Live:** `/board` is the tape: stays and OOO ranges with the current status word beside each room. It has no billed state and no grouping by condition. The housekeeping board has no occupancy. §16.6's earlier "covered by `/board`" is corrected.
+  - **Locked:** one screen of **rooms for today, not dates**: grouped by room type and by condition (available, reserved, occupied, dirty, maintenance, billed, unavailable), with type and condition filters. It is **not a second grid**. One property-scoped read returns each room's code, type, status, OOO state and today's assigned stay. Summary cards reuse `get_front_desk_summary`; capacity comes from `availability_day`, and nothing counts reservations to answer capacity. Guest names go through the existing property-scoped batch. Actions are links to what exists: Book, Check in, Assign, Folio, Release. The word is always shown (`RoomStatus`, `StatusBadge`). The mutation screens invalidate its key.
+  - **Tests:** a checked-in stay shows occupied with its guest; a checked-out room shows dirty; OOO shows maintenance; a bill awaiting settlement shows billed; hotel A sees only hotel A; card counts match `get_front_desk_summary`.
+  - **Scope out:** calendar settings; door lock and Wi-Fi actions.
+
+- [ ] **R4.28 Room operations grid depth**
+  - **Depends:** **R4.27** (shared room condition).
+  - **Pilot checklist:** *Room operations grid / tape*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Room Operations And Availability. **Prototype:** `TapeChart.tsx`.
+  - **Live:** `/board`, capped at 14 days (`MAX_TAPE_UI_DAYS`), with OOO ranges and the room's current status word. No occupancy row or per-date state.
+  - **Locked:** widen `/board`; **no second grid**. An occupancy row per date from `availability_day` through an existing read, never a reservation scan. Reserved, occupied, dirty-today, billed and maintenance states, colour with the word (`StatusBadge`). Room-type and status filters. `--tape-*` grid math stays; no drag-to-move; no new assign POST on the tape.
+  - **Open fork F2:** the range stays capped at 14 until the user decides. The rest proceeds.
+  - **Tests:** the occupancy row matches `availability_day`; the query key carries `propertyId` and the range; a filter keeps tape invalidation working.
+  - **Scope out:** calendar colour settings; a virtualizer on the default 7 days.
+
+- [ ] **R4.30 Housekeeping tasks and room status history**
+  - **Depends:** **R1.9**.
+  - **Pilot checklist:** *Task assignment to attendants*; *Room status (… with comments)*; *Maintenance / out-of-order blocks*. **Page:** [Housekeeping](https://www.bluepms.com/modules/housekeeping/), Tasks, Attendants And Maintenance, Room Status, Turnaround And Checkout. **Prototype:** `Housekeeping.tsx` (`hkTasks`).
+  - **Live:** `housekeeping_assignment` is one assignee per room per business date, with no type, status or lifecycle. `updateRoomStatus` takes only `roomId` and `status`; `room.status_changed` carries from and to, and nothing reads them back. A full OOO release deletes the `room_ooo` row (the ticket keeps a timestamp). The maintenance module's tickets are work orders and stay separate.
+  - **Locked (tasks):** a task record in `pms.housekeeping` through `moduleTxnCtx`: date, type, room, attendant, priority, status, supervisor notes. Search, start, update, complete, review and cancel, with counters for open, pending, in progress, completed and overdue. Types are a property list. How `housekeeping.assign` relates to a day's clean is the spec's call; the assign screen keeps working. **R4.11** stages and requests hang off this record, and **R5.2** reuses it.
+  - **Locked (status history):** `rooms.update_status` and bulk status gain an optional reason and comment, written to a status history row in the same transaction, including checkout's automatic dirty as a system actor. Marking dirty requires a reason; clearing takes a comment. Cap applies to bulk as today.
+  - **Locked (blocks):** add block type, optional start and end **time**, inspection notes and a required release reason, with a release history that survives a full release. **`availability_day` stays per night:** times are display and audit only, and OOO → `blocked` rules are unchanged. A ticket never releases a room by itself (R1.9 decision) unless client Q22 changes that.
+  - **Tests:** a task moves through its lifecycle and an invalid transition is refused; a status change writes one history row, and a retry writes none; a release keeps its history row and frees `blocked` as today; hotel A's list shows no hotel B rows.
+  - **Scope out:** auto-assign (R1.9 leftover); SLA and escalation; attendant mobile capture (**R4.10**).
 
 - [ ] **R4.11 Housekeeping depth**
-  - **Depends:** **R1.9**. **R4.10** is no longer a dependency — the pilot needs this before the mobile app ships.
+  - **Depends:** **R1.9**, **R4.30** (the task record). **R4.10** is no longer a dependency — the pilot needs this before the mobile app ships.
   - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
-  - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted; missing and damaged cases with closure; guest-count audit comparing front-office occupancy with housekeeping counts, with a variance reason; scored inspections from checklist templates (weighted items, required checks, room score); cleaning stages and linen movement; minibar pickup and amenity dispatch **posted through the folio contract**, never inserted.
-  - **Guest requests against a room (pilot checklist):** a room-scoped housekeeping request — extra towels, cot, amenity — raised from the desk, assigned to an attendant and closed on the HK board. Moved here from the **R5.2** concierge tasks because the pilot needs it before Whistle; R5.2 reuses this task type rather than adding a second list. Not a maintenance work order (that stays the R1.9 module on `room.ooo_changed`).
-  - **Locked:** **desktop capture first** — the supervisor records finds, damage, inspections and minibar pickups on the operator SPA. Attendant capture moves to the **R4.10** mobile app when it ships, on the same commands. No width breakpoints in `web-pms`. Minibar and amenity stock moves against the R1.9 operational list — **no stores inventory** (§16.6). Post minibar straight to the folio; do not create a POS bill to do it.
-  - **Scope out:** budgeting and metrics dashboards (still dropped); stores inventory; productivity pay. Reports are **R4.14**.
+  - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted, with item, location, room and guest; missing and damaged cases with reporter, inspection detail, returned-item status and closure; guest-count audit comparing front-office occupancy with housekeeping counts by room, floor and type, in dated sessions, with count adjustment, a variance reason and saved evidence; scored inspections from checklist templates that can be activated and deactivated (weighted items, required checks, defects, remarks, room score); cleaning stages (started, paused, resumed, inspected, completed, released) on the **R4.30** task; a linen item list and movements for issue, return, laundry, discard and adjustment by room and attendant; minibar pickup **posted through the folio contract**, never inserted, with a reconciliation view of pickup, folio charge and stock.
+  - **Amenity delivery (corrected 2026-10-31):** an amenity list with unit, standard quantity and linked stock item; rule templates for expected supply; planned and confirmed dispatches with expected vs actual, a required exception reason and optional supervisor confirmation; a dispatch ledger. An amenity is a **stock movement**: it posts to the folio only if the client charges for it (Q22), and then through the folio contract.
+  - **Guest requests against a room (pilot checklist):** a room-scoped request — extra towels, cot, amenity — raised from the desk, with type, responsible department, ownership, search and resolution, assigned to an attendant where the department is housekeeping and closed on the HK board. Moved here from the **R5.2** concierge tasks because the pilot needs it before Whistle; R5.2 reuses this task type rather than adding a second list. Not a maintenance work order (that stays the R1.9 module on `room.ooo_changed`).
+  - **Locked:** **desktop capture first** — the supervisor records finds, damage, inspections and minibar pickups on the operator SPA. Attendant capture moves to the **R4.10** mobile app when it ships, on the same commands. No width breakpoints in `web-pms`. Minibar and amenity stock moves against the R1.9 operational list, using its issue-to-room leftover (spec §8 item 7) — **no stores inventory** (§16.6). Linen movements extend R1.9's receive, issue and count to carry a room and attendant. Post minibar straight to the folio; do not create a POS bill to do it.
+  - **Scope out:** budgeting and productivity charts (still dropped; the supervisor's operational dashboard is **R4.31**, not this exclusion); stores inventory; productivity pay. Reports are **R4.14**.
+
+- [ ] **R4.31 Housekeeping supervisor dashboard**
+  - **Depends:** **R4.11**, **R4.30**, **R4.27**.
+  - **Pilot checklist:** *Supervisor dashboard*; *Priority / floor-by-floor workbench*. **Page:** [Housekeeping](https://www.bluepms.com/modules/housekeeping/), Command Center And Room Readiness, Room Status, Turnaround And Checkout. **Prototype:** `Housekeeping.tsx`.
+  - **Live:** a status table with filters, a workload strip and the R1.9 priority queue.
+  - **Locked:** today's operational reads composed on the HK screen: readiness percentage, dirty rooms, open and overdue tasks, active blocks, open requests, unclaimed items, damage cases, audit variance; expected arrivals and departures by room; readiness by floor; room search with stay context. **One attention queue** across conflicts between occupancy and room status, overdue tasks, blocks, requests and unresolved damage, each row linking to its screen. Room-level reads only: no trend, no warehouse, no capacity from reservations.
+  - **Tests:** counts match their source reads for a seeded day; an occupied room marked vacant-clean appears as a conflict; hotel A sees only hotel A.
+  - **Scope out:** charts and trends (§7.8); checkout-time alerts unless client Q22 asks, because they need an expected checkout time the stay does not hold today.
 
 - [ ] **R4.3 Channel manager connector — third-party channel manager**
   - **Decided 2026-10-28:** HospAI **does not build a channel manager** and does not connect to OTAs directly. It connects to **one third-party channel manager**, which holds the OTA connections, OTA certification and listing content (§16.6 *Integrate*). All seven ticked distribution features are met by that channel manager plus this connector. Industry practice and the forks below: [channel manager integration research](research/2026-10-28-channel-manager-integration-practice.md).
@@ -513,6 +644,7 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
   - **Fork — card data.** OTAs send guest cards or virtual cards inside the reservation; HospAI never stores a card number or CVV. Choose a tokenisation proxy, a channel manager setting that strips card data, or the OTA extranet — with the client's channel manager, alongside **R1.20** and **R4.18**. Prepaid OTA bookings are recorded as a tender or a city-ledger receivable per R4.18 and the cashiering spec; do not add a tender type here.
   - **Fork — per-occupancy prices.** Many OTAs price by number of guests; HospAI's rate plans have no per-occupancy price. This is a price per number of adults, not the banned occupancy-pricing UI. Confirm what the client's channels need; if needed, it is its own rate-plan slice before R4.3.
   - **Tests:** a duplicate booking delivery books once; a modification of an unknown booking lands on the unmapped queue; a booking is acknowledged only after it commits; a delivered booking for a sold-out night books, takes `free` below zero, raises one overbooking exception per night and pushes 0 to the channel; the same request from a desk user or the booking engine is rejected with `no_availability`; a repeated delivery of one revision books once and deducts inventory once; a booking at hotel A pushes ARI for hotel A only; a push past the SLA raises an exception; the chosen channel manager's certification scenarios pass in its sandbox.
+  - **Client Q23 — OTA payouts:** the per-channel view reads the commission each booking reports; **nothing matches OTA payouts**. BluePMS's page mentions settlement review and reconciliation but gives no inventory. If the client relies on it, add it here before build.
   - **Scope out:** direct OTA connections; a channel manager of our own; OTA content (photos, descriptions); rate-parity tools; metasearch; a second channel manager in this slice.
 
 - [ ] **R4.12 Accounting export**
@@ -521,6 +653,7 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
   - **First targets:** **Tally and Zoho Books** (India pilot), with GST posted by component (`CGST` / `SGST` / `IGST`) to the configured ledgers. QuickBooks Online and Xero follow in **R4.19** with the Canada launch.
   - **Also locked:** payroll *inputs* — hours from roster and shift (POS clock-in stays in the vendor's system), and tips, service charge and commissions where captured — export as a file for the operator's payroll provider. **We do not calculate pay.**
   - **Also:** outlet revenue from the **R4.21** day-close totals journals as outlet revenue; room-charged checks are already in the folio and must not be counted twice.
+  - **Client Q13:** BluePMS publishes no accounting page, so how the hotel gets figures into Tally or Zoho today sets the file format and mapping.
   - **Key:** `accounting_export.enabled` (§6.7, every tier).
   - **Scope out:** purchasing, stores inventory, payroll calculation, a general ledger inside HospAI.
 
@@ -545,18 +678,10 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
     - **Night audit** — an outlet with no day-close or a failed posting is a `PRE_CHECK` exception on the workbench; no new audit step.
   - **Locked:** the adapter's credential is `SECRET` class, per property, scoped to lookup and posting only, revocable at kill-switch speed. Posts carry the hotel **business date**, never the POS's wall clock; the POS queues while HospAI is unreachable and replays with the same idempotency key. The folio **copies the POS's tax amounts** (as transfer and split do) and rejects a posting whose GST rate does not match the property's specified-premises declaration — it does not recompute.
   - **Vendor must support:** a documented PMS interface (room lookup, idempotent post-to-room, void, receiving stay events); GST posted by component with a per-property restaurant rate; posting against the hotel business date and a day close; and **not issuing a separate GST tax invoice for a check charged to the room** — that F&B appears on the hotel's checkout invoice, which carries the IRN for B2B guests (**R5.5**). Confirm the invoicing rule with the client's tax advisor.
+  - **Vendor check, from the page ([Point of Sales](https://www.bluepms.com/modules/point-of-sales/), 2026-10-31):** ask for table states (occupied, vacant, reserved, active, billed); waitlist; orders by server and type, modifiers; non-chargeable KOT with reason, BOT, kitchen routing, reprint; KDS delay threshold and moving orders between tables, guests or outlets; bill on hold, pending bills, service charge and round-off; tips and split methods; paid-in, paid-out, sessions, breaks and staff allocation; waste reasons and cost; free-product rules by day and hour and usage limits; forecasts of sales, staffing and preparation.
+  - **Open — B2B check paid at the outlet (advisor and vendor):** this slice covers room-charged checks. A company guest paying at the restaurant may need an IRN on that check, and BluePMS shows buyer GST on a POS bill. Who issues it, the vendor or HospAI? Do not pick before the advisor answers. If it is the vendor, add it to *Vendor must support*.
   - **Tests:** a duplicate post of one check charges the room once; a post after check-out is refused with a named code and lands on the workbench; the posted tax components foot to the check total; a missing day-close raises a pre-check exception.
   - **Scope out:** tables, orders, kitchen, settlement, promotions and POS reports (vendor); a second POS vendor; stock and recipe costing (§16.6).
-
-- [ ] **R4.16 Copilot — read-only, permission-aware**
-  - **Depends:** **R3.10** (`ai_ops.enabled`, `ai_ops.messages.limit`). Comes before **R4.6**, which adds the write path on top of it.
-  - **Pilot checklist §14:** ask operational questions; answers with source context; help with reports and summaries; suggested next actions; only shows what the staff member may see.
-  - **Prototype:** `CopilotHome.tsx`.
-  - **Locked:** the copilot's tools are **existing read routes**, called **as the asking user** through `dispatchV1` — the same permission, property scope and `assertTenantActive` as the SPA. No tool without an existing route; no command execution. **Suggested next actions** render as links or buttons to the existing screen or command, and the **clerk** clicks them — the copilot never submits. Every answer cites its sources as links to the records it read (reservation, folio, report snapshot).
-  - **Locked (PII):** guest data only through the decrypt paths the user may already call; guest-profile reads are audited per read, as in R5.11. Conversation content is not written to logs or events and is not retained past the session. The model provider is named in the DPA.
-  - **Also locked:** metering is `ai_ops.messages.limit` (`soft`, §6.6). Build the tool mapping and permission check so **R4.6** and **R5.11** reuse them.
-  - **Scope out:** any write (R4.6); guest-facing replies (R5.9); external agents (R5.11); warehouse trends; model choice and prompt content.
-  - **Tests:** a `roster:read`-only user's question about a folio gets a refusal, not data; a user at hotel A gets nothing from hotel B; every answer carries at least one source link or says it has none.
 
 - [ ] **R4.14 Operational report set (named, not a catalogue)**
   - **Depends:** **R1.1**, **R1.16**, **R4.11**; the POS and distribution reports land with **R4.21** and **R4.3**.
@@ -567,11 +692,33 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
     - **POS:** room charges by outlet and outlet day-close totals from **R4.21**. Item, tender, discount, void, promotion and waste reports are the POS vendor's — that is how this must-have is met.
     - **Distribution:** bookings, revenue and commission by channel.
   - **Locked:** each report is a read over an existing ledger or a night-audit snapshot — no new money calculation. Permission is the permission of the data underneath. Print (card-isolated print CSS) and CSV. `/reports` stops redirecting to the Dashboard (R1.14).
-  - **Scope out:** occupancy and demand **trends** (warehouse, §7.8); a report builder; the BluePMS catalogue.
+  - **Open fork F3:** whether this list is rewritten from the client's own list (Q10). Until decided, build what is listed. The R1.10 spec routes its revenue, daily statistics and end-of-day reports here though the list names none of them, and R4.23's open-folio register waits on this too.
+  - **Scope out:** occupancy and demand **trends** (warehouse, §7.8); a report builder; the BluePMS catalogue; the Manager Report (**R4.32**).
+
+- [ ] **R4.32 Manager Report and MIS settings**
+  - **Depends:** **R4.14**, **R1.10** (`SNAPSHOT_REPORTS`), **R1.6** (sources), **R3.1**, **R3.6**. **A sample of the client's real report (Q8, Q9) comes first.**
+  - **Pilot checklist:** *Manager settings*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Manager Reporting And MIS Settings. **Prototype:** none.
+  - **Live:** nothing. R1.11, R1.12, R1.17 and R3.1 are general settings, a different meaning. This is probably the GM's daily sheet, and the parallel run compares against it.
+  - **Locked:** a new slice under §16.6's rule, not a change to R4.14's list. A date-range report for one property, with **management totals from night-audit snapshots** and room statistics from snapshots and `availability_day` (§7.8: a closed-period report is OLTP, not warehouse). No live scan of folios or reservations, no fan-out across properties, no new money calculation. Print and CSV as R4.14 (F3 decides Excel and PDF). Permission is that of the data underneath.
+  - **Locked (settings):** each setting is a register key pms-core reads (AGENTS §4), or it is hidden. Occupancy rules only for states HospAI has: no-show, out-of-order and checkout day; day-use, complimentary and house-use are added only if Q9 shows the hotel counts them. Source mapping reads R1.6 codes. Report rows: an on/off list of built-in rows with labels, decimals and order. **Formula library: a fixed registry the manager selects from, not an expression language.**
+  - **Open — nationality:** nationality sits in OrgDO and events carry no PII, so PropertyDO cannot count it from the profile. If Q9 needs nationality rows, the spec chooses a non-PII code on the stay, as R1.6 does for source. Do not decrypt per row.
+  - **Tests:** one day's totals foot to `SNAPSHOT_REPORTS`; changing an occupancy rule changes that row and only that row; a two-day range sums its days; hotel A cannot run hotel B; a seeded day matches the client's sample layout.
+  - **Scope out:** day-wise sale and expenditure (stores data; Inventory was left blank); trends (warehouse); a report builder.
+
+- [ ] **R4.16 Copilot — read-only, permission-aware**
+  - **Depends:** **R3.10** (`ai_ops.enabled`, `ai_ops.messages.limit`), **R4.14** and **R4.32** (answers on reports read them; moved after both on 2026-10-31). Comes before **R4.6**, which adds the write path on top of it.
+  - **Pilot checklist §14:** ask operational questions; answers with source context; help with reports and summaries; suggested next actions; only shows what the staff member may see.
+  - **Prototype:** `CopilotHome.tsx`. **Page:** [AI Copilot Home](https://www.bluepms.com/modules/ai-copilot-home/) has titles and report bullets only. It shows a home with suggested questions and shortcuts, and mentions report discovery and explaining exceptions: name these in the spec.
+  - **Locked:** the copilot's tools are **existing read routes**, called **as the asking user** through `dispatchV1` — the same permission, property scope and `assertTenantActive` as the SPA. No tool without an existing route; no command execution. **Suggested next actions** render as links or buttons to the existing screen or command, and the **clerk** clicks them — the copilot never submits. Every answer cites its sources as links to the records it read (reservation, folio, report snapshot).
+  - **Locked (PII):** guest data only through the decrypt paths the user may already call; guest-profile reads are audited per read, as in R5.11. Conversation content is not written to logs or events and is not retained past the session. The model provider is named in the DPA.
+  - **Also locked:** metering is `ai_ops.messages.limit` (`soft`, §6.6). Build the tool mapping and permission check so **R4.6** and **R5.11** reuse them.
+  - **Scope out:** any write (R4.6); guest-facing replies (R5.9); external agents (R5.11); warehouse trends; model choice and prompt content.
+  - **Tests:** a `roster:read`-only user's question about a folio gets a refusal, not data; a user at hotel A gets nothing from hotel B; every answer carries at least one source link or says it has none.
 
 - [ ] **R4.8 Migration importers — the switch path**
   - **Why now:** switching PMS is the largest objection in every deal, and for a multi-property operator the **consolidation demo is the sales conversation** — three legacy exports in, one estate view out. There is currently no slice, no contract and no tooling for it anywhere in this repo.
   - **Stage A (single property):** importers for reservations, guest profiles, rate plans and folio history. **First source: BluePMS** — the pilot is switching from it; get a sample export from the client before designing the mapping. Canadian incumbents follow in **R4.19**. Map onto existing commands — **no bulk write path that bypasses `COMMAND_CATALOG`** — and run in the `BULK` lane (§4.2) under the chunk cap so an import cannot stall a front desk.
+  - **Cut-over data (2026-10-31):** stays in house on cut-over night carry their advances and open-folio holds; the importer maps them to **R4.25** payments and **R4.23** holds, through the folio contract.
   - **Stage B moved to R5.7** — group consolidation needs the projections, so it cannot finish in this track. R4.8 is done when Stage A is.
   - **Locked:** import is a product surface with progress, per-record rejection and a re-runnable report — **not** a services engagement and not a script an engineer runs. Idempotent per source record. Every imported money row lands through the folio contract, never inserted.
   - **Scope out:** competitor-specific screen-scraping; anything that writes a DO directly.
@@ -580,14 +727,16 @@ Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **
 
 Track P being `[x]` means the software is ready. **The pilot is live** when the hotel runs its front desk, housekeeping and night audit on HospAI with BluePMS switched off. These steps are client, advisor and ops work: an agent working the queue **does not pick them** and does not tick them. Steps 1–3 start **now**, in parallel with Tracks 1–3, because their answers shape slices before Track P begins.
 
-- [ ] **Client answers** — the open questions in the [checklist research](research/2026-10-27-pilot-client-checklist.md#open-questions-for-the-client): POS vendor (R4.21), night audit settings (R1.10), tenders (R4.18), Form C filing (R6.2), channel manager and OTAs (R4.3), GST registration and e-invoicing threshold (R5.5). Record each answer in that file and in the slice it unblocks.
-- [ ] **Indian tax advisor sign-off** — on the R3.6 tax model before it is built, then on real invoices before go-live: GST slab per night, place of supply, the restaurant rate under the specified-premises declaration, the financial-year invoice series, IRN for B2B, no separate POS tax invoice for room-charged checks, and the DPDP consent notice (R4.15).
+- [ ] **Live BluePMS walkthrough and samples** — one session on the client's live system (Q8): Manager Report, night audit configuration, report list, a bill on hold if they use one. Collect one sample each of the Manager Report, final bill, advance receipt, proforma, registration card and B2B invoice with IRN, handled as guest PII. This is the first real check of everything read from BluePMS's marketing pages.
+- [ ] **Client answers** — the open questions in the [checklist research](research/2026-10-27-pilot-client-checklist.md#open-questions-for-the-client): POS vendor (R4.21), night audit settings (R1.10), tenders (R4.18), Form C filing (R6.2), channel manager and OTAs (R4.3), GST registration and e-invoicing threshold (R5.5), Manager Report rows (R4.32), reports they run (R4.14), guest documents (R4.13, R4.15), open folio (R4.23), accounting export (R4.12), Tax & Compliance and Guest Experience, and the rest listed there. Record each answer in that file and in the slice it unblocks.
+- [ ] **Open forks decided** — the user decides [F1–F4](#open-forks--the-users-decision) once the walkthrough and advisor answers are in, and the locks they touch are amended in the same change-set.
+- [ ] **Indian tax advisor sign-off** — on the R3.6 tax model before it is built, then on real invoices before go-live: GST slab per night, place of supply, the restaurant rate under the specified-premises declaration, the financial-year invoice series, IRN for B2B, no separate POS tax invoice for room-charged checks, and the DPDP consent notice (R4.15). Added 2026-10-31: what a tax invoice must show, including buyer fields and HSN/SAC (R4.22); whether a meal plan joins the room for the slab, and composite supply on packages (R3.6, R4.13); GST and a receipt voucher on an advance (R4.25); who issues an IRN for a B2B check paid at the outlet (R4.21); how DPDP erasure treats a retained buyer snapshot (R4.22); the duty per foreign national on Form C (R6.2, F4).
 - [ ] **BluePMS sample export** — reservations, guest profiles, rate plans and folio history, obtained before **R4.8** is designed. Handled as guest PII: stored only where the purge contract reaches.
 - [ ] **POS vendor agreement** — the chosen vendor confirms the R4.21 *Vendor must support* list in writing and gives a sandbox. The connector passes end-to-end in that sandbox before the rehearsal.
 - [ ] **Channel manager agreement and connection** — the chosen channel manager confirms the R4.3 *Channel manager must support* list in writing, gives a sandbox and completes its PMS certification of the connector; the hotel's OTAs are switched from BluePMS to HospAI inside the channel manager, with room and rate mappings loaded. No booking lands on the unmapped queue during the rehearsal.
 - [ ] **Pilot tenant provisioned** — by ops on Growth with `pos.enabled` and `ai_ops.enabled` (Track P *Provisioning*); rooms, room types, rate plans, packages, charge codes, outlet mappings, staff users and roles configured; e-invoicing and POS credentials loaded as `SECRET`.
-- [ ] **Staging rehearsal** — the hotel's configuration plus a full BluePMS import on staging. Run a booking-to-checkout day per room type, a B2B checkout with IRN, a room-charged POS check, a Form C record, a channel booking and a night audit; the R4.8 import report has no unexplained rejections.
-- [ ] **Parallel run** — at least three consecutive nights with both systems live. Each night, compare the night audit (room revenue, tax by component, payments, in-house count) with BluePMS. Any difference is explained and fixed before cut-over; the comparison is kept as the sign-off record.
+- [ ] **Staging rehearsal** — the hotel's configuration plus a full BluePMS import on staging. Run a booking-to-checkout day per room type, an advance with its receipt, an in-house extension, a checkout on an open-folio hold with a later charge, a B2B checkout with IRN, a room-charged POS check, a Form C record, a channel booking and a night audit; the R4.8 import report has no unexplained rejections.
+- [ ] **Parallel run** — at least three consecutive nights with both systems live. Each night, compare the night audit (room revenue, tax by component, payments, in-house count) and the **Manager Report** with BluePMS. Any difference is explained and fixed before cut-over; the comparison is kept as the sign-off record.
 - [ ] **Hardware and printing** — registration card, invoice and receipt printers at each desk; print CSS checked on the hotel's own printers; the browser and devices the staff will use.
 - [ ] **Staff training** — front desk, housekeeping supervisor, night auditor, accounts (Tally / Zoho export) and managers (reports, copilot), each on their own role's navigation (R2.6).
 - [ ] **Cut-over** — a dated cut-over night: final delta import of bookings made since the rehearsal, BluePMS made read-only, the first night audit on HospAI with the team on call, and a named support contact for the first week.
@@ -729,12 +878,12 @@ Start only when Track 5 is `[x]`.
 | Prototype section | Prototype file | Live today | Track |
 |---|---|---|---|
 | Dashboard Hub | `Dashboard.tsx` | `/dashboard` Hub, first nav item | R1.1 **done** |
-| Room Plan Timeline | `TapeChart.tsx` | `/board` | R0.6, R1.3, R2 |
+| Room Plan Timeline | `TapeChart.tsx` | `/board` | R0.6, R1.3, R2; depth **R4.28** |
 | Front Desk Board | `FrontDesk.tsx` | `/arrivals` etc. + BoardSummary | R0.6, R1.3, R1.19, R1.20, R2.2 |
 | Cash drawer / shift | Front Desk cash | `/shift` + AppShell strip | R0.14, R1.16 honesty |
 | Reservations **list** | `Reservations.tsx` list | `/reservations` | shipped |
 | Reservations **stay card** | `Reservations.tsx` selected stay | missing SPA | **R1.15** (HTTP exists) |
-| New Booking | `BookingWizard.tsx` | `/book` (adults, hold, promo, search) | R1.4 remainder, R1.20 |
+| New Booking | `BookingWizard.tsx` | `/book` (adults, hold, promo, search) | R1.4 remainder, R1.20; room number **R4.26** |
 | Housekeeping Desk | `Housekeeping.tsx` | board + assign + workload | R1.9 (priority, inventory, **maintenance module**, roster skills) |
 | Rates & Yield | `RatesAvailability.tsx` | `/rates/*` | R1.7, R5.1 |
 | Guest CRM | `GuestsCRM.tsx` | `/guests` | R1.8 (DEMO-READY P1); documents + consent **R4.15** |
@@ -742,6 +891,13 @@ Start only when Track 5 is `[x]`.
 | Folio extras (promo, damage, no-post, invoice) | stay + billing | money-ops + FolioScreen | shipped; wire on R1.15 if missing |
 | Folio routing rules | Front Desk / Settings | Settings charges | shipped — do not rebuild |
 | Night Audit | `NightAudit.tsx` | `/night-audit` (keep in nav) | R1.10, R0.7 |
+| Open folio / bill on hold | — (BluePMS page) | missing | **R4.23** |
+| Draft bill, settlement cancel | `FoliosBilling.tsx` | missing | **R4.29** |
+| In-house stay changes | — (BluePMS page) | early depart and same-type move only | **R4.24** |
+| Advance collection + receipt | — (BluePMS page) | payments exist, no flow or receipt | **R4.25** |
+| Buyer GST details, HSN/SAC | — (BluePMS page) | missing | **R4.22**, **R5.5** |
+| Manager Report + MIS settings | — (BluePMS page) | missing | **R4.32** |
+| HK tasks, status history, supervisor dashboard | `Housekeeping.tsx` | assign + status only | **R4.30**, **R4.31** |
 | Exceptions | — (platform) | `/exceptions` | shipped |
 | City ledger | — | `/city-ledger` | R0.3 honesty |
 | Settings Property | `Settings.tsx` | `/settings/property` | R1.6, R3.1 |
@@ -762,7 +918,7 @@ Start only when Track 5 is `[x]`.
 | Marketplace | Settings tab | missing | R5.3 |
 | Property switcher | header dropdown | missing | R4.4 |
 | Multi-property projections | — | missing | R5.7 |
-| Room Ops live view | `RoomOpsLiveView.tsx` | covered by `/board` | §16.6 — no second grid |
+| Room Ops live view | `RoomOpsLiveView.tsx` | missing (`/board` is the tape) | **R4.27** — a status view, not a second grid (§16.6) |
 | Package master | `PackageMaster.tsx` | missing | R3.2, R3.3 → **R4.13** (Track P) |
 | Report catalogs + runner | `*ReportCatalog.tsx`, `NativeReportRunner.tsx` | snapshot reports | **R4.14** named set; catalog entries are **not** a backlog |
 | AR (debtors, statements, aging) | `FoliosBilling.tsx` AR views | `/city-ledger` | R0.3 honesty, audit L1 |
@@ -812,6 +968,8 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 - Need to connect an OTA directly or build channel-manager features of our own — R4.3 is a connector to a third-party channel manager; amend the §16.6 Channel Distribution row first.
 - Need to store PAN, CVV, or magstripe in this repo.
 - Need to clone `TicketsSettings.tsx` layout or add role impersonation.
+- Need to lift a lock an [open fork](#open-forks--the-users-decision) (F1–F4) names before the user has decided it.
+- Need to build Guest Experience features (reviews, social, website builder, guest pages): not asked of the client, undecided in §16.6.
 - Need to widen `tender_type` beyond `CARD` \| `CASH`, add Phase 1 email, extra stay `guest_ref`s, warehouse trends on the desk, or a second occupancy scan.
 
 ---

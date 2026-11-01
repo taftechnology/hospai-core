@@ -13,6 +13,8 @@
 - The client is in **India** (confirmed 2026-10-27) and is switching **from BluePMS**.
 - **Every ticked item is a must-have** (client, 2026-10-27). None is optional, deferred or replaced by a link to a later track. The coverage table below is Track P's done-criterion.
 - Nothing here has been checked against the client's live BluePMS configuration.
+- **The checklist was compiled from a summary** that left out the feature inventories on the module pages. On 2026-10-31 those inventories were read against every tick ([comparison](2026-10-31-bluepms-inventory-vs-slices.md)): 27 covered, 29 partly, 2 missing. Coverage below is corrected to match.
+- **A blank tick means "not asked" for anything the checklist never listed.** That covers two whole modules (below) and several front-office features (Q16). It means "not used" only for items the client saw.
 
 ## Summary
 
@@ -36,6 +38,8 @@
 | 16 | Hostel | 0 / 7 | |
 | 17 | Payroll & HR | 0 / 9 | |
 | — | Not in BluePMS's list | 1 / 5 | accounting software integration only |
+| 18 | Tax & Compliance | **not on the checklist** | added to BluePMS's site later. The *GST / e-invoice QR* tick now points at it. Ask: Q14 |
+| 19 | Guest Experience | **not on the checklist** | added to BluePMS's site later. Ask: Q15 |
 
 ## Ticked items
 
@@ -64,67 +68,83 @@
 5. **Form C.** How are foreign-national arrivals reported today — through BluePMS, or by hand on the Bureau of Immigration portal?
 6. **Channels.** Decided 2026-10-28: a third-party channel manager through a connector (R4.3) — HospAI builds no channel manager of its own. Which channel manager sits between BluePMS and the OTAs today, which OTAs does it reach, and will the client keep it? Do those OTAs price by number of guests, and how does the hotel handle OTA card and virtual-card details today ([R4.3 forks](2026-10-28-channel-manager-integration-practice.md#forks--decide-before-building-r43))?
 7. **GST registration.** Is the hotel above the e-invoicing turnover threshold, and does it issue B2B invoices to guests' GSTINs?
+8. **Live walkthrough — do this first.** One session on the client's live BluePMS, with their Manager Report, night audit configuration and report list on screen. BluePMS's pages are marketing material; this is the only check against what the hotel really uses, and it can answer most of the questions below in one sitting. Ask for samples: one Manager Report, final bill, advance receipt, proforma, registration card, and a B2B invoice with IRN.
+9. **Manager settings (R4.32).** Which Manager Report rows and settings do they use, and who reads the report? We read this tick as the Manager Report and MIS settings, not as general settings. Confirm.
+10. **Reports (R4.14, fork F3).** Which reports do they run daily and monthly, and in which format? "247" is not a list. Which of them are filed or sent outside the hotel?
+11. **Guest documents (R4.13, R4.15).** Does this tick mean ID scans, or the printed guest-facing set (proforma, registration card, advance receipt)? BluePMS's page uses it for the printed set.
+12. **Open folio (R4.23).** Do they check guests out on an approved open folio and charge afterwards? Who approves, and how often does it happen?
+13. **Accounting (R4.12).** How do they get figures into Tally or Zoho today: which report, how often, who does it?
+14. **Tax & Compliance (R4.22, R5.5).** They never saw this module. Do they use GSTIN lookup, the GST registers or 3B working papers? How do they correct a rejected e-invoice today?
+15. **Guest Experience.** They never saw this module either. Do they use reviews, guest messaging, service tickets, guest pages or the website builder in BluePMS? Their Communications and booking-engine ticks were blank, so we plan to build none of it for the pilot unless they say otherwise.
+16. **Front-office features the checklist never listed.** Do they use additional-guest capture, group reservations, door lock, Wi-Fi, ID scanning, guest and facility charge bills, early-departure penalties, or a waitlist status?
+17. **Line transfer to another room (R4.29, fork F1).** Do they move charges from one room's bill to another's? How often, and for what?
+18. **Planning range (R4.28, fork F2).** How far ahead does the desk read the room grid each day? How many rooms does the hotel have?
+19. **Several guests in a room (R6.2, R4.15, fork F4).** When two foreign nationals share a room, do they record each one today? Do they record ID for every adult?
+20. **In-house changes (R4.24, R4.15).** What do they change after check-in: dates, room type, plan, party size? Do they use the early check-in, late checkout and airport transfer flags?
+21. **Advances (R4.25, R4.18).** Do they take advances at booking, at check-in, or both? Do guests get a numbered receipt, and do they split one advance across methods?
+22. **Housekeeping detail (R4.11, R4.30, R4.31).** Which departments receive guest requests? Are amenities always complimentary, or sometimes charged? Should completing a maintenance task release the room by itself? Do they use checkout-time alerts?
+23. **OTA payouts (R4.3).** Do they reconcile OTA settlements in BluePMS, in accounts, or not at all?
 
-These answers are the first step of the [pilot go-live checklist](../roadmap.md#pilot-go-live--not-coding-slices) — ask them now, not when Track P starts.
+These answers are the first step of the [pilot go-live checklist](../roadmap.md#pilot-go-live--not-coding-slices) — ask them now, not when Track P starts. Questions for the tax advisor are on that same checklist.
 
 ## Coverage — ticked item to slice
 
-Each row must end on `[x]` slices before Track P is done. *Shipped* means live today; the slices after it close what is missing.
+Each row must end on `[x]` slices before Track P is done. *Shipped* means live today; the slices after it close what is missing. Corrected 2026-10-31 against the [inventory comparison](2026-10-31-bluepms-inventory-vs-slices.md), which has the gap behind each row. **F1–F4** are [open forks](../roadmap.md#open-forks--the-users-decision) awaiting the user.
 
 ### 01 Front Office
 
 | Ticked item | Covered by |
 |---|---|
-| Guest lookup (search / create profile, ID documents) | Shipped search and create; **R4.15** documents |
-| New reservation (dates, guests, room type, room number, meal/rate plan) | Shipped `/book`; **R1.4**; meal plans **R3.3** |
-| Day-wise rate overrides | **R4.20** |
-| Add-ons (stay, arrival/departure, weekends, chosen dates) | **R1.5**, **R1.4**; scheduling **R4.13** |
-| Advance / deposit payments in the booking | **R1.20**; tenders **R4.18** |
+| Guest lookup (search / create profile, ID documents) | Shipped exact-match search and create; **R4.15** documents and preview on selecting a match |
+| New reservation (dates, guests, room type, room number, meal/rate plan) | Shipped `/book` without a room number; **R1.4**; room at booking **R4.26**; meal plans **R3.3** |
+| Day-wise rate overrides | **R4.20**; package and plan rows with **R4.13** |
+| Add-ons (stay, arrival/departure, weekends, chosen dates) | **R1.5**, **R1.4**; scheduling, including chosen dates, **R4.13** |
+| Advance / deposit payments in the booking | Collection and numbered receipt **R4.25**; gate **R1.20**; tenders **R4.18** |
 | Proforma invoices | **R4.13** |
-| Edit reservation and guest preferences | **R1.15**; preferences **R4.15** |
+| Edit reservation and guest preferences | Before arrival **R1.15**; after check-in **R4.24**; preferences **R4.15** |
 | Check-in from the reservation screen | Shipped check-in; **R1.15** stay card |
 | Registration cards (print / reprint, templates) | Shipped view; **R2.4**; templates **R4.13** |
 | Package templates and package posting rules | **R3.2**, **R3.3**, **R4.13** |
-| Room operations grid / tape | Shipped `/board`; **R1.3** |
-| Live room view by status | Shipped `/board` |
-| Front-office billing and open folio | Shipped folio; **R1.2** directory |
-| GST / e-invoice QR on invoices | **R3.6**, **R1.12**, **R5.5** |
-| Guest documents | **R4.15** |
+| Room operations grid / tape | Shipped `/board` (14-day cap); **R1.3**; occupancy row and date states **R4.28**; range **F2** |
+| Live room view by status | **R4.27** (`/board` is the tape, not this view) |
+| Front-office billing and open folio | Shipped folio; **R1.2** directory; open folio **R4.23**; draft bill and reversals **R4.29**; line transfer to another room **F1** |
+| GST / e-invoice QR on invoices | **R3.6**, **R1.12**; buyer details and HSN/SAC **R4.22**; **R5.5** |
+| Guest documents | Meaning unconfirmed (Q11): printed set **R4.13**, **R4.25**; ID scans **R4.15** |
 | Night audit (customisable) | Shipped audit; **R1.10** configurable checks |
-| Manager settings | **R1.11**, **R1.12**, **R1.17**, **R3.1** |
-| Front-office reports | **R4.14** |
+| Manager settings | Manager Report and MIS settings **R4.32**. General settings (**R1.11**, **R1.12**, **R1.17**, **R3.1**) do not cover this tick |
+| Front-office reports | **R4.14**; list **F3** |
 
 ### 02 Housekeeping
 
 | Ticked item | Covered by |
 |---|---|
-| Supervisor dashboard | Shipped HK board; **R1.9**; requests **R4.11** |
-| Priority / floor-by-floor workbench | **R1.9** |
-| Room status (dirty / inspected / ready, with comments) | Shipped statuses; **R1.9** — confirm room comments exist |
+| Supervisor dashboard | Shipped HK board and priority queue; **R1.9**; requests **R4.11**; dashboard **R4.31** |
+| Priority / floor-by-floor workbench | Priority **R1.9**; floor comparison and room search **R4.31** |
+| Room status (dirty / inspected / ready, with comments) | Shipped statuses, no comments; comments and history **R4.30** |
 | Guest requests against a room | **R4.11** |
-| Task assignment to attendants | Shipped |
-| Maintenance / out-of-order blocks | Shipped OOO; **R1.9** maintenance module |
+| Task assignment to attendants | Shipped one assignee per room per day; task record and lifecycle **R4.30** |
+| Maintenance / out-of-order blocks | Shipped OOO; **R1.9** maintenance module; block detail and release history **R4.30** |
 | Lost and found | **R4.11** |
 | Missing / damaged items | **R4.11** |
 | Guest audit (front office vs housekeeping counts) | **R4.11** |
 | Inspection checklists and room scores | **R4.11** |
-| Cleaning stages and linen log | **R4.11** |
+| Cleaning stages and linen log | **R4.11** on the **R4.30** task record |
 | Minibar pickup to guest folio and stock | **R4.11** on the **R1.9** operational list |
 | Amenity delivery | **R4.11** |
-| Housekeeping reports | **R4.14** |
+| Housekeeping reports | **R4.14**; list **F3** |
 
 ### 03 Point of Sale
 
-All twelve items are met by the **third-party POS vendor** plus the **R4.21** connector on **R4.9**. HospAI's side of POS reports — room charges and outlet day-close totals — is **R4.14**. If no vendor meets R4.21's requirements, the parked built-in POS (**R4.17**) is the fallback.
+All twelve items are met by the **third-party POS vendor** plus the **R4.21** connector on **R4.9**. No vendor is chosen yet, so all twelve are unproven until one passes R4.21's check, which now lists what the page implies. The *billing* row is only partly covered: nothing yet says who issues an IRN for a B2B check paid at the outlet. HospAI's side of POS reports — room charges and outlet day-close totals — is **R4.14**. If no vendor meets R4.21's requirements, the parked built-in POS (**R4.17**) is the fallback.
 
 ### 06 Channel Distribution
 
-All seven items are met by the **third-party channel manager** plus the **R4.3** connector on **R4.5**: ARI publishing, mapping, booking receipt, the unmapped-booking queue and commission per booking are the connector's side; OTA connections are the channel manager's. Distribution reports **R4.14**.
+All seven items are met by the **third-party channel manager** plus the **R4.3** connector on **R4.5**: ARI publishing, mapping, booking receipt, the unmapped-booking queue and commission per booking are the connector's side; OTA connections are the channel manager's. Distribution reports **R4.14** (list **F3**). Matching OTA payouts is not covered: BluePMS's page mentions settlement review, so Q23 decides whether it joins R4.3. This module's page has no inventory, so the check is shallow.
 
 ### 12 CRM, 14 AI Copilot, accounting
 
 | Ticked item | Covered by |
 |---|---|
 | Guest 360 (identity, stays, preferences, consent) | Shipped profile and stay history; **R1.8**; **R4.15** |
-| AI Copilot — all five items | **R4.16** |
-| Accounting software integration (Tally, Zoho Books) | **R4.12** |
+| AI Copilot — all five items | **R4.16**; answers on reports need **R4.14** and **R4.32** |
+| Accounting software integration (Tally, Zoho Books) | **R4.12**; no BluePMS page to check against, so Q13 sets the format |

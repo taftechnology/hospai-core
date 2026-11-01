@@ -20,7 +20,7 @@ The client ticked *Night audit (customisable)*, and every tick is a must-have. O
 | Close only after blockers are cleared | Fail stops PRE_CHECK (§5.3) |
 | A log of past closes and validation results | Close-out stage (§5.5, §6) |
 | Pre-close, post-roll and mandatory check groups | Pre-close checks only. The rest is sorted in §3 |
-| Open folio auto-open and auto-close | Not here: open folio has no slice (§3) |
+| Open folio auto-open and auto-close | Not here: **R4.23** (§3) |
 | Revenue report, daily statistics, end-of-day control report | **R4.14** (§3) |
 
 ## 2. Decisions (locked)
@@ -61,8 +61,8 @@ The client ticked *Night audit (customisable)*, and every tick is a must-have. O
 
 | BluePMS check | Why not now | Where it lands |
 |---|---|---|
-| Open folios and open folio holds, auto-open, auto-close | HospAI has no bill-on-hold; no slice covers it | Open folio slice, not yet on the roadmap. Add the check there |
-| Arrival deposits | No rule yet says a deposit is required, so a count would be noise | R1.20 and R4.18 |
+| Open folios and open folio holds, auto-open, auto-close | HospAI has no bill-on-hold yet | R4.23, which adds the check |
+| Arrival deposits | No rule yet says a deposit is required, so a count would be noise | R4.25, reading the R1.20 rule |
 | ID proof completeness | Guest ID documents are not built | R4.15 |
 | Country/state | Guest details live in OrgDO; PropertyDO cannot count them, and events carry no PII | R4.15 or R6.2 |
 | Pseudo rooms | HospAI has no such concept | Dropped unless the client needs it |

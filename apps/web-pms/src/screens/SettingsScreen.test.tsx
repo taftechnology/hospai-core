@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listDomainConfig = vi.fn();
 const putDomainConfig = vi.fn();
+const getMe = vi.fn();
 const updatePropertyDetails = vi.fn();
 const getProperty = vi.fn();
 const listChargeCodes = vi.fn();
@@ -25,6 +26,7 @@ vi.mock('../client.js', () => ({
   api: {
     listDomainConfig: (...a: unknown[]) => listDomainConfig(...a),
     putDomainConfig: (...a: unknown[]) => putDomainConfig(...a),
+    getMe: (...a: unknown[]) => getMe(...a),
     updatePropertyDetails: (...a: unknown[]) => updatePropertyDetails(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
     listChargeCodes: (...a: unknown[]) => listChargeCodes(...a),
@@ -50,6 +52,11 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+import {
+  NIGHT_AUDIT_CHECK_HINT_ANY_FAIL,
+  NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW,
+  NIGHT_AUDIT_CHECK_HINT_DEPARTURES_EXTEND,
+} from '../copy/night-audit-check-labels.js';
 import { SettingsScreen } from './SettingsScreen.js';
 
 function domain(key: string, value: unknown) {
@@ -60,6 +67,7 @@ function renderSettings(path: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
@@ -72,6 +80,27 @@ function renderSettings(path: string) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { invalidateSpy };
+}
+
+const WARN_CHECKS = {
+  arrivals_not_checked_in: 'warn',
+  departures_not_checked_out: 'warn',
+  cashier_shift_open: 'warn',
+  dirty_room_assigned: 'warn',
+  departed_with_balance: 'warn',
+};
+
+function configureMe(permissions: string[]) {
+  getMe.mockResolvedValue({
+    ok: true,
+    orgId: 'org_demo',
+    propertyId: 'prop_demo',
+    userId: 'user_1',
+    role: 'admin',
+    permissions,
+    orgPermissions: [],
+  });
 }
 
 describe('SettingsScreen', () => {
@@ -94,6 +123,7 @@ describe('SettingsScreen', () => {
       ],
     });
     putDomainConfig.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    configureMe(['settings:configure']);
     updatePropertyDetails.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listChargeCodes.mockResolvedValue({
       ok: true,
@@ -336,6 +366,126 @@ describe('SettingsScreen', () => {
     expect(screen.queryByLabelText(/Same-day bookings/i)).toBeNull();
     expect(screen.queryByLabelText(/Require prepayment/i)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Booking' })).toBeNull();
+  });
+
+  it('20: changing a select and saving writes the whole checks map', async () => {
+    const { invalidateSpy } = renderSettings('/settings/property');
+    const departed = (await screen.findByLabelText('Departed with a balance')) as HTMLSelectElement;
+    await waitFor(() => expect(departed.disabled).toBe(false));
+    expect(departed.value).toBe('warn');
+    fireEvent.change(departed, { target: { value: 'info' } });
+    expect(putDomainConfig).not.toHaveBeenCalled();
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:checks' },
+    });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled());
+    expect(putDomainConfig.mock.calls[0]?.[1]).toEqual({
+      key: 'pms.night_audit.checks',
+      value: { ...WARN_CHECKS, departed_with_balance: 'info' },
+      reason: 'ops:checks',
+    });
+    expect(await screen.findByText('Saved.')).toBeTruthy();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['night-audit', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['domain-config', 'prop_demo'] });
+  });
+
+  it('20: fixed rows have no control', async () => {
+    renderSettings('/settings/property');
+    const queued = await screen.findByRole('row', { name: /Queued commands/ });
+    expect(within(queued).queryByRole('combobox')).toBeNull();
+    expect(within(queued).getByText('Fail')).toBeTruthy();
+    expect(within(queued).getByText('Always on')).toBeTruthy();
+    const exceptions = screen.getByRole('row', { name: /Open exceptions/ });
+    expect(within(exceptions).queryByRole('combobox')).toBeNull();
+    expect(within(exceptions).getByText('Always on')).toBeTruthy();
+  });
+
+  it('20: each hint appears for its combination and does not block the save', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.night_audit.auto_no_show', true),
+        domain('pms.night_audit.auto_extend', false),
+        domain('pms.night_audit.checks', WARN_CHECKS),
+      ],
+    });
+    renderSettings('/settings/property');
+    const arrivals = (await screen.findByLabelText(
+      'Arrivals not checked in',
+    )) as HTMLSelectElement;
+    await waitFor(() => expect(arrivals.disabled).toBe(false));
+    expect(screen.queryByText(NIGHT_AUDIT_CHECK_HINT_ANY_FAIL)).toBeNull();
+    fireEvent.change(arrivals, { target: { value: 'fail' } });
+    expect(screen.getByText(NIGHT_AUDIT_CHECK_HINT_ANY_FAIL)).toBeTruthy();
+    expect(screen.getByText(NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW)).toBeTruthy();
+    expect(screen.queryByText(NIGHT_AUDIT_CHECK_HINT_DEPARTURES_EXTEND)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Departures not checked out'), {
+      target: { value: 'fail' },
+    });
+    expect(screen.queryByText(NIGHT_AUDIT_CHECK_HINT_DEPARTURES_EXTEND)).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:fail-hints' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled());
+    cleanup();
+
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.night_audit.auto_no_show', false),
+        domain('pms.night_audit.auto_extend', true),
+        domain('pms.night_audit.checks', WARN_CHECKS),
+      ],
+    });
+    renderSettings('/settings/property');
+    const departures = (await screen.findByLabelText(
+      'Departures not checked out',
+    )) as HTMLSelectElement;
+    await waitFor(() => expect(departures.disabled).toBe(false));
+    fireEvent.change(departures, { target: { value: 'fail' } });
+    expect(screen.getByText(NIGHT_AUDIT_CHECK_HINT_ANY_FAIL)).toBeTruthy();
+    expect(screen.getByText(NIGHT_AUDIT_CHECK_HINT_DEPARTURES_EXTEND)).toBeTruthy();
+    expect(screen.queryByText(NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW)).toBeNull();
+  });
+
+  it('20: save failure uses classified copy', async () => {
+    putDomainConfig.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
+    renderSettings('/settings/property');
+    const select = (await screen.findByLabelText('Cashier shifts still open')) as HTMLSelectElement;
+    await waitFor(() => expect(select.disabled).toBe(false));
+    fireEvent.change(select, { target: { value: 'off' } });
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Property unreachable.')).toBeTruthy();
+  });
+
+  it('20: a user without settings:configure cannot save', async () => {
+    configureMe(['reservations:read']);
+    renderSettings('/settings/property');
+    expect(await screen.findByText(/Requires permission settings:configure/)).toBeTruthy();
+    const select = screen.getByLabelText('Arrivals not checked in') as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:nope' },
+    });
+    fireEvent.click(save);
+    expect(putDomainConfig).not.toHaveBeenCalled();
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

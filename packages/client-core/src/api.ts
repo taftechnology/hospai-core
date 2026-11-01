@@ -12,6 +12,8 @@ import type {
   MaintenanceStatus,
   MaintenanceTaskTypeRow,
   MaintenanceTicketRow,
+  NightAuditCheckLog,
+  NightAuditCheckPreviewRow,
   OrgScopedPermission,
   PropertyScopedPermission,
 } from '@hospai/contracts';
@@ -239,6 +241,7 @@ export type NightAuditStatus = {
   closingExceptionCount: number;
   steps: NightAuditStepStatus[];
   reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
+  checks: NightAuditCheckPreviewRow[];
 };
 
 export type PropertyDoRpc = {
@@ -1566,6 +1569,10 @@ export function createClient(opts: {
     async getNightAudit(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/night-audit`);
       return body as NightAuditStatus;
+    },
+    async getNightAuditCheckLog(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/night-audit/check-log`);
+      return body as NightAuditCheckLog;
     },
     async getNightAuditReport(propertyId: string, businessDate: string, reportId: string) {
       const { body } = await getJson(

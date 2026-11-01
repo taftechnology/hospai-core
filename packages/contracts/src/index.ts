@@ -1,4 +1,5 @@
 export * from './config/register.js';
+export * from './night-audit-checks.js';
 export * from './commands/catalog.js';
 export * from './commands/audit-writers.js';
 export * from './tenancy/types.js';

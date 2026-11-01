@@ -19,6 +19,11 @@ import {
   domainConfigKeys,
   getConfigEntry,
   isStructuredCloneable,
+  NIGHT_AUDIT_CHECK_IDS,
+  NIGHT_AUDIT_CHECK_SEVERITIES,
+  NIGHT_AUDIT_CHECKS_DEFAULT,
+  NIGHT_AUDIT_FIXED_CHECK_IDS,
+  NightAuditChecksSchema,
   requiredPermissionForKey,
 } from './index.js';
 
@@ -138,6 +143,29 @@ describe('config register', () => {
 
     const extend = getConfigEntry('pms.night_audit.auto_extend');
     expect(extend?.class).toBe('DOMAIN');
+
+    const checks = getConfigEntry('pms.night_audit.checks');
+    expect(checks?.class).toBe('DOMAIN');
+    expect(checks?.prototypeKey).toBeNull();
+    expect(checks?.audited).toBe(true);
+    expect(checks?.permission).toBe('settings:configure');
+    expect(checks?.consumers).toEqual(extend?.consumers);
+    expect(checks?.default).toEqual(NIGHT_AUDIT_CHECKS_DEFAULT);
+    expect(NIGHT_AUDIT_CHECK_IDS).toEqual([
+      'arrivals_not_checked_in',
+      'departures_not_checked_out',
+      'cashier_shift_open',
+      'dirty_room_assigned',
+      'departed_with_balance',
+    ]);
+    expect(NIGHT_AUDIT_FIXED_CHECK_IDS).toEqual(['queued_commands', 'open_exceptions']);
+    expect(NIGHT_AUDIT_CHECK_SEVERITIES).toEqual(['off', 'fail', 'warn', 'info']);
+    expect(NightAuditChecksSchema.safeParse(NIGHT_AUDIT_CHECKS_DEFAULT).success).toBe(true);
+    expect(NightAuditChecksSchema.safeParse({ not_a_check: 'warn' }).success).toBe(false);
+    expect(NightAuditChecksSchema.safeParse({ arrivals_not_checked_in: 'block' }).success).toBe(false);
+    expect(NightAuditChecksSchema.safeParse({ queued_commands: 'fail' }).success).toBe(false);
+    expect(NightAuditChecksSchema.safeParse({ open_exceptions: 'off' }).success).toBe(false);
+    expect(NightAuditChecksSchema.safeParse({ arrivals_not_checked_in: 'fail' }).success).toBe(true);
     expect(getConfigEntry('pms.ops.auto_assign_rule')?.class).toBe('OPERATIONAL');
     expect(getConfigEntry('pms.ops.auto_assign_rooming')?.class).toBe('OPERATIONAL');
   });
@@ -793,7 +821,15 @@ describe('command catalog', () => {
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(166);
+    expect(V1_HTTP_ROUTE_AUDIT[166]?.id).toBe('get_night_audit_check_log');
+    expect(V1_HTTP_ROUTE_AUDIT[166]).toMatchObject({
+      scope: 'property',
+      permission: 'night_audit:run',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[166] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(167);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
     expect(COMMAND_CATALOG).toHaveLength(104);

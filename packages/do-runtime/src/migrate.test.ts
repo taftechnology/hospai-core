@@ -58,6 +58,7 @@ import {
   HOUSEKEEPING_PRIORITY_V37_SQL,
   HOUSEKEEPING_INVENTORY_V38_SQL,
   MAINTENANCE_V39_SQL,
+  NIGHT_AUDIT_CHECKS_V40_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -225,6 +226,9 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v24 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN checked_out_business_date')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN dnd_flag')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO room_ooo')) return { toArray: () => [] };
@@ -255,16 +259,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 39', () => {
+  it('applies property migrations through version 40', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(39);
+    expect(v1).toBe(40);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(39);
-    expect(sql.schemaVersion).toHaveLength(39);
+    expect(v2).toBe(40);
+    expect(sql.schemaVersion).toHaveLength(40);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -706,7 +710,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(39);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(40);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -1110,5 +1114,24 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(MAINTENANCE_V39_SQL.trim());
+  });
+
+  it('property schema head is 40 after night audit checks', () => {
+    const v40 = PROPERTY_MIGRATIONS.find((m) => m.version === 40);
+    expect(v40?.name).toBe('night_audit_checks');
+    expect(v40?.statements[0]).toContain('night_audit_check_result');
+    expect(v40?.statements.some((s) => s.includes('checked_out_business_date'))).toBe(true);
+  });
+
+  it('migrations/do-property/0040_night_audit_checks.sql matches NIGHT_AUDIT_CHECKS_V40_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0040_night_audit_checks.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(NIGHT_AUDIT_CHECKS_V40_SQL.trim());
   });
 });

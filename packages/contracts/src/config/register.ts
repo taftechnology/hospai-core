@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
 import type { Permission } from '../permissions.js';
 
 /* eslint-disable no-redeclare -- zod schema const shares name with inferred type */
@@ -136,6 +137,15 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: bool,
     default: true,
+    consumers: night,
+  }),
+  entry({
+    key: 'pms.night_audit.checks',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: NightAuditChecksSchema,
+    default: NIGHT_AUDIT_CHECKS_DEFAULT,
+    permission: 'settings:configure',
     consumers: night,
   }),
   entry({

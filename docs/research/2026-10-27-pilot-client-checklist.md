@@ -59,7 +59,7 @@
 
 1. ~~Must-haves~~ — answered: every tick is a must-have.
 2. **POS vendor.** Decided 2026-10-27: a third-party POS through a connector (R4.21). Which POS will the client run, and does it cover all twelve ticked POS features plus the R4.21 vendor requirements?
-3. **Night audit "customisable".** Which settings do they change today? HospAI's eight audit steps are fixed; options inside them are configuration (R1.10).
+3. **Night audit "customisable".** BluePMS's Front Office page defines this as configurable checks. In BluePMS's Night Audit Check Configuration, which checks does the client have on, and which are set to Fail, Warn or Info? Does the client rely on a listed check that the first R1.10 build leaves out? Do they use open folio holds? The answers set values and later checks; they do not block R1.10 ([draft spec §8](../superpowers/specs/2026-10-30-night-audit-operator-job-design.md)).
 4. **Tenders.** Which payment methods does the desk record today (cash, card on an external terminal, UPI, bank transfer, company credit)? HospAI records `CARD` and `CASH` only until the cashiering spec is amended.
 5. **Form C.** How are foreign-national arrivals reported today — through BluePMS, or by hand on the Bureau of Immigration portal?
 6. **Channels.** Decided 2026-10-28: a third-party channel manager through a connector (R4.3) — HospAI builds no channel manager of its own. Which channel manager sits between BluePMS and the OTAs today, which OTAs does it reach, and will the client keep it? Do those OTAs price by number of guests, and how does the hotel handle OTA card and virtual-card details today ([R4.3 forks](2026-10-28-channel-manager-integration-practice.md#forks--decide-before-building-r43))?
@@ -90,7 +90,7 @@ Each row must end on `[x]` slices before Track P is done. *Shipped* means live t
 | Front-office billing and open folio | Shipped folio; **R1.2** directory |
 | GST / e-invoice QR on invoices | **R3.6**, **R1.12**, **R5.5** |
 | Guest documents | **R4.15** |
-| Night audit (customisable) | Shipped audit; **R1.10** options |
+| Night audit (customisable) | Shipped audit; **R1.10** configurable checks |
 | Manager settings | **R1.11**, **R1.12**, **R1.17**, **R3.1** |
 | Front-office reports | **R4.14** |
 

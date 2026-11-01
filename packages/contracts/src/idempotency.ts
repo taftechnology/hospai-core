@@ -46,6 +46,7 @@ export const TENANT_NOT_ACTIVE = 'tenant_not_active' as const;
 /** Night-audit PRE_CHECK wire codes */
 export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;
 export const PROVISIONAL_EXCEPTIONS_OPEN = 'provisional_exceptions_open' as const;
+export const NIGHT_AUDIT_CHECKS_FAILED = 'night_audit_checks_failed' as const;
 export const PENDING_CENSUS_REQUIRED = 'pending_census_required' as const;
 export const ALREADY_RESOLVED = 'already_resolved' as const;
 export const NOTE_TOO_LONG = 'note_too_long' as const;

@@ -7,6 +7,11 @@ import {
   BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
   PENDING_CENSUS_REQUIRED,
+  NIGHT_AUDIT_CHECKS_FAILED,
+  NIGHT_AUDIT_CHECK_IDS,
+  NIGHT_AUDIT_CHECK_SEVERITIES,
+  NIGHT_AUDIT_CHECKS_DEFAULT,
+  NIGHT_AUDIT_FIXED_CHECK_IDS,
   PENDING_COMMANDS_UNDRAINED,
   PROVISIONAL_EXCEPTIONS_OPEN,
   domainConfigKeys,
@@ -182,6 +187,11 @@ import {
   type HousekeepingPriorityLevelInput,
   type HousekeepingPriorityQueueRow,
   type IdempotencyKey,
+  type NightAuditCheckId,
+  type NightAuditCheckLog,
+  type NightAuditCheckPreviewRow,
+  type NightAuditCheckSeverity,
+  type NightAuditFixedCheckId,
   type ModuleTxnCtx,
   type Sync,
   type Permission,
@@ -591,6 +601,13 @@ class ProvisionalExceptionsOpenError extends Error {
   constructor() {
     super(PROVISIONAL_EXCEPTIONS_OPEN);
     this.name = 'ProvisionalExceptionsOpenError';
+  }
+}
+
+class NightAuditChecksFailedError extends Error {
+  constructor() {
+    super(NIGHT_AUDIT_CHECKS_FAILED);
+    this.name = 'NightAuditChecksFailedError';
   }
 }
 
@@ -1476,6 +1493,16 @@ export type NightAuditStep = (typeof NIGHT_AUDIT_STEPS)[number];
 /** Caller-passes-census — PropertyDO never reads PLATFORM_DB. Required for PRE_CHECK. */
 export type NightAuditCensus = { pendingOpenCount: number };
 
+type PreCheckRow = {
+  checkId: NightAuditCheckId | NightAuditFixedCheckId;
+  severity: NightAuditCheckSeverity;
+  count: number | null;
+};
+
+function isNightAuditCheckSeverity(value: unknown): value is NightAuditCheckSeverity {
+  return (NIGHT_AUDIT_CHECK_SEVERITIES as readonly string[]).includes(String(value));
+}
+
 /**
  * Set-reconcile `availability_day` to `[businessDate, businessDate + (HORIZON_DAYS - 1)]`
  * for every *active* room type: INSERT missing dates only, at `physical = room_type.room_count`
@@ -1586,6 +1613,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'maintenance_ticket',
   'idempotency',
   'invoice',
+  'night_audit_check_result',
   'night_audit_report',
   'night_audit_run',
   'outbox',
@@ -1634,6 +1662,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM invoice) +
+      (SELECT COUNT(*) FROM night_audit_check_result) +
       (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +
@@ -3031,6 +3060,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return this.bumpAriVersionSync();
   }
 
+  /** Test helper (unsafe-local only): read the business date stamped at checkout. */
+  async readCheckedOutBusinessDateForTest(reservationId: string): Promise<string | null> {
+    this.assertUnsafeLocal('readCheckedOutBusinessDateForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT checked_out_business_date AS d FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{ d: string | null }>;
+    return rows[0]?.d ?? null;
+  }
+
   /** Test helper (unsafe-local only): force `__meta.business_date`, bypassing the insert-only first-write guard. */
   async setBusinessDateForTest(businessDate: string): Promise<void> {
     this.assertUnsafeLocal('setBusinessDateForTest');
@@ -3147,10 +3188,26 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         await this.archiveAsync(businessDate);
       }
 
+      // Results commit in their own transaction, with no await before Txn B, so a
+      // failed PRE_CHECK keeps the rows that made it fail. A COMPLETED step returned
+      // above and never writes. A missing census throws before any write.
+      let preCheckRows: PreCheckRow[] | undefined;
+      if (step === 'PRE_CHECK') {
+        if (census === undefined) throw new PendingCensusRequiredError();
+        preCheckRows = this.evaluatePreCheckRowsSync(businessDate, census);
+        const attempt = this.readNightAuditRunAttemptSync(businessDate, step);
+        const toStore = preCheckRows.filter(
+          (row): row is PreCheckRow & { count: number } => row.severity !== 'off' && row.count !== null,
+        );
+        this.ctx.storage.transactionSync(() => {
+          this.insertNightAuditCheckResultsSync(businessDate, attempt, toStore);
+        });
+      }
+
       // Txn B — step body plus its COMPLETED marker: all of it, or none of it.
       return this.ctx.storage.transactionSync(() => {
         if (step === 'PRE_CHECK') {
-          this.runPreCheckSync(businessDate, census);
+          this.applyPreCheckDecisionSync(preCheckRows!);
         } else if (step === 'ROLL_BUSINESS_DATE') {
           this.runRollStepSync(businessDate);
         } else if (step === 'POST_ROOM_CHARGES') {
@@ -3205,17 +3262,135 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
-  private runPreCheckSync(businessDate: string, census?: NightAuditCensus): void {
-    if (census === undefined) throw new PendingCensusRequiredError();
-    if (census.pendingOpenCount > 0) throw new PendingCommandsUndrainedError();
-    const open = this.ctx.storage.sql
+  private countQuerySync(query: string, ...bindings: unknown[]): number {
+    const rows = this.ctx.storage.sql.exec(query, ...bindings).toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /** One row per configurable check. `off` skips the query and has `count: null`. */
+  private evaluateNightAuditChecksSync(businessDate: string): NightAuditCheckPreviewRow[] {
+    const stored = this.readConfigValueSync('pms.night_audit.checks');
+    const map =
+      stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? (stored as Record<string, unknown>)
+        : {};
+    return NIGHT_AUDIT_CHECK_IDS.map((checkId) => {
+      const raw = map[checkId];
+      const severity = isNightAuditCheckSeverity(raw) ? raw : NIGHT_AUDIT_CHECKS_DEFAULT[checkId];
+      if (severity === 'off') return { checkId, severity, count: null };
+      return { checkId, severity, count: this.countNightAuditCheckSync(checkId, businessDate) };
+    });
+  }
+
+  private countNightAuditCheckSync(checkId: NightAuditCheckId, businessDate: string): number {
+    switch (checkId) {
+      case 'arrivals_not_checked_in':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM reservation
+           WHERE status IN ('confirmed', 'pending') AND arrival_date <= ?`,
+          businessDate,
+        );
+      case 'departures_not_checked_out':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM reservation
+           WHERE status = 'checked_in' AND departure_date <= ?`,
+          businessDate,
+        );
+      case 'cashier_shift_open':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM shift
+           WHERE business_date = ? AND status = 'OPEN'`,
+          businessDate,
+        );
+      case 'dirty_room_assigned':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM reservation r
+           INNER JOIN room rm ON rm.room_id = r.room_id
+           WHERE r.status IN ('confirmed', 'pending')
+             AND r.arrival_date <= ?
+             AND rm.status = 'dirty'`,
+          businessDate,
+        );
+      case 'departed_with_balance':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM reservation r
+           WHERE r.status = 'checked_out'
+             AND r.checked_out_business_date = ?
+             AND (
+               SELECT COALESCE(SUM(fl.ledger_amount_minor), 0)
+               FROM folio_line fl
+               INNER JOIN folio_window fw ON fw.folio_window_id = fl.folio_window_id
+               WHERE fw.reservation_id = r.reservation_id
+                 AND fw.kind = 'GUEST'
+             ) > 0`,
+          businessDate,
+        );
+      default: {
+        const _exhaustive: never = checkId;
+        return _exhaustive;
+      }
+    }
+  }
+
+  /** Configurable rows plus the two fixed Fail rows. One evaluation for the log and the decision. */
+  private evaluatePreCheckRowsSync(businessDate: string, census: NightAuditCensus): PreCheckRow[] {
+    const openExceptions = this.countQuerySync(
+      `SELECT COUNT(*) AS n FROM provisional_exception
+       WHERE business_date = ? AND resolved_at IS NULL`,
+      businessDate,
+    );
+    const fixedCounts: Record<NightAuditFixedCheckId, number> = {
+      queued_commands: census.pendingOpenCount,
+      open_exceptions: openExceptions,
+    };
+    const fixed: PreCheckRow[] = NIGHT_AUDIT_FIXED_CHECK_IDS.map((checkId) => ({
+      checkId,
+      severity: 'fail',
+      count: fixedCounts[checkId],
+    }));
+    return [...fixed, ...this.evaluateNightAuditChecksSync(businessDate)];
+  }
+
+  private readNightAuditRunAttemptSync(businessDate: string, step: NightAuditStep): number {
+    const rows = this.ctx.storage.sql
       .exec(
-        `SELECT 1 AS one FROM provisional_exception
-         WHERE business_date = ? AND resolved_at IS NULL LIMIT 1`,
+        `SELECT attempt FROM night_audit_run WHERE business_date = ? AND step = ?`,
         businessDate,
+        step,
       )
-      .toArray();
-    if (open.length > 0) throw new ProvisionalExceptionsOpenError();
+      .toArray() as Array<{ attempt: number }>;
+    return rows[0]?.attempt ?? 1;
+  }
+
+  private insertNightAuditCheckResultsSync(
+    businessDate: string,
+    attempt: number,
+    rows: Array<PreCheckRow & { count: number }>,
+  ): void {
+    const evaluatedAt = Date.now();
+    for (const row of rows) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO night_audit_check_result
+           (business_date, attempt, check_id, severity, count, evaluated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        businessDate,
+        attempt,
+        row.checkId,
+        row.severity,
+        row.count,
+        evaluatedAt,
+      );
+    }
+  }
+
+  private applyPreCheckDecisionSync(rows: PreCheckRow[]): void {
+    const queued = rows.find((row) => row.checkId === 'queued_commands');
+    if ((queued?.count ?? 0) > 0) throw new PendingCommandsUndrainedError();
+    const open = rows.find((row) => row.checkId === 'open_exceptions');
+    if ((open?.count ?? 0) > 0) throw new ProvisionalExceptionsOpenError();
+    if (rows.some((row) => row.severity === 'fail' && (row.count ?? 0) > 0)) {
+      throw new NightAuditChecksFailedError();
+    }
   }
 
   /**
@@ -5112,6 +5287,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           error: string | null;
         }>;
         reports: Array<{ reportId: string; businessDate: string; generatedAt: number }>;
+        checks: NightAuditCheckPreviewRow[];
       }
     | { ok: false; error: typeof BUSINESS_DATE_UNSET }
   > {
@@ -5185,6 +5361,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ report_id: string; business_date: string; generated_at: number }>;
 
+    const checks = this.evaluateNightAuditChecksSync(businessDate);
+
     return {
       ok: true,
       businessDate,
@@ -5197,7 +5375,52 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         businessDate: r.business_date,
         generatedAt: r.generated_at,
       })),
+      checks,
     };
+  }
+
+  /** 30 most recent audited business dates, newest first, every attempt for those dates. */
+  async readNightAuditCheckLog(): Promise<NightAuditCheckLog> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT business_date, attempt, check_id, severity, count
+         FROM night_audit_check_result
+         WHERE business_date IN (
+           SELECT business_date FROM night_audit_check_result
+           GROUP BY business_date
+           ORDER BY business_date DESC
+           LIMIT 30
+         )
+         ORDER BY business_date DESC, attempt ASC, check_id ASC`,
+      )
+      .toArray() as Array<{
+      business_date: string;
+      attempt: number;
+      check_id: NightAuditCheckLog['dates'][number]['attempts'][number]['checks'][number]['checkId'];
+      severity: NightAuditCheckSeverity;
+      count: number;
+    }>;
+
+    const dates: NightAuditCheckLog['dates'] = [];
+    for (const row of rows) {
+      let date = dates[dates.length - 1];
+      if (!date || date.businessDate !== row.business_date) {
+        date = { businessDate: row.business_date, attempts: [] };
+        dates.push(date);
+      }
+      let attempt = date.attempts[date.attempts.length - 1];
+      if (!attempt || attempt.attempt !== row.attempt) {
+        attempt = { attempt: row.attempt, checks: [] };
+        date.attempts.push(attempt);
+      }
+      attempt.checks.push({
+        checkId: row.check_id,
+        severity: row.severity,
+        count: Number(row.count),
+      });
+    }
+    return { dates };
   }
 
   async readNightAuditReportIndex(
@@ -10126,7 +10349,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET status = 'checked_out', updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET status = 'checked_out', checked_out_business_date = ?, updated_at = ? WHERE reservation_id = ?`,
+            this.readBusinessDateSync(),
             now,
             input.reservationId,
           );

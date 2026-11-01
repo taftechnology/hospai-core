@@ -32,6 +32,7 @@ import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
 import { MaintenanceSettings } from './settings-maintenance.js';
+import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
@@ -735,6 +736,12 @@ export function SettingsScreen({
                   {...common}
                 />
               </div>
+              <NightAuditChecksSettings
+                keys={keys}
+                reason={reason}
+                propertyId={propertyId}
+                onSaved={onSaved}
+              />
             </CardContent>
           </Card>
 

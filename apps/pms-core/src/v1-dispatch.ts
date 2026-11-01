@@ -7080,6 +7080,20 @@ async function handleGetNightAudit(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetNightAuditCheckLog(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const log = await resolvedCtx.resolved.stub.readNightAuditCheckLog();
+    return json(log, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetNightAuditReport(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const businessDate = decodeURIComponent(ctx.match[2]!);
@@ -9356,6 +9370,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'maintenance:read',
     entitlement: 'pms.core',
     handler: handleGetMaintenanceTaskTypes,
+  },
+  {
+    id: 'get_night_audit_check_log',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/night-audit\/check-log$/,
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    handler: handleGetNightAuditCheckLog,
   },
 ];
 

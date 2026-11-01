@@ -6,6 +6,7 @@
 
 - **Module list, feature summaries and report counts:** <https://www.bluepms.com/modules/>, read 2026-09-12.
 - **Feature detail:** the 370 demo-video chapter titles and descriptions published at `bluepms.com/product-videos/<module>/`, compiled in `hospai-pms-prototype/docs/bluepms/bluepms-chapters-complete-2026-09-08.html`.
+- **Not covered:** the feature inventories on the individual `bluepms.com/modules/<module>/` pages, except where noted. Read those before scoping a feature; they go well beyond this summary (found 2026-10-30).
 
 ## Read this first
 
@@ -61,6 +62,7 @@ Reservations through check-in, room operations and reports, from one front-desk 
 - **Live room view** — rooms by condition (available, occupied, billed, dirty, maintenance) with date-range, room-type and status filters and occupancy statistics.
 - **Reports** — a catalogue grouped by arrivals, departures, in-house, reservations, groups, forecast, night audit, cashier, financial, profiles and statistics, plus a Dynamic Report Builder for custom reports.
 - **Also listed on the modules page:** front-office billing, open folio, GST and e-invoice QR, guest documents, availability reports, customisable night audit, manager settings.
+- **Customisable night audit** (added 2026-10-31 from the Custom Night Audit section of <https://www.bluepms.com/modules/front-office/>) — a configuration page with each check on or off and handled as Fail, Warn or Info; a preview before the business date closes; a close once blockers are cleared; and a log of past closes. Checks are grouped as pre-close, post-roll and mandatory.
 
 ## 02 · Housekeeping
 

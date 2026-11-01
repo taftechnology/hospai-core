@@ -217,13 +217,13 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R1.9 part D (maintenance, 2026-10-30) — update this table when you bump them:
+After roadmap R1.10 (night audit checks, 2026-10-31) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **104** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **166** routes, last id **`get_maintenance_task_types`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **39** | `packages/do-runtime` migrate tests |
+| `V1_HTTP_ROUTE_AUDIT` | **167** routes, last id **`get_night_audit_check_log`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `PROPERTY_SCHEMA_HEAD` | **40** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 

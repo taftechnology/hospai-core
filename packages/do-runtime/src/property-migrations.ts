@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 39. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 40. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1280,6 +1280,21 @@ export const MAINTENANCE_V39_STATEMENTS = [
 ] as const;
 export const MAINTENANCE_V39_SQL = MAINTENANCE_V39_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v40 — night-audit check results and the checkout business date (R1.10). */
+export const NIGHT_AUDIT_CHECKS_V40_STATEMENTS = [
+  `CREATE TABLE night_audit_check_result (
+  business_date TEXT    NOT NULL,
+  attempt       INTEGER NOT NULL,
+  check_id      TEXT    NOT NULL,
+  severity      TEXT    NOT NULL,
+  count         INTEGER NOT NULL,
+  evaluated_at  INTEGER NOT NULL,
+  PRIMARY KEY (business_date, attempt, check_id)
+)`,
+  `ALTER TABLE reservation ADD COLUMN checked_out_business_date TEXT`,
+] as const;
+export const NIGHT_AUDIT_CHECKS_V40_SQL = NIGHT_AUDIT_CHECKS_V40_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1475,5 +1490,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 39,
     name: 'maintenance',
     statements: MAINTENANCE_V39_STATEMENTS,
+  },
+  {
+    version: 40,
+    name: 'night_audit_checks',
+    statements: NIGHT_AUDIT_CHECKS_V40_STATEMENTS,
   },
 ] as const;

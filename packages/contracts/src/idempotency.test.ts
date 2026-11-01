@@ -64,6 +64,7 @@ import {
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
   PENDING_CENSUS_REQUIRED,
+  NIGHT_AUDIT_CHECKS_FAILED,
   PENDING_COMMANDS_UNDRAINED,
   PROVISIONAL_EXCEPTIONS_OPEN,
   HOLD_EXPIRED,
@@ -217,6 +218,7 @@ describe('fingerprintPayload', () => {
     expect(PENDING_CENSUS_REQUIRED).toBe('pending_census_required');
     expect(PENDING_COMMANDS_UNDRAINED).toBe('pending_commands_undrained');
     expect(PROVISIONAL_EXCEPTIONS_OPEN).toBe('provisional_exceptions_open');
+    expect(NIGHT_AUDIT_CHECKS_FAILED).toBe('night_audit_checks_failed');
   });
 
   it('reservation lifecycle wire codes', () => {
@@ -290,7 +292,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(179);
+    expect(count).toBe(180);
   });
 });
 

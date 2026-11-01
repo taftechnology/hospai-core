@@ -89,7 +89,7 @@ These answers are the first step of the [pilot go-live checklist](../roadmap.md#
 
 ## Coverage — ticked item to slice
 
-Each row must end on `[x]` slices before Track P is done. *Shipped* means live today; the slices after it close what is missing. Corrected 2026-10-31 against the [inventory comparison](2026-10-31-bluepms-inventory-vs-slices.md), which has the gap behind each row. **F1–F4** are [open forks](../roadmap.md#open-forks--the-users-decision) awaiting the user.
+Each row must end on `[x]` slices before Track P is done. *Shipped* means live today; the slices after it close what is missing. Corrected 2026-10-31 against the [inventory comparison](2026-10-31-bluepms-inventory-vs-slices.md), which has the gap behind each row. **F1–F4** are the [fork decisions](../roadmap.md#fork-decisions), which Q10, Q17, Q18 and Q19 help apply.
 
 ### 01 Front Office
 

@@ -272,16 +272,16 @@ Source: [AI Copilot Home](https://www.bluepms.com/modules/ai-copilot-home/), **t
 |---|---|---|---|
 | Tally / Zoho | Covered | M | R4.12. **No BluePMS page to check against.** The client's current export method was unknown, and the checklist had no open question for it. Added |
 
-## Decisions the user still has
+## Fork decisions
 
-Four findings collide with existing locks. They are not resolved here. The roadmap carries them as [open forks](../roadmap.md#open-forks--the-users-decision) with recommendations, and the locks hold until the user decides.
+Four findings collide with existing locks. The user accepted the recommendations on 2026-10-31; the [roadmap](../roadmap.md#fork-decisions) holds the full text.
 
-| Fork | Collision | Slices |
-|---|---|---|
-| **F1** | Line transfer to another room vs `transfer_cross_reservation` | R4.29 |
-| **F2** | A 26-day grid vs the 14-day tape cap | R4.28 |
-| **F3** | R4.14's closed report list vs the open "etc." in the tick | R4.14, R4.32, R4.16, the R1.10 spec's three reports |
-| **F4** | Party-size-only guests vs R6.2's per-person Form C | R6.2, R4.15 |
+| Fork | Collision | Decision | Slices |
+|---|---|---|---|
+| **F1** | Line transfer to another room vs `transfer_cross_reservation` | Lock holds unless Q17 shows the desk really moves lines; then one named command | R4.29 |
+| **F2** | A 26-day grid vs the 14-day tape cap | Cap holds unless Q18 shows a need; then 30, after measuring | R4.28 |
+| **F3** | R4.14's closed report list vs the open "etc." in the tick | Rule stays; list rewritten once, with the three R1.10 reports and what Q10 names | R4.14, R4.32 |
+| **F4** | Party-size-only guests vs R6.2's per-person Form C | Party size stays; a narrow Form C person record per foreign national | R6.2, R4.15 |
 
 The report's fifth question, whether rows marked T and the R1.9 floor view reopen shipped slices or get new ones, is settled by the 2026-10-31 instruction: new Track P slices. No `[x]` box is reopened.
 

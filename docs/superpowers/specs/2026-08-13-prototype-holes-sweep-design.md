@@ -97,7 +97,7 @@ Implementation that violates these is out of spec.
 11. **Route audit append-only.** New routes start at index **105**. `[104] = post_room_ooo_range` does not move.
 12. **New catalog commands** (none expected) would carry lane + degraded + idempotent + events + permission, and `entitlement: 'pms.core'` when `FAIL_CLOSED` with events. Search is a **read route**, not a command.
 13. **Fixture-date discipline** (`check:pms-core-test-dates`). Shared-storage tests key fixtures with `crypto.randomUUID()`.
-14. **Party size is occupancy, not a second guest profile.** `adults >= 1`, `children >= 0`. Check-in does not invent additional guest CRM rows.
+14. **Party size is occupancy, not a second guest profile.** `adults >= 1`, `children >= 0`. Check-in does not invent additional guest CRM rows. *Amended 2026-10-31 (roadmap F4, R6.2): one exception for India's Form C, a person record per foreign national on the stay. It is not a guest profile, has no `guest_ref` on the stay and no CRM row.*
 
 ---
 

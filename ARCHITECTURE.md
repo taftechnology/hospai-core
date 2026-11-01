@@ -13,7 +13,7 @@ Distribution is structural from day one on Cloudflare, but keep the Worker count
 (start with 4–5, grow to 10–14 only when load or team isolation demands it).
 
 > **Revision 2026-10-31.** BluePMS's module-page inventories read against the pilot's 58 ticks.
-> §16.6 corrected (live room view, Manager Report, two new module rows, open forks); §7.3 gains
+> §16.6 corrected (live room view, Manager Report, two new module rows, four fork decisions); §7.3 gains
 > open folio, §7.4 in-house changes, §7.8 the Manager Report, §7.9 buyer tax identity and
 > classification. Evidence: `docs/research/2026-10-31-bluepms-inventory-vs-slices.md`.
 >
@@ -1704,7 +1704,7 @@ market this engine was shaped for: requirements 2–5 and 7 all exist because of
 | **Local levy** | None at municipal level for GST; state levies outside GST are out of scope until a property needs one |
 | **Fiscalization** | **e-invoicing** for B2B invoices above the aggregate-turnover threshold: IRN and signed QR from the Invoice Registration Portal, with the guest's **GSTIN** on the invoice (requirement 7, **R5.5**). Failures are corrected and rebuilt with a preview; a lost callback is acknowledged by hand with the official IRN and QR |
 | **Invoice numbering** | One consecutive series per **financial year (April–March)**, unique per GSTIN, with a length limit — R1.12 numbering must reset on the financial year, not the calendar year |
-| **Guest registration** | **Form C** to the Bureau of Immigration for foreign nationals within 24 hours of arrival (**R6.2**). The duty is per person and the party is `adults` / `children`, so a second foreign national in a room is an open fork (**F4**, roadmap Track P) |
+| **Guest registration** | **Form C** to the Bureau of Immigration for foreign nationals within 24 hours of arrival (**R6.2**). The duty is per person and the party is a count, so each foreign national gets a Form C person record: not a guest profile, no `guest_ref` on the stay, no CRM row (decided 2026-10-31, **F4**) |
 | **Registration** | GSTIN is per state, so it is a **property** attribute — the same reason jurisdiction is per property below |
 | **Buyer details** | Registered or unregistered buyer; GSTIN, legal and trade name, address, state, PIN and place of supply. Captured on the city-ledger account, on the guest profile and at invoice time, and snapshotted on issue (requirement 9, **R4.22**) |
 | **Classification** | HSN/SAC per line on the tax invoice (requirement 9, **R4.22**). What the invoice must show is for the advisor |
@@ -2594,9 +2594,10 @@ stay *Core*, and POS and channels stay *Integrate*, with every gap inside the ro
 rule below. Roadmap **R4.22–R4.32** close them. The site now lists **19 modules**: Tax & Compliance
 and Guest Experience were not on the checklist, so a blank there means "not asked". All of this is
 marketing material read from public pages, not checked in a live system, so a **live walkthrough**
-with the client comes first. Four collisions with existing locks stay **open forks** for the user
-(roadmap *Open forks*): line transfer to another room, the 26-day grid, the closed report list, and
-per-person Form C. The locks hold until those are decided.
+with the client comes first. Four collisions with existing locks were decided by the user the same day
+(roadmap *Fork decisions*): line transfer to another room and the 26-day grid wait on the client's
+answers with the locks in place, the closed report list is rewritten once from the client's own
+list, and per-person Form C is a narrow exception to party size.
 
 | BluePMS module | Prototype surface | Decision | Production home |
 |---|---|---|---|
@@ -2634,7 +2635,7 @@ a report builder over the warehouse (§7.8), and agent access (§10.2) for the l
 entry in the prototype is not a report anyone has committed to build. The small set is named in
 roadmap **R4.14** — the front-office, housekeeping, POS and distribution reports the pilot ticked —
 and nothing outside that list is in scope without a new slice. The **Manager Report (R4.32)** is
-such a slice. Whether R4.14's list is rewritten from the client's own list is open fork **F3**.
+such a slice. R4.14's list stays closed and is rewritten once from the client's own list (decided 2026-10-31, **F3**).
 
 **Added, not in BluePMS.** Accounting export (R4.12): revenue, tax components, payments, deposits
 and AR as journal-ready summaries — **Tally and Zoho Books first** for the India pilot, QuickBooks

@@ -156,7 +156,7 @@ Typed domain errors only in `catch`; unexpected throws → `INTERNAL_ERROR`, nev
 
 **Dashboard / occupancy:** today’s counts come from `get_front_desk_summary` (`BoardSummary`). A 7-day occupancy chart is a **warehouse trend** (`ARCHITECTURE.md` §7.8) — do not scan reservations or copy the prototype Recharts outlook into Phase 1.
 
-**Party size** is `adults` / `children` on the stay. Do not add extra `guest_ref` rows for “additional guests.”
+**Party size** is `adults` / `children` on the stay. Do not add extra `guest_ref` rows for “additional guests.” One exception (F4, roadmap R6.2): a Form C person record per foreign national, with document data encrypted in OrgDO and covered by purge. It is not a guest profile, has no `guest_ref` on the stay and no CRM row, and sends no event PII.
 
 **New PMS modules** (`products`, `maintenance`, …) are `modules/pms/<name>` with `src/module.manifest.ts`. Core never imports add-ons. Maintenance **consumes** `room.ooo_changed`; do not invent tickets inside housekeeping. Guest messaging / confirmation email is Phase 3 (Whistle), not a Phase 1 Worker mailer.
 
@@ -240,7 +240,7 @@ There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **inclu
 - Occupancy pricing, yield engine, Playwright-first e2e, PropertyDO split for speed, Redis, tape virtualizer on 7 days, 7-day occupancy **trend** on the Hub.
 - Sign-in marketing column — keep; do not copy its shadows into the desk.
 - `LinkButton` unused in ui-kit — kit cannot depend on the router; `Link` + `ui-link-btn` is the contract.
-- **Open forks, not yet decided (2026-10-31):** four locks in this file and the roadmap are challenged by the pilot's BluePMS ticks: `transfer_cross_reservation` (F1), the 14-day tape cap (F2), the closed R4.14 report list (F3), and party size with no second profile, against per-person Form C (F4). See [roadmap Track P](docs/roadmap.md#open-forks--the-users-decision). **The locks hold until the user decides.**
+- **Fork decisions (2026-10-31):** the user kept four locks challenged by the pilot's BluePMS ticks, each with a named exit. `transfer_cross_reservation` holds unless client Q17 lifts it (F1). The 14-day tape cap holds unless Q18 raises it to 30 after measuring (F2). The R4.14 report list stays closed and is rewritten once from the client's Q10 (F3). Party size stays, with one exception (F4, §4 above). See [roadmap Track P](docs/roadmap.md#fork-decisions).
 - **Already shipped — do not rebuild:** `ARI_KV` + book `quoteAriVersion`; `PurgeWorkflow` + certificates; `StaleWatermark`; ShiftStrip in AppShell; money-ops DAMAGE/void/discount/invoice; guest CRM directory + blind-index search (tags/LTV/merge remain deferred in that spec); `get_audit_log` (do not add `audit.append` HTTP).
 - Folio transfer to **another reservation** — rejected. Charges move between windows on the same stay.
 - `tender_type` `CARD` \| `CASH` only until the cashiering spec is amended.

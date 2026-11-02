@@ -99,6 +99,7 @@ export function AssignRoomDialog({
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['board'] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-available', propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-summary', propertyId] });
       const code = rooms.find((r) => r.roomId === chosen)?.code ?? chosen;

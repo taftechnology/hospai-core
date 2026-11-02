@@ -13,6 +13,12 @@ export type { FieldGroupProps } from './FieldGroup.js';
 export { PageHeader, SectionLabel } from './PageHeader.js';
 export type { PageHeaderProps, SectionLabelProps } from './PageHeader.js';
 
+export { CountStrip } from './CountStrip.js';
+export type { CountStripProps } from './CountStrip.js';
+
+export { DateRange } from './DateRange.js';
+export type { DateRangeProps } from './DateRange.js';
+
 export {
   EmptyState,
   Metric,
@@ -92,3 +98,6 @@ export type {
   TotalTone,
 } from './types.js';
 export { RESERVATION_STATUSES } from './types.js';
+
+export { StayButton } from './StayButton.js';
+export type { StayButtonProps, StayButtonState } from './StayButton.js';

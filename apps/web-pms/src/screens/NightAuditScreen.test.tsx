@@ -654,6 +654,7 @@ describe('NightAuditScreen', () => {
       ['board'],
       ['front-desk-summary', 'prop_demo'],
       ['front-desk-tape', 'prop_demo'],
+      ['front-desk-free', 'prop_demo'],
       ['front-desk-available', 'prop_demo'],
       ['housekeeping-assignments', 'prop_demo'],
       ['housekeeping-priorities', 'prop_demo'],

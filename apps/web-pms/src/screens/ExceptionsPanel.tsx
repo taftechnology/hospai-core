@@ -18,6 +18,9 @@ export function ExceptionsPanel() {
   const failClosed =
     countQ.isError && asClassified(countQ.error).class === 'fail_closed';
 
+  // Nothing to act on: the sidebar's Exceptions link stays, the footer row goes.
+  if (count === 0 && !countQ.isError) return null;
+
   return (
     <details
       id="replay-exceptions"

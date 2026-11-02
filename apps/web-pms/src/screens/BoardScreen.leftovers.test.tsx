@@ -264,6 +264,7 @@ describe('BoardScreen R1.3 leftovers', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['front-desk-tape', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['front-desk-free', 'prop_demo'] });
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['front-desk-available', 'prop_demo'],
     });

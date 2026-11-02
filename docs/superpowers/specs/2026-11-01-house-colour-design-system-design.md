@@ -348,3 +348,12 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - The no-names case is tested through `setDenyGuestReadForTest` on OrgDO, which only works in unsafe-local mode, because every real role has `guests:read` today.
 - The search popover keeps focus in the field (`returnFocus={false}`). Opening a result clears the field and closes the panel, because the panel isn't tied to focus.
 - The shift float field's reason sits in a `VisuallyHidden` node that the disabled Open shift button references through `aria-describedby`.
+
+**Step 5.** As §7, measured in the browser on the INR demo. With the Band open and the Free row showing, 12 of 20 rooms are fully visible at 1366 × 650 (and all 20 at 1920 × 950), and only the tape scrolls. Following the HospAI Desk Screens design board, plus:
+- **Footer row.** The Queued commands / Exceptions row shows only when one of them has something in it: queued writes, open exceptions or a failed count. It cost 32px on every page, and the 12-room target can't be met with it there. The sidebar's Exceptions link stays.
+- **Height budget.** Header 36px, control row 30px, 4px between them and 8px above the tape.
+- **Control row.** The control row never wraps. The legend reads "Free" with an empty swatch, and the due-out and overstay swatches carry their bars' marks.
+- **`StayButton`.** The stay bar's button is a closed ui-kit component. Grok first used a raw `<button>` with an eslint-disable and a raised `check:ui-kit-adoption` baseline, which loosens a gate, so that was reverted.
+- **Overstay count.** A zero overstay count is left out of the strip, as it already was on the cards.
+- **Room-status word.** The room-status word stays visible in the room column, where the design board hid it (AGENTS §4).
+- **Check in.** The popover adds Check in for a confirmed or pending stay arriving today, as on the board.

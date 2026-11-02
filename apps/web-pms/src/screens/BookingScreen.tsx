@@ -543,6 +543,8 @@ export function BookingScreen() {
         setMessage('Booking created — some add-ons could not be posted.');
         return;
       }
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
       void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
         state: { createdReservationId: reservationId },
       });

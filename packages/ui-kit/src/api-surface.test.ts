@@ -6,6 +6,8 @@ import type {
   DialogProps,
   EmptyStateProps,
   PopoverProps,
+  CountStripProps,
+  DateRangeProps,
   FieldGroupProps,
   FieldProps,
   InputProps,
@@ -14,6 +16,7 @@ import type {
   RoomStatusProps,
   StatFieldProps,
   StatusBadgeProps,
+  StayButtonProps,
   TotalProps,
 } from './index.js';
 
@@ -54,6 +57,10 @@ describe('ui-kit API surface', () => {
       'bottom-start' | 'bottom-end' | 'auto' | undefined
     >();
     expectTypeOf<FieldGroupProps>().not.toHaveProperty('className');
+    expectTypeOf<CountStripProps>().not.toHaveProperty('className');
+    expectTypeOf<CountStripProps>().not.toHaveProperty('style');
+    expectTypeOf<DateRangeProps>().not.toHaveProperty('className');
+    expectTypeOf<DateRangeProps>().not.toHaveProperty('style');
     expectTypeOf<TotalProps>().not.toHaveProperty('className');
     // @ts-expect-error className is forbidden on ui-kit components
     const badHeader: PageHeaderProps = { title: 'x', className: 'y' };
@@ -117,5 +124,9 @@ describe('ui-kit API surface', () => {
     // @ts-expect-error invalid intent
     const badIntent: ButtonProps = { intent: 'large' };
     void badIntent;
+  });
+  it('StayButtonProps rejects className and style', () => {
+    expectTypeOf<StayButtonProps>().not.toHaveProperty('className');
+    expectTypeOf<StayButtonProps>().not.toHaveProperty('style');
   });
 });

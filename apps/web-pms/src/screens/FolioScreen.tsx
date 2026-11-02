@@ -769,6 +769,8 @@ export function FolioScreen() {
       });
       if (result.classified.class !== 'provisional') {
         void queryClient.invalidateQueries({ queryKey: ['board'] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
       }
     },
   });

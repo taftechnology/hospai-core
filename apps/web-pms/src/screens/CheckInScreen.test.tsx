@@ -281,6 +281,8 @@ describe('CheckInScreen', () => {
     await waitFor(() => {
       const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
       expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+      expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-tape', 'prop_demo'] }));
+      expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-free', 'prop_demo'] }));
     });
   });
 

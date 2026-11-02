@@ -4,6 +4,8 @@ import type { TestIdProps } from './types.js';
 export type PageHeaderProps = TestIdProps & {
   /** The page's single <h1>. */
   title: ReactNode;
+  /** Inline counts or meta beside the title (same line). */
+  lead?: ReactNode;
   /** Meta line under the title — status, room, dates. */
   subtitle?: ReactNode;
   /** Back affordance, e.g. a router <Link>. */
@@ -18,6 +20,7 @@ export type PageHeaderProps = TestIdProps & {
  */
 export function PageHeader({
   title,
+  lead,
   subtitle,
   back,
   actions,
@@ -27,7 +30,10 @@ export function PageHeader({
     <div className="ui-page-header" data-testid={dataTestId}>
       <div className="ui-page-header__text">
         {back ? <span className="ui-page-header__back">{back}</span> : null}
-        <h1 className="ui-page-header__title">{title}</h1>
+        <div className="ui-page-header__title-row">
+          <h1 className="ui-page-header__title">{title}</h1>
+          {lead ? <div className="ui-page-header__lead">{lead}</div> : null}
+        </div>
         {subtitle ? <div className="ui-page-header__subtitle">{subtitle}</div> : null}
       </div>
       {actions ? <div className="ui-page-header__actions">{actions}</div> : null}

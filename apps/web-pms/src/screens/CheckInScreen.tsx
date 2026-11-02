@@ -105,6 +105,8 @@ export function CheckInScreen() {
     onSuccess: () => {
       setMessage('Room assigned');
       void queryClient.invalidateQueries({ queryKey: ['board'] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', tenant.propertyId] });
     },
   });
 
@@ -143,6 +145,8 @@ export function CheckInScreen() {
       }
       setMessage('Checked in');
       void queryClient.invalidateQueries({ queryKey: ['board'] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', tenant.propertyId] });
     },
   });
 

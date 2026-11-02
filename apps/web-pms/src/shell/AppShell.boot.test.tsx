@@ -72,8 +72,9 @@ describe('AppShell boot path', () => {
     expect(document.querySelector('aside')).toBeTruthy();
     // fail_closed on /me → fail open: full nav after settle (not withheld forever)
     await waitFor(() => expect(screen.getByRole('link', { name: /front desk/i })).toBeTruthy());
-    expect(screen.getByText(/Queued commands/i)).toBeTruthy();
-    expect(screen.getByTestId('exceptions-panel')).toBeTruthy();
+    // An empty queue hides its panel; a failed exception count still shows its panel.
+    expect(screen.queryByText(/Queued commands/i)).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('exceptions-panel')).toBeTruthy());
     expect(screen.getByText('board-outlet')).toBeTruthy();
   });
 
@@ -94,7 +95,7 @@ describe('AppShell boot path', () => {
     );
 
     expect(screen.getByRole('navigation', { name: /hospai pms/i })).toBeTruthy();
-    expect(screen.getByText(/Queued commands/i)).toBeTruthy();
+    expect(screen.queryByText(/Queued commands/i)).toBeNull();
     await waitFor(() => expect(screen.getByTestId('folio-unread')).toBeTruthy());
     expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);
   });

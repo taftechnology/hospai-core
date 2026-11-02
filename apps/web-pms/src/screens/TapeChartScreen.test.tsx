@@ -13,6 +13,8 @@ const postGuestsBatch = vi.fn();
 const listRoomTypes = vi.fn();
 const getAvailableRooms = vi.fn();
 const getFrontOfficeSummary = vi.fn();
+const getMe = vi.fn();
+const getFolio = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -31,6 +33,8 @@ vi.mock('../client.js', () => ({
     listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
     getAvailableRooms: (...args: unknown[]) => getAvailableRooms(...args),
     getFrontOfficeSummary: (...args: unknown[]) => getFrontOfficeSummary(...args),
+    getMe: (...args: unknown[]) => getMe(...args),
+    getFolio: (...args: unknown[]) => getFolio(...args),
   },
 }));
 
@@ -41,6 +45,7 @@ vi.mock('../shell/PropertyFormat.js', async () => {
 });
 
 import { TapeChartScreen } from './TapeChartScreen.js';
+import * as propertyLocalTodayModule from '../status/property-local-today.js';
 
 function SearchProbe() {
   const loc = useLocation();
@@ -106,7 +111,7 @@ function renderTape(initialEntry: string | { pathname: string; search?: string }
             search: initialEntry.search ?? '',
           },
         ];
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={entries}>
         <>
@@ -116,6 +121,7 @@ function renderTape(initialEntry: string | { pathname: string; search?: string }
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 describe('TapeChartScreen', () => {
@@ -156,6 +162,10 @@ describe('TapeChartScreen', () => {
       overstay: 0,
       occupancy: { occupiedRooms: 0, sellableRooms: 1 },
     });
+    getMe.mockResolvedValue({
+      permissions: ['folio:read', 'inventory:read', 'reservations:read'],
+    });
+    getFolio.mockResolvedValue({ balanceMinor: 1200 });
   });
 
   afterEach(() => cleanup());
@@ -207,7 +217,7 @@ describe('TapeChartScreen', () => {
     ).toBe(true);
   });
 
-  it('occupying block is a folio link with guest compose and VIP/DND badges', async () => {
+  it('stay bar opens popover with folio link and VIP/DND badges', async () => {
     getFrontOfficeTape.mockResolvedValue({
       ...emptyTape('2026-08-13', '2026-08-19'),
       rooms: [room],
@@ -218,16 +228,40 @@ describe('TapeChartScreen', () => {
       guests: {},
       states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
     });
-    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
-    await waitFor(() => {
-      const link = screen.getByRole('link', { name: /Ada Lovelace/i });
-      expect(link.getAttribute('href')).toBe('/guests/g1');
-    });
-    expect(screen.getByRole('link', { name: /^Folio$/i }).getAttribute('href')).toBe(
-      '/folio/res_tape_1',
-    );
+    const client = renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    const bar = await screen.findByRole('button', { name: /Ada Lovelace/i });
+    fireEvent.click(bar);
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Open folio' })).toBeTruthy());
     expect(screen.getByTestId('badge-vip')).toBeTruthy();
     expect(screen.getByTestId('badge-dnd')).toBeTruthy();
+    await waitFor(() => expect(getFolio).toHaveBeenCalledWith('prop_demo', 'res_tape_1'));
+    await waitFor(() =>
+      expect(client.getQueryData(['folio', 'prop_demo', 'res_tape_1'])).toEqual({
+        balanceMinor: 1200,
+      }),
+    );
+  });
+
+  it('stay popover skips folio fetch and Balance without folio:read', async () => {
+    getMe.mockResolvedValue({
+      permissions: ['inventory:read', 'reservations:read'],
+    });
+    getFrontOfficeTape.mockResolvedValue({
+      ...emptyTape('2026-08-13', '2026-08-19'),
+      rooms: [room],
+      blocks: [occupying],
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    const bar = await screen.findByRole('button', { name: /Ada Lovelace/i });
+    fireEvent.click(bar);
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Open folio' })).toBeTruthy());
+    expect(getFolio).not.toHaveBeenCalled();
+    expect(screen.queryByText('Balance')).toBeNull();
   });
 
   it('unassigned pending stay sits in tape-unassigned', async () => {
@@ -242,6 +276,7 @@ describe('TapeChartScreen', () => {
           arrivalDate: '2026-08-13',
           departureDate: '2026-08-14',
           roomId: null,
+          roomTypeId: 'rt_king',
         },
       ],
     });
@@ -352,18 +387,15 @@ describe('TapeChartScreen', () => {
   });
 
   it('R1.3: an empty tape cell from today on links to /book for that night and type', async () => {
-    vi.useFakeTimers({ now: Date.parse('2026-08-14T12:00:00.000Z'), shouldAdvanceTime: true });
-    try {
-      renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
-      const cell = await screen.findByRole('link', { name: 'Book room 101 on 2026-08-15' });
-      expect(cell.getAttribute('href')).toBe(
-        '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king',
-      );
-      expect(screen.getByRole('link', { name: 'Book room 101 on 2026-08-14' })).toBeTruthy();
-      expect(screen.queryByRole('link', { name: 'Book room 101 on 2026-08-13' })).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
+    vi.spyOn(propertyLocalTodayModule, 'propertyLocalToday').mockReturnValue('2026-08-14');
+    renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
+    await screen.findByText('101');
+    const cell = await screen.findByRole('gridcell', { name: /Book .+ on 15\/08\/2026/ });
+    expect(cell.getAttribute('href')).toBe(
+      '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king',
+    );
+    expect(screen.getByRole('gridcell', { name: /Book .+ on 14\/08\/2026/ })).toBeTruthy();
+    expect(screen.queryByRole('gridcell', { name: /Book .+ on 13\/08\/2026/ })).toBeNull();
   });
 
   it('available view empty copy', async () => {
@@ -381,9 +413,10 @@ describe('TapeChartScreen', () => {
     await waitFor(() => expect(screen.getByText('No rooms free for these dates.')).toBeTruthy());
   });
 
-  it('tape header mounts board-summary', async () => {
+  it('PageHeader lead mounts board-summary strip', async () => {
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
     await waitFor(() => expect(screen.getByTestId('board-summary')).toBeTruthy());
+    expect(document.querySelector('.ui-page-header__lead')).toBeTruthy();
   });
 
   it('renders PageHeader Room Plan and ui-tab view links', async () => {

@@ -214,6 +214,11 @@
   --stay-pending: var(--color-stay-pending);
   --stay-pending-fg: var(--color-stay-pending-fg);
   --stay-pending-border: var(--color-stay-pending-border);
+  --stay-overstay: var(--color-stay-overstay);
+  --stay-overstay-fg: var(--color-stay-overstay-fg);
+  --stay-departed: var(--color-stay-departed);
+  --stay-departed-fg: var(--color-stay-departed-fg);
+  --stay-blocked: var(--color-stay-blocked);
 
   /* --- action intent --- */
   --action-default-fg: var(--color-ink);

@@ -632,6 +632,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
       <PageHeader
         title={boardPageTitle(mode)}
+        lead={<BoardSummary layout="strip" date={summaryDate} />}
         subtitle={
           headerDate
             ? `${dateHeading(headerDate)} · ${boardPageTitle(mode).toLowerCase()} for the business date`
@@ -678,7 +679,6 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           </>
         }
       />
-      <BoardSummary date={summaryDate} />
       {boardMessage ? (
         <Alert intent="settled" data-testid="board-message">
           {boardMessage}

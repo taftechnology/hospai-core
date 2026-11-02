@@ -6,16 +6,11 @@ import {
   ClassifiedError,
   shouldRetry,
   retryDelay,
-  type FrontDeskItem,
-  type GuestRowState,
 } from '@hospai/client-core';
-import {
-  RESERVATION_STATUSES,
-  type ReservationStatus,
-} from '@hospai/contracts/reservation-status';
 import {
   Alert,
   Badge,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -26,35 +21,27 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  DateRange,
   EmptyState,
-  Field,
-  Input,
   PageHeader,
   Skeleton,
   Tabs,
-  Toolbar,
   RoomStatus,
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { statusClass } from '../status/status-class.js';
 import { bookHref } from '../status/book-href.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
-import { GuestNameLink } from './guest-row.js';
+import { PlusIcon } from '../shell/icons.js';
 import { BoardSummary } from './board-summary.js';
+import { TapeLegend } from './tape/TapeLegend.js';
+import { TapeGrid } from './tape/TapeGrid.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return null;
-}
-
-function asReservationStatus(value: unknown): ReservationStatus | null {
-  if (typeof value !== 'string') return null;
-  return (RESERVATION_STATUSES as readonly string[]).includes(value)
-    ? (value as ReservationStatus)
-    : null;
 }
 
 function inclusiveDates(fromDate: string, toDate: string): string[] {
@@ -92,100 +79,11 @@ function clampTapeWindow(from: string, to: string): { from: string; to: string; 
   };
 }
 
-function spanRange(
-  startDate: string,
-  endExclusive: string,
-  fromDate: string,
-  toDate: string,
-  dates: string[],
-): { colStart: number; colEnd: number } | null {
-  const start = startDate < fromDate ? fromDate : startDate;
-  const lastNight = addCalendarDays(endExclusive, -1);
-  const endNight = lastNight > toDate ? toDate : lastNight;
-  if (endNight < fromDate || start > toDate) return null;
-  const startIdx = dates.indexOf(start);
-  const endNightIdx = dates.indexOf(endNight);
-  if (startIdx < 0 || endNightIdx < 0) return null;
-  return { colStart: startIdx + 2, colEnd: endNightIdx + 3 };
-}
-
-function tapeBlockSeverity(
-  status: ReservationStatus,
-  overstay: boolean,
-  departureToday: boolean,
-) {
-  if (overstay) return 'exception';
-  if (status === 'checked_in' && departureToday) return 'attention';
-  switch (status) {
-    case 'checked_in':
-      return 'informational';
-    case 'confirmed':
-      return 'settled';
-    case 'pending':
-      return 'attention';
-    case 'no_show':
-    case 'cancelled':
-    case 'inquiry':
-    case 'checked_out':
-      return 'informational';
-    default: {
-      const _exhaustive: never = status;
-      return _exhaustive;
-    }
-  }
-}
-
 type RoomTypeLabel = { roomTypeId: string; name?: string; code?: string };
 
 function typeLabel(id: string, types: RoomTypeLabel[]): string {
   const hit = types.find((t) => t.roomTypeId === id);
   return hit?.name || hit?.code || 'Room type unavailable';
-}
-
-function StayBlock({
-  block,
-  state,
-  colStart,
-  colEnd,
-  today,
-}: {
-  block: FrontDeskItem;
-  state: GuestRowState | undefined;
-  colStart: number;
-  colEnd: number;
-  today: string | null;
-}) {
-  const status = asReservationStatus(block.status);
-  const overstay =
-    today != null &&
-    status === 'checked_in' &&
-    typeof block.departureDate === 'string' &&
-    block.departureDate < today;
-  const departureToday =
-    today != null &&
-    status === 'checked_in' &&
-    typeof block.departureDate === 'string' &&
-    block.departureDate === today;
-  const sev = status ? tapeBlockSeverity(status, overstay, departureToday) : 'informational';
-  return (
-    <div
-      className={`tape-block min-w-0 truncate ${statusClass(sev)}${
-        block.roomId == null ? ' tape-block--unassigned' : ''
-      }`}
-      style={{
-        ['--tape-col-start' as string]: String(colStart),
-        ['--tape-col-end' as string]: String(colEnd),
-      }}
-    >
-      <GuestNameLink state={state} guestRef={block.guestRef} />
-      <span className="sep" aria-hidden="true">
-        ·
-      </span>
-      <Link to={`/folio/${encodeURIComponent(block.reservationId)}`}>Folio</Link>
-      {block.vipFlag === true ? <span data-testid="badge-vip"> VIP</span> : null}
-      {block.dndFlag === true ? <span data-testid="badge-dnd"> DND</span> : null}
-    </div>
-  );
 }
 
 export function TapeChartScreen() {
@@ -199,7 +97,7 @@ export function TapeChartScreen() {
   const [tapeWindowHint, setTapeWindowHint] = useState<string | null>(null);
   const seededRef = useRef(false);
   const timeZone = usePropertyTimeZone();
-  const { dateHeading, dateRange, tapeDay } = useFormat();
+  const { dateHeading, dateRange } = useFormat();
 
   useEffect(() => {
     if (fromParam && toParam) {
@@ -241,6 +139,8 @@ export function TapeChartScreen() {
     void navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
   }
 
+  const stepDays = from && to ? inclusiveDayCount(from, to) : 7;
+
   const tapeQ = useQuery({
     queryKey: ['front-desk-tape', tenant.propertyId, from, to],
     queryFn: () => api.getFrontOfficeTape(tenant.propertyId, { fromDate: from!, toDate: to! }),
@@ -261,12 +161,6 @@ export function TapeChartScreen() {
     queryKey: ['room-types', tenant.propertyId],
     queryFn: () => api.listRoomTypes(tenant.propertyId, { status: 'active' }),
     enabled: tapeQ.isSuccess || availableQ.isSuccess,
-    retry: false,
-  });
-
-  const propertyQ = useQuery({
-    queryKey: ['property', tenant.propertyId],
-    queryFn: () => api.getProperty(tenant.propertyId),
     retry: false,
   });
 
@@ -307,27 +201,6 @@ export function TapeChartScreen() {
   const typeRows = (typesQ.data?.roomTypes ?? []) as RoomTypeLabel[];
   const dates = from && to ? inclusiveDates(from, to) : [];
   const today = timeZone ? propertyLocalToday(timeZone) : null;
-  const tapeCols = String(Math.max(dates.length, 1));
-
-  const unassigned = blocks.filter((b) => b.roomId == null);
-  const assignedByRoom = new Map<string, FrontDeskItem[]>();
-  for (const b of blocks) {
-    if (b.roomId == null) continue;
-    const list = assignedByRoom.get(b.roomId) ?? [];
-    list.push(b);
-    assignedByRoom.set(b.roomId, list);
-  }
-
-  const groups: Array<{ typeId: string; rooms: typeof rooms }> = [];
-  const seen = new Set<string>();
-  for (const r of rooms) {
-    if (seen.has(r.roomTypeId)) continue;
-    seen.add(r.roomTypeId);
-    groups.push({
-      typeId: r.roomTypeId,
-      rooms: rooms.filter((x) => x.roomTypeId === r.roomTypeId),
-    });
-  }
 
   let body: ReactNode;
   if (from == null || to == null || (view === 'tape' ? tapeQ.isLoading : availableQ.isLoading)) {
@@ -400,128 +273,17 @@ export function TapeChartScreen() {
     body = <EmptyState kind="empty" title="No rooms yet — create rooms in Inventory." />;
   } else {
     body = (
-      <div className="tape-scroller">
-        <div className="tape-row" style={{ ['--tape-cols' as string]: tapeCols }}>
-          <div className="tape-room">Room</div>
-          {dates.map((d, i) => (
-            <div
-              key={d}
-              className="tape-header-cell tabular-nums"
-              style={{ ['--tape-col' as string]: String(i + 2) }}
-            >
-              {tapeDay(d, dates.length <= 7)}
-            </div>
-          ))}
-        </div>
-        {unassigned.length > 0 ? (
-          <div
-            data-testid="tape-unassigned"
-            className="tape-row content-visibility-auto"
-            style={{ ['--tape-cols' as string]: tapeCols }}
-          >
-            <div className="tape-room">Unassigned</div>
-            {dates.map((d, i) => (
-              <div
-                key={d}
-                className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
-                style={{ ['--tape-col' as string]: String(i + 2) }}
-              />
-            ))}
-            {unassigned.map((block) => {
-              const span = spanRange(block.arrivalDate ?? from, block.departureDate, from, to, dates);
-              if (!span) return null;
-              return (
-                <StayBlock
-                  key={block.reservationId}
-                  block={block}
-                  state={states[block.guestRef]}
-                  colStart={span.colStart}
-                  colEnd={span.colEnd}
-                  today={today}
-                />
-              );
-            })}
-          </div>
-        ) : null}
-        {groups.map((g) => (
-          <section key={g.typeId}>
-            <h2 className="tape-type">{typeLabel(g.typeId, typeRows)}</h2>
-            {g.rooms.map((room) => (
-              <div
-                key={room.roomId}
-                className="tape-row content-visibility-auto"
-                style={{ ['--tape-cols' as string]: tapeCols }}
-              >
-                <div className="tape-room min-w-0 truncate">
-                  {room.code}{' '}
-                  <RoomStatus status={room.status} />
-                </div>
-                {dates.map((d, i) =>
-                  today != null && d >= today ? (
-                    <Link
-                      key={d}
-                      to={bookHref({
-                        arrival: d,
-                        departure: addCalendarDays(d, 1),
-                        roomTypeId: room.roomTypeId,
-                      })}
-                      aria-label={`Book room ${room.code} on ${d}`}
-                      className={`tape-cell tape-cell--bookable min-w-0${d === today ? ' tape-cell--today' : ''}`}
-                      style={{ ['--tape-col' as string]: String(i + 2) }}
-                    />
-                  ) : (
-                    <div
-                      key={d}
-                      className={`tape-cell min-w-0${d === today ? ' tape-cell--today' : ''}`}
-                      style={{ ['--tape-col' as string]: String(i + 2) }}
-                    />
-                  ),
-                )}
-                {(assignedByRoom.get(room.roomId) ?? []).map((block) => {
-                  const span = spanRange(
-                    block.arrivalDate ?? from,
-                    block.departureDate,
-                    from,
-                    to,
-                    dates,
-                  );
-                  if (!span) return null;
-                  return (
-                    <StayBlock
-                      key={block.reservationId}
-                      block={block}
-                      state={states[block.guestRef]}
-                      colStart={span.colStart}
-                      colEnd={span.colEnd}
-                      today={today}
-                    />
-                  );
-                })}
-                {ooo
-                  .filter((row) => row.roomId === room.roomId)
-                  .map((row) => {
-                    const span = spanRange(row.startDate, row.endDate, from, to, dates);
-                    if (!span) return null;
-                    const label = row.reason?.trim() ? row.reason : 'Out of order';
-                    return (
-                      <div
-                        key={row.oooId}
-                        className={`tape-block min-w-0 truncate ${statusClass('exception')}`}
-                        style={{
-                          ['--tape-col-start' as string]: String(span.colStart),
-                          ['--tape-col-end' as string]: String(span.colEnd),
-                        }}
-                        aria-label={label}
-                      >
-                        {label}
-                      </div>
-                    );
-                  })}
-              </div>
-            ))}
-          </section>
-        ))}
-      </div>
+      <TapeGrid
+        from={from}
+        to={to}
+        dates={dates}
+        today={today}
+        rooms={rooms}
+        blocks={blocks}
+        ooo={ooo}
+        states={states}
+        typeRows={typeRows}
+      />
     );
   }
 
@@ -529,89 +291,68 @@ export function TapeChartScreen() {
   const availableHref =
     from && to ? windowSearch(from, to, 'available') : '/board?view=available';
 
+  function jumpToday() {
+    if (!timeZone || !from || !to) return;
+    const t = propertyLocalToday(timeZone);
+    writeWindow(t, addCalendarDays(t, 6));
+  }
+
   return (
-    <>
-      <div className="ui-visually-hidden" aria-live="polite" />
+    <div className="room-plan">
       <PageHeader
         title="Room Plan"
-        subtitle={
-          today && propertyQ.data?.property?.name ? (
-            <>
-              {today ? dateHeading(today) : null}{' '}
-              <span className="sep">·</span> tape and availability for{' '}
-              {propertyQ.data.property.name}
-            </>
-          ) : undefined
-        }
+        lead={today ? <BoardSummary layout="strip" date={today} /> : undefined}
         actions={
           <Link className="ui-link-btn ui-link-btn--primary" to="/book">
-            New booking
+            <PlusIcon /> New booking
           </Link>
         }
       />
-      <BoardSummary date={today} />
-      <Tabs label="Room Plan views">
-        <Link
-          className="ui-tab"
-          to={tapeHref}
-          aria-current={view === 'tape' ? 'page' : undefined}
-        >
-          Tape
-        </Link>
-        <Link
-          className="ui-tab"
-          to={availableHref}
-          aria-current={view === 'available' ? 'page' : undefined}
-        >
-          Available
-        </Link>
-      </Tabs>
-      <Card>
+      <div className="room-plan-controls">
+        <Tabs label="Room Plan views">
+          <Link
+            className="ui-tab"
+            to={tapeHref}
+            aria-current={view === 'tape' ? 'page' : undefined}
+          >
+            Tape
+          </Link>
+          <Link
+            className="ui-tab"
+            to={availableHref}
+            aria-current={view === 'available' ? 'page' : undefined}
+          >
+            Available
+          </Link>
+        </Tabs>
+        <TapeLegend />
+        <div className="room-plan-controls__end">
+          {from && to ? (
+            <DateRange
+              label="Tape date range"
+              from={from}
+              to={to}
+              stepDays={stepDays}
+              fromTestId="tape-from"
+              toTestId="tape-to"
+              onChange={(nextFrom, nextTo) => writeWindow(nextFrom, nextTo)}
+            />
+          ) : null}
+          <Button type="button" size="sm" onClick={jumpToday} disabled={!timeZone}>
+            Today
+          </Button>
+        </div>
+      </div>
+      {tapeWindowHint ? <p className="muted room-plan-hint">{tapeWindowHint}</p> : null}
+      <Card className="tape-wrap">
         {view === 'available' && availableQ.isSuccess ? (
           <CardHeader>
             <CardTitle>Available Rooms</CardTitle>
             <Badge rung="settled">{availableQ.data?.rooms.length ?? 0} vacant</Badge>
           </CardHeader>
         ) : null}
-        <Toolbar>
-          <Field
-            size="xs"
-            label="From"
-            control={
-              <Input
-                type="date"
-                data-testid="tape-from"
-                autoComplete="off"
-                value={from ?? ''}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (to) writeWindow(next, to);
-                  else setFrom(next);
-                }}
-              />
-            }
-          />
-          <Field
-            size="xs"
-            label="To"
-            control={
-              <Input
-                type="date"
-                data-testid="tape-to"
-                autoComplete="off"
-                value={to ?? ''}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (from) writeWindow(from, next);
-                  else setTo(next);
-                }}
-              />
-            }
-          />
-        </Toolbar>
-        {tapeWindowHint ? <p className="muted">{tapeWindowHint}</p> : null}
         <CardContent flush>{body}</CardContent>
       </Card>
-    </>
+    </div>
   );
 }

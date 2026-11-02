@@ -8,8 +8,8 @@ alwaysApply: false
 
 Every operational screen uses this stack inside its root (sibling order):
 
-1. `PageHeader` — the page's single `<h1>` (Title Case strings; never `mode.replace` or route keys).
-2. Optional `Tabs` / `Metrics` / sibling KPI row above the card.
+1. `PageHeader` — the page's single `<h1>` (Title Case strings; never `mode.replace` or route keys). Room Plan and Front Desk boards may put `CountStrip` counts in `PageHeader` `lead` (inline with the title).
+2. Optional `Tabs` / control row / sibling KPI above the card.
 3. `Card` with optional `Toolbar`, `CardHeader` + `CardTitle` (`<h2>` section title only), `CardContent`.
 
 `PageHeader` is a **sibling above** `Card`, not inside `CardHeader`.
@@ -17,16 +17,17 @@ Every operational screen uses this stack inside its root (sibling order):
 ## Caller classNames (ui-kit router contract)
 
 - View tabs: host `<Link className="ui-tab" aria-current="page">` on the active tab.
-- Navigable KPIs: host `<Link className="ui-metric">`.
+- Navigable KPIs: host `<Link className="ui-metric">` (Dashboard cards) or `<Link className="ui-count">` (CountStrip on Room Plan / boards).
 - Choice rows: each option is `<li className="ui-choice-row"><label className="ui-choice">` (vertical list; radio beside label on one baseline).
 
 Do not add `className` to closed ui-kit components except `Card`'s existing leak. **Allowed ui-kit extension:** `CardContent flush?: boolean`.
 
 ## Tape (Room Plan)
 
-- `.tape-scroller` must include `max-block-size: min(70vh, calc(100dvh - 18rem))`.
-- Sticky first date row: `.tape-header-cell` and header `.tape-room` use `top: 0; background: var(--panel)`.
-- Do **not** change `--tape-*` grid math.
+- Half-day grid: `--tape-room-w: 6.5rem`, `--tape-day-min: 4rem`; columns `var(--tape-room-w) repeat(calc(var(--tape-cols) * 2), minmax(calc(var(--tape-day-min) / 2), 1fr))`. Inline style sets only `--tape-cols`, `--tape-col-start`, `--tape-col-end` (and legacy `--tape-col` if needed).
+- `.tape-scroller` must include `max-block-size` using the Room Plan calc (`100dvh` minus top bar, band reserve, side panels, room-plan padding/gaps/header/controls). The check script only asserts that `.tape-scroller` has `max-block-size`.
+- Sticky head and free rows use `--table-head`; room-type band is 20px inside the scroller.
+- One scrollport: `.main:has(.room-plan)` does not scroll; `.tape-scroller` does.
 
 ## Housekeeping host
 

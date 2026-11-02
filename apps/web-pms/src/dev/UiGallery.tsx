@@ -23,6 +23,8 @@ import {
   LinkButton,
   NativeSelect,
   Popover,
+  CountStrip,
+  DateRange,
   RoomStatus,
   Separator,
   Skeleton,
@@ -229,6 +231,29 @@ export function UiGallery() {
             <RoomStatus status="mystery" />
           </div>
           <StatField label="Vacant, not out of order" value="20" />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>CountStrip &amp; DateRange</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CountStrip label="Sample counts">
+            <span className="ui-count">
+              <b>4</b> arrivals
+            </span>
+            <span className="ui-count ui-count--odd">
+              <b>1</b> overstay
+            </span>
+          </CountStrip>
+          <DateRange
+            label="Sample range"
+            from="2026-08-10"
+            to="2026-08-16"
+            stepDays={7}
+            onChange={() => {}}
+          />
         </CardContent>
       </Card>
     </Card>

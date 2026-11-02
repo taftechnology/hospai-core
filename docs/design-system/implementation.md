@@ -60,13 +60,13 @@ Update these in `packages/ui-kit/src/styles.css`:
 
 **CSS contract on a router Link:** LinkButton (`ui-link-btn`), QuickAction, route tabs, navigable Metric.
 
-**Web-pms only:** AppShell, Band, GlobalSearch, PropertySwitcher, ReportRunner, RoomGrid, RoomPicker, RoomTile, RuleEditor, StayBar, TapeChart, TapeLegend, ThemeSwitch, TopBar, TrendChart, CopilotThread, MessageThread, PrintDocument.
+**Web-pms only:** AppShell, Band, GlobalSearch, PropertySwitcher, ReportRunner, RoomGrid, RoomPicker, RoomTile, RuleEditor, StayBar, TapeChart, TapeLegend, ThemeSwitch, TopBar, TrendChart, CopilotThread, MessageThread, PrintDocument. StayBar's button is the kit's `StayButton`, so web-pms keeps no raw controls.
 
 Build a new component when its slice arrives, not all at once. The next slice builds only what the shipped screens use.
 
 ## Remove while you're there
 
-- All four dialog implementations, replaced by `Dialog`, and every `window.confirm`.
+- All seven hand-written dialogs (City Ledger has three of them), replaced by `Dialog`, and all three `window.confirm` calls.
 - Per-screen form and table classes: `.staff__form`, `.roster__form`, `.inventory__form`, `.settings__form`, `.rates-plans__form`, `.city-ledger__create-form`, `.maintenance-report`, `.folio-forms`, `.guest-edit-form` and the matching `__table` classes.
 - Duplicates: `.visually-hidden`, `.stack`, `.stack-row`.
 - Raw kit classes where a component exists: `.ui-section-label`, `.ui-metric`, `.ui-field*` in Booking, Housekeeping, board-summary and `SettingsScreen.tsx:335`.
@@ -79,6 +79,23 @@ Build a new component when its slice arrives, not all at once. The next slice bu
 1. Tokens, fonts and the colour gate. Every screen changes look at once, which is the point.
 2. The formatter module for money and dates, used everywhere.
 3. `Dialog`, `Tabs` everywhere, `EmptyState` kinds, `Skeleton`, removing the duplicates above.
-4. Shell: `TopBar`, `Band`, `GlobalSearch`, with the server search change.
+4. Shell: `TopBar`, `Band`, `GlobalSearch`, with a new POST search route.
 5. Room Plan: `CountStrip`, `TapeChart`, `StayBar`, `Popover`.
 6. Browser check of every screen at 1366 × 650 and 1920 × 950, in light, dark and a red-green simulation.
+
+## As shipped (R1.10a, 3 November 2026)
+
+Where the build differs from what this system first said. The repo's spec, `docs/superpowers/specs/2026-11-01-house-colour-design-system-design.md` §9 and §12, has the detail.
+
+| This system said | As built | Why |
+|---|---|---|
+| Four dialog implementations | Seven hand-written, plus three `window.confirm` | City Ledger has three more |
+| Server search change on the existing route | New `post_reservation_search` route; the GET route is unchanged | The guest CRM lock keeps names out of URLs |
+| Bar popover has Post charge | Open folio, plus Check in for an arrival due today | Posting lives on the folio screen |
+| Free count "from the ledger" | Sum of `free` for physical room types on the tape only | Virtual types would double-count |
+| `CountStrip` takes `items` | Takes linked children over a `ui-count` CSS contract | The kit can't depend on the router |
+| `property.currency` implied | `get_property` returns `ledgerCurrency` | The property record has no currency |
+| Room column hides the housekeeping word | The word stays visible | The word is always shown; colour never stands alone |
+| No footer under the page | The Queued commands / Exceptions row shows only when it has something in it | It cost 32px on every page and broke the 12-room target |
+
+Measured at 1366 × 650 with a Band open and the Free row showing: 12 of 20 rooms are fully visible on Room Plan.

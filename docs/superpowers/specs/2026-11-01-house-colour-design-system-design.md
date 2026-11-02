@@ -1,6 +1,6 @@
 # House Colour design system — design
 
-**Roadmap:** R1.10a (inserted before R1.11 at the user's request) · **Status:** approved 2026-11-01, building · **Date:** 2026-11-01
+**Roadmap:** R1.10a (inserted before R1.11 at the user's request) · **Status:** approved 2026-11-01, shipped 2026-11-03 · **Date:** 2026-11-01
 
 **Source of truth:** the *HospAI Design System* artifact (claude.ai/artifact/DFaKPMdLQ6p3EguMCMCRSA): `project/tokens.json`, `project/README.md`, `patterns.md`, `screens.md`, `implementation.md` and the component guidelines. Step 1 copies `tokens.json`, `components/bundle.css` and those four documents to `docs/design-system/`, so the repo holds its own reference. This spec decides what gets built, and where the system and the code disagree, this spec says which wins (§9).
 
@@ -357,3 +357,11 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - **Overstay count.** A zero overstay count is left out of the strip, as it already was on the cards.
 - **Room-status word.** The room-status word stays visible in the room column, where the design board hid it (AGENTS §4).
 - **Check in.** The popover adds Check in for a confirmed or pending stay arriving today, as on the board.
+
+**Step 6.** Browser check on the INR demo (`pnpm demo:seed --currency INR --time-zone Asia/Kolkata`, local state under `--persist-to`):
+- **The sweep.** Every route was swept by script at 1366 × 650 and 1920 × 950, in light and dark: 31 routes in each pass, plus sign-in, check-in and the not-found page. The script looked for horizontal overflow, elements off the right edge, a `$`, raw ISO dates, and `NaN`, `undefined` or an unreachable property. None was found.
+- **Screenshots.** Room Plan, Folio, Book, Night Audit, Housekeeping, Guest profile, City Ledger and Staff were screenshotted in both themes.
+- **Red-green simulation.** Under a deuteranopia filter on Room Plan, every stay state stays distinct by fill, outline, dash and mark, and room states keep their words.
+- **Print.** Print media can't be emulated in the pane, so the app's own `@media print` rules were applied as screen styles in dark. The shell hides, the registration card is isolated, its ink is the light theme's, and it shows the room code, never a UUID.
+- **₹.** It renders in Figtree's latin-ext face.
+- **Not covered.** No phone layout, by decision. The force-closed shift Band was seen live. The permission toast is covered by unit tests only, because the demo owner holds every permission.

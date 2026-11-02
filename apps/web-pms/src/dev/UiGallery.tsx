@@ -102,7 +102,7 @@ export function UiGallery() {
               <DataTableRow>
                 <DataTableCell>Ada Lovelace</DataTableCell>
                 <DataTableCell>
-                  <Badge rung="settled">In house</Badge>
+                  <Badge rung="settled">Paid</Badge>
                 </DataTableCell>
               </DataTableRow>
             </DataTableBody>

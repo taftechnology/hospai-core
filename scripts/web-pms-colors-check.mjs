@@ -5,6 +5,9 @@
  * 2) Every chrome pair and every `--status-*-fg` clears WCAG AA 4.5:1
  *    vs its surface (and the panel) in BOTH light and dark. A dark
  *    primitive wins when `@media (prefers-color-scheme: dark)` redefines it.
+ * 3) Non-text pairs (field, focus, stay borders, room marks) clear 3:1
+ *    on their grounds in both themes. A missing or unresolvable token
+ *    is an error, the same as a chrome pair.
  *
  *   node scripts/web-pms-colors-check.mjs
  *   node scripts/web-pms-colors-check.mjs --self-test
@@ -16,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cssRoots = [join(root, 'apps/web-pms'), join(root, 'packages/ui-kit')];
 const MIN_CONTRAST = 4.5;
+const MIN_NON_TEXT_CONTRAST = 3;
 
 /** Spec §4 — chrome and action pairs (fg prop, surface prop). */
 const CHROME_PAIRS = [
@@ -28,6 +32,43 @@ const CHROME_PAIRS = [
   ['--primary', '--bg'],
   ['--action-primary-fg', '--action-primary-surface'],
   ['--action-destructive-fg', '--action-destructive-surface'],
+  ['--ink', '--color-table-head'],
+  ['--muted', '--color-table-head'],
+  ['--ink', '--color-hover'],
+  ['--muted', '--color-hover'],
+  ['--ink', '--color-sidebar'],
+  ['--muted', '--color-sidebar'],
+  ['--primary', '--panel'],
+  ['--action-primary-fg', '--color-primary'],
+  ['--action-primary-fg', '--color-primary-hover'],
+  ['--color-primary-tint-fg', '--color-primary-tint'],
+  ['--action-destructive-fg', '--color-action-destructive-hover'],
+  ['--color-stay-inhouse-fg', '--color-stay-inhouse'],
+  ['--color-stay-confirmed-fg', '--color-stay-confirmed'],
+  ['--color-stay-pending-fg', '--color-stay-pending'],
+  ['--color-stay-overstay-fg', '--color-stay-overstay'],
+  ['--color-stay-departed-fg', '--color-stay-departed'],
+  ['--color-status-cancelled-fg', '--color-status-cancelled-surface'],
+];
+
+/** Non-text edges (fg prop, surface prop) at 3:1. */
+const NON_TEXT_PAIRS = [
+  ['--color-field', '--color-surface-base'],
+  ['--color-field', '--color-bg'],
+  ['--color-focus', '--color-surface-base'],
+  ['--color-focus', '--color-bg'],
+  ['--color-focus', '--color-sidebar'],
+  ['--color-focus', '--color-selected'],
+  ['--color-stay-confirmed-border', '--color-surface-base'],
+  ['--color-stay-pending-border', '--color-surface-base'],
+  ['--color-room-clean', '--color-surface-base'],
+  ['--color-room-clean', '--color-bg'],
+  ['--color-room-dirty', '--color-surface-base'],
+  ['--color-room-dirty', '--color-bg'],
+  ['--color-room-inspected', '--color-surface-base'],
+  ['--color-room-inspected', '--color-bg'],
+  ['--color-room-ooo', '--color-surface-base'],
+  ['--color-room-ooo', '--color-bg'],
 ];
 
 const NAMED_COLORS = new Set([
@@ -475,11 +516,89 @@ function assertThemeContrast(props, theme, errors) {
     }
   }
 
+  for (const [fgProp, surfaceProp] of NON_TEXT_PAIRS) {
+    const fgHex = resolveToHex(props.get(fgProp) ?? '', props);
+    const surfaceHex = resolveToHex(props.get(surfaceProp) ?? '', props);
+    if (!fgHex) {
+      errors.push(`${theme}: ${fgProp}: could not resolve to hex for non-text pair check`);
+      continue;
+    }
+    if (!surfaceHex) {
+      errors.push(`${theme}: ${surfaceProp}: could not resolve to hex for non-text pair check`);
+      continue;
+    }
+    const ratio = contrastRatio(fgHex, surfaceHex);
+    if (ratio < MIN_NON_TEXT_CONTRAST) {
+      errors.push(
+        `${theme}: ${fgProp} vs ${surfaceProp}: contrast ${ratio.toFixed(2)} < ${MIN_NON_TEXT_CONTRAST}`,
+      );
+    } else {
+      contrastOk += 1;
+    }
+  }
+
   return { contrastOk, statusFgCount: statusFgs.length };
 }
 
 function selfTest() {
   let failed = false;
+
+  /** House Colour light values that clear every required pair, plus one status rung. */
+  function passingLightDecls() {
+    return `
+          --color-bg: #f7f6f3;
+          --color-surface-base: #ffffff;
+          --color-ink: #1b1a17;
+          --color-muted: #5c5a53;
+          --color-selected: #efede8;
+          --color-hover: #f3f1ec;
+          --color-table-head: #fbfaf8;
+          --color-sidebar: #efede8;
+          --color-field: #85817a;
+          --color-primary: #0b5c63;
+          --color-primary-hover: #084a50;
+          --color-primary-tint: #d8eff0;
+          --color-primary-tint-fg: #0a4b51;
+          --color-focus: #0b5c63;
+          --color-action-primary-surface: #0b5c63;
+          --color-action-primary-fg: #ffffff;
+          --color-action-destructive-surface: #a8302b;
+          --color-action-destructive-fg: #ffffff;
+          --color-action-destructive-hover: #8e2621;
+          --color-status-cancelled-fg: #57544d;
+          --color-status-cancelled-surface: #ecebe6;
+          --color-stay-inhouse: #2b5a8a;
+          --color-stay-inhouse-fg: #ffffff;
+          --color-stay-confirmed: #dde9f5;
+          --color-stay-confirmed-fg: #234a73;
+          --color-stay-confirmed-border: #2b5a8a;
+          --color-stay-pending: #fbeccb;
+          --color-stay-pending-fg: #85480a;
+          --color-stay-pending-border: #85480a;
+          --color-stay-overstay: #a8302b;
+          --color-stay-overstay-fg: #ffffff;
+          --color-stay-departed: #ecebe6;
+          --color-stay-departed-fg: #57544d;
+          --color-room-clean: #11804f;
+          --color-room-dirty: #b85c00;
+          --color-room-inspected: #2b6cb0;
+          --color-room-ooo: #a8302b;
+          --ink: var(--color-ink);
+          --muted: var(--color-muted);
+          --bg: var(--color-bg);
+          --panel: var(--color-surface-base);
+          --selected: var(--color-selected);
+          --primary: var(--color-primary);
+          --sidebar: var(--color-sidebar);
+          --action-primary-fg: var(--color-action-primary-fg);
+          --action-primary-surface: var(--color-action-primary-surface);
+          --action-destructive-fg: var(--color-action-destructive-fg);
+          --action-destructive-surface: var(--color-action-destructive-surface);
+          --color-demo-fg: #000000;
+          --status-demo-fg: var(--color-demo-fg);
+          --status-demo-surface: var(--color-surface-base);
+    `;
+  }
 
   // C1 — strict === is intentional (exactly 21 in JS float here)
   if (contrastRatio('#000000', '#ffffff') !== 21) {
@@ -537,29 +656,7 @@ function selfTest() {
     cssByFile: {
       'fixture.css': `
         :root {
-          --color-ink: #000000;
-          --color-muted: #000000;
-          --color-bg: #ffffff;
-          --color-surface-base: #ffffff;
-          --color-selected: #ffffff;
-          --color-primary: #000000;
-          --color-action-primary-fg: #ffffff;
-          --color-action-primary-surface: #000000;
-          --color-action-destructive-fg: #ffffff;
-          --color-action-destructive-surface: #000000;
-          --ink: var(--color-ink);
-          --muted: var(--color-muted);
-          --bg: var(--color-bg);
-          --panel: var(--color-surface-base);
-          --selected: var(--color-selected);
-          --primary: var(--color-primary);
-          --action-primary-fg: var(--color-action-primary-fg);
-          --action-primary-surface: var(--color-action-primary-surface);
-          --action-destructive-fg: var(--color-action-destructive-fg);
-          --action-destructive-surface: var(--color-action-destructive-surface);
-          --color-demo-fg: #000000;
-          --status-demo-fg: var(--color-demo-fg);
-          --status-demo-surface: var(--color-surface-base);
+          ${passingLightDecls()}
         }
         @media (prefers-color-scheme: dark) {
           :root {
@@ -630,6 +727,34 @@ function selfTest() {
   if (matched.errors.some((e) => /dark blocks differ/.test(e))) {
     console.error('self-test C7 FAILED: matching dark blocks must not drift', matched.errors);
     failed = true;
+  }
+
+  // C8 — each new pair class fails on the same light palette when its token is too close.
+  const weakPairs = checkColors({
+    cssByFile: {
+      'fixture.css': `
+        :root {
+          ${passingLightDecls()}
+          --color-field: #d4d4d4;
+          --color-focus: #d4d4d4;
+          --color-primary-hover: #a3a3a3;
+          --color-stay-confirmed-fg: #dde9f5;
+        }
+      `,
+    },
+  });
+  const weakContrast = weakPairs.errors.filter((e) => /contrast/.test(e));
+  const weakExpected = [
+    '--color-field',
+    '--color-focus',
+    '--color-primary-hover',
+    '--color-stay-confirmed-fg',
+  ];
+  for (const token of weakExpected) {
+    if (!weakContrast.some((e) => e.includes(token))) {
+      console.error(`self-test C8 FAILED: expected a contrast error naming ${token}`, weakPairs.errors);
+      failed = true;
+    }
   }
 
   if (failed) process.exit(1);

@@ -11,12 +11,13 @@ import type { StatusRung, TestIdProps } from './types.js';
 
 export type DataTableProps = TestIdProps & {
   children?: ReactNode;
+  dense?: boolean;
 };
 
-export function DataTable({ children, 'data-testid': dataTestId }: DataTableProps) {
+export function DataTable({ children, dense, 'data-testid': dataTestId }: DataTableProps) {
   return (
     <div className="ui-table-scroll">
-      <table className="ui-table" data-testid={dataTestId}>
+      <table className={clsx('ui-table', dense && 'ui-table--dense')} data-testid={dataTestId}>
         {children}
       </table>
     </div>

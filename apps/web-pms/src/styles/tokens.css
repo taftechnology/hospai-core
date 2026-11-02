@@ -1,76 +1,136 @@
 @font-face {
-  font-family: "Inter";
+  font-family: "Figtree";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/inter/inter-latin-400-normal.woff2") format("woff2");
+  src: url("/fonts/figtree/figtree-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/figtree/figtree-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Figtree";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/inter/inter-latin-500-normal.woff2") format("woff2");
+  src: url("/fonts/figtree/figtree-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Figtree";
   font-style: normal;
-  font-weight: 600;
+  font-weight: 500;
   font-display: swap;
-  src: url("/fonts/inter/inter-latin-600-normal.woff2") format("woff2");
+  src: url("/fonts/figtree/figtree-latin-ext-500-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
-  font-family: "IBM Plex Mono";
+  font-family: "Figtree";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("/fonts/ibm-plex-mono/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+  src: url("/fonts/figtree/figtree-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/figtree/figtree-latin-ext-600-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/figtree/figtree-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/figtree/figtree-latin-ext-700-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 :root {
   color-scheme: light dark;
 
   /* --- primitives (literals allowed only on --color-*) --- */
-  --color-bg: #ffffff;
+  --color-bg: #f7f6f3;
   --color-surface-base: #ffffff;
-  --color-ink: #0a0a0a;
-  --color-muted: #6b6b6b;
-  --color-line: #e5e5e5;
-  --color-selected: #f5f5f5;
-  --color-primary: #171717;
-  --color-sidebar: #fafafa;
-  --color-focus: #0a0a0a;
+  --color-ink: #1b1a17;
+  --color-muted: #5c5a53;
+  --color-line: #e4e1da;
+  --color-field: #85817a;
+  --color-selected: #efede8;
+  --color-hover: #f3f1ec;
+  --color-table-head: #fbfaf8;
+  --color-primary: #0b5c63;
+  --color-primary-hover: #084a50;
+  --color-primary-tint: #d8eff0;
+  --color-primary-tint-fg: #0a4b51;
+  --color-sidebar: #efede8;
+  --color-focus: #0b5c63;
 
-  --color-action-primary-surface: #171717;
-  --color-action-primary-fg: #fafafa;
-  --color-action-destructive-surface: #e7000b;
-  --color-action-destructive-fg: #fafafa;
+  --color-action-primary-surface: #0b5c63;
+  --color-action-primary-fg: #ffffff;
+  --color-action-destructive-surface: #a8302b;
+  --color-action-destructive-fg: #ffffff;
+  --color-action-destructive-hover: #8e2621;
 
-  --color-status-settled-fg: #007a55;
-  --color-status-settled-surface: #d0fae5;
-  --color-status-informational-fg: #0069a8;
-  --color-status-informational-surface: #dff2fe;
-  --color-status-attention-fg: #bb4d00;
-  --color-status-attention-surface: #fef3c6;
-  --color-status-exception-fg: #c10007;
-  --color-status-exception-surface: #ffe2e2;
-  --color-status-vip-fg: #7008e7;
-  --color-status-vip-surface: #ede9fe;
-  --color-status-cancelled-fg: #525252;
+  --color-status-settled-fg: #17603f;
+  --color-status-settled-surface: #dcf2e4;
+  --color-status-informational-fg: #234a73;
+  --color-status-informational-surface: #dde9f5;
+  --color-status-attention-fg: #85480a;
+  --color-status-attention-surface: #fbeccb;
+  --color-status-exception-fg: #9c2420;
+  --color-status-exception-surface: #fbe3e0;
+  --color-status-vip-fg: #5b2a86;
+  --color-status-vip-surface: #efe6f7;
+  --color-status-cancelled-fg: #57544d;
+  --color-status-cancelled-surface: #ecebe6;
 
-  --color-room-clean: #009966;
-  --color-room-dirty: #e17100;
-  --color-room-inspected: #0084d1;
-  --color-room-ooo: #e7000b;
+  --color-stay-inhouse: #2b5a8a;
+  --color-stay-inhouse-fg: #ffffff;
+  --color-stay-confirmed: #dde9f5;
+  --color-stay-confirmed-fg: #234a73;
+  --color-stay-confirmed-border: #2b5a8a;
+  --color-stay-pending: #fbeccb;
+  --color-stay-pending-fg: #85480a;
+  --color-stay-pending-border: #85480a;
+  --color-stay-overstay: #a8302b;
+  --color-stay-overstay-fg: #ffffff;
+  --color-stay-departed: #ecebe6;
+  --color-stay-departed-fg: #57544d;
+  --color-stay-blocked: #c9c5bb;
 
-  --color-badge-fg-on-exception: #ffffff;
+  --color-room-clean: #11804f;
+  --color-room-dirty: #b85c00;
+  --color-room-inspected: #2b6cb0;
+  --color-room-ooo: #a8302b;
 
-  /* 5% black. 8-digit hex so shadow composites stay off the literal rule. */
-  --color-shadow: #0000000d;
-  --color-shadow-overlay: #00000026;
+  /* 8-digit hex so shadow composites stay off the literal rule. */
+  --color-shadow: #281e0a14;
+  --color-shadow-overlay: #281e0a2e;
   /* Same black scrim in both themes. 8-digit hex. */
   --color-scrim: #00000080;
 
@@ -81,7 +141,13 @@
   --bg: var(--color-bg);
   --panel: var(--color-surface-base);
   --selected: var(--color-selected);
+  --hover: var(--color-hover);
+  --field: var(--color-field);
+  --table-head: var(--color-table-head);
   --primary: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --primary-tint: var(--color-primary-tint);
+  --primary-tint-fg: var(--color-primary-tint-fg);
   --sidebar: var(--color-sidebar);
   --focus: var(--color-focus);
   --scrim: var(--color-scrim);
@@ -92,10 +158,10 @@
   --danger: var(--color-status-exception-fg);
   --warn: var(--color-status-attention-fg);
 
-  --radius: 6px;
+  --radius: 8px;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* --- status semantics --- */
   --status-settled-fg: var(--color-status-settled-fg);
@@ -134,97 +200,153 @@
     var(--color-surface-base)
   );
   --status-cancelled-fg: var(--color-status-cancelled-fg);
-  --status-cancelled-surface: var(--selected);
+  --status-cancelled-surface: var(--color-status-cancelled-surface);
   --status-cancelled-border: color-mix(
     in srgb,
     var(--status-cancelled-fg) 35%,
     var(--color-surface-base)
   );
+  --stay-inhouse: var(--color-stay-inhouse);
+  --stay-inhouse-fg: var(--color-stay-inhouse-fg);
+  --stay-confirmed: var(--color-stay-confirmed);
+  --stay-confirmed-fg: var(--color-stay-confirmed-fg);
+  --stay-confirmed-border: var(--color-stay-confirmed-border);
+  --stay-pending: var(--color-stay-pending);
+  --stay-pending-fg: var(--color-stay-pending-fg);
+  --stay-pending-border: var(--color-stay-pending-border);
 
   /* --- action intent --- */
   --action-default-fg: var(--color-ink);
   --action-default-surface: var(--color-bg);
   --action-primary-fg: var(--color-action-primary-fg);
   --action-primary-surface: var(--color-action-primary-surface);
+  --action-primary-hover: var(--color-primary-hover);
   --action-destructive-fg: var(--color-action-destructive-fg);
   --action-destructive-surface: var(--color-action-destructive-surface);
+  --action-destructive-hover: var(--color-action-destructive-hover);
 
   font-family: var(--font-sans);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-bg: #0a0a0a;
-    --color-surface-base: #171717;
-    --color-ink: #fafafa;
-    --color-muted: #a1a1a1;
-    --color-line: #2e2e2e;
-    --color-selected: #262626;
-    --color-primary: #e5e5e5;
-    --color-sidebar: #171717;
-    --color-focus: #fafafa;
+    --color-bg: #14130f;
+    --color-surface-base: #1e1d19;
+    --color-ink: #f3f1ea;
+    --color-muted: #aaa79d;
+    --color-line: #35332c;
+    --color-field: #7e7b72;
+    --color-selected: #2b2a25;
+    --color-hover: #262520;
+    --color-table-head: #24231e;
+    --color-primary: #5fc9d1;
+    --color-primary-hover: #83dbe1;
+    --color-primary-tint: #123439;
+    --color-primary-tint-fg: #8ee0e6;
+    --color-sidebar: #191814;
+    --color-focus: #5fc9d1;
 
-    --color-action-primary-surface: #e5e5e5;
-    --color-action-primary-fg: #171717;
-    --color-action-destructive-surface: #ff6467;
-    --color-action-destructive-fg: #171717;
+    --color-action-primary-surface: #5fc9d1;
+    --color-action-primary-fg: #0c2023;
+    --color-action-destructive-surface: #f6a39c;
+    --color-action-destructive-fg: #2c0e0c;
+    --color-action-destructive-hover: #f9bdb7;
 
-    --color-status-settled-fg: #5ee9b5;
-    --color-status-settled-surface: #0e2d25;
-    --color-status-informational-fg: #74d4ff;
-    --color-status-informational-surface: #0f2b3b;
-    --color-status-attention-fg: #ffd230;
-    --color-status-attention-surface: #3f2210;
-    --color-status-exception-fg: #ffa2a2;
-    --color-status-exception-surface: #421718;
-    --color-status-vip-fg: #c4b4ff;
-    --color-status-vip-surface: #2d174b;
-    --color-status-cancelled-fg: #a1a1a1;
+    --color-status-settled-fg: #86dcaa;
+    --color-status-settled-surface: #17352a;
+    --color-status-informational-fg: #a9cdf0;
+    --color-status-informational-surface: #18304a;
+    --color-status-attention-fg: #f0c36e;
+    --color-status-attention-surface: #3d2c10;
+    --color-status-exception-fg: #f6a39c;
+    --color-status-exception-surface: #451d1a;
+    --color-status-vip-fg: #cfb3ee;
+    --color-status-vip-surface: #2e1c42;
+    --color-status-cancelled-fg: #aaa79d;
+    --color-status-cancelled-surface: #2b2a25;
 
-    --color-room-clean: #00d492;
-    --color-room-dirty: #ffb900;
-    --color-room-inspected: #00bcff;
-    --color-room-ooo: #ff6467;
+    --color-stay-inhouse: #8fbdea;
+    --color-stay-inhouse-fg: #0e1c2b;
+    --color-stay-confirmed: #18304a;
+    --color-stay-confirmed-fg: #a9cdf0;
+    --color-stay-confirmed-border: #8fbdea;
+    --color-stay-pending: #3d2c10;
+    --color-stay-pending-fg: #f0c36e;
+    --color-stay-pending-border: #f0c36e;
+    --color-stay-overstay: #f6a39c;
+    --color-stay-overstay-fg: #2c0e0c;
+    --color-stay-departed: #2b2a25;
+    --color-stay-departed-fg: #aaa79d;
+    --color-stay-blocked: #4a4840;
 
-    --color-badge-fg-on-exception: #171717;
+    --color-room-clean: #6bd39a;
+    --color-room-dirty: #f2b35e;
+    --color-room-inspected: #8fbdea;
+    --color-room-ooo: #f6a39c;
+
+    --color-shadow: #00000066;
+    --color-shadow-overlay: #00000099;
     --color-scrim: #00000080;
   }
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #0a0a0a;
-  --color-surface-base: #171717;
-  --color-ink: #fafafa;
-  --color-muted: #a1a1a1;
-  --color-line: #2e2e2e;
-  --color-selected: #262626;
-  --color-primary: #e5e5e5;
-  --color-sidebar: #171717;
-  --color-focus: #fafafa;
+  --color-bg: #14130f;
+  --color-surface-base: #1e1d19;
+  --color-ink: #f3f1ea;
+  --color-muted: #aaa79d;
+  --color-line: #35332c;
+  --color-field: #7e7b72;
+  --color-selected: #2b2a25;
+  --color-hover: #262520;
+  --color-table-head: #24231e;
+  --color-primary: #5fc9d1;
+  --color-primary-hover: #83dbe1;
+  --color-primary-tint: #123439;
+  --color-primary-tint-fg: #8ee0e6;
+  --color-sidebar: #191814;
+  --color-focus: #5fc9d1;
 
-  --color-action-primary-surface: #e5e5e5;
-  --color-action-primary-fg: #171717;
-  --color-action-destructive-surface: #ff6467;
-  --color-action-destructive-fg: #171717;
+  --color-action-primary-surface: #5fc9d1;
+  --color-action-primary-fg: #0c2023;
+  --color-action-destructive-surface: #f6a39c;
+  --color-action-destructive-fg: #2c0e0c;
+  --color-action-destructive-hover: #f9bdb7;
 
-  --color-status-settled-fg: #5ee9b5;
-  --color-status-settled-surface: #0e2d25;
-  --color-status-informational-fg: #74d4ff;
-  --color-status-informational-surface: #0f2b3b;
-  --color-status-attention-fg: #ffd230;
-  --color-status-attention-surface: #3f2210;
-  --color-status-exception-fg: #ffa2a2;
-  --color-status-exception-surface: #421718;
-  --color-status-vip-fg: #c4b4ff;
-  --color-status-vip-surface: #2d174b;
-  --color-status-cancelled-fg: #a1a1a1;
+  --color-status-settled-fg: #86dcaa;
+  --color-status-settled-surface: #17352a;
+  --color-status-informational-fg: #a9cdf0;
+  --color-status-informational-surface: #18304a;
+  --color-status-attention-fg: #f0c36e;
+  --color-status-attention-surface: #3d2c10;
+  --color-status-exception-fg: #f6a39c;
+  --color-status-exception-surface: #451d1a;
+  --color-status-vip-fg: #cfb3ee;
+  --color-status-vip-surface: #2e1c42;
+  --color-status-cancelled-fg: #aaa79d;
+  --color-status-cancelled-surface: #2b2a25;
 
-  --color-room-clean: #00d492;
-  --color-room-dirty: #ffb900;
-  --color-room-inspected: #00bcff;
-  --color-room-ooo: #ff6467;
+  --color-stay-inhouse: #8fbdea;
+  --color-stay-inhouse-fg: #0e1c2b;
+  --color-stay-confirmed: #18304a;
+  --color-stay-confirmed-fg: #a9cdf0;
+  --color-stay-confirmed-border: #8fbdea;
+  --color-stay-pending: #3d2c10;
+  --color-stay-pending-fg: #f0c36e;
+  --color-stay-pending-border: #f0c36e;
+  --color-stay-overstay: #f6a39c;
+  --color-stay-overstay-fg: #2c0e0c;
+  --color-stay-departed: #2b2a25;
+  --color-stay-departed-fg: #aaa79d;
+  --color-stay-blocked: #4a4840;
 
-  --color-badge-fg-on-exception: #171717;
+  --color-room-clean: #6bd39a;
+  --color-room-dirty: #f2b35e;
+  --color-room-inspected: #8fbdea;
+  --color-room-ooo: #f6a39c;
+
+  --color-shadow: #00000066;
+  --color-shadow-overlay: #00000099;
   --color-scrim: #00000080;
 }
 
@@ -243,42 +365,62 @@
   :root[data-theme="dark"],
   :root[data-theme="light"] {
     color-scheme: light;
-    --color-bg: #ffffff;
+    --color-bg: #f7f6f3;
     --color-surface-base: #ffffff;
-    --color-ink: #0a0a0a;
-    --color-muted: #6b6b6b;
-    --color-line: #e5e5e5;
-    --color-selected: #f5f5f5;
-    --color-primary: #171717;
-    --color-sidebar: #fafafa;
-    --color-focus: #0a0a0a;
+    --color-ink: #1b1a17;
+    --color-muted: #5c5a53;
+    --color-line: #e4e1da;
+    --color-field: #85817a;
+    --color-selected: #efede8;
+    --color-hover: #f3f1ec;
+    --color-table-head: #fbfaf8;
+    --color-primary: #0b5c63;
+    --color-primary-hover: #084a50;
+    --color-primary-tint: #d8eff0;
+    --color-primary-tint-fg: #0a4b51;
+    --color-sidebar: #efede8;
+    --color-focus: #0b5c63;
 
-    --color-action-primary-surface: #171717;
-    --color-action-primary-fg: #fafafa;
-    --color-action-destructive-surface: #e7000b;
-    --color-action-destructive-fg: #fafafa;
+    --color-action-primary-surface: #0b5c63;
+    --color-action-primary-fg: #ffffff;
+    --color-action-destructive-surface: #a8302b;
+    --color-action-destructive-fg: #ffffff;
+    --color-action-destructive-hover: #8e2621;
 
-    --color-status-settled-fg: #007a55;
-    --color-status-settled-surface: #d0fae5;
-    --color-status-informational-fg: #0069a8;
-    --color-status-informational-surface: #dff2fe;
-    --color-status-attention-fg: #bb4d00;
-    --color-status-attention-surface: #fef3c6;
-    --color-status-exception-fg: #c10007;
-    --color-status-exception-surface: #ffe2e2;
-    --color-status-vip-fg: #7008e7;
-    --color-status-vip-surface: #ede9fe;
-    --color-status-cancelled-fg: #525252;
+    --color-status-settled-fg: #17603f;
+    --color-status-settled-surface: #dcf2e4;
+    --color-status-informational-fg: #234a73;
+    --color-status-informational-surface: #dde9f5;
+    --color-status-attention-fg: #85480a;
+    --color-status-attention-surface: #fbeccb;
+    --color-status-exception-fg: #9c2420;
+    --color-status-exception-surface: #fbe3e0;
+    --color-status-vip-fg: #5b2a86;
+    --color-status-vip-surface: #efe6f7;
+    --color-status-cancelled-fg: #57544d;
+    --color-status-cancelled-surface: #ecebe6;
 
-    --color-room-clean: #009966;
-    --color-room-dirty: #e17100;
-    --color-room-inspected: #0084d1;
-    --color-room-ooo: #e7000b;
+    --color-stay-inhouse: #2b5a8a;
+    --color-stay-inhouse-fg: #ffffff;
+    --color-stay-confirmed: #dde9f5;
+    --color-stay-confirmed-fg: #234a73;
+    --color-stay-confirmed-border: #2b5a8a;
+    --color-stay-pending: #fbeccb;
+    --color-stay-pending-fg: #85480a;
+    --color-stay-pending-border: #85480a;
+    --color-stay-overstay: #a8302b;
+    --color-stay-overstay-fg: #ffffff;
+    --color-stay-departed: #ecebe6;
+    --color-stay-departed-fg: #57544d;
+    --color-stay-blocked: #c9c5bb;
 
-    --color-badge-fg-on-exception: #ffffff;
+    --color-room-clean: #11804f;
+    --color-room-dirty: #b85c00;
+    --color-room-inspected: #2b6cb0;
+    --color-room-ooo: #a8302b;
 
-    --color-shadow: #0000000d;
-    --color-shadow-overlay: #00000026;
+    --color-shadow: #281e0a14;
+    --color-shadow-overlay: #281e0a2e;
     --color-scrim: #00000080;
   }
 }

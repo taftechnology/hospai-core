@@ -14,9 +14,9 @@ const STATUS_WORD: Record<ReservationStatus, string> = {
 
 const STATUS_TONE: Record<ReservationStatus, string> = {
   inquiry: 'status-neutral',
-  pending: 'status-attention',
-  confirmed: 'status-settled',
-  checked_in: 'status-informational',
+  pending: 'stay-pending',
+  confirmed: 'stay-confirmed',
+  checked_in: 'stay-inhouse',
   checked_out: 'status-cancelled',
   cancelled: 'status-cancelled',
   no_show: 'status-exception',

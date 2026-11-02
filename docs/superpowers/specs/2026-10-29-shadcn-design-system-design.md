@@ -1,6 +1,6 @@
 # Design system re-skin (shadcn neutral) — design
 
-**Roadmap:** R1.7a (inserted before R1.8 at the user's request) · **Status:** accepted 2026-10-29, shipped · **Date:** 2026-10-29
+**Roadmap:** R1.7a (inserted before R1.8 at the user's request) · **Status:** superseded 2026-11-01 by [House Colour](2026-11-01-house-colour-design-system-design.md); its layout rules (§10) stay in force · **Date:** 2026-10-29
 
 **Source of truth:** the *PMS Design System* artifact (claude.ai/artifact/K3iBHP3BLUV3XBivCLWVrM): `project/tokens.json`, `project/README.md` and the component guidelines. It is a shadcn/ui neutral system built from the Shadcnblocks hotel dashboards.
 

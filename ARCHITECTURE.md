@@ -2439,7 +2439,7 @@ to a rule already stated in this document.
 
 | Decision | Answer |
 |---|---|
-| Palette | **Amended 2026-10-29: shadcn neutral** ([design system re-skin](docs/superpowers/specs/2026-10-29-shadcn-design-system-design.md)), replacing P0-3 sage / tan / cream. Light and dark themes as `--color-*` hex primitives in `tokens.css` (dark under `prefers-color-scheme`; print forces light). Font Inter, Plex Mono for one label style. `check:web-pms-colors` remains merge-blocking and checks both themes. |
+| Palette | **Amended 2026-11-01: House Colour** ([design](docs/superpowers/specs/2026-11-01-house-colour-design-system-design.md), [reference](docs/design-system/README.md)), replacing the shadcn neutral look of 2026-10-29: warm greys, peacock teal. Light and dark themes as `--color-*` hex primitives in `tokens.css` (dark under `prefers-color-scheme`; print forces light). Font Figtree with tabular figures. `check:web-pms-colors` remains merge-blocking and checks both themes. |
 | Tailwind | **No, permanently.** Colour stays in `.css` so the gate keeps working; `modules/*` has no bundler for `@source` scanning. |
 | `ui-kit` | **Yes — `packages/ui-kit`.** Hand-authored Tier A components (`Button`, `Field`, `Input`, `NativeSelect`, `DataTable`, …), one global `ui-kit.css`, closed API (no `className` / `style` / blanket `...rest`). Consumed by `apps/web-pms` and `modules/pms/housekeeping`. |
 

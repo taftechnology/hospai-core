@@ -124,6 +124,19 @@ describe('ui-kit behaviour', () => {
     expect(document.querySelector('.ui-table-scroll')).toBeTruthy();
   });
 
+  it('DataTable dense adds ui-table--dense', () => {
+    render(
+      <DataTable dense>
+        <DataTableBody>
+          <DataTableRow>
+            <DataTableCell>Ada</DataTableCell>
+          </DataTableRow>
+        </DataTableBody>
+      </DataTable>,
+    );
+    expect(screen.getByRole('table').className).toMatch(/ui-table--dense/);
+  });
+
   it('CardTitle renders heading level 2', () => {
     render(
       <Card>
@@ -161,9 +174,9 @@ describe('ui-kit behaviour', () => {
   it('StatusBadge uses the fixed word and tone for each reservation status', () => {
     const cases = [
       ['inquiry', 'Inquiry', 'status-neutral'],
-      ['pending', 'Pending', 'status-attention'],
-      ['confirmed', 'Confirmed', 'status-settled'],
-      ['checked_in', 'In house', 'status-informational'],
+      ['pending', 'Pending', 'stay-pending'],
+      ['confirmed', 'Confirmed', 'stay-confirmed'],
+      ['checked_in', 'In house', 'stay-inhouse'],
       ['checked_out', 'Checked out', 'status-cancelled'],
       ['cancelled', 'Cancelled', 'status-cancelled'],
       ['no_show', 'No-show', 'status-exception'],
@@ -179,7 +192,7 @@ describe('ui-kit behaviour', () => {
 
   it('StatusBadge adds a VIP pill without replacing the status word', () => {
     render(<StatusBadge status="confirmed" vip />);
-    expect(screen.getByText('Confirmed').className).toMatch(/status-settled/);
+    expect(screen.getByText('Confirmed').className).toMatch(/stay-confirmed/);
     const vip = screen.getByTestId('badge-vip');
     expect(vip).toHaveTextContent('VIP');
     expect(vip.className).toMatch(/status-vip/);

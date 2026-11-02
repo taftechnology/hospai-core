@@ -7,6 +7,7 @@
   --content-max: 100rem;
   --sidebar-w: 16rem;
   --rail-h: 3.5rem;
+  --nav-item-h: 1.875rem;
 }
 
 * {
@@ -21,6 +22,7 @@ body {
      via `font: inherit` in ui-kit. */
   font-size: var(--text-base);
   line-height: 1.5;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -84,20 +86,23 @@ a {
   color: var(--muted);
 }
 
+/* Shrinks and scrolls so the footer stays in a 650px window. */
 .app-sidebar nav {
-  padding: 1rem;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: var(--space-1) var(--space-2);
   overflow-y: auto;
 }
 
 .app-nav-list {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 1px;
 }
 
 .app-nav-quiet {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
   border-top: 1px solid var(--line);
 }
 
@@ -106,11 +111,11 @@ a {
   align-items: center;
   gap: 0.75rem;
   box-sizing: border-box;
-  block-size: var(--control-h);
+  block-size: var(--nav-item-h);
   padding: 0 0.625rem;
   border-radius: var(--radius);
   font-size: var(--text-base);
-  font-weight: 400;
+  font-weight: 500;
   color: var(--ink);
 }
 
@@ -121,16 +126,22 @@ a {
   flex-shrink: 0;
 }
 
-.app-nav-list a[aria-current='page'] {
-  background: var(--selected);
+.app-nav-list a:hover:not([aria-current='page']) {
+  background: var(--hover);
   color: var(--ink);
-  font-weight: 500;
+}
+
+.app-nav-list a[aria-current='page'],
+.app-nav-list a[aria-current='page']:hover {
+  background: var(--primary);
+  color: var(--action-primary-fg);
+  font-weight: 600;
   border-bottom: 0;
 }
 
-.app-nav-list a:hover {
-  background: var(--selected);
-  color: var(--ink);
+.app-nav-list a[aria-current='page'] svg,
+.app-nav-list a[aria-current='page'] span {
+  color: var(--action-primary-fg);
 }
 
 .app-nav-quiet a {
@@ -139,14 +150,15 @@ a {
 }
 
 .app-sidebar-footer {
-  padding: 1.11rem 1rem;
+  flex: none;
+  padding: var(--space-2);
   border-top: 1px solid var(--line);
   background: transparent;
   font-size: var(--text-sm);
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .app-sidebar-footer .ui-theme-switch {
@@ -849,7 +861,7 @@ details.side-panel summary {
   box-sizing: border-box;
   block-size: var(--input-h);
   padding: 0 0.75rem 0 2rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field);
   border-radius: var(--radius);
   background: var(--bg);
   color: var(--ink);
@@ -1237,7 +1249,7 @@ details.side-panel summary {
 }
 
 .sign-in__form .ui-input:focus-visible {
-  border-color: var(--line);
+  border-color: var(--field);
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

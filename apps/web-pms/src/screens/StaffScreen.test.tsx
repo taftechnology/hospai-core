@@ -177,8 +177,6 @@ describe('StaffScreen', () => {
   });
 
   it('#10 owner org DELETE confirm cascade; self-demote confirm', async () => {
-    const confirm = vi.fn().mockReturnValue(false);
-    vi.stubGlobal('confirm', confirm);
     listOrgMembers.mockResolvedValue({
       ok: true,
       members: [
@@ -208,14 +206,12 @@ describe('StaffScreen', () => {
     expect(deleteOrgMember).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    confirm.mockClear();
     fireEvent.change(screen.getByLabelText('Org role for user_owner'), {
       target: { value: 'admin' },
     });
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringMatching(/lose access to staff management/i),
-    );
+    expect(screen.getByText(/lose access to staff management/i)).toBeTruthy();
     expect(updateOrgMember).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   });
 
   it('#11 self org-DELETE → harsh confirm → no-access shell', async () => {

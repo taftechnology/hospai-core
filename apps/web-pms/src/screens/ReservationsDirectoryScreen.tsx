@@ -18,13 +18,16 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
   RowActions,
+  Skeleton,
   isReservationStatus,
   StatusBadge,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -217,7 +220,7 @@ export function ReservationsDirectoryScreen() {
   let flush = false;
   if (searching) {
     if (hits.length === 0) {
-      body = <p className="muted">No reservations in this window.</p>;
+      body = <EmptyState kind="nomatch" title="No reservations match that search." />;
     } else {
       flush = true;
       body = (
@@ -255,11 +258,11 @@ export function ReservationsDirectoryScreen() {
       );
     }
   } else if (windowParam !== 'all' && date == null) {
-    body = <p className="muted">Loading…</p>;
+    body = <Skeleton label="Loading reservations" lines={5} />;
   } else if (listQ.isLoading) {
-    body = <p className="muted">Loading…</p>;
+    body = <Skeleton label="Loading reservations" lines={5} />;
   } else if (items.length === 0) {
-    body = <p className="muted">No reservations in this window.</p>;
+    body = <EmptyState kind="empty" title="No reservations in this window." />;
   } else {
     flush = true;
     body = (
@@ -271,7 +274,7 @@ export function ReservationsDirectoryScreen() {
             <DataTableHeaderCell>Room</DataTableHeaderCell>
             <DataTableHeaderCell>Status</DataTableHeaderCell>
             <DataTableHeaderCell align="right">
-              <span className="ui-visually-hidden">Actions</span>
+              <VisuallyHidden>Actions</VisuallyHidden>
             </DataTableHeaderCell>
           </DataTableRow>
         </DataTableHead>

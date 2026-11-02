@@ -20,6 +20,7 @@ import {
   Input,
   RowActions,
   Skeleton,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -185,7 +186,7 @@ export function SourcesSettings({ onMessage }: { onMessage: (message: string) =>
                       <DataTableHeaderCell>Name</DataTableHeaderCell>
                       <DataTableHeaderCell>Status</DataTableHeaderCell>
                       <DataTableHeaderCell align="right">
-                        <span className="ui-visually-hidden">Actions</span>
+                        <VisuallyHidden>Actions</VisuallyHidden>
                       </DataTableHeaderCell>
                     </DataTableRow>
                   </DataTableHead>

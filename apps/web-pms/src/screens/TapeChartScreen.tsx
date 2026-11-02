@@ -26,12 +26,15 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   PageHeader,
+  Skeleton,
   Tabs,
   Toolbar,
   RoomStatus,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
@@ -328,15 +331,20 @@ export function TapeChartScreen() {
 
   let body: ReactNode;
   if (from == null || to == null || (view === 'tape' ? tapeQ.isLoading : availableQ.isLoading)) {
-    body = <p className="muted">Loading…</p>;
+    body = <Skeleton label="Loading the room plan" lines={5} />;
   } else if (view === 'available') {
     const free = availableQ.data?.rooms ?? [];
     if (free.length === 0) {
       body = (
-        <div>
-          <p className="muted">No rooms free for these dates.</p>
-          <Link to="/book">Book</Link>
-        </div>
+        <EmptyState
+          kind="nomatch"
+          title="No rooms free for these dates."
+          action={
+            <Link to="/book" className="ui-link-btn ui-link-btn--sm">
+              Book
+            </Link>
+          }
+        />
       );
     } else {
       body = (
@@ -353,7 +361,7 @@ export function TapeChartScreen() {
                   <DataTableHeaderCell>Type</DataTableHeaderCell>
                   <DataTableHeaderCell>Status</DataTableHeaderCell>
                   <DataTableHeaderCell align="right">
-                    <span className="ui-visually-hidden">Actions</span>
+                    <VisuallyHidden>Actions</VisuallyHidden>
                   </DataTableHeaderCell>
                 </DataTableRow>
               </DataTableHead>
@@ -389,7 +397,7 @@ export function TapeChartScreen() {
       );
     }
   } else if (rooms.length === 0) {
-    body = <p className="muted">No rooms yet — create rooms in Inventory.</p>;
+    body = <EmptyState kind="empty" title="No rooms yet — create rooms in Inventory." />;
   } else {
     body = (
       <div className="tape-scroller">
@@ -523,7 +531,7 @@ export function TapeChartScreen() {
 
   return (
     <>
-      <div className="visually-hidden" aria-live="polite" />
+      <div className="ui-visually-hidden" aria-live="polite" />
       <PageHeader
         title="Room Plan"
         subtitle={

@@ -24,11 +24,12 @@ import {
   NativeSelect,
   PageHeader,
   RowActions,
+  Dialog,
   Skeleton,
   Toolbar,
 } from '@hospai/ui-kit';
-import { useMemo, useState, type ReactNode } from 'react';
-import type { HousekeepingApi, HousekeepingFormDialogProps } from './housekeeping-types.js';
+import { useMemo, useState } from 'react';
+import type { HousekeepingApi } from './housekeeping-types.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { INVENTORY_CATEGORY_LABEL, MOVEMENT_KIND_LABEL } from './inventory-labels.js';
 
@@ -43,7 +44,6 @@ export function HousekeepingInventory({
   canAssign,
   subtitle,
   formatError,
-  Dialog,
   format,
 }: {
   propertyId: string;
@@ -51,7 +51,6 @@ export function HousekeepingInventory({
   canAssign: boolean;
   subtitle?: string;
   formatError?: (err: unknown) => string;
-  Dialog?: (props: HousekeepingFormDialogProps) => ReactNode;
   format: { dateTime: (ms: number) => string };
 }) {
   const queryClient = useQueryClient();
@@ -381,11 +380,12 @@ export function HousekeepingInventory({
         </CardContent>
       </Card>
 
-      {adjustDialog && Dialog ? (
+      {adjustDialog ? (
         <Dialog
+          open
           title={`${MOVEMENT_KIND_LABEL[adjustDialog.kind]} — ${adjustDialog.item.name}`}
           onClose={() => setAdjustDialog(null)}
-          actions={
+          footer={
             <>
               <Button type="button" intent="ghost" onClick={() => setAdjustDialog(null)}>
                 Cancel
@@ -435,11 +435,12 @@ export function HousekeepingInventory({
         </Dialog>
       ) : null}
 
-      {editItem && Dialog ? (
+      {editItem ? (
         <Dialog
+          open
           title={`Edit — ${editItem.name}`}
           onClose={() => setEditItem(null)}
-          actions={
+          footer={
             <>
               <Button type="button" intent="ghost" onClick={() => setEditItem(null)}>
                 Cancel
@@ -515,11 +516,12 @@ export function HousekeepingInventory({
         </Dialog>
       ) : null}
 
-      {historyItem && Dialog ? (
+      {historyItem ? (
         <Dialog
+          open
           title={`History — ${historyItem.name}`}
           onClose={() => setHistoryItem(null)}
-          actions={
+          footer={
             <Button type="button" intent="primary" onClick={() => setHistoryItem(null)}>
               Close
             </Button>

@@ -16,11 +16,14 @@ import {
   DataTableRow,
   EmptyState,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
   SectionLabel,
+  Skeleton,
   Textarea,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -366,40 +369,42 @@ export function ExceptionsScreen() {
         />
         </div>
         <div className="exceptions-filters__row">
-        <fieldset className="ui-field-group exceptions-filters__fixed">
-          <legend className="ui-field-group__legend">Resolution</legend>
-          <div className="ui-choice-row">
-            {(['open', 'resolved', 'all'] as const).map((value) => (
-              <label key={value} className="ui-choice">
-                <Input
-                  type="radio"
-                  name="resolution"
-                  value={value}
-                  checked={resolution === value}
-                  onChange={() => patchParams({ resolution: value })}
-                />
-                {value === 'open' ? 'Open' : value === 'resolved' ? 'Resolved' : 'All'}
-              </label>
-            ))}
-          </div>
-</fieldset>
-        <fieldset className="ui-field-group exceptions-filters__spaced">
-          <legend className="ui-field-group__legend">Assigned</legend>
-          <div className="ui-choice-row">
-            {(['all', 'unassigned', 'assigned'] as const).map((value) => (
-              <label key={value} className="ui-choice">
-                <Input
-                  type="radio"
-                  name="assigned"
-                  value={value}
-                  checked={assigned === value}
-                  onChange={() => patchParams({ assigned: value })}
-                />
-                {value === 'all' ? 'All' : value === 'unassigned' ? 'Unassigned' : 'Assigned'}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <div className="exceptions-filters__fixed">
+          <FieldGroup legend="Resolution">
+            <div className="ui-choice-row">
+              {(['open', 'resolved', 'all'] as const).map((value) => (
+                <label key={value} className="ui-choice">
+                  <Input
+                    type="radio"
+                    name="resolution"
+                    value={value}
+                    checked={resolution === value}
+                    onChange={() => patchParams({ resolution: value })}
+                  />
+                  {value === 'open' ? 'Open' : value === 'resolved' ? 'Resolved' : 'All'}
+                </label>
+              ))}
+            </div>
+          </FieldGroup>
+        </div>
+        <div className="exceptions-filters__spaced">
+          <FieldGroup legend="Assigned">
+            <div className="ui-choice-row">
+              {(['all', 'unassigned', 'assigned'] as const).map((value) => (
+                <label key={value} className="ui-choice">
+                  <Input
+                    type="radio"
+                    name="assigned"
+                    value={value}
+                    checked={assigned === value}
+                    onChange={() => patchParams({ assigned: value })}
+                  />
+                  {value === 'all' ? 'All' : value === 'unassigned' ? 'Unassigned' : 'Assigned'}
+                </label>
+              ))}
+            </div>
+          </FieldGroup>
+        </div>
         {canListMembers && members.length > 0 ? (
           <Field
             size="sm"
@@ -454,9 +459,9 @@ export function ExceptionsScreen() {
           {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ? (
             <Alert>Exceptions unavailable — property unreachable</Alert>
           ) : listQ.isLoading ? (
-            <p className="muted">Loading…</p>
+            <Skeleton label="Loading exceptions" lines={5} />
           ) : (
-            <EmptyState title="No exceptions match these filters." />
+            <EmptyState kind="nomatch" title="No exceptions match these filters." />
           )}
         </div>
       ) : (
@@ -465,7 +470,7 @@ export function ExceptionsScreen() {
           <DataTableHead>
             <DataTableRow>
               <DataTableHeaderCell>
-                <span className="visually-hidden">Select</span>
+                <VisuallyHidden>Select</VisuallyHidden>
               </DataTableHeaderCell>
               <DataTableHeaderCell>Created</DataTableHeaderCell>
               <DataTableHeaderCell>Business Date</DataTableHeaderCell>
@@ -590,7 +595,7 @@ export function ExceptionsScreen() {
       {detailId ? (
         <aside className="exceptions-drawer overscroll-contain">
           <SectionLabel>Detail</SectionLabel>
-          {detailQ.isLoading ? <p className="muted">Loading…</p> : null}
+          {detailQ.isLoading ? <Skeleton label="Loading exception details" lines={5} /> : null}
           {detail?.exception ? (
             <>
               <p translate="no" className="tabular-nums">

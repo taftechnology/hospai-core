@@ -16,9 +16,12 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   PageHeader,
+  Skeleton,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { useFormat } from '../shell/PropertyFormat.js';
@@ -97,9 +100,14 @@ export function GuestsDirectoryScreen() {
   if (failClosed) {
     results = <Alert>Guest directory unavailable — organization unreachable.</Alert>;
   } else if (listQ.isLoading) {
-    results = <p className="muted">Loading…</p>;
+    results = <Skeleton label="Loading guests" lines={5} />;
   } else if (page.items.length === 0) {
-    results = <p className="muted">{q ? 'No guests match that search.' : 'No guests yet.'}</p>;
+    results = (
+      <EmptyState
+        kind={q ? 'nomatch' : 'empty'}
+        title={q ? 'No guests match that search.' : 'No guests yet.'}
+      />
+    );
   } else {
     results = (
       <DataTable>
@@ -158,7 +166,7 @@ export function GuestsDirectoryScreen() {
           <div className="guest-directory__actions">
             <Field
               size="lg"
-              label={<span className="ui-visually-hidden">Name, email, or phone</span>}
+              label={<VisuallyHidden>Name, email, or phone</VisuallyHidden>}
               control={
                 <Input
                   type="search"

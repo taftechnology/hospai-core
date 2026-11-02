@@ -177,6 +177,7 @@ describe('ShiftScreen', () => {
     );
     renderAt('/shift');
     await waitFor(() => expect(screen.getByRole('button', { name: /close shift/i })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText(/closing count/i), { target: { value: '100.00' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /close shift/i }));
     });
@@ -230,10 +231,23 @@ describe('ShiftScreen', () => {
 
     renderAt('/shift');
     await waitFor(() => expect(screen.getByRole('button', { name: /close shift/i })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText(/closing count/i), { target: { value: '100.00' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /close shift/i }));
     });
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(screen.getByTestId('receipt-variance').textContent).toMatch(/never counted/i);
+  });
+
+  it('closing-count submit stays disabled while closingMajor is empty', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: { shiftId: 'shift_empty', businessDate: '2026-08-09', openingFloat: 10_000 },
+    });
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByRole('button', { name: /close shift/i })).toBeTruthy());
+    expect((screen.getByRole('button', { name: /close shift/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });

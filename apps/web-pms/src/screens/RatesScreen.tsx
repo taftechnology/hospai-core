@@ -19,10 +19,13 @@ import {
   DataTableHeaderCell,
   DataTableRow,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
   Textarea,
+  Skeleton,
+  Tabs,
   Toolbar,
   VisuallyHidden,
 } from '@hospai/ui-kit';
@@ -754,7 +757,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 : undefined
         }
       />
-      <nav className="ui-tabs" aria-label="Rates">
+      <Tabs label="Rates">
         <Link
           className="ui-tab"
           to="/rates/plans"
@@ -776,7 +779,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
         >
           Restrictions
         </Link>
-      </nav>
+      </Tabs>
       <div className="ui-page-stack" data-testid="rates-screen">
         {unsavedGuard}
         {notice || bulkFailure || plansFailClosed || typesFailClosed ? (
@@ -806,7 +809,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
         <>
           <Card>
           <CardContent flush>
-            <div className="rates-plans__table">
               <DataTable>
             <DataTableHead>
               <DataTableRow>
@@ -840,7 +842,6 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               ))}
             </DataTableBody>
               </DataTable>
-            </div>
           </CardContent>
           </Card>
           <Card>
@@ -849,12 +850,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             </CardHeader>
             <CardContent>
             <form
-              className="stack rates-plans__form"
             onSubmit={(e) => {
               e.preventDefault();
               createPlan.mutate();
             }}
           >
+            <FieldGroup inline>
             <Field
               label="Code"
               control={
@@ -966,6 +967,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               />
             ) : null}
             <Field
+              size="full"
               label="Policy"
               control={
                 <Textarea
@@ -979,6 +981,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             <Button type="submit" intent="primary" disabled={createPlan.isPending}>
               {createPlan.isPending ? 'Saving…' : 'Create Rate Plan'}
             </Button>
+            </FieldGroup>
             </form>
             </CardContent>
           </Card>
@@ -1007,12 +1010,12 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             </ul>
             ) : null}
             <form
-              className="stack rates-plans__form rates-plans__promo-form"
             onSubmit={(e) => {
               e.preventDefault();
               createPromo.mutate();
             }}
           >
+            <FieldGroup inline>
             <Field
               label="Code"
               control={
@@ -1132,6 +1135,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
             >
               {createPromo.isPending ? 'Saving…' : 'Create Promo'}
             </Button>
+            </FieldGroup>
             </form>
           </CardContent>
           </Card>
@@ -1140,7 +1144,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
       {activeTab === 'matrix' && !plansFailClosed && !typesFailClosed ? (
         typesQ.isPending || plansQ.isPending ? (
-          <p className="muted">Loading…</p>
+          <Skeleton label="Loading rate matrix" lines={5} />
         ) : types.length === 0 ? (
           <p className="muted">Create a room type first.</p>
         ) : (
@@ -1280,7 +1284,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               </CardHeader>
               <CardContent>
                 <form
-                  className="stack rates-matrix__bulk"
+                  className="ui-stack rates-matrix__bulk"
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (savingBulk || !amountOk || !rangeReady || previewCount === 0) return;
@@ -1400,7 +1404,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
       {activeTab === 'restrictions' && !typesFailClosed ? (
         typesQ.isPending || (Boolean(from && to) && restQ.isPending) ? (
-          <p className="muted">Loading…</p>
+          <Skeleton label="Loading restrictions" lines={5} />
         ) : types.length === 0 ? (
           <p className="muted">Create a room type first.</p>
         ) : restQ.isError ? (

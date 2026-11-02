@@ -13,6 +13,13 @@ export function parseMajorToMinor(raw: string): number {
   return Math.round(Number(raw) * 100);
 }
 
+/** Trimmed major string with at most two decimal places → minor units, or null if invalid. */
+export function parseAmountToMinor(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  return parseMajorToMinor(trimmed);
+}
+
 /** Signed variance in minor units → short/over/even copy, with the ledger currency. */
 export function formatVarianceMinor(variance: number, fmt: PropertyFormat): string {
   if (variance === 0) return 'even';

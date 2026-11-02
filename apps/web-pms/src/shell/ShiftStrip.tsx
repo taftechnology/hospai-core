@@ -8,6 +8,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import {
   isCurrentOrPreviousBusinessDate,
+  parseAmountToMinor,
   parseMajorToMinor,
 } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
@@ -16,9 +17,7 @@ import { useFormat, usePropertyTimeZone } from './PropertyFormat.js';
 
 /** Empty and non-numeric floats are invalid. Zero is a valid opening float. */
 function openingFloatMinor(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
-  return parseMajorToMinor(trimmed);
+  return parseAmountToMinor(raw);
 }
 
 export function ShiftStrip({ authority }: { authority: Authority }) {

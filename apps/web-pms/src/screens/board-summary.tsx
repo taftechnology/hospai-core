@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
-import { Badge, Metrics } from '@hospai/ui-kit';
+import { Badge, Metric, Metrics } from '@hospai/ui-kit';
 
 export function BoardSummary({ date }: { date: string | null }) {
   const summaryQ = useQuery({
@@ -33,12 +33,10 @@ export function BoardSummary({ date }: { date: string | null }) {
             </Badge>
           ) : null}
         </Link>
-        <span className="ui-metric">
-          Occupancy{' '}
-          <span className="ui-metric__value">
-            {s.occupancy.occupiedRooms} / {s.occupancy.sellableRooms}
-          </span>
-        </span>
+        <Metric
+          label="Occupancy"
+          value={`${s.occupancy.occupiedRooms} / ${s.occupancy.sellableRooms}`}
+        />
       </Metrics>
     </div>
   );

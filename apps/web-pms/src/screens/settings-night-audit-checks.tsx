@@ -123,7 +123,7 @@ export function NightAuditChecksSettings(props: {
   });
 
   return (
-    <div className="stack">
+    <div className="ui-stack">
       {anyFail ? <Alert intent="attention">{NIGHT_AUDIT_CHECK_HINT_ANY_FAIL}</Alert> : null}
       {arrivalsFail && autoNoShow ? (
         <Alert intent="attention">{NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW}</Alert>
@@ -134,7 +134,6 @@ export function NightAuditChecksSettings(props: {
       {meQ.isSuccess && !canConfigure ? (
         <p className="muted">Requires permission settings:configure. Ask a manager.</p>
       ) : null}
-      <div className="settings__table">
         <DataTable>
           <DataTableHead>
             <DataTableRow>
@@ -195,7 +194,6 @@ export function NightAuditChecksSettings(props: {
             ))}
           </DataTableBody>
         </DataTable>
-      </div>
       <div className="ui-row">
         <Button
           type="button"

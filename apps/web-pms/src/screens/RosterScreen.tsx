@@ -17,6 +17,7 @@ import {
   DataTableRow,
   EmptyState,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
@@ -228,13 +229,13 @@ export function RosterScreen() {
           </CardHeader>
           <CardContent>
             <form
-              className="roster__form"
               data-testid="roster-add-form"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (displayName.trim() && !addBlocked) addMutation.mutate();
               }}
             >
+              <FieldGroup inline>
               <Field
                 label="Name"
                 control={
@@ -325,6 +326,7 @@ export function RosterScreen() {
               <Button type="submit" intent="primary" disabled={addBlocked}>
                 Add
               </Button>
+              </FieldGroup>
             </form>
           </CardContent>
         </Card>
@@ -339,7 +341,6 @@ export function RosterScreen() {
             </CardContent>
           ) : (
             <CardContent flush>
-              <div className="roster__table">
                 <DataTable>
                   <DataTableHead>
                     <DataTableRow>
@@ -424,7 +425,6 @@ export function RosterScreen() {
                     })}
                   </DataTableBody>
                 </DataTable>
-              </div>
             </CardContent>
           )}
         </Card>
@@ -467,8 +467,7 @@ function KindGroup({
   onChange: (next: string[]) => void;
 }) {
   return (
-    <fieldset className="ui-field-group roster__kinds">
-      <legend className="ui-field-group__legend">Works as</legend>
+    <FieldGroup legend="Works as">
       <div className="ui-choice-row">
         {KIND_OPTIONS.map((kind) => (
           <label key={kind.id} className="ui-choice">
@@ -484,7 +483,7 @@ function KindGroup({
       </div>
       {writeReason ? <p className="muted">{writeReason}</p> : null}
       {emptyReason ? <p className="muted">{emptyReason}</p> : null}
-    </fieldset>
+    </FieldGroup>
   );
 }
 
@@ -586,8 +585,7 @@ function EditStaffDialog({
         writeReason={null}
         onChange={setKinds}
       />
-      <fieldset className="ui-field-group">
-        <legend className="ui-field-group__legend">Work at this hotel</legend>
+      <FieldGroup legend="Work at this hotel">
         <Field
           label="Shift"
           control={
@@ -659,7 +657,7 @@ function EditStaffDialog({
           </div>
           {atSkillCap ? <p className="muted">Maximum of 10 skills.</p> : null}
         </div>
-      </fieldset>
+      </FieldGroup>
     </FormDialog>
   );
 }

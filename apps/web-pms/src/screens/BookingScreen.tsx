@@ -20,10 +20,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
+  SectionLabel,
+  Skeleton,
   Textarea,
   Total,
 } from '@hospai/ui-kit';
@@ -772,11 +775,9 @@ export function BookingScreen() {
                 />
               }
             />
-            {plansQ.isLoading ? <p className="muted">Loading rate plans…</p> : null}
+            {plansQ.isLoading ? <Skeleton label="Loading rate plans" lines={3} /> : null}
             {plansEmpty ? (
-              <p className="muted" role="status">
-                No active rate plans.
-              </p>
+              <EmptyState kind="empty" title="No active rate plans." />
             ) : null}
             {dateCapBlocked ? (
               <Alert>Stay exceeds the 90-night availability query limit — shorten dates.</Alert>
@@ -787,7 +788,7 @@ export function BookingScreen() {
               </p>
             ) : null}
 
-            <p className="ui-section-label">Party</p>
+            <SectionLabel>Party</SectionLabel>
             <div className="ui-row">
               <Field
                 size="xs"
@@ -817,7 +818,7 @@ export function BookingScreen() {
               />
             </div>
 
-            <p className="ui-section-label">Guest</p>
+            <SectionLabel>Guest</SectionLabel>
             {contextMode && contextDisplayName ? (
               <p data-testid="context-guest">Booking for {contextDisplayName}</p>
             ) : (
@@ -842,9 +843,7 @@ export function BookingScreen() {
                   </p>
                 ) : null}
                 {debouncedFind.length > 0 && findQry.isSuccess && findHits.length === 0 ? (
-                  <p className="muted" role="status">
-                    No guests match
-                  </p>
+                  <EmptyState kind="nomatch" title="No guests match that search." />
                 ) : null}
                 {findHits.length > 0 ? (
                   <ul>
@@ -913,12 +912,14 @@ export function BookingScreen() {
                 Booking unavailable — property unreachable.
               </Alert>
             ) : null}
-            {availErrorClassified ? (
-              <Alert>
-                {availDateRangeExceeded
-                  ? 'Stay exceeds the 90-night availability query limit — shorten dates.'
-                  : `Availability unavailable — ${classifiedUserMessage(availErrorClassified, {})}. Confirm blocked until a fresh quote.`}
-              </Alert>
+            {availDateRangeExceeded ? (
+              <Alert>Stay exceeds the 90-night availability query limit — shorten dates.</Alert>
+            ) : null}
+            {availErrorClassified && !availDateRangeExceeded ? (
+              <EmptyState
+                kind="error"
+                title={`Availability unavailable — ${classifiedUserMessage(availErrorClassified, {})}. Confirm blocked until a fresh quote.`}
+              />
             ) : null}
             {availQ.isSuccess && selectable.length === 0 ? (
               <p className="muted" role="status">
@@ -949,7 +950,7 @@ export function BookingScreen() {
               ))}
             </div>
             {quoteAriVersion != null ? (
-              <p className="visually-hidden" data-testid="quote-version">
+              <p className="ui-visually-hidden" data-testid="quote-version">
                 {quoteAriVersion}
               </p>
             ) : null}

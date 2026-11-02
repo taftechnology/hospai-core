@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { FrontDeskItem, PropertyFormat } from '@hospai/client-core';
-import { Alert, Button, Field, Input, NativeSelect, Skeleton, roomStatusWord } from '@hospai/ui-kit';
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Field,
+  Input,
+  NativeSelect,
+  Skeleton,
+  roomStatusWord,
+} from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
@@ -106,9 +115,9 @@ export function AssignRoomDialog({
   if (freeQ.isError) {
     body = <Alert>{failureCopy(freeQ.error, 'Could not load free rooms.', fmt)}</Alert>;
   } else if (!freeQ.isSuccess) {
-    body = <Skeleton aria-label="Loading free rooms" />;
+    body = <Skeleton label="Loading free rooms" />;
   } else if (rooms.length === 0) {
-    body = <p className="muted">No free room of this type for the whole stay.</p>;
+    body = <EmptyState kind="empty" title="No free room of this type for the whole stay." />;
   } else {
     body = (
       <Field

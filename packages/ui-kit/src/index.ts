@@ -1,6 +1,12 @@
 export { Alert, AlertTitle, Badge, Separator, Skeleton } from './Badge.js';
 export type { AlertProps, AlertTitleProps, BadgeProps, SkeletonProps } from './Badge.js';
 
+export { Dialog } from './Dialog.js';
+export type { DialogProps } from './Dialog.js';
+
+export { FieldGroup } from './FieldGroup.js';
+export type { FieldGroupProps } from './FieldGroup.js';
+
 export { PageHeader, SectionLabel } from './PageHeader.js';
 export type { PageHeaderProps, SectionLabelProps } from './PageHeader.js';
 

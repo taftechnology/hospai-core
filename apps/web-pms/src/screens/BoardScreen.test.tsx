@@ -197,8 +197,7 @@ describe('BoardScreen folio links', () => {
     });
     renderBoard('arrivals');
     await waitFor(() => expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeTruthy());
-    const row = screen.getByRole('button', { name: /^Confirm$/i }).closest('tr');
-    expect(row?.className).toMatch(/status-attention/);
+    expect(screen.getByText('Pending')).toBeTruthy();
   });
 
   it('61: confirm pending invalidates board not arrivals', async () => {

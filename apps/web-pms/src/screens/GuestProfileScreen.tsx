@@ -27,6 +27,7 @@ import {
   Field,
   Input,
   PageHeader,
+  Skeleton,
   StatField,
   Textarea,
   isReservationStatus,
@@ -323,7 +324,7 @@ export function GuestProfileScreen() {
       {contactFailClosed ? (
         <Alert>Guest profile unavailable — organization unreachable.</Alert>
       ) : guestQ.isLoading ? (
-        <p className="muted">Loading…</p>
+        <Skeleton label="Loading guest profile" lines={5} />
       ) : guest ? (
         <>
           <Card>
@@ -344,7 +345,7 @@ export function GuestProfileScreen() {
               {canWrite && !guest.erased ? (
                 editing ? (
                   <form
-                    className="ui-stack guest-edit-form"
+                    className="ui-stack"
                     onSubmit={(e: FormEvent) => {
                       e.preventDefault();
                       if (!displayName.trim()) {
@@ -541,7 +542,7 @@ export function GuestProfileScreen() {
             {staysFailClosed ? (
               <Alert>Stay history unavailable — property unreachable.</Alert>
             ) : staysQ.isLoading ? (
-              <p className="muted">Loading…</p>
+              <Skeleton label="Loading guest profile" lines={5} />
             ) : stays.items.length === 0 ? (
               <EmptyState title="No stays at this property." />
             ) : (

@@ -379,29 +379,9 @@ a {
   white-space: nowrap;
 }
 
-.maintenance-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-block-end: 1rem;
-}
-
 .maintenance-desc {
   display: inline-block;
   max-width: 16rem;
-}
-
-.maintenance-report {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.maintenance-report__wide {
-  grid-column: 1 / -1;
 }
 
 .maintenance-checklist-row {
@@ -409,10 +389,6 @@ a {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: end;
-}
-
-.text-wrap-balance {
-  text-wrap: balance;
 }
 
 .exceptions-filters {
@@ -481,14 +457,6 @@ a {
 .exceptions-drawer {
   max-height: 24rem;
   overflow: auto;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
 }
 
 .tape-scroller {
@@ -656,13 +624,7 @@ button {
   text-decoration: underline;
 }
 
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.stack > :where(p, h2, h3, ul, ol, dl, form, section),
+.ui-stack > :where(p, h2, h3, ul, ol, dl, form, section),
 .exceptions-actions > p,
 .folio-advanced__section > p,
 .rates-matrix__bulk-options > p {
@@ -697,28 +659,6 @@ button {
   border-radius: 0;
 }
 
-.staff__table .ui-table {
-  min-inline-size: 44rem;
-}
-
-.staff__table {
-  padding-block-end: var(--space-6);
-}
-
-.staff__form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.staff__form>.ui-btn {
-  grid-column: 1 / -1;
-  justify-self: start;
-}
-
 .roster-screen__shell {
   display: flex;
   flex-direction: column;
@@ -726,32 +666,6 @@ button {
   background: transparent;
   border: 0;
   border-radius: 0;
-}
-
-.roster__table .ui-table {
-  min-inline-size: 40rem;
-}
-
-.roster__table {
-  padding-block-end: var(--space-6);
-}
-
-.roster__form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.roster__form>.ui-btn {
-  grid-column: 1 / -1;
-  justify-self: start;
-}
-
-.roster__kinds {
-  grid-column: 1 / -1;
 }
 
 .roster__name {
@@ -807,13 +721,6 @@ details.side-panel summary {
   cursor: pointer;
 }
 
-.board-header {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
 .stale-watermark {
   padding: 0.5rem 1.25rem;
 }
@@ -831,17 +738,6 @@ details.side-panel summary {
 .board-group-title {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-}
-
-.stack-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.exceptions-json {
-  white-space: pre-wrap;
-  font-size: 0.85rem;
 }
 
 .top-bar {
@@ -1336,13 +1232,6 @@ details.side-panel summary {
   }
 }
 
-/* Folio: post-a-charge / take-a-payment cards sit side by side. */
-.folio-forms {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
-  gap: 1rem;
-}
-
 /* Folio advanced actions are a secondary workspace, not loose page content. */
 .folio-advanced {
   min-inline-size: 0;
@@ -1720,11 +1609,6 @@ details.side-panel summary {
   flex-wrap: nowrap;
 }
 
-/* Guest edit form: fields, then a two-button row, then a wide Erase. */
-.guest-edit-form {
-  margin: 0;
-}
-
 .guest-actions {
   display: grid;
   grid-template-columns: repeat(2, auto);
@@ -1754,40 +1638,6 @@ details.side-panel summary {
   border-block-end: 1px solid var(--line);
 }
 
-.rates-plans__table .ui-table {
-  min-inline-size: 48rem;
-}
-
-.rates-plans__form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.rates-plans__form>h2,
-.rates-plans__form>.ui-field:has(.ui-textarea) {
-  grid-column: 1 / -1;
-}
-
-.rates-plans__form>.ui-field:has(.ui-textarea) {
-  max-inline-size: none;
-}
-
-.rates-plans__form>.ui-btn {
-  justify-self: start;
-}
-
-.rates-plans__promo-form>.ui-btn {
-  grid-column: 1 / -1;
-}
-
-.city-ledger__table .ui-table {
-  min-inline-size: 64rem;
-}
-
 .city-ledger__account-name {
   color: var(--primary);
   font-weight: 600;
@@ -1795,22 +1645,6 @@ details.side-panel summary {
 
 .city-ledger__account-name:hover {
   text-decoration: underline;
-}
-
-.city-ledger__create-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  align-items: end;
-  gap: var(--space-3);
-}
-
-.city-ledger__create-form>.ui-field {
-  max-inline-size: none;
-}
-
-.city-ledger__create-actions {
-  grid-column: 1 / -1;
-  margin: 0;
 }
 
 .night-audit__table .ui-table,
@@ -1867,113 +1701,19 @@ details.side-panel summary {
   font-size: 0.8rem;
 }
 
-.app-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: var(--space-4);
-}
-
-.app-modal__backdrop {
-  position: absolute;
-  inset: 0;
-  background: var(--scrim);
-  backdrop-filter: blur(2px);
-}
-
-.app-modal__panel {
-  position: relative;
-  width: min(56rem, 100%);
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-overlay);
-  padding: var(--space-4);
-  gap: var(--space-3);
-}
-
-.app-modal__panel--compact {
-  width: min(24rem, 100%);
-}
-
-.app-modal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.app-modal__head h2 {
-  font-size: var(--text-lg);
-  margin: 0;
-}
-
-.app-modal .settings-currencies__grid {
+.settings-currencies__grid {
   overflow: auto;
   margin: 0;
 }
 
-.app-modal__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  border-block-start: 1px solid var(--line-soft);
-  padding-block-start: var(--space-3);
-}
-
-.app-modal__foot--end {
-  justify-content: flex-end;
-}
-
-.app-modal__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.app-two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-4);
 }
 
 .settings-property__fx {
   margin-block-start: var(--space-4);
-}
-
-.settings__table .ui-table {
-  min-inline-size: 52rem;
-}
-
-.settings__tax-table {
-  padding-block-end: var(--space-6);
-}
-
-.settings__table .ui-btn--destructive:hover:not(:disabled) {
-  color: var(--ink);
-}
-
-.settings__form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.settings__form>h2 {
-  grid-column: 1 / -1;
-}
-
-.settings__form>.ui-btn {
-  justify-self: start;
-}
-
-.settings__charge-form>.ui-btn,
-.settings__routing-form>.ui-btn,
-.settings__tax-form>.ui-btn {
-  grid-column: 1 / -1;
 }
 
 .inventory-screen__shell {
@@ -1983,28 +1723,6 @@ details.side-panel summary {
   background: transparent;
   border: 0;
   border-radius: 0;
-}
-
-.inventory__table .ui-table {
-  min-inline-size: 64rem;
-}
-
-.inventory__form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  align-items: end;
-  column-gap: var(--space-3);
-  row-gap: var(--space-4);
-  margin: 0;
-}
-
-.inventory__form>h2 {
-  grid-column: 1 / -1;
-}
-
-.inventory__form>.ui-btn {
-  grid-column: 1 / -1;
-  justify-self: start;
 }
 
 .rates-matrix__table .ui-field {

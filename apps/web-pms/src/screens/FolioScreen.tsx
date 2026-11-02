@@ -45,7 +45,7 @@ import {
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
-import { minorToMajorInput } from '../money.js';
+import { minorToMajorInput, parseAmountToMinor } from '../money.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -194,9 +194,9 @@ export function FolioScreen() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [chargeCode, setChargeCode] = useState('MISC');
-  const [chargeAmount, setChargeAmount] = useState('10.00');
-  const [cashAmount, setCashAmount] = useState('10.00');
-  const [authAmount, setAuthAmount] = useState('50.00');
+  const [chargeAmount, setChargeAmount] = useState('');
+  const [cashAmount, setCashAmount] = useState('');
+  const [authAmount, setAuthAmount] = useState('');
   const [splitLineId, setSplitLineId] = useState('');
   const [splitA, setSplitA] = useState('');
   const [splitB, setSplitB] = useState('');
@@ -207,7 +207,7 @@ export function FolioScreen() {
   const [discountLineId, setDiscountLineId] = useState('');
   const [discountReason, setDiscountReason] = useState('');
   const [discountKind, setDiscountKind] = useState<'percent' | 'fixed'>('percent');
-  const [discountValue, setDiscountValue] = useState('10');
+  const [discountValue, setDiscountValue] = useState('');
   const [transferDest, setTransferDest] = useState<Record<string, string>>({});
   const [captureDueRetry, setCaptureDueRetry] = useState(false);
   const [captureAmounts, setCaptureAmounts] = useState<Record<string, string>>({});
@@ -220,10 +220,10 @@ export function FolioScreen() {
   const [chargebackFee, setChargebackFee] = useState('0.00');
   const [chargebackReason, setChargebackReason] = useState('');
   const [fxKind, setFxKind] = useState<'gain' | 'loss'>('loss');
-  const [fxAmount, setFxAmount] = useState('1.00');
+  const [fxAmount, setFxAmount] = useState('');
   const [fxReason, setFxReason] = useState('');
   const [fxFrom, setFxFrom] = useState('EUR');
-  const [fxRate, setFxRate] = useState('1.10');
+  const [fxRate, setFxRate] = useState('');
   const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
   const [checkoutOverrideOpen, setCheckoutOverrideOpen] = useState(false);
@@ -393,6 +393,14 @@ export function FolioScreen() {
 
   const folioLive = folioQ.isSuccess && paymentsQ.isSuccess;
   const ledgerCurrency = folioQ.data?.ledgerCurrency ?? fxRatesQ.data?.ledgerCurrency ?? 'USD';
+  const chargeMinor = parseAmountToMinor(chargeAmount);
+  const cashMinor = parseAmountToMinor(cashAmount);
+  const authMinor = parseAmountToMinor(authAmount);
+  const fxAmountMinor = parseAmountToMinor(fxAmount);
+  const fxRateTrimmed = fxRate.trim();
+  const fxRateValid = fxRateTrimmed !== '' && !Number.isNaN(Number(fxRateTrimmed));
+  const discountTrimmed = discountValue.trim();
+  const discountValueValid = discountTrimmed !== '' && !Number.isNaN(Number(discountTrimmed));
   const openFxFrom = (fxRatesQ.data?.rates ?? [])
     .filter((r) => r.effectiveTo === null)
     .map((r) => r.fromCurrency);
@@ -483,7 +491,8 @@ export function FolioScreen() {
     },
     mutationFn: () => {
       if (!policy.canPostCharge) throw new Error('policy_blocked_charge');
-      const amountMinor = Math.round(Number(chargeAmount) * 100);
+      const amountMinor = parseAmountToMinor(chargeAmount);
+      if (amountMinor == null) throw new Error('invalid_amount');
       return api.addFolioLine(
         propertyId,
         reservationId,
@@ -513,7 +522,8 @@ export function FolioScreen() {
     },
     mutationFn: () => {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
-      const amountMinor = Math.round(Number(cashAmount) * 100);
+      const amountMinor = parseAmountToMinor(cashAmount);
+      if (amountMinor == null) throw new Error('invalid_amount');
       return api.recordCashPayment(
         propertyId,
         reservationId,
@@ -546,7 +556,8 @@ export function FolioScreen() {
     },
     mutationFn: () => {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
-      const amountMinor = Math.round(Number(authAmount) * 100);
+      const amountMinor = parseAmountToMinor(authAmount);
+      if (amountMinor == null) throw new Error('invalid_amount');
       return api.authorizePayment(
         propertyId,
         reservationId,
@@ -591,7 +602,8 @@ export function FolioScreen() {
     fallback: 'FX adjustment failed',
     setMessage,
     mutationFn: () => {
-      const amountMinor = Math.round(Number(fxAmount) * 100);
+      const amountMinor = parseAmountToMinor(fxAmount);
+      if (amountMinor == null) throw new Error('invalid_amount');
       return api.postFxAdjustment(
         propertyId,
         reservationId,
@@ -613,18 +625,20 @@ export function FolioScreen() {
   const createFx = useFolioActionMutation({
     fallback: 'FX rate create failed',
     setMessage,
-    mutationFn: () =>
-      api.createFxRate(
+    mutationFn: () => {
+      if (!fxRateValid) throw new Error('invalid_fx_rate');
+      return api.createFxRate(
         propertyId,
         {
           quoteId: crypto.randomUUID(),
           fromCurrency: fxFrom,
           toCurrency: ledgerCurrency,
-          rate: fxRate,
+          rate: fxRateTrimmed,
           effectiveFrom: Date.now(),
         },
         `fxcreate:${propertyId}:${crypto.randomUUID()}`,
-      ),
+      );
+    },
     onSuccess: () => {
       setMessage('FX rate created.');
       void queryClient.invalidateQueries({ queryKey: ['fx-rates', propertyId] });
@@ -921,8 +935,9 @@ export function FolioScreen() {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
       const reason = discountReason.trim();
       if (!reason) throw new Error('discount_reason_required');
+      if (!discountValueValid) throw new Error('invalid_discount_value');
       const sourceId = discountLineId || splitLineId;
-      const parsed = Number(discountValue);
+      const parsed = Number(discountTrimmed);
       const payload = {
         kind: discountKind,
         reason,
@@ -1353,7 +1368,7 @@ export function FolioScreen() {
         ) : null}
       </Card>
 
-      <div className="folio-forms">
+      <div className="app-two-col">
         <Card onFocusCapture={() => setChargeCodesRequested(true)}>
           <CardHeader>
             <CardTitle>Post a charge</CardTitle>
@@ -1430,7 +1445,7 @@ export function FolioScreen() {
               <Button
                 type="button"
                 data-testid="add-charge"
-                disabled={!policy.canPostCharge || addCharge.isPending}
+                disabled={!policy.canPostCharge || addCharge.isPending || chargeMinor == null}
                 onFocus={() => setChargeCodesRequested(true)}
                 onClick={() => {
                   setChargeCodesRequested(true);
@@ -1474,7 +1489,7 @@ export function FolioScreen() {
                 <Button
                   type="button"
                   data-testid="record-cash"
-                  disabled={!policy.canPay || cashPay.isPending}
+                  disabled={!policy.canPay || cashPay.isPending || cashMinor == null}
                   onClick={() => cashPay.mutate()}
                 >
                   Record cash
@@ -1496,7 +1511,7 @@ export function FolioScreen() {
                 <Button
                   type="button"
                   data-testid="authorize-card"
-                  disabled={!policy.canPay || authorize.isPending}
+                  disabled={!policy.canPay || authorize.isPending || authMinor == null}
                   onClick={() => authorize.mutate()}
                 >
                   Charge card
@@ -2112,7 +2127,7 @@ export function FolioScreen() {
             <Button
               type="button"
               data-testid="post-discount"
-              disabled={!discountReason.trim() || discount.isPending}
+              disabled={!discountReason.trim() || discount.isPending || !discountValueValid}
               onClick={() => discount.mutate()}
             >
               Post discount
@@ -2190,7 +2205,7 @@ export function FolioScreen() {
             <Button
               type="button"
               data-testid="post-fx-adjustment"
-              disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending}
+              disabled={!folioLive || !fxReason.trim() || fxAdjust.isPending || fxAmountMinor == null}
               onClick={() => fxAdjust.mutate()}
             >
               Post FX adjustment
@@ -2206,7 +2221,7 @@ export function FolioScreen() {
           >
             <summary>FX rates</summary>
             {fxRatesEditorOpen && fxRatesQ.isPending ? (
-              <Skeleton aria-label="Loading FX rates" />
+              <Skeleton label="Loading FX rates" />
             ) : (
             <>
             <ul className="ui-list">
@@ -2235,7 +2250,7 @@ export function FolioScreen() {
             <Button
               type="button"
               data-testid="create-fx-rate"
-              disabled={!folioLive || createFx.isPending}
+              disabled={!folioLive || createFx.isPending || !fxRateValid}
               onClick={() => createFx.mutate()}
             >
               Create FX rate

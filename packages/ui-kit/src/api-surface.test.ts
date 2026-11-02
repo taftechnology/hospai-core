@@ -3,7 +3,9 @@ import type {
   AlertProps,
   ButtonProps,
   CardHeaderProps,
+  DialogProps,
   EmptyStateProps,
+  FieldGroupProps,
   FieldProps,
   InputProps,
   LinkButtonProps,
@@ -43,6 +45,9 @@ describe('ui-kit API surface', () => {
     expectTypeOf<PageHeaderProps>().not.toHaveProperty('className');
     expectTypeOf<PageHeaderProps>().not.toHaveProperty('style');
     expectTypeOf<EmptyStateProps>().not.toHaveProperty('className');
+    expectTypeOf<DialogProps>().not.toHaveProperty('className');
+    expectTypeOf<DialogProps>().not.toHaveProperty('style');
+    expectTypeOf<FieldGroupProps>().not.toHaveProperty('className');
     expectTypeOf<TotalProps>().not.toHaveProperty('className');
     // @ts-expect-error className is forbidden on ui-kit components
     const badHeader: PageHeaderProps = { title: 'x', className: 'y' };

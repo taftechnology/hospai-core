@@ -12,13 +12,14 @@ import {
   Field,
   Input,
   PageHeader,
+  Skeleton,
   StatField,
 } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatVarianceMinor, parseMajorToMinor } from '../money.js';
+import { formatVarianceMinor, parseAmountToMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { shiftSeverity } from '../status/shift-severity.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -55,7 +56,7 @@ function ShiftCloseForm() {
   const { money, date } = useFormat();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [closingMajor, setClosingMajor] = useState('0.00');
+  const [closingMajor, setClosingMajor] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   const openQ = useQuery({
@@ -63,10 +64,14 @@ function ShiftCloseForm() {
     queryFn: () => api.getOpenShift(propertyId),
   });
 
+  const closingMinor = parseAmountToMinor(closingMajor);
+
   const closeMut = useMutation({
     mutationFn: async (shiftId: string) => {
+      const closingCount = parseAmountToMinor(closingMajor);
+      if (closingCount == null) return Promise.reject(new Error('invalid_amount'));
       return api.closeShift(propertyId, shiftId, {
-        closingCount: parseMajorToMinor(closingMajor),
+        closingCount,
       });
     },
     onSuccess: async (_data, shiftId) => {
@@ -103,7 +108,7 @@ function ShiftCloseForm() {
   });
 
   if (openQ.isPending) {
-    return <p className="muted">Loading shift…</p>;
+    return <Skeleton label="Loading shift" />;
   }
 
   if (openQ.isError) {
@@ -179,7 +184,7 @@ function ShiftCloseForm() {
                 />
               }
             />
-            <Button type="submit" disabled={closeMut.isPending}>
+            <Button type="submit" disabled={closeMut.isPending || closingMinor == null}>
               Close shift
             </Button>
           </form>
@@ -201,7 +206,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
     queryFn: () => api.getShiftById(propertyId, shiftId) as Promise<ShiftBody>,
   });
 
-  if (q.isPending) return <p className="muted">Loading receipt…</p>;
+  if (q.isPending) return <Skeleton label="Loading receipt" lines={3} />;
   if (q.isError) {
     const c = asClassified(q.error);
     return (

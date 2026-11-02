@@ -20,6 +20,7 @@ import {
   NativeSelect,
   PageHeader,
   Skeleton,
+  Tabs,
   type StatusRung,
 } from '@hospai/ui-kit';
 import { useEffect, useRef, useState } from 'react';
@@ -422,7 +423,7 @@ export function NightAuditScreen() {
           ) : undefined
         }
       />
-      <nav className="ui-tabs" aria-label="Night audit">
+      <Tabs label="Night audit">
         {STAGES.map((item) => (
           <Link
             key={item.id}
@@ -437,7 +438,7 @@ export function NightAuditScreen() {
             {item.label}
           </Link>
         ))}
-      </nav>
+      </Tabs>
       {message ? (
         <Alert intent={message.intent} data-testid="night-audit-message">
           {message.text}
@@ -451,7 +452,7 @@ export function NightAuditScreen() {
       {statusQuery.isPending && !status ? (
         <Card>
           <CardContent>
-            <p className="muted">Loading…</p>
+            <Skeleton label="Loading night audit" lines={5} />
           </CardContent>
         </Card>
       ) : null}
@@ -564,7 +565,7 @@ export function NightAuditScreen() {
                 {reports.length === 0 ? (
                   <EmptyState data-testid="night-audit-reports-empty" title="No reports yet." />
                 ) : (
-                  <div className="stack">
+                  <div className="ui-stack">
                     <Field
                       label="Report date"
                       control={

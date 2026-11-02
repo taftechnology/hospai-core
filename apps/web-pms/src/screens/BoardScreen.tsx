@@ -33,13 +33,13 @@ import {
   DataTableHeaderCell,
   DataTableRow,
   Input,
+  VisuallyHidden,
   PageHeader,
   RowActions,
 } from '@hospai/ui-kit';
 import type { BoardMode } from '../status/board-mode.js';
 
 import { boardPageTitle } from '../status/board-page-title.js';
-import { boardRowSeverity } from '../status/board-row-severity.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -134,7 +134,7 @@ function BoardTable({
           </DataTableHeaderCell>
           <DataTableHeaderCell>Status</DataTableHeaderCell>
           <DataTableHeaderCell align="right">
-            <span className="ui-visually-hidden">Actions</span>
+            <VisuallyHidden>Actions</VisuallyHidden>
           </DataTableHeaderCell>
         </DataTableRow>
       </DataTableHead>
@@ -146,9 +146,6 @@ function BoardTable({
             today != null &&
             typeof row.departureDate === 'string' &&
             row.departureDate < today;
-          const rowSev = status
-            ? boardRowSeverity({ mode, status, overstay })
-            : 'informational';
           const guestState = states[row.guestRef] ?? { kind: 'name_pending' as const };
           const guestSev = guestSeverity(guestState);
           const roomCode = row.roomId ? (roomsById.get(row.roomId) ?? '') : '';
@@ -157,7 +154,7 @@ function BoardTable({
               ? nightsBetween(row.arrivalDate, row.departureDate)
               : null;
           return (
-            <DataTableRow key={row.reservationId} rung={rowSev}>
+            <DataTableRow key={row.reservationId}>
               <DataTableCell rung={guestSev}>
                 <GuestNameLink state={guestState} guestRef={row.guestRef} />
                 {overstay ? ' (overstay)' : ''}
@@ -336,7 +333,7 @@ function SectionCard({
         </CardContent>
       ) : isLoading ? (
         <CardContent>
-          <Skeleton aria-label="Loading section" />
+          <Skeleton label="Loading section" lines={3} />
         </CardContent>
       ) : empty ? (
         <CardContent>
@@ -487,9 +484,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
 
   let body: ReactNode;
   if (dateLoading) {
-    body = <p className="muted">Loading…</p>;
+    body = <Skeleton label="Loading board" lines={5} />;
   } else if (listQ.isLoading) {
-    body = <p className="muted">Loading…</p>;
+    body = <Skeleton label="Loading board" lines={5} />;
   } else if (mode === 'arrivals') {
     const depItems = vipFilter(departuresQ.data?.items ?? []);
     const inHouseItems = vipFilter(inHouseQ.data?.items ?? []);
@@ -643,19 +640,23 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         actions={
           <>
             {mode !== 'in-house' ? (
-              <div className="ui-field ui-field--xs">
-                <Input
-                  type="date"
-                  data-testid="board-date"
-                  aria-label="Business date"
-                  value={date ?? ''}
-                  onChange={(e) => {
-                    setCursor(null);
-                    setDepCursor(null);
-                    setDate(e.target.value);
-                  }}
-                />
-              </div>
+              <Field
+                size="xs"
+                label={<VisuallyHidden>Business date</VisuallyHidden>}
+                control={
+                  <Input
+                    type="date"
+                    data-testid="board-date"
+                    aria-label="Business date"
+                    value={date ?? ''}
+                    onChange={(e) => {
+                      setCursor(null);
+                      setDepCursor(null);
+                      setDate(e.target.value);
+                    }}
+                  />
+                }
+              />
             ) : null}
             <Field
               label="VIP only"

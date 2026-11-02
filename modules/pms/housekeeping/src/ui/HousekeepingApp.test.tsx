@@ -19,25 +19,6 @@ const ADA: HousekeepingRosterPerson = {
   kinds: ['housekeeper'],
 };
 
-function TestDialog({
-  title,
-  children,
-  actions,
-}: {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-  actions: ReactNode;
-}) {
-  return (
-    <div role="dialog">
-      <h2>{title}</h2>
-      {children}
-      {actions}
-    </div>
-  );
-}
-
 const testFormat = {
   dateHeading: (iso: string) => iso,
   dateTime: (ms: number) => String(ms),
@@ -76,7 +57,6 @@ function renderApp(
           canSetOoo={flags.canSetOoo}
           formatError={'formatError' in flags ? flags.formatError : undefined}
           format={testFormat}
-          Dialog={TestDialog}
         />
       </MemoryRouter>
     </QueryClientProvider>,

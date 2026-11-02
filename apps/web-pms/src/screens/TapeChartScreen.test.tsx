@@ -293,7 +293,7 @@ describe('TapeChartScreen', () => {
   it('loading copy is Loading…', async () => {
     getFrontOfficeTape.mockReturnValue(new Promise(() => {}));
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
-    expect(await screen.findByText('Loading…')).toBeTruthy();
+    expect(await screen.findByRole('status', { name: 'Loading the room plan' })).toBeTruthy();
   });
 
   it('App index navigates to /dashboard (R1.1) and /board keeps the tape', () => {

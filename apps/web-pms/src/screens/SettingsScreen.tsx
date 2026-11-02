@@ -18,10 +18,14 @@ import {
   DataTableRow,
   EmptyState,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
+  Dialog,
   SectionLabel,
+  Skeleton,
+  Tabs,
   Textarea,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
@@ -140,7 +144,7 @@ function DomainBool(props: {
   });
   const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
   return (
-    <div className="stack">
+    <div className="ui-stack">
       <Field
         label={props.label}
         hint={props.hint}
@@ -222,7 +226,7 @@ function DomainText(props: {
     save: () => save.mutate(),
   });
   return (
-    <div className="stack">
+    <div className="ui-stack">
       <Field label={props.label} hint={props.hint} control={control} />
       {props.readOnly ? null : (
         <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
@@ -261,7 +265,7 @@ function DomainSelect(props: {
   });
   const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
   return (
-    <div className="stack">
+    <div className="ui-stack">
       <Field
         label={props.label}
         control={
@@ -324,74 +328,59 @@ function DomainCurrencies(props: {
   const [open, setOpen] = useState(false);
   const selectedCodes = CURRENCIES.filter((c) => selected.has(c.code)).map((c) => c.code);
   return (
-    <div className="stack">
-      <div className="ui-field">
-        <label className="ui-field__label" id="currencies-label">
-          {props.label}
-        </label>
-        <Button
-          type="button"
-          intent="default"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => setOpen(true)}
-        >
-          {selectedCodes.length === 0
-            ? 'Select currencies…'
-            : `Currencies: ${selectedCodes.join(', ')}`}
-        </Button>
-        {props.hint ? <p className="ui-field__hint">{props.hint}</p> : null}
-      </div>
+    <div className="ui-stack">
+      <Field
+        label={props.label}
+        hint={props.hint}
+        control={
+          <Button
+            type="button"
+            intent="default"
+            aria-label="Select currencies…"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onClick={() => setOpen(true)}
+          >
+            {selectedCodes.length === 0
+              ? 'Select currencies…'
+              : `Currencies: ${selectedCodes.join(', ')}`}
+          </Button>
+        }
+      />
       <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
       {open ? (
-        <div
-          className="app-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="currencies-label"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setOpen(false);
-          }}
+        <Dialog
+          open
+          wide
+          title={props.label}
+          onClose={() => setOpen(false)}
+          footer={
+            <Button type="button" intent="primary" onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          }
         >
-          <div
-            className="app-modal__backdrop"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="app-modal__panel">
-            <header className="app-modal__head">
-              <h2>{props.label}</h2>
-              <Button type="button" intent="ghost" onClick={() => setOpen(false)}>
-                Close
-              </Button>
-            </header>
-            <div className="settings-currencies__grid">
-              {CURRENCIES.map((c) => (
-                <label key={c.code} className="settings-currencies__item">
-                  <Checkbox
-                    checked={selected.has(c.code)}
-                    onChange={(e) =>
-                      setSelected((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(c.code);
-                        else next.delete(c.code);
-                        return next;
-                      })
-                    }
-                  />
-                  <span translate="no">{c.code}</span>
-                  <span className="muted">{c.name}</span>
-                </label>
-              ))}
-            </div>
-            <footer className="app-modal__foot">
-              <span className="muted">{selectedCodes.length} selected</span>
-              <Button type="button" intent="primary" onClick={() => setOpen(false)}>
-                Done
-              </Button>
-            </footer>
+          <p className="muted">{selectedCodes.length} selected</p>
+          <div className="settings-currencies__grid">
+            {CURRENCIES.map((c) => (
+              <label key={c.code} className="settings-currencies__item">
+                <Checkbox
+                  checked={selected.has(c.code)}
+                  onChange={(e) =>
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(c.code);
+                      else next.delete(c.code);
+                      return next;
+                    })
+                  }
+                />
+                <span translate="no">{c.code}</span>
+                <span className="muted">{c.name}</span>
+              </label>
+            ))}
           </div>
-        </div>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -420,7 +409,7 @@ function PropertyNameField(props: {
     save: () => save.mutate(),
   });
   return (
-    <div className="stack">
+    <div className="ui-stack">
       <Field
         label="Property name"
         control={
@@ -621,14 +610,14 @@ export function SettingsScreen({
       />
       <div className="ui-page-stack" data-testid="settings-screen">
       {unsavedGuard}
-      <nav className="ui-tabs" aria-label="Settings">
+      <Tabs label="Settings">
         <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
         <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
         <Link className="ui-tab" to="/settings/products" aria-current={activeTab === 'products' ? 'page' : undefined}>Products</Link>
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
-      </nav>
+      </Tabs>
       {message ? (
         <p className="muted" aria-live="polite">
           {message}
@@ -637,7 +626,7 @@ export function SettingsScreen({
 
       {activeTab === 'property' ? (
         configQ.isPending ? (
-          <p className="muted">Loading…</p>
+          <Skeleton label="Loading settings" lines={5} />
         ) : (
           <>
           <Alert intent="attention">
@@ -911,7 +900,6 @@ export function SettingsScreen({
               </CardContent>
             ) : (
               <CardContent flush>
-                <div className="settings__table">
                   <DataTable>
               <DataTableHead>
                 <DataTableRow>
@@ -955,7 +943,6 @@ export function SettingsScreen({
                 ))}
               </DataTableBody>
                   </DataTable>
-                </div>
               </CardContent>
             )}
           </Card>
@@ -965,12 +952,13 @@ export function SettingsScreen({
             </CardHeader>
             <CardContent>
               <form
-                className="stack settings__form settings__charge-form"
+                className="ui-stack"
             onSubmit={(e) => {
               e.preventDefault();
               createCharge.mutate();
             }}
           >
+            <FieldGroup inline>
             <Field
               label="Code"
               control={
@@ -996,6 +984,7 @@ export function SettingsScreen({
             <Button type="submit" intent="primary">
               {createCharge.isPending ? 'Saving…' : 'Create Charge Code'}
             </Button>
+            </FieldGroup>
               </form>
             </CardContent>
           </Card>
@@ -1040,12 +1029,13 @@ export function SettingsScreen({
               </DataTable>
             )}
             <form
-              className="stack settings__form settings__routing-form"
+              className="ui-stack"
               onSubmit={(e) => {
                 e.preventDefault();
                 addRoutingRule.mutate();
               }}
             >
+              <FieldGroup inline>
               <Field
                 label="Charge code"
                 control={
@@ -1084,6 +1074,7 @@ export function SettingsScreen({
               >
                 {addRoutingRule.isPending ? 'Saving…' : 'Add routing rule'}
               </Button>
+              </FieldGroup>
             </form>
             </CardContent>
           </Card>
@@ -1101,12 +1092,13 @@ export function SettingsScreen({
             </CardHeader>
             <CardContent>
               <form
-                className="stack settings__form settings__tax-form"
+                className="ui-stack"
                 onSubmit={(e) => {
                   e.preventDefault();
                   createTax.mutate();
                 }}
               >
+                <FieldGroup inline>
                 <Field
                   label="Name"
                   control={
@@ -1186,6 +1178,7 @@ export function SettingsScreen({
                 <Button type="submit" intent="primary">
                   {createTax.isPending ? 'Saving…' : 'Create Tax Rule'}
                 </Button>
+                </FieldGroup>
               </form>
             </CardContent>
           </Card>
@@ -1199,7 +1192,6 @@ export function SettingsScreen({
               </p>
             </CardContent>
             <CardContent flush>
-              <div className="settings__table settings__tax-table">
                 <DataTable>
             <DataTableHead>
               <DataTableRow>
@@ -1280,7 +1272,6 @@ export function SettingsScreen({
               ))}
             </DataTableBody>
                 </DataTable>
-              </div>
             </CardContent>
           </Card>
         </>

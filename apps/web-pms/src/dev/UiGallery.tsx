@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Alert,
   Badge,
@@ -14,7 +15,10 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  Dialog,
+  EmptyState,
   Field,
+  FieldGroup,
   Input,
   LinkButton,
   NativeSelect,
@@ -27,8 +31,10 @@ import {
 } from '@hospai/ui-kit';
 
 export function UiGallery() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   return (
-    <Card className="stack">
+    <Card className="ui-stack">
       <h1>UI kit gallery</h1>
 
       <Card>
@@ -36,7 +42,7 @@ export function UiGallery() {
           <CardTitle>Buttons</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="stack-row">
+          <div className="ui-row">
             <Button intent="default">Default</Button>
             <Button intent="primary">Primary</Button>
             <Button intent="destructive">Destructive</Button>
@@ -48,7 +54,7 @@ export function UiGallery() {
               Disabled
             </Button>
           </div>
-          <div className="stack-row">
+          <div className="ui-row">
             <LinkButton href="#buttons" intent="primary">
               Link button
             </LinkButton>
@@ -56,6 +62,58 @@ export function UiGallery() {
               Link disabled
             </LinkButton>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Dialog</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button type="button" intent="primary" onClick={() => setDialogOpen(true)}>
+            Open sample dialog
+          </Button>
+          <Dialog
+            open={dialogOpen}
+            title="Sample dialog"
+            onClose={() => setDialogOpen(false)}
+            footer={
+              <>
+                <Button type="button" onClick={() => setDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="button" intent="primary" onClick={() => setDialogOpen(false)}>
+                  Confirm
+                </Button>
+              </>
+            }
+          >
+            <p className="muted">Dialog body copy for the gallery.</p>
+          </Dialog>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Field groups</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup legend="Filters">
+            <div className="ui-choice-row">
+              <label className="ui-choice">
+                <Checkbox defaultChecked aria-label="Option A" />
+                Option A
+              </label>
+              <label className="ui-choice">
+                <Checkbox aria-label="Option B" />
+                Option B
+              </label>
+            </div>
+          </FieldGroup>
+          <FieldGroup inline legend="Inline row">
+            <Field label="From" control={<Input type="date" defaultValue="2026-08-14" />} />
+            <Field label="To" control={<Input type="date" defaultValue="2026-08-16" />} />
+          </FieldGroup>
         </CardContent>
       </Card>
 
@@ -119,13 +177,16 @@ export function UiGallery() {
           <Alert>Something needs attention</Alert>
           <Separator />
           <Skeleton width="12rem" height="1rem" data-testid="gallery-skeleton" />
-          <div className="stack-row">
+          <EmptyState kind="empty" title="Nothing here yet." />
+          <EmptyState kind="nomatch" title="No rows match that filter." />
+          <EmptyState kind="error" title="Could not load this panel." />
+          <div className="ui-row">
             <Badge rung="neutral">Neutral</Badge>
             <Badge rung="informational">Info</Badge>
             <Badge rung="attention">Attention</Badge>
             <Badge rung="exception">Exception</Badge>
           </div>
-          <div className="stack-row">
+          <div className="ui-row">
             <StatusBadge status="inquiry" />
             <StatusBadge status="pending" />
             <StatusBadge status="confirmed" vip />
@@ -134,7 +195,7 @@ export function UiGallery() {
             <StatusBadge status="cancelled" />
             <StatusBadge status="no_show" />
           </div>
-          <div className="stack-row">
+          <div className="ui-row">
             <RoomStatus status="clean" />
             <RoomStatus status="dirty" />
             <RoomStatus status="inspected" />

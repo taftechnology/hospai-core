@@ -19,10 +19,12 @@ import {
   DataTableRow,
   EmptyState,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
   RoomStatus,
+  Tabs,
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
@@ -265,7 +267,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
       />
       <div className="ui-page-stack" data-testid="inventory-screen">
         {unsavedGuard}
-        <nav className="ui-tabs" aria-label="Inventory">
+        <Tabs label="Inventory">
           <Link
             className="ui-tab"
             to="/inventory"
@@ -280,7 +282,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
           >
             Rooms
           </Link>
-        </nav>
+        </Tabs>
         {message ? (
           <p className="muted" aria-live="polite">
             {message}
@@ -311,13 +313,13 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
               </CardHeader>
               <CardContent>
                 <form
-                  className="stack inventory__form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     setSaving(true);
                     createType.mutate(undefined, { onSettled: () => setSaving(false) });
                   }}
                 >
+                  <FieldGroup inline>
                   <Field
                     label="Kind"
                     control={
@@ -374,9 +376,9 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     <Field
                       label="Constituents"
                       control={
-                        <div data-testid="virtual-constituents" className="stack">
+                        <div data-testid="virtual-constituents" className="ui-stack">
                           {physicalTypes.map((t) => (
-                            <label key={t.roomTypeId} className="stack-row">
+                            <label key={t.roomTypeId} className="ui-row">
                               <Checkbox
                                 value={t.roomTypeId}
                                 checked={constituentIds.includes(t.roomTypeId)}
@@ -425,6 +427,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                   <Button type="submit" intent="primary" disabled={saving}>
                     {saving ? 'Saving…' : 'Create Room Type'}
                   </Button>
+                  </FieldGroup>
                 </form>
               </CardContent>
             </Card>
@@ -437,7 +440,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                   <CardTitle>Room types</CardTitle>
                 </CardHeader>
                 <CardContent flush>
-                  <div className="inventory__table">
                     <DataTable>
                       <DataTableHead>
                         <DataTableRow>
@@ -511,7 +513,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                         })}
                       </DataTableBody>
                     </DataTable>
-                  </div>
                 </CardContent>
               </Card>
             )}
@@ -524,13 +525,13 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
               </CardHeader>
               <CardContent>
                 <form
-                  className="stack inventory__form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     setSaving(true);
                     addRoom.mutate(undefined, { onSettled: () => setSaving(false) });
                   }}
                 >
+                  <FieldGroup inline>
                   <Field
                     label="Room type"
                     control={
@@ -575,6 +576,7 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                   <Button type="submit" disabled={saving || virtualRoomTypeSelected}>
                     {saving ? 'Saving…' : 'Create Room'}
                   </Button>
+                  </FieldGroup>
                 </form>
               </CardContent>
             </Card>
@@ -607,7 +609,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                     </CardContent>
                   ) : (
                     <CardContent flush>
-                      <div className="inventory__table">
                         <DataTable>
                           <DataTableHead>
                             <DataTableRow>
@@ -705,7 +706,6 @@ export function InventoryScreen({ tab }: { tab?: 'types' | 'rooms' }) {
                             })}
                           </DataTableBody>
                         </DataTable>
-                      </div>
                     </CardContent>
                   )}
                 </Card>

@@ -6,10 +6,11 @@ import {
   Button,
   Card,
   CardContent,
-  CardFooter,
   CardHeader,
   CardTitle,
+  Dialog,
   DataTable,
+  FieldGroup,
   DataTableBody,
   DataTableCell,
   DataTableHead,
@@ -19,8 +20,9 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  Skeleton,
 } from '@hospai/ui-kit';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -106,6 +108,29 @@ export function CityLedgerScreen() {
   const [paymentReference, setPaymentReference] = useState('');
   const [statementSnapshot, setStatementSnapshot] = useState<Record<string, unknown> | null>(null);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const paymentFormRef = useRef<HTMLFormElement>(null);
+  const createFormRef = useRef<HTMLFormElement>(null);
+
+  function openPaymentDialog() {
+    setStatementSnapshot(null);
+    setShowCreate(false);
+    setArchiveConfirmOpen(false);
+    setShowPayment(true);
+  }
+
+  function openCreateDialog() {
+    setShowPayment(false);
+    setStatementSnapshot(null);
+    setArchiveConfirmOpen(false);
+    setShowCreate(true);
+  }
+
+  function openArchiveConfirm() {
+    setShowPayment(false);
+    setStatementSnapshot(null);
+    setShowCreate(false);
+    setArchiveConfirmOpen(true);
+  }
 
   const meQ = useQuery({
     queryKey: ['me', propertyId],
@@ -189,6 +214,9 @@ export function CityLedgerScreen() {
       }),
     onSuccess: (result) => {
       const body = result.body as { snapshot?: Record<string, unknown>; statementId?: string };
+      setShowPayment(false);
+      setShowCreate(false);
+      setArchiveConfirmOpen(false);
       setStatementSnapshot(body.snapshot ?? (body as Record<string, unknown>));
       setMessage(
         typeof body.statementId === 'string'
@@ -262,7 +290,7 @@ export function CityLedgerScreen() {
           </Alert>
         ) : null}
 
-        {detailQ.isLoading ? <p className="muted">Loading…</p> : null}
+        {detailQ.isLoading ? <Skeleton label="Loading city ledger account" lines={5} /> : null}
         {failClosed ? (
           <Alert>City ledger unavailable — property unreachable.</Alert>
         ) : null}
@@ -272,7 +300,7 @@ export function CityLedgerScreen() {
 
         {detail ? (
           <>
-            <dl className="stack-row">
+            <dl className="ui-row">
               <div>
                 <dt className="muted">Credit limit</dt>
                 <dd>{money(detail.creditLimitMinor)}</dd>
@@ -344,12 +372,12 @@ export function CityLedgerScreen() {
             )}
 
             {canAdjust ? (
-              <p className="stack-row">
+              <p className="ui-row">
                 <Button
                   type="button"
                   data-testid="city-ledger-payment-open"
                   disabled={detail.status === 'archived'}
-                  onClick={() => setShowPayment(true)}
+                  onClick={() => openPaymentDialog()}
                 >
                   Receive payment
                 </Button>
@@ -369,7 +397,7 @@ export function CityLedgerScreen() {
                     detail.openBalanceMinor > 0 ||
                     archiveAccount.isPending
                   }
-                  onClick={() => setArchiveConfirmOpen(true)}
+                  onClick={() => openArchiveConfirm()}
                 >
                   Archive
                 </Button>
@@ -378,65 +406,71 @@ export function CityLedgerScreen() {
           </>
         ) : null}
 
-        {showPayment ? (
-          <Card
-            role="dialog"
-            aria-modal="true"
-            className="overscroll-contain"
-            data-testid="city-ledger-payment"
+        <Dialog
+          open={showPayment}
+          title="Receive payment"
+          onClose={() => setShowPayment(false)}
+          data-testid="city-ledger-payment"
+          footer={
+            <>
+              <Button type="button" onClick={() => setShowPayment(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="primary"
+                disabled={receivePayment.isPending || !paymentAmount.trim()}
+                onClick={() => paymentFormRef.current?.requestSubmit()}
+              >
+                {receivePayment.isPending ? 'Posting…' : 'Post payment'}
+              </Button>
+            </>
+          }
+        >
+          <form
+            ref={paymentFormRef}
+            className="ui-stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              receivePayment.mutate();
+            }}
           >
-            <h2>Receive payment</h2>
-            <form
-              className="stack"
-              onSubmit={(e) => {
-                e.preventDefault();
-                receivePayment.mutate();
-              }}
-            >
-              <Field
-                label="Amount"
-                control={
-                  <Input
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    autoComplete="off"
-                  />
-                }
-              />
-              <Field
-                label="Reference"
-                control={
-                  <Input
-                    value={paymentReference}
-                    onChange={(e) => setPaymentReference(e.target.value)}
-                    autoComplete="off"
-                  />
-                }
-              />
-              <p className="stack-row">
-                <Button type="button" onClick={() => setShowPayment(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  intent="primary"
-                  disabled={receivePayment.isPending || !paymentAmount.trim()}
-                >
-                  {receivePayment.isPending ? 'Posting…' : 'Post payment'}
-                </Button>
-              </p>
-            </form>
-          </Card>
-        ) : null}
+            <Field
+              label="Amount"
+              control={
+                <Input
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Reference"
+              control={
+                <Input
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+          </form>
+        </Dialog>
 
-        {statementSnapshot ? (
-          <Card
-            role="dialog"
-            aria-modal="true"
-            className="overscroll-contain"
-            data-testid="city-ledger-statement-view"
-          >
-            <h2>Statement snapshot</h2>
+        <Dialog
+          open={statementSnapshot != null}
+          wide
+          title="Statement snapshot"
+          onClose={() => setStatementSnapshot(null)}
+          data-testid="city-ledger-statement-view"
+          footer={
+            <Button type="button" onClick={() => setStatementSnapshot(null)}>
+              Close
+            </Button>
+          }
+        >
+          {statementSnapshot ? (
             <DataTable>
               <DataTableBody>
                 {Object.entries(statementSnapshot)
@@ -449,11 +483,8 @@ export function CityLedgerScreen() {
                   ))}
               </DataTableBody>
             </DataTable>
-            <Button type="button" onClick={() => setStatementSnapshot(null)}>
-              Close
-            </Button>
-          </Card>
-        ) : null}
+          ) : null}
+        </Dialog>
         {archiveConfirmOpen ? (
           <ConfirmDialog
             title="Archive this account?"
@@ -481,80 +512,78 @@ export function CityLedgerScreen() {
         subtitle="Company accounts"
         actions={
           canAdjust ? (
-            <Button type="button" intent="primary" onClick={() => setShowCreate(true)}>
+            <Button type="button" intent="primary" onClick={() => openCreateDialog()}>
               Create account
             </Button>
           ) : undefined
         }
 />
 
-      {showCreate ? (
-        <Card
-          role="dialog"
-          aria-modal="true"
-          className="overscroll-contain"
-          data-testid="city-ledger-create"
-        >
-          <CardHeader>
-            <CardTitle>Create account</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="city-ledger__create-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                createAccount.mutate();
-              }}
+      <Dialog
+        open={showCreate}
+        title="Create account"
+        onClose={() => setShowCreate(false)}
+        data-testid="city-ledger-create"
+        footer={
+          <div className="ui-row">
+            <Button type="button" onClick={() => setShowCreate(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              disabled={createAccount.isPending || !createName.trim()}
+              onClick={() => createFormRef.current?.requestSubmit()}
             >
-              <Field
-                label="Account name"
-                control={
-                  <Input
-                    placeholder="Company or account name"
-                    value={createName}
-                    onChange={(e) => setCreateName(e.target.value)}
-                    autoComplete="off"
-                  />
-                }
-              />
-              <Field
-                label="Credit limit"
-                control={
-                  <Input
-                    placeholder="0.00"
-                    value={createCreditLimit}
-                    onChange={(e) => setCreateCreditLimit(e.target.value)}
-                    autoComplete="off"
-                  />
-                }
-              />
-              <Field
-                label="Terms (days)"
-                control={
-                  <Input
-                    placeholder="30"
-                    value={createTermsDays}
-                    onChange={(e) => setCreateTermsDays(e.target.value)}
-                    autoComplete="off"
-                  />
-                }
-              />
-              <p className="stack-row city-ledger__create-actions">
-                <Button type="button" onClick={() => setShowCreate(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  intent="primary"
-                  disabled={createAccount.isPending || !createName.trim()}
-                >
-                  {createAccount.isPending ? 'Creating…' : 'Create'}
-                </Button>
-              </p>
-            </form>
-          </CardContent>
-        </Card>
-      ) : null}
+              {createAccount.isPending ? 'Creating…' : 'Create'}
+            </Button>
+          </div>
+        }
+      >
+        <form
+          ref={createFormRef}
+          onSubmit={(e) => {
+            e.preventDefault();
+            createAccount.mutate();
+          }}
+        >
+          <FieldGroup inline>
+            <Field
+              label="Account name"
+              control={
+                <Input
+                  placeholder="Company or account name"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Credit limit"
+              control={
+                <Input
+                  placeholder="0.00"
+                  value={createCreditLimit}
+                  onChange={(e) => setCreateCreditLimit(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+            <Field
+              label="Terms (days)"
+              control={
+                <Input
+                  placeholder="30"
+                  value={createTermsDays}
+                  onChange={(e) => setCreateTermsDays(e.target.value)}
+                  autoComplete="off"
+                />
+              }
+            />
+          </FieldGroup>
+        </form>
+      </Dialog>
 <Card data-testid="city-ledger-list">
         <CardHeader>
           <CardTitle>Accounts</CardTitle>
@@ -568,7 +597,9 @@ export function CityLedgerScreen() {
               </Alert>
             ) : null}
 
-            {listQ.isLoading || meQ.isLoading ? <p className="muted">Loading…</p> : null}
+            {listQ.isLoading || meQ.isLoading ? (
+              <Skeleton label="Loading city ledger accounts" lines={5} />
+            ) : null}
             {listFailClosed ? (
               <Alert>City ledger unavailable — property unreachable.</Alert>
             ) : null}
@@ -581,7 +612,6 @@ export function CityLedgerScreen() {
 
       {accounts.length > 0 ? (
         <CardContent flush>
-          <div className="city-ledger__table">
             <DataTable>
               <DataTableHead>
                 <DataTableRow>
@@ -616,7 +646,6 @@ export function CityLedgerScreen() {
                 ))}
               </DataTableBody>
             </DataTable>
-          </div>
         </CardContent>
 ) : null}
 

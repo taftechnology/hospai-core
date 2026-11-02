@@ -15,9 +15,11 @@ import {
   DataTableHeaderCell,
   DataTableRow,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
+  Skeleton,
 } from '@hospai/ui-kit';
 import {
   hasOrgPermission,
@@ -121,6 +123,7 @@ export function StaffScreen() {
     description: string;
     run: () => Promise<void>;
   } | null>(null);
+  const [pendingSelfDemote, setPendingSelfDemote] = useState<(() => Promise<void>) | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
 
   const meQuery = useQuery({
@@ -225,26 +228,40 @@ export function StaffScreen() {
 
   async function updatePropertyRole(userId: string, role: PropertyWriteRole) {
     if (!me) return;
-    if (userId === me.userId && !window.confirm(SELF_DEMOTE_COPY)) return;
-    try {
-      await api.updatePropertyMember(propertyId, userId, { role });
-      setMessage('Role updated.');
-      await invalidateLists(userId);
-    } catch (err) {
-      setMessage(membershipWriteMessage(err));
+    const apply = async () => {
+      try {
+        await api.updatePropertyMember(propertyId, userId, { role });
+        setMessage('Role updated.');
+        await invalidateLists(userId);
+      } catch (err) {
+        setMessage(membershipWriteMessage(err));
+      }
+    };
+    if (userId === me.userId) {
+      setPendingRemove(null);
+      setPendingSelfDemote(() => apply);
+      return;
     }
+    await apply();
   }
 
   async function updateOrgRole(userId: string, role: OrgRole) {
     if (!me) return;
-    if (userId === me.userId && !window.confirm(SELF_DEMOTE_COPY)) return;
-    try {
-      await api.updateOrgMember(orgId, userId, { role });
-      setMessage('Role updated.');
-      await invalidateLists(userId);
-    } catch (err) {
-      setMessage(membershipWriteMessage(err));
+    const apply = async () => {
+      try {
+        await api.updateOrgMember(orgId, userId, { role });
+        setMessage('Role updated.');
+        await invalidateLists(userId);
+      } catch (err) {
+        setMessage(membershipWriteMessage(err));
+      }
+    };
+    if (userId === me.userId) {
+      setPendingRemove(null);
+      setPendingSelfDemote(() => apply);
+      return;
     }
+    await apply();
   }
 
   function requestRemoveProperty(m: PropertyMember) {
@@ -294,7 +311,7 @@ export function StaffScreen() {
   if (!me) {
     return (
       <section data-testid="staff-screen">
-        <p className="muted">Loading…</p>
+        <Skeleton label="Loading staff" lines={5} />
       </section>
     );
   }
@@ -326,13 +343,13 @@ export function StaffScreen() {
           {canWriteStaff ? (
             <CardContent>
               <form
-                className="staff__form"
                 data-testid="property-add-form"
                 onSubmit={(e) => {
                   e.preventDefault();
                   addPropertyMut.mutate();
                 }}
               >
+                <FieldGroup inline>
                 <Field
                   label="Property member email"
                   control={
@@ -365,13 +382,14 @@ export function StaffScreen() {
                 <Button type="submit" intent="primary" disabled={addPropertyMut.isPending}>
                   Add
                 </Button>
+                </FieldGroup>
               </form>
             </CardContent>
           ) : null}
 
           {propertyMembersQ.isPending ? (
             <CardContent>
-              <p className="muted">Loading…</p>
+              <Skeleton label="Loading property members" lines={5} />
             </CardContent>
           ) : propertyMembersQ.isError ? (
             <CardContent>
@@ -380,8 +398,7 @@ export function StaffScreen() {
           ) : null}
           {(propertyMembersQ.data?.members ?? []).length > 0 ? (
             <CardContent flush>
-              <div className="staff__table" data-testid="property-roster">
-                <DataTable>
+              <DataTable data-testid="property-roster">
                   <DataTableHead>
                     <DataTableRow>
                       <DataTableHeaderCell align="left">Name</DataTableHeaderCell>
@@ -448,7 +465,6 @@ export function StaffScreen() {
                     })}
                   </DataTableBody>
                 </DataTable>
-              </div>
             </CardContent>
           ) : null}
         </Card>
@@ -474,13 +490,13 @@ export function StaffScreen() {
                 ) : null}
 
                 <form
-                  className="staff__form"
                   data-testid="org-add-form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     addOrgMut.mutate();
                   }}
                 >
+                  <FieldGroup inline>
                   <Field
                     label="Org member email"
                     control={
@@ -513,12 +529,13 @@ export function StaffScreen() {
                   <Button type="submit" disabled={addOrgMut.isPending}>
                     Add
                   </Button>
+                  </FieldGroup>
                 </form>
               </CardContent>
 
               {orgMembersQ.isPending ? (
                 <CardContent>
-                  <p className="muted">Loading…</p>
+                  <Skeleton label="Loading org members" lines={5} />
                 </CardContent>
               ) : orgMembersQ.isError ? (
                 <CardContent>
@@ -527,8 +544,7 @@ export function StaffScreen() {
               ) : null}
               {(orgMembersQ.data?.members ?? []).length > 0 ? (
                 <CardContent flush>
-                  <div className="staff__table" data-testid="org-roster">
-                    <DataTable>
+                    <DataTable data-testid="org-roster">
                       <DataTableHead>
                         <DataTableRow>
                           <DataTableHeaderCell align="left">Name</DataTableHeaderCell>
@@ -585,14 +601,26 @@ export function StaffScreen() {
                         })}
                       </DataTableBody>
                     </DataTable>
-                  </div>
                 </CardContent>
               ) : null}
             </>
           )}
         </Card>
       </div>
-      {pendingRemove ? (
+      {pendingSelfDemote ? (
+        <ConfirmDialog
+          title="Change your role?"
+          description={SELF_DEMOTE_COPY}
+          confirmLabel="Continue"
+          onCancel={() => setPendingSelfDemote(null)}
+          onConfirm={() => {
+            const job = pendingSelfDemote;
+            setPendingSelfDemote(null);
+            void job();
+          }}
+        />
+      ) : null}
+      {pendingRemove && !pendingSelfDemote ? (
         <ConfirmDialog
           title={pendingRemove.title}
           description={pendingRemove.description}

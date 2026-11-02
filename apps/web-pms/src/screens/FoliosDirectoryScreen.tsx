@@ -24,6 +24,7 @@ import {
   isReservationStatus,
   StatusBadge,
   type StatusRung,
+  VisuallyHidden,
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -183,7 +184,7 @@ export function FoliosDirectoryScreen() {
             <DataTableHeaderCell>Dates</DataTableHeaderCell>
             <DataTableHeaderCell>Stay</DataTableHeaderCell>
             <DataTableHeaderCell align="right">
-              <span className="ui-visually-hidden">Actions</span>
+              <VisuallyHidden>Actions</VisuallyHidden>
             </DataTableHeaderCell>
           </DataTableRow>
         </DataTableHead>
@@ -233,7 +234,7 @@ export function FoliosDirectoryScreen() {
             <DataTableHeaderCell>Reservation</DataTableHeaderCell>
             <DataTableHeaderCell>Status</DataTableHeaderCell>
             <DataTableHeaderCell align="right">
-              <span className="ui-visually-hidden">Actions</span>
+              <VisuallyHidden>Actions</VisuallyHidden>
             </DataTableHeaderCell>
           </DataTableRow>
         </DataTableHead>

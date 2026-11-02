@@ -337,3 +337,9 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - Invoice lines, tax and totals printed raw minor units, so an invoice read `Charges 10000`. They now print money.
 - `no_availability` shows its date as DD/MM/YYYY.
 - `pnpm demo:seed --currency INR --time-zone Asia/Kolkata` provisions the demo hotel in rupees. Rates in the seed follow the ledger currency.
+
+**Step 3.** As §5, plus:
+- Moving to a data router meant an unknown URL showed React Router's developer error page. Now `NotFoundScreen` answers `*` inside the shell, and `RouteErrorBoundary` catches thrown errors.
+- `FieldGroup inline` lets each field share the row up to its width cap, because a kit field is 100% wide on its own.
+- Folio charge, cash, authorisation, discount and FX amounts start empty, and so does the shift's blind closing count. Each button stays disabled until its amount parses (`parseAmountToMinor`). The card chargeback fee keeps its 0.00.
+- `boardRowSeverity` goes now. `tapeBlockSeverity` goes in step 5, together with the tape bars it colours.

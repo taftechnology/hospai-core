@@ -26,6 +26,7 @@ import {
   DataTableRow,
   EmptyState,
   Field,
+  FieldGroup,
   NativeSelect,
   PageHeader,
   Skeleton,
@@ -352,13 +353,13 @@ export function MaintenanceScreen() {
         <CardContent>
           {reportError ? <Alert intent="exception">{reportError}</Alert> : null}
           <form
-            className="maintenance-report"
             onSubmit={(e) => {
               e.preventDefault();
               if (!formRoomId || !reportDescription.trim()) return;
               reportMutation.mutate();
             }}
           >
+            <FieldGroup inline>
             <Field
               label="Room"
               control={
@@ -432,24 +433,22 @@ export function MaintenanceScreen() {
                 </NativeSelect>
               }
             />
-            <div className="maintenance-report__wide">
-              <Field
-                label="Description"
-                control={
-                  <Textarea
-                    aria-label="Description"
-                    value={reportDescription}
-                    maxLength={2000}
-                    onChange={(ev) => setReportDescription(ev.target.value)}
-                  />
-                }
-              />
-            </div>
-            <div className="maintenance-report__wide">
-              <Button type="submit" intent="primary" disabled={reportMutation.isPending}>
-                Submit report
-              </Button>
-            </div>
+            <Field
+              size="full"
+              label="Description"
+              control={
+                <Textarea
+                  aria-label="Description"
+                  value={reportDescription}
+                  maxLength={2000}
+                  onChange={(ev) => setReportDescription(ev.target.value)}
+                />
+              }
+            />
+            <Button type="submit" intent="primary" disabled={reportMutation.isPending}>
+              Submit report
+            </Button>
+            </FieldGroup>
           </form>
         </CardContent>
       </Card>
@@ -557,7 +556,7 @@ export function MaintenanceScreen() {
         >
           {dialogError ? <Alert intent="exception">{dialogError}</Alert> : null}
           {releaseError ? <Alert intent="exception">{releaseError}</Alert> : null}
-          <div className="stack">
+          <div className="ui-stack">
             <Field
               label="Assign"
               control={
@@ -606,7 +605,7 @@ export function MaintenanceScreen() {
               }
             />
             {activeTicket.checklist.length > 0 ? (
-              <fieldset className="stack">
+              <fieldset className="ui-stack">
                 <legend>Checklist</legend>
                 {activeTicket.checklist.map((item, i) => (
                   <label className="ui-choice">

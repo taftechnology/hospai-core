@@ -1,6 +1,5 @@
-import { Button } from '@hospai/ui-kit';
-import { useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { Button, Dialog } from '@hospai/ui-kit';
+import { useRef } from 'react';
 
 export type ConfirmDialogProps = {
   title: string;
@@ -23,48 +22,29 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    cancelRef.current?.focus();
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
-
-  return createPortal(
-    <div
-      className="app-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-dialog-title"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onCancel();
-      }}
+  return (
+    <Dialog
+      open
+      title={title}
+      onClose={onCancel}
+      initialFocus={cancelRef}
+      footer={
+        <>
+          <Button ref={cancelRef} type="button" intent="default" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button
+            type="button"
+            intent={intent === 'destructive' ? 'destructive' : 'primary'}
+            data-testid="confirm-dialog-confirm"
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </Button>
+        </>
+      }
     >
-      <div className="app-modal__backdrop" onClick={onCancel} aria-hidden="true" />
-      <div className="app-modal__panel app-modal__panel--compact">
-        <header className="app-modal__head">
-          <h2 id="confirm-dialog-title">{title}</h2>
-        </header>
-        <p className="muted">{description}</p>
-        <footer className="app-modal__foot app-modal__foot--end">
-          <div className="app-modal__actions">
-            <Button ref={cancelRef} type="button" intent="default" onClick={onCancel}>
-              {cancelLabel}
-            </Button>
-            <Button
-              type="button"
-              intent={intent === 'destructive' ? 'destructive' : 'primary'}
-              data-testid="confirm-dialog-confirm"
-              onClick={onConfirm}
-            >
-              {confirmLabel}
-            </Button>
-          </div>
-        </footer>
-      </div>
-    </div>,
-    document.body,
+      <p className="muted">{description}</p>
+    </Dialog>
   );
 }

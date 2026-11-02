@@ -3,6 +3,7 @@ import {
   Alert,
   Badge,
   Button,
+  Dialog,
   Card,
   CardContent,
   DataTable,
@@ -20,7 +21,7 @@ import {
   roomStatusWord,
 } from '@hospai/ui-kit';
 import { Link, useLocation } from 'react-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
@@ -30,11 +31,7 @@ import {
   assignedCounts,
   sortAssignableHousekeepers,
 } from './roster-assign-label.js';
-import type {
-  HousekeepingApi,
-  HousekeepingFormDialogProps,
-  HousekeepingRosterPerson,
-} from './housekeeping-types.js';
+import type { HousekeepingApi, HousekeepingOooRange, HousekeepingRosterPerson } from './housekeeping-types.js';
 
 export type {
   HousekeepingApi,
@@ -45,8 +42,6 @@ export type {
 } from './housekeeping-types.js';
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
-
-export type { HousekeepingFormDialogProps } from './housekeeping-types.js';
 
 export type HousekeepingAppProps = {
   propertyId: string;
@@ -60,8 +55,6 @@ export type HousekeepingAppProps = {
   /** Live property name, already composed by the host. */
   subtitle?: string;
   formatError?: (err: unknown) => string;
-  /** Host form dialog (`.app-modal`). Inventory does not ship its own overlay. */
-  Dialog?: (props: HousekeepingFormDialogProps) => ReactNode;
   format: {
     dateHeading: (iso: string) => string;
     dateTime: (ms: number) => string;
@@ -103,6 +96,10 @@ function HousekeepingBoard({
   const [oooReturn, setOooReturn] = useState('');
   const [oooReason, setOooReason] = useState('');
   const [oooTicketAlert, setOooTicketAlert] = useState(false);
+  const [pendingOooRelease, setPendingOooRelease] = useState<{
+    roomId: string;
+    range: HousekeepingOooRange;
+  } | null>(null);
   const queryClient = useQueryClient();
 
   const roomsQuery = useQuery({
@@ -431,19 +428,9 @@ function HousekeepingBoard({
                             <Button
                               type="button"
                               intent="ghost"
-                              onClick={() => {
-                                if (!window.confirm('Release this OOO range early?')) return;
-                                const defaultReturn =
-                                  businessDate > range.startDate
-                                    ? businessDate
-                                    : addOneDay(range.startDate);
-                                oooMutation.mutate({
-                                  roomId: room.roomId,
-                                  oooId: range.oooId,
-                                  startDate: range.startDate,
-                                  endDate: defaultReturn,
-                                });
-                              }}
+                              onClick={() =>
+                                setPendingOooRelease({ roomId: room.roomId, range })
+                              }
                             >
                               Release early
                             </Button>
@@ -558,6 +545,40 @@ function HousekeepingBoard({
           </CardContent>
         </Card>
       ) : null}
+      {pendingOooRelease ? (
+        <Dialog
+          open
+          title="Release this OOO range early?"
+          onClose={() => setPendingOooRelease(null)}
+          footer={
+            <>
+              <Button type="button" intent="default" onClick={() => setPendingOooRelease(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="primary"
+                onClick={() => {
+                  const { roomId, range } = pendingOooRelease;
+                  const defaultReturn =
+                    businessDate > range.startDate
+                      ? businessDate
+                      : addOneDay(range.startDate);
+                  oooMutation.mutate({
+                    roomId,
+                    oooId: range.oooId,
+                    startDate: range.startDate,
+                    endDate: defaultReturn,
+                  });
+                  setPendingOooRelease(null);
+                }}
+              >
+                Release early
+              </Button>
+            </>
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -586,7 +607,6 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         canAssign={props.canAssign}
         subtitle={props.subtitle}
         formatError={props.formatError}
-        Dialog={props.Dialog}
         format={props.format}
       />
     );

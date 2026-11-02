@@ -171,6 +171,22 @@ function openFxRatesEditor() {
   return el;
 }
 
+function fillChargeAmount(value = '10.00') {
+  fireEvent.change(screen.getByLabelText('charge-amount'), { target: { value } });
+}
+
+function fillCashAmount(value = '10.00') {
+  fireEvent.change(screen.getByLabelText('cash-amount'), { target: { value } });
+}
+
+function fillAuthAmount(value = '50.00') {
+  fireEvent.change(screen.getByLabelText('auth-amount'), { target: { value } });
+}
+
+function fillDiscountValue(value = '10') {
+  fireEvent.change(screen.getByLabelText('discount-value'), { target: { value } });
+}
+
 function invokeReactClick(el: HTMLElement) {
   const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
   if (!key) throw new Error('missing __reactProps$ on element');
@@ -436,9 +452,8 @@ describe('FolioScreen wiring', () => {
       }),
     );
     renderFolio();
-    await waitFor(() => {
-      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
-    });
+    await waitFor(() => expect(screen.getByTestId('add-charge')).toBeTruthy());
+    fillChargeAmount();
     screen.getByTestId('add-charge').click();
     await waitFor(() => expect(screen.getByTestId('folio-message')).toBeTruthy());
     expect(screen.getByTestId('folio-message').tagName).toBe('DIV');
@@ -474,9 +489,7 @@ describe('FolioScreen wiring', () => {
     });
     addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     renderFolio();
-    await waitFor(() => {
-      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
-    });
+    await waitFor(() => expect(screen.getByTestId('add-charge')).toBeTruthy());
     fireEvent.focus(screen.getByLabelText('charge-code'));
     const product = await screen.findByLabelText('charge-product');
     fireEvent.change(product, { target: { value: 'prod_water' } });
@@ -584,6 +597,15 @@ describe('FolioScreen wiring', () => {
     expect(addFolioLine).not.toHaveBeenCalled();
   });
 
+  it('charge submit stays disabled while charge amount is empty', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('add-charge')).toBeTruthy());
+    expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('cash with no open shift: warning visible; mutation still fires', async () => {
     getOpenShift.mockResolvedValue({ ok: true, shift: null });
     getFolio.mockResolvedValue({
@@ -600,6 +622,7 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('cash-no-shift-warn')).toBeTruthy());
     expect(screen.getByTestId('cash-no-shift-warn').textContent).toMatch(/^No open cashier shift\.?$/);
     expect(screen.queryByText(/unattributed until close discloses the count/i)).toBeNull();
+    fillCashAmount();
     const btn = screen.getByTestId('record-cash') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     await act(async () => {
@@ -676,9 +699,8 @@ describe('FolioScreen wiring', () => {
     );
 
     const { invalidateSpy } = renderFolio();
-    await waitFor(() => {
-      expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(false);
-    });
+    await waitFor(() => expect(screen.getByTestId('add-charge')).toBeTruthy());
+    fillChargeAmount();
     screen.getByTestId('add-charge').click();
     await waitFor(() => {
       const msg = screen.getByTestId('folio-message').textContent ?? '';
@@ -748,10 +770,8 @@ describe('FolioScreen wiring', () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => {
-      const btn = screen.getByTestId('authorize-card') as HTMLButtonElement;
-      expect(btn.disabled).toBe(false);
-    });
+    await waitFor(() => expect(screen.getByTestId('authorize-card')).toBeTruthy());
+    fillAuthAmount();
     const folioCallsAfterMount = getFolio.mock.calls.length;
 
     screen.getByTestId('authorize-card').click();
@@ -1254,6 +1274,7 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(screen.getByTestId('post-discount')).toBeTruthy());
 
     fireEvent.change(screen.getByLabelText('discount-reason'), { target: { value: 'manager comp' } });
+    fillDiscountValue();
     const btn = screen.getByTestId('post-discount') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     await act(async () => {
@@ -1285,6 +1306,7 @@ describe('FolioScreen wiring', () => {
 
     fireEvent.change(screen.getByLabelText('discount-line-id'), { target: { value: 'line_room' } });
     fireEvent.change(screen.getByLabelText('discount-reason'), { target: { value: 'line comp' } });
+    fillDiscountValue();
     const btn = screen.getByTestId('post-discount') as HTMLButtonElement;
     await act(async () => {
       invokeReactClick(btn);
@@ -1611,6 +1633,7 @@ describe('FolioScreen wiring', () => {
     });
     const select = screen.getByTestId('authorize-currency') as HTMLSelectElement;
     fireEvent.change(select, { target: { value: 'EUR' } });
+    fillAuthAmount();
     await act(async () => {
       invokeReactClick(screen.getByTestId('authorize-card'));
       await Promise.resolve();

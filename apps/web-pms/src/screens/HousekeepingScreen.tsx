@@ -9,7 +9,6 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { FormDialog } from '../shell/FormDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 
@@ -59,7 +58,6 @@ export function HousekeepingScreen() {
       canSetOoo={canSetOoo}
       subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
-      Dialog={FormDialog}
       format={{ dateHeading, dateTime }}
       formatError={(err) =>
         classifiedUserMessage(asClassified(err), {

@@ -52,17 +52,52 @@ export function Separator() {
 export type SkeletonProps = TestIdProps & {
   width?: string;
   height?: string;
+  lines?: number;
+  /** Accessible name for the loading placeholder group. */
+  label?: string;
 };
 
-export function Skeleton({ width, height, 'data-testid': dataTestId }: SkeletonProps) {
-  return (
+export function Skeleton({
+  width,
+  height,
+  lines = 1,
+  label,
+  'data-testid': dataTestId,
+}: SkeletonProps) {
+  const bars = Array.from({ length: lines }, (_, i) => (
     <span
+      key={i}
       className="ui-skeleton"
-      data-testid={dataTestId}
       style={{
         ...(width ? { inlineSize: width } : {}),
         ...(height ? { blockSize: height } : {}),
       }}
     />
+  ));
+
+  if (lines <= 1 && !label) {
+    return (
+      <span
+        className="ui-skeleton"
+        data-testid={dataTestId}
+        aria-label={label}
+        style={{
+          ...(width ? { inlineSize: width } : {}),
+          ...(height ? { blockSize: height } : {}),
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="ui-skeleton-group"
+      data-testid={dataTestId}
+      role="status"
+      aria-label={label}
+      aria-busy="true"
+    >
+      {bars}
+    </div>
   );
 }

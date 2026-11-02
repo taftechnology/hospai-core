@@ -1,8 +1,47 @@
-import { createElement, useContext, useEffect, type ReactNode } from 'react';
+import { Button, Dialog } from '@hospai/ui-kit';
+import { createElement, Fragment, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { UNSAFE_DataRouterStateContext, useBlocker } from 'react-router';
 
 function DataRouterBlocker({ dirty }: { dirty: boolean }) {
-  useBlocker(dirty);
+  const blocker = useBlocker(dirty);
+  const stayRef = useRef<HTMLButtonElement>(null);
+
+  if (blocker.state === 'blocked') {
+    return createElement(
+      Dialog,
+      {
+        open: true,
+        title: 'Leave without saving?',
+        onClose: () => blocker.reset(),
+        initialFocus: stayRef,
+        footer: createElement(
+          Fragment,
+          null,
+          createElement(
+            Button,
+            {
+              ref: stayRef,
+              type: 'button',
+              intent: 'default',
+              onClick: () => blocker.reset(),
+            },
+            'Stay',
+          ),
+          createElement(
+            Button,
+            {
+              type: 'button',
+              intent: 'destructive',
+              onClick: () => blocker.proceed(),
+            },
+            'Leave',
+          ),
+        ),
+      },
+      createElement('p', null, 'Your changes on this page will be lost.'),
+    );
+  }
+
   return null;
 }
 

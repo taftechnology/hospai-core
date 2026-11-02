@@ -151,7 +151,7 @@ export function DashboardScreen() {
             <CardTitle>Rooms available tonight</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="stack">
+            <div className="ui-stack">
               {availableQ.isError ? (
                 <Alert data-testid="dashboard-available-error">
                   {errorCopy(availableQ.error, 'Could not load available rooms.')}
@@ -186,7 +186,7 @@ export function DashboardScreen() {
                 vipArrivals.length === 0 ? (
                   <EmptyState title="No VIP arrivals today" />
                 ) : (
-                  <ul className="stack">
+                  <ul className="ui-stack">
                     {vipArrivals.map((row) => (
                       <li key={row.reservationId}>
                         <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />

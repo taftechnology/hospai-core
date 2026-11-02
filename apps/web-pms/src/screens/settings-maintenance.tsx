@@ -203,7 +203,7 @@ export function MaintenanceSettings({ onMessage }: { onMessage: (message: string
           }
         >
           {dialogError ? <Alert intent="exception">{dialogError}</Alert> : null}
-          <div className="stack">
+          <div className="ui-stack">
             <Field
               label="Name"
               control={
@@ -268,7 +268,7 @@ export function MaintenanceSettings({ onMessage }: { onMessage: (message: string
                 }
               />
             ) : null}
-            <fieldset className="stack">
+            <fieldset className="ui-stack">
               <legend>Checklist</legend>
               {draft.checklist.map((line, i) => (
                 <div key={`cl-${i}`} className="maintenance-checklist-row">

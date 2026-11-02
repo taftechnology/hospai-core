@@ -1,6 +1,12 @@
 import { lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  Navigate,
+  Route,
+  RouterProvider,
+} from 'react-router';
 import { Skeleton } from '@hospai/ui-kit';
 import { PermissionRoute } from './auth/PermissionRoute.js';
 import { createQueryClient } from './query-client.js';
@@ -17,6 +23,8 @@ import { GuestsDirectoryScreen } from './screens/GuestsDirectoryScreen.js';
 import { GuestProfileScreen } from './screens/GuestProfileScreen.js';
 import { HousekeepingScreen } from './screens/HousekeepingScreen.js';
 import { MaintenanceScreen } from './screens/MaintenanceScreen.js';
+import { NotFoundScreen } from './screens/NotFoundScreen.js';
+import { RouteErrorBoundary } from './shell/RouteErrorBoundary.js';
 import { CityLedgerScreen } from './screens/CityLedgerScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
@@ -47,12 +55,13 @@ const NightAuditScreen = lazy(() =>
 
 const queryClient = createQueryClient();
 
-export function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}>
+export const router = createBrowserRouter(
+  createRoutesFromElements(
+    <>
+          <Route
+            element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}
+            errorElement={<RouteErrorBoundary />}
+          >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardScreen />} />
             <Route path="board" element={<TapeChartScreen />} />
@@ -169,13 +178,20 @@ export function App() {
             <Route path="maintenance" element={<PermissionRoute permission="maintenance:read" />}>
               <Route index element={<MaintenanceScreen />} />
             </Route>
+            <Route path="*" element={<NotFoundScreen />} />
           </Route>
-          <Route path="sign-in" element={<SignInScreen />} />
+          <Route path="sign-in" element={<SignInScreen />} errorElement={<RouteErrorBoundary />} />
           {import.meta.env.DEV ? (
             <Route path="dev/ui" element={<UiGallery />} />
           ) : null}
-        </Routes>
-      </BrowserRouter>
+    </>,
+  ),
+);
+
+export function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
 }

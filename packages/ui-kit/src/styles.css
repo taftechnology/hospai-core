@@ -324,6 +324,23 @@
   gap: 0.3125rem;
 }
 
+.ui-field-group--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+/* A field is 100% wide on its own; in a row it shares the line up to its cap. */
+.ui-field-group--inline > .ui-field {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+
+.ui-field-group--inline > .ui-field-group {
+  flex-basis: 100%;
+}
+
 .ui-field-group__legend {
   padding: 0;
   font-size: var(--text-sm);
@@ -987,6 +1004,10 @@ a.ui-metric:hover {
   color: var(--ink);
 }
 
+.ui-empty[data-kind='error'] .ui-empty__title {
+  color: var(--status-exception-fg);
+}
+
 /* Buttons default to align-self:flex-start; centred contexts opt back in. */
 .ui-empty .ui-btn,
 .ui-empty .ui-link-btn {
@@ -1035,6 +1056,86 @@ a.ui-metric:hover {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--line) 55%, var(--panel));
   min-block-size: 1rem;
+}
+
+.ui-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  inline-size: 100%;
+}
+
+.ui-skeleton-group .ui-skeleton {
+  inline-size: 100%;
+}
+
+.ui-skeleton-group .ui-skeleton:last-child {
+  inline-size: 75%;
+}
+
+/* --- dialog ----------------------------------------------------------- */
+
+.ui-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+.ui-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+
+.ui-dialog__panel {
+  position: relative;
+  inline-size: 100%;
+  max-inline-size: 480px;
+  max-block-size: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.ui-dialog__panel--wide {
+  max-inline-size: 720px;
+}
+
+.ui-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ui-dialog__head h2 {
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.ui-dialog__body {
+  min-block-size: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ui-dialog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-block-start: 1px solid var(--line-soft);
+  padding-block-start: var(--space-3);
 }
 
 /* --- utilities -------------------------------------------------------- */

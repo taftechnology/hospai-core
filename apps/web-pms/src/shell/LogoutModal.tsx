@@ -1,7 +1,5 @@
 import { useAuth } from '@clerk/react';
-import { Button } from '@hospai/ui-kit';
-import { useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { Button, Dialog } from '@hospai/ui-kit';
 import { spaAuthMode } from '../providers/spa-auth-mode.js';
 import { DEMO_UNLOCK_KEY } from '../screens/SignInScreen.js';
 
@@ -13,33 +11,23 @@ function ConfirmLogoutDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div
-      className="app-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="logout-title"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onCancel();
-      }}
+    <Dialog
+      open
+      title="Log out?"
+      onClose={onCancel}
+      footer={
+        <>
+          <Button type="button" intent="default" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" intent="destructive" data-testid="confirm-logout" onClick={onConfirm}>
+            Log out
+          </Button>
+        </>
+      }
     >
-      <div className="app-modal__backdrop" onClick={onCancel} aria-hidden="true" />
-      <div className="app-modal__panel app-modal__panel--compact">
-        <header className="app-modal__head">
-          <h2 id="logout-title">Log out?</h2>
-        </header>
-        <p className="muted">You will be signed out and returned to the sign-in screen.</p>
-        <footer className="app-modal__foot app-modal__foot--end">
-          <div className="app-modal__actions">
-            <Button type="button" intent="default" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button type="button" intent="destructive" data-testid="confirm-logout" onClick={onConfirm}>
-              Log out
-            </Button>
-          </div>
-        </footer>
-      </div>
-    </div>
+      <p className="muted">You will be signed out and returned to the sign-in screen.</p>
+    </Dialog>
   );
 }
 
@@ -61,19 +49,9 @@ function LocalLogoutModal({ onCancel }: { onCancel: () => void }) {
 }
 
 export function LogoutModal({ onCancel }: { onCancel: () => void }) {
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, []);
-
-  const modal = spaAuthMode() === 'clerk' ? (
+  return spaAuthMode() === 'clerk' ? (
     <ClerkLogoutModal onCancel={onCancel} />
   ) : (
     <LocalLogoutModal onCancel={onCancel} />
   );
-
-  return createPortal(modal, document.body);
 }

@@ -8,14 +8,6 @@ import type {
   HousekeepingPriorityQueueRow,
 } from '@hospai/contracts';
 
-/** Same shape as the operator SPA `FormDialog` — the one `.app-modal` overlay. */
-export type HousekeepingFormDialogProps = {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-  actions: ReactNode;
-};
-
 export type HousekeepingOooRange = {
   oooId: string;
   startDate: string;

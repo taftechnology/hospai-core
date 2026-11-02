@@ -98,16 +98,18 @@ export type EmptyStateProps = TestIdProps & {
   description?: ReactNode;
   /** A single recovery action. */
   action?: ReactNode;
+  kind?: 'empty' | 'nomatch' | 'error';
 };
 
 export function EmptyState({
   title,
   description,
   action,
+  kind = 'empty',
   'data-testid': dataTestId,
 }: EmptyStateProps) {
   return (
-    <div className="ui-empty" data-testid={dataTestId}>
+    <div className="ui-empty" data-kind={kind} data-testid={dataTestId}>
       <span className="ui-empty__title">{title}</span>
       {description ? <span>{description}</span> : null}
       {action ?? null}

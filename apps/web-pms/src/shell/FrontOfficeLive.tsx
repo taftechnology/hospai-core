@@ -14,7 +14,7 @@ import { tenant } from '../client.js';
 import { frontDeskTapeKey } from '../front-office-query-keys.js';
 import { getClerkSessionToken } from '../providers/clerk-credentials.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { usePropertyTimeZone } from './PropertyTimeZone.js';
+import { usePropertyTimeZone } from './PropertyFormat.js';
 import { frontOfficeAuthProtocol } from './front-office-auth-protocol.js';
 import { StaleWatermark } from './StaleWatermark.js';
 
@@ -247,5 +247,5 @@ export function FrontOfficeLive({
   }, [enabled, location.pathname, location.search, timeZone]);
 
   if (!enabled) return null;
-  return <StaleWatermark asOf={asOf} stale={stale} timeZone={timeZone} />;
+  return <StaleWatermark asOf={asOf} stale={stale} />;
 }

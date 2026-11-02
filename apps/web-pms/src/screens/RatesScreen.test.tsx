@@ -50,9 +50,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import { RatesScreen } from './RatesScreen.js';
 import {
@@ -161,9 +162,9 @@ describe('RatesScreen', () => {
       ],
     });
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-14&plan=BAR');
-    const set = await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' });
-    const unset = screen.getByRole('button', { name: 'Edit rate for KNG on 2026-08-14' });
-    expect(set).toHaveTextContent('150.00');
+    const set = await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' });
+    const unset = screen.getByRole('button', { name: 'Edit rate for KNG on 14/08/2026' });
+    expect(set).toHaveTextContent('₹150.00');
     expect(unset).toHaveTextContent('—');
     expect(screen.queryByRole('textbox', { name: /Rate for KNG on/i })).toBeNull();
   });
@@ -182,8 +183,8 @@ describe('RatesScreen', () => {
       ],
     });
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     expect(cell).toHaveFocus();
     expect(cell).toHaveValue('150.00');
     expect((cell as HTMLInputElement).selectionStart).toBe(0);
@@ -192,8 +193,8 @@ describe('RatesScreen', () => {
 
   it('fill one cell sends integer amountMinor and ledger currency', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     fireEvent.change(cell, { target: { value: '150.00' } });
     fireEvent.blur(cell);
     await waitFor(() => expect(putRateDay).toHaveBeenCalled());
@@ -209,8 +210,8 @@ describe('RatesScreen', () => {
 
   it('Enter saves a cell once even if blur follows', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     fireEvent.change(cell, { target: { value: '80.50' } });
     fireEvent.keyDown(cell, { key: 'Enter' });
     fireEvent.blur(cell);
@@ -220,22 +221,22 @@ describe('RatesScreen', () => {
 
   it('Escape does not save a cell', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     fireEvent.change(cell, { target: { value: '10.00' } });
     fireEvent.keyDown(cell, { key: 'Escape' });
     fireEvent.blur(cell);
     expect(putRateDay).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox', { name: /Rate for KNG on/i })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Edit rate for KNG on 2026-08-13' })).toHaveTextContent(
+    expect(screen.getByRole('button', { name: 'Edit rate for KNG on 13/08/2026' })).toHaveTextContent(
       '—',
     );
   });
 
   it('an invalid cell value does not save', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     fireEvent.change(cell, { target: { value: '12.345' } });
     fireEvent.keyDown(cell, { key: 'Enter' });
     expect(putRateDay).not.toHaveBeenCalled();
@@ -257,21 +258,21 @@ describe('RatesScreen', () => {
     });
     putRateDay.mockRejectedValueOnce(new Error('nope'));
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    const cell = screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i });
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    const cell = screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' });
     fireEvent.change(cell, { target: { value: '99.00' } });
     fireEvent.keyDown(cell, { key: 'Enter' });
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save the rate');
-    const restored = screen.getByRole('button', { name: 'Edit rate for KNG on 2026-08-13' });
-    expect(restored).toHaveTextContent('150.00');
+    const restored = screen.getByRole('button', { name: 'Edit rate for KNG on 13/08/2026' });
+    expect(restored).toHaveTextContent('₹150.00');
     expect(restored).not.toHaveTextContent('99.00');
     expect(putRateDay).toHaveBeenCalledTimes(1);
   });
 
   it('empty cell does not PUT zero', async () => {
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 2026-08-13' }));
-    fireEvent.blur(screen.getByRole('textbox', { name: /Rate for KNG on 2026-08-13/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit rate for KNG on 13/08/2026' }));
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Rate for KNG on 13/08/2026' }));
     expect(putRateDay).not.toHaveBeenCalled();
   });
 
@@ -568,7 +569,7 @@ describe('RatesScreen', () => {
     });
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-13&plan=BAR15');
     expect(await screen.findByText('Edit the parent plan’s rates.')).toBeTruthy();
-    expect(screen.getByText('85.00')).toBeTruthy();
+    expect(screen.getByText('₹85.00')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Edit rate for/i })).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(putRateDay).not.toHaveBeenCalled();

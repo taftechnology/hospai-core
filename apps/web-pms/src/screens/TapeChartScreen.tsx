@@ -38,7 +38,7 @@ import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
 import { bookHref } from '../status/book-href.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { GuestNameLink } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
 
@@ -87,38 +87,6 @@ function clampTapeWindow(from: string, to: string): { from: string; to: string; 
     to,
     clamped: true,
   };
-}
-
-function formatTapeHeader(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(`${iso}T12:00:00Z`));
-}
-
-function formatPageHeaderDate(iso: string | null, timeZone: string): string | null {
-  if (iso == null) return null;
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(`${iso}T12:00:00Z`));
-}
-
-function formatAvailableDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('weekday')} ${part('day')} ${part('month')}`;
 }
 
 function spanRange(
@@ -228,6 +196,7 @@ export function TapeChartScreen() {
   const [tapeWindowHint, setTapeWindowHint] = useState<string | null>(null);
   const seededRef = useRef(false);
   const timeZone = usePropertyTimeZone();
+  const { dateHeading, dateRange, tapeDay } = useFormat();
 
   useEffect(() => {
     if (fromParam && toParam) {
@@ -374,12 +343,7 @@ export function TapeChartScreen() {
         <>
           <p className="available-note muted">
             Vacant sellable inventory{' '}
-            {from === to
-              ? `on ${formatAvailableDate(from, timeZone ?? 'UTC')}.`
-              : `for ${formatAvailableDate(from, timeZone ?? 'UTC')} through ${formatAvailableDate(
-                  to,
-                  timeZone ?? 'UTC',
-                )}.`}
+            {from === to ? `on ${dateHeading(from)}.` : `for ${dateRange(from, to)}.`}
           </p>
           <div className="ui-table-scroll">
             <DataTable>
@@ -437,7 +401,7 @@ export function TapeChartScreen() {
               className="tape-header-cell tabular-nums"
               style={{ ['--tape-col' as string]: String(i + 2) }}
             >
-              {formatTapeHeader(d, timeZone ?? 'UTC')}
+              {tapeDay(d, dates.length <= 7)}
             </div>
           ))}
         </div>
@@ -565,7 +529,7 @@ export function TapeChartScreen() {
         subtitle={
           today && propertyQ.data?.property?.name ? (
             <>
-              {formatPageHeaderDate(today, timeZone ?? 'UTC')}{' '}
+              {today ? dateHeading(today) : null}{' '}
               <span className="sep">·</span> tape and availability for{' '}
               {propertyQ.data.property.name}
             </>

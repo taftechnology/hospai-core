@@ -34,10 +34,9 @@ import {
   checkOutcomeWord,
 } from '../copy/night-audit-check-labels.js';
 import { STEP_LABELS } from '../copy/night-audit-step-labels.js';
-import { formatMinor } from '../money.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { nightAuditStepSeverity } from '../status/night-audit-severity.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
 
 const MONEY_KEYS = new Set([
   'roomNet',
@@ -136,12 +135,18 @@ function runDisabledReason(
   return failCheckReason(status);
 }
 
-function formatReportCell(key: string, value: unknown): string {
+function formatReportCell(
+  key: string,
+  value: unknown,
+  money: (minor: number) => string,
+  date: (iso: string) => string,
+): string {
   if (typeof value === 'number' && (MONEY_KEYS.has(key) || key.endsWith('Minor'))) {
-    return formatMinor(value);
+    return money(value);
   }
   if (value == null) return '';
   if (typeof value === 'object') return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return date(value);
   return String(value);
 }
 
@@ -229,6 +234,7 @@ export function NightAuditScreen() {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
   const timeZone = usePropertyTimeZone();
+  const { money, date } = useFormat();
   const [stageChoice, setStageChoice] = useState<Stage | null>(null);
   const [openReport, setOpenReport] = useState<{
     businessDate: string;
@@ -317,7 +323,7 @@ export function NightAuditScreen() {
     );
     if (status.businessDate !== previous.businessDate) {
       setMessage(null);
-      setRunEnded({ intent: 'settled', text: `Business date is now ${status.businessDate}.` });
+      setRunEnded({ intent: 'settled', text: `Business date is now ${date(status.businessDate)}.` });
       invalidateDateScopedDesk(queryClient, propertyId);
       void queryClient.invalidateQueries({ queryKey: ['night-audit-check-log', propertyId] });
     } else if (newlyFailed) {
@@ -411,7 +417,7 @@ export function NightAuditScreen() {
         subtitle={
           status ? (
             <>
-              Business date {status.businessDate}
+              Business date {date(status.businessDate)}
             </>
           ) : undefined
         }
@@ -569,9 +575,9 @@ export function NightAuditScreen() {
                             setOpenReport(null);
                           }}
                         >
-                          {reportDates.map((date) => (
-                            <option key={date} value={date}>
-                              {date}
+                          {reportDates.map((reportDay) => (
+                            <option key={reportDay} value={reportDay}>
+                              {date(reportDay)}
                             </option>
                           ))}
                         </NativeSelect>
@@ -609,7 +615,7 @@ export function NightAuditScreen() {
                               <DataTableHeaderCell>
                                 {REPORT_KEY_LABELS[key] ?? key}
                               </DataTableHeaderCell>
-                              <DataTableCell>{formatReportCell(key, value)}</DataTableCell>
+                              <DataTableCell>{formatReportCell(key, value, money, date)}</DataTableCell>
                             </DataTableRow>
                           ))}
                       </DataTableBody>
@@ -644,6 +650,7 @@ function ChecksStage(props: {
   canConfigure: boolean;
   onRefresh: () => void;
 }) {
+  const { date } = useFormat();
   const { status } = props;
   const dayStillOpen = props.today != null && status.businessDate >= props.today;
   const rows: Array<{
@@ -678,7 +685,7 @@ function ChecksStage(props: {
         <CardTitle>Checks</CardTitle>
       </CardHeader>
       <CardContent>
-        <p>Closing date {status.businessDate}</p>
+        <p>Closing date {date(status.businessDate)}</p>
         {dayStillOpen ? <p>The day is still open and the counts will change.</p> : null}
         <div className="ui-row">
           <Button type="button" onClick={props.onRefresh}>
@@ -737,6 +744,7 @@ function CheckLog(props: {
   error: unknown;
   log: NightAuditCheckLog | undefined;
 }) {
+  const { date } = useFormat();
   if (props.isError) {
     return (
       <Alert data-testid="night-audit-check-log-error">
@@ -763,12 +771,12 @@ function CheckLog(props: {
           </DataTableRow>
         </DataTableHead>
         <DataTableBody>
-          {props.log.dates.flatMap((date) =>
-            date.attempts.map((attempt) => {
+          {props.log.dates.flatMap((dateRow) =>
+            dateRow.attempts.map((attempt) => {
               const open = attempt.checks.filter((check) => check.count > 0);
               return (
-                <DataTableRow key={`${date.businessDate}:${attempt.attempt}`}>
-                  <DataTableCell>{date.businessDate}</DataTableCell>
+                <DataTableRow key={`${dateRow.businessDate}:${attempt.attempt}`}>
+                  <DataTableCell>{date(dateRow.businessDate)}</DataTableCell>
                   <DataTableCell>{attempt.attempt}</DataTableCell>
                   <DataTableCell>
                     {open.length === 0 ? (

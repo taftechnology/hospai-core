@@ -37,13 +37,6 @@ type AdjustDialog = {
   item: HousekeepingInventoryItemRow;
 };
 
-function formatWhen(createdAt: number): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(createdAt));
-}
-
 export function HousekeepingInventory({
   propertyId,
   api,
@@ -51,6 +44,7 @@ export function HousekeepingInventory({
   subtitle,
   formatError,
   Dialog,
+  format,
 }: {
   propertyId: string;
   api: HousekeepingApi;
@@ -58,6 +52,7 @@ export function HousekeepingInventory({
   subtitle?: string;
   formatError?: (err: unknown) => string;
   Dialog?: (props: HousekeepingFormDialogProps) => ReactNode;
+  format: { dateTime: (ms: number) => string };
 }) {
   const queryClient = useQueryClient();
   const [showArchived, setShowArchived] = useState(false);
@@ -554,7 +549,7 @@ export function HousekeepingInventory({
               <DataTableBody>
                 {movementsQuery.data.movements.map((m) => (
                   <DataTableRow key={m.movementId}>
-                    <DataTableCell>{formatWhen(m.createdAt)}</DataTableCell>
+                    <DataTableCell>{format.dateTime(m.createdAt)}</DataTableCell>
                     <DataTableCell>{MOVEMENT_KIND_LABEL[m.kind]}</DataTableCell>
                     <DataTableCell>{m.quantity}</DataTableCell>
                     <DataTableCell>{m.onHandAfter}</DataTableCell>

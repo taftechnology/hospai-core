@@ -26,9 +26,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('./PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('./PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('./property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import type { Authority } from '../auth/me.js';
 import { ShiftStrip } from './ShiftStrip.js';
@@ -84,23 +85,35 @@ describe('ShiftStrip', () => {
       },
     });
     renderStrip();
-    await waitFor(() => expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/100\.00/));
+    await waitFor(() => expect(screen.getByTestId('open-shift-badge').textContent).toContain('₹100.00'));
+    expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/\$/);
     expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/3 cash posts/);
     expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/shift_1/);
     expect(screen.getByRole('link', { name: /close/i }).getAttribute('href')).toBe('/shift');
   });
 
-  it('auto-opens once when live actor can post and no shift is open', async () => {
+  it('opens only when the clerk submits a float, not while they type it', async () => {
     getOpenShift.mockResolvedValue({ ok: true, shift: null });
     openShift.mockResolvedValue({ ok: true });
     const { invalidateSpy } = renderStrip(livePost);
+    const input = await screen.findByLabelText('opening-float');
+    const open = screen.getByRole('button', { name: /open shift/i }) as HTMLButtonElement;
+    expect(open.disabled).toBe(true);
+    expect(screen.getByText(/Enter an opening float/i)).toBeTruthy();
+    // "1" is already a valid amount on the way to typing "100.00".
+    fireEvent.change(input, { target: { value: '1' } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(openShift).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: '100.00' } });
+    expect(openShift).not.toHaveBeenCalled();
+    fireEvent.click(open);
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
     expect(openShift.mock.calls[0]?.[1]).toMatchObject({ openingFloat: 10000 });
     expect((openShift.mock.calls[0]?.[1] as { shiftId: string }).shiftId).toMatch(/^shift_/);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['open-shift', 'prop_demo'] });
   });
 
-  it('does not auto-open when a shift is already open', async () => {
+  it('does not open when a shift is already open', async () => {
     getOpenShift.mockResolvedValue({
       ok: true,
       shift: {
@@ -116,7 +129,7 @@ describe('ShiftStrip', () => {
     expect(openShift).not.toHaveBeenCalled();
   });
 
-  it('does not auto-open when open-shift GET is fail-closed', async () => {
+  it('does not open when open-shift GET is fail-closed', async () => {
     getOpenShift.mockRejectedValue(
       new ClassifiedError({
         class: 'fail_closed',
@@ -132,7 +145,7 @@ describe('ShiftStrip', () => {
     expect(openShift).not.toHaveBeenCalled();
   });
 
-  it('leaves the manual form when auto-open errors', async () => {
+  it('leaves the form in place when opening errors', async () => {
     getOpenShift.mockResolvedValue({ ok: true, shift: null });
     openShift.mockRejectedValue(
       new ClassifiedError({
@@ -143,6 +156,8 @@ describe('ShiftStrip', () => {
       }),
     );
     renderStrip(livePost);
+    fireEvent.change(await screen.findByLabelText('opening-float'), { target: { value: '100.00' } });
+    fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy();
     expect(screen.getByText(/Open shift failed/i)).toBeTruthy();
@@ -161,6 +176,8 @@ describe('ShiftStrip', () => {
       }),
     );
     const { invalidateSpy } = renderStrip();
+    fireEvent.change(await screen.findByLabelText('opening-float'), { target: { value: '100.00' } });
+    fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     await waitFor(() =>
       expect(screen.getByText(/You already have an open shift/i)).toBeTruthy(),
     );
@@ -184,8 +201,10 @@ describe('ShiftStrip', () => {
       }),
     );
     renderStrip();
-    await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
+    fireEvent.change(await screen.findByLabelText('opening-float'), { target: { value: '100.00' } });
+    fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     });

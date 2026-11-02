@@ -61,6 +61,19 @@ export {
 } from './front-office-stream.js';
 export { permissionForForbidden } from './permission-copy.js';
 export {
+  FALLBACK_FORMAT,
+  formatDate,
+  formatDateHeading,
+  formatDateRange,
+  formatDateTime,
+  formatInstantDate,
+  formatMoney,
+  formatTapeDay,
+  formatTime,
+  propertyFormat,
+  type PropertyFormat,
+} from './format.js';
+export {
   foldFolioLines,
   type FolioLine,
   type FolioDisplayNode,

@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { queuedCommands } from '../client.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
+import { useFormat } from './PropertyFormat.js';
 
 export function QueuedCommandsPanel() {
+  const { fmt } = useFormat();
   const q = useQuery({
     queryKey: ['queued-commands'],
     queryFn: async () => [...queuedCommands.entries()],
@@ -19,7 +21,7 @@ export function QueuedCommandsPanel() {
         <ul>
           {entries.map((e) => (
             <li key={`${e.commandId}-${e.idempotencyKey}`}>
-              {queuedCommandLine(e)}
+              {queuedCommandLine(e, fmt)}
             </li>
           ))}
         </ul>

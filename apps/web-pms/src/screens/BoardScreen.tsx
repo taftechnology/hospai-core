@@ -44,7 +44,7 @@ import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { GuestNameLink, guestLabel } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
 import { AssignRoomDialog, PostChargeDialog } from './board-dialogs.js';
@@ -73,30 +73,6 @@ function partitionDepartures(items: FrontDeskItem[]) {
     else other.push(row);
   }
   return { dueOut, departed, other };
-}
-
-function formatLongDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('weekday')}, ${part('day')} ${part('month')} ${part('year')}`;
-}
-
-function formatBoardDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')} ${part('month')}`;
 }
 
 function nightsBetween(arrival: string, departure: string): number {
@@ -143,6 +119,7 @@ function BoardTable({
   onAssign?: RowAction;
   onPostCharge?: RowAction;
 }) {
+  const { date } = useFormat();
   const today = timeZone ? propertyLocalToday(timeZone) : null;
   const showDeparture = mode === 'in-house';
 
@@ -194,7 +171,7 @@ function BoardTable({
               <DataTableCell align="right">
                 <span className="ui-num">
                   {showDeparture
-                    ? formatBoardDate(row.departureDate, timeZone ?? 'UTC')
+                    ? date(row.departureDate)
                     : nights != null
                       ? nights
                       : '—'}
@@ -390,6 +367,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const seededRef = useRef(Boolean(dateParam));
   const [cursor, setCursor] = useState<string | null>(null);
   const timeZone = usePropertyTimeZone();
+  const { dateHeading } = useFormat();
   const [createdBanner, setCreatedBanner] = useState<string | null>(null);
   const vipOnly = params.get('vip') === '1';
   const [assignFor, setAssignFor] = useState<FrontDeskItem | null>(null);
@@ -659,7 +637,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         title={boardPageTitle(mode)}
         subtitle={
           headerDate
-            ? `${formatLongDate(headerDate, timeZone ?? 'UTC')} · ${boardPageTitle(mode).toLowerCase()} for the business date`
+            ? `${dateHeading(headerDate)} · ${boardPageTitle(mode).toLowerCase()} for the business date`
             : undefined
         }
         actions={

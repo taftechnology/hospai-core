@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { FrontDeskItem } from '@hospai/client-core';
+import type { FrontDeskItem, PropertyFormat } from '@hospai/client-core';
 import { Alert, Button, Field, Input, NativeSelect, Skeleton, roomStatusWord } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatMinor, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseMajorToMinor } from '../money.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { usePostableProducts } from './product-picker.js';
 import { FormDialog } from '../shell/FormDialog.js';
 
-function failureCopy(err: unknown, fallback: string): string {
-  return classifiedUserMessage(asClassified(err), { fallback });
+function failureCopy(err: unknown, fallback: string, fmt?: PropertyFormat): string {
+  return classifiedUserMessage(asClassified(err), { fallback, fmt });
 }
 
 function isQueued(result: unknown): boolean {
@@ -62,6 +63,7 @@ export function AssignRoomDialog({
   onDone: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const { fmt } = useFormat();
   const propertyId = tenant.propertyId;
   const roomTypeId = typeof row.roomTypeId === 'string' ? row.roomTypeId : undefined;
   const arrival = row.arrivalDate ?? '';
@@ -97,12 +99,12 @@ export function AssignRoomDialog({
           : `Room ${code} assigned to ${guestName}.`,
       );
     },
-    onError: (err) => setError(failureCopy(err, 'Could not assign the room.')),
+    onError: (err) => setError(failureCopy(err, 'Could not assign the room.', fmt)),
   });
 
   let body;
   if (freeQ.isError) {
-    body = <Alert>{failureCopy(freeQ.error, 'Could not load free rooms.')}</Alert>;
+    body = <Alert>{failureCopy(freeQ.error, 'Could not load free rooms.', fmt)}</Alert>;
   } else if (!freeQ.isSuccess) {
     body = <Skeleton aria-label="Loading free rooms" />;
   } else if (rooms.length === 0) {
@@ -169,6 +171,7 @@ export function PostChargeDialog({
   onDone: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const { money, fmt } = useFormat();
   const propertyId = tenant.propertyId;
   const [opId] = useState(() => `incidental:${row.reservationId}:${crypto.randomUUID()}`);
   const [code, setCode] = useState('');
@@ -207,7 +210,7 @@ export function PostChargeDialog({
           : `Charge posted to ${guestName}.`,
       );
     },
-    onError: (err) => setError(failureCopy(err, 'Could not post the charge.')),
+    onError: (err) => setError(failureCopy(err, 'Could not post the charge.', fmt)),
   });
 
   return (
@@ -245,7 +248,7 @@ export function PostChargeDialog({
                 onChange={(e) => {
                   const item = products.byId.get(e.target.value);
                   setProductId(e.target.value);
-                  if (item) setAmount(formatMinor(item.defaultAmountMinor));
+                          if (item) setAmount(minorToMajorInput(item.defaultAmountMinor));
                 }}
               >
                 <option value="">Choose a product</option>
@@ -253,7 +256,7 @@ export function PostChargeDialog({
                   <optgroup key={g.category.categoryId} label={g.category.name}>
                     {g.items.map((i) => (
                       <option key={i.productId} value={i.productId}>
-                        {i.name} · {formatMinor(i.defaultAmountMinor)}
+                        {i.name} · {money(i.defaultAmountMinor)}
                       </option>
                     ))}
                   </optgroup>
@@ -269,7 +272,7 @@ export function PostChargeDialog({
           />
         </>
       ) : codesQ.isError ? (
-        <Alert>{failureCopy(codesQ.error, 'Could not load charge codes.')}</Alert>
+        <Alert>{failureCopy(codesQ.error, 'Could not load charge codes.', fmt)}</Alert>
       ) : !codesQ.isSuccess ? (
         <Skeleton aria-label="Loading charge codes" />
       ) : (

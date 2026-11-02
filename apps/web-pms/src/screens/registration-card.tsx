@@ -1,6 +1,7 @@
 import type { ReservationRead } from '@hospai/client-core';
 
 import { Badge, Button, SectionLabel } from '@hospai/ui-kit';
+import { useFormat } from '../shell/PropertyFormat.js';
 
 export function RegistrationCard({
   propertyName,
@@ -15,6 +16,7 @@ export function RegistrationCard({
   roomLabel?: string | null;
   roomTypeLabel?: string;
 }) {
+  const { dateRange } = useFormat();
   const adults = reservation?.adults ?? 1;
   const children = reservation?.children ?? 0;
   const roomText = roomLabel ?? null;
@@ -29,7 +31,7 @@ export function RegistrationCard({
           <p>Confirmation # {confirmationToken}</p>
           {displayName ? <p>{displayName}</p> : null}
           <p>
-            {reservation.arrivalDate} → {reservation.departureDate}
+            {dateRange(reservation.arrivalDate, reservation.departureDate)}
           </p>
           <p>Room type {roomTypeText}</p>
           {roomText ? <p>Room {roomText}</p> : null}

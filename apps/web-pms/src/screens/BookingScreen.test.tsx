@@ -83,9 +83,10 @@ async function fillBookForConfirm() {
   await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
 }
 
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import { BookingScreen } from './BookingScreen.js';
 
@@ -322,7 +323,7 @@ describe('BookingScreen', () => {
     fireEvent.change(screen.getByTestId('departure-date'), { target: { value: '2026-08-13' } });
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
-    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toBe('$300.00'));
+    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toBe('₹300.00'));
     expect(screen.queryByText(/Type-only stay/i)).toBeNull();
     expect(screen.queryByText(/ariVersion/i)).toBeNull();
     expect(screen.getByTestId('quote-version')).toBeTruthy();
@@ -1040,7 +1041,7 @@ describe('BookingScreen', () => {
     fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
     fireEvent.change(await screen.findByTestId('promo-code'), { target: { value: 'SUMMER15' } });
     await waitFor(() =>
-      expect(screen.getByTestId('stay-quote').textContent).toBe('$127.50'),
+      expect(screen.getByTestId('stay-quote').textContent).toBe('₹127.50'),
     );
   });
 

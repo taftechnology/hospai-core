@@ -11,9 +11,10 @@ vi.mock('../client.js', () => ({
 }));
 
 const tzState: { current: string | null } = { current: 'UTC' };
-vi.mock('./PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => tzState.current,
-}));
+vi.mock('./PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('./property-format-test-stub.js');
+  return propertyFormatTestModule(() => tzState.current);
+});
 
 import { FrontOfficeLive, nextReconnectMs } from './FrontOfficeLive.js';
 

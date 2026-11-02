@@ -36,6 +36,7 @@ import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -93,17 +94,6 @@ function asStayPage(result: unknown): { items: StayItem[]; nextCursor: string | 
 
 const STAY_ACTIVE_STATUSES = new Set(['checked_in', 'confirmed', 'pending']);
 
-function formatGuestDate(iso: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')} ${part('month')}`;
-}
-
 function nightsBetween(arrival: string, departure: string): number {
   const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
   return Math.max(0, Math.round(ms / 86_400_000));
@@ -149,6 +139,7 @@ function buildUpdatePayload(
 
 export function GuestProfileScreen() {
   const propertyId = tenant.propertyId;
+  const { dateRange } = useFormat();
   const guestRef = decodeURIComponent(useParams().guestRef ?? '');
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -309,7 +300,7 @@ export function GuestProfileScreen() {
                       </>
                     ) : null}
                     <span className="sep">·</span>
-                    {formatGuestDate(stay.arrivalDate)} → {formatGuestDate(stay.departureDate)}
+                    {dateRange(stay.arrivalDate, stay.departureDate)}
                     <span className="sep">·</span>{' '}
                     {nightsBetween(stay.arrivalDate, stay.departureDate)} nights
                   </>
@@ -574,7 +565,7 @@ export function GuestProfileScreen() {
                         </Link>
                       </DataTableCell>
                       <DataTableCell>
-                        {formatGuestDate(row.arrivalDate)} → {formatGuestDate(row.departureDate)}
+                        {dateRange(row.arrivalDate, row.departureDate)}
                       </DataTableCell>
                       <DataTableCell>
                         {isReservationStatus(row.status) ? (

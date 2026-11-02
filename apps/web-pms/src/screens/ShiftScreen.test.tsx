@@ -26,9 +26,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import { ShiftScreen } from './ShiftScreen.js';
 
@@ -89,7 +90,7 @@ describe('ShiftScreen', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
-    expect(screen.getByTestId('receipt-variance').textContent).toMatch(/short 15\.00/);
+    expect(screen.getByTestId('receipt-variance').textContent).toMatch(/short ₹15\.00/);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['open-shift', 'prop_demo'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['recent-shifts', 'prop_demo'] });
   });
@@ -135,8 +136,8 @@ describe('ShiftScreen', () => {
     renderAt('/shift');
     await waitFor(() => expect(screen.getByLabelText(/closing count/i)).toBeTruthy());
     expect(document.body.textContent).not.toMatch(/shift_close_1/);
-    expect(screen.getByText(/2026-08-09/)).toBeTruthy();
-    expect(screen.getByText(/100\.00/)).toBeTruthy();
+    expect(screen.getByText(/09\/08\/2026/)).toBeTruthy();
+    expect(screen.getByText(/₹100\.00/)).toBeTruthy();
 
     getShiftById.mockResolvedValue({
       ok: true,
@@ -154,7 +155,7 @@ describe('ShiftScreen', () => {
     renderAt('/shift/shift_fc');
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(document.body.textContent).not.toMatch(/shift_fc/);
-    expect(screen.getByText(/2026-08-09/)).toBeTruthy();
+    expect(screen.getByText(/09\/08\/2026/)).toBeTruthy();
   });
 
   it('close shift error uses classifiedUserMessage without class token', async () => {

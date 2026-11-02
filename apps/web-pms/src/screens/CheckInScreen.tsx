@@ -20,6 +20,7 @@ import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -31,23 +32,13 @@ function bodyErrorCode(body: unknown): string | null {
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
 
-function formatCheckInDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')} ${part('month')}`;
-}
-
 function nightsBetween(arrival: string, departure: string): number {
   const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
   return Math.max(0, Math.round(ms / 86_400_000));
 }
 
 export function CheckInScreen() {
+  const { dateRange } = useFormat();
   const queryClient = useQueryClient();
   const { reservationId = '' } = useParams();
   const [roomId, setRoomId] = useState('');
@@ -184,7 +175,6 @@ export function CheckInScreen() {
   const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
-  const propertyTz = propertyQ.data?.property?.timeZone ?? 'UTC';
   const res = reservationQ.data;
 
   return (
@@ -216,8 +206,7 @@ export function CheckInScreen() {
                       </>
                     ) : null}
                     <span className="sep">·</span>
-                    {formatCheckInDate(res.arrivalDate, propertyTz)} →{' '}
-                    {formatCheckInDate(res.departureDate, propertyTz)}
+                    {dateRange(res.arrivalDate, res.departureDate)}
                     <span className="sep">·</span>{' '}
                     {nightsBetween(res.arrivalDate, res.departureDate)} nights
                   </>

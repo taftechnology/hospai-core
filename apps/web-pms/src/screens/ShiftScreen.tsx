@@ -18,10 +18,10 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatMinor, formatVarianceMinor, parseMajorToMinor } from '../money.js';
+import { formatVarianceMinor, parseMajorToMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { shiftSeverity } from '../status/shift-severity.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 
 type ShiftBody = {
   ok: true;
@@ -52,6 +52,7 @@ export function ShiftScreen() {
 
 function ShiftCloseForm() {
   const propertyId = tenant.propertyId;
+  const { money, date } = useFormat();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [closingMajor, setClosingMajor] = useState('0.00');
@@ -149,11 +150,11 @@ function ShiftCloseForm() {
           <p>
             {businessDate ? (
               <>
-                Business date <strong>{businessDate}</strong>
+                Business date <strong>{date(businessDate)}</strong>
                 {openingFloat != null ? (
                   <>
                     {' '}
-                    · opening float <strong>{formatMinor(openingFloat)}</strong>
+                    · opening float <strong>{money(openingFloat)}</strong>
                   </>
                 ) : null}{' '}
                 — enter closing count (blind; expected cash is not shown).
@@ -191,6 +192,7 @@ function ShiftCloseForm() {
 
 function ShiftReceipt({ shiftId }: { shiftId: string }) {
   const propertyId = tenant.propertyId;
+  const { money, date, fmt } = useFormat();
   const timeZone = usePropertyTimeZone();
   const localToday = timeZone ? propertyLocalToday(timeZone) : null;
 
@@ -228,7 +230,7 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
       ? 'never counted'
       : shift.variance == null
         ? '—'
-        : formatVarianceMinor(shift.variance);
+        : formatVarianceMinor(shift.variance, fmt);
 
   return (
     <div className="ui-page-stack">
@@ -242,11 +244,11 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
         </CardHeader>
         <CardContent>
           <div className="ui-stat-grid">
-            <StatField label="Business date" value={shift.businessDate} />
-            <StatField label="Opening float" value={formatMinor(shift.openingFloat)} />
+            <StatField label="Business date" value={date(shift.businessDate)} />
+            <StatField label="Opening float" value={money(shift.openingFloat)} />
             <StatField
               label="Closing count"
-              value={shift.closingCount == null ? '—' : formatMinor(shift.closingCount)}
+              value={shift.closingCount == null ? '—' : money(shift.closingCount)}
             />
             <StatField
               label="Variance"

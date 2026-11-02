@@ -29,10 +29,10 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatMinor, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
 import { usePostableProducts } from './product-picker.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 
 function bodyErrorCode(body: unknown): string | null {
@@ -123,6 +123,7 @@ function promoApplyInput(promo: RatePromoRow): PromoApplyInput {
 export function BookingScreen() {
   const propertyId = tenant.propertyId;
   const timeZone = usePropertyTimeZone();
+  const { money } = useFormat();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -978,8 +979,8 @@ export function BookingScreen() {
                 {addonLines.map((line) => (
                   <div key={line.lineKey} className="ui-row">
                     <p>
-                      {line.productName} × {line.quantity} @ {formatMinor(line.unitMinor)} (
-                      {formatMinor(line.unitMinor * line.quantity)})
+                      {line.productName} × {line.quantity} @ {money(line.unitMinor)} (
+                      {money(line.unitMinor * line.quantity)})
                     </p>
                     <Button
                       type="button"
@@ -1007,7 +1008,7 @@ export function BookingScreen() {
                           const id = e.target.value;
                           setAddonDraftProductId(id);
                           const item = postableProducts.byId.get(id);
-                          if (item) setAddonDraftPrice(formatMinor(item.defaultAmountMinor));
+                          if (item) setAddonDraftPrice(minorToMajorInput(item.defaultAmountMinor));
                         }}
                       >
                         <option value="">Choose a product</option>
@@ -1015,7 +1016,7 @@ export function BookingScreen() {
                           <optgroup key={g.category.categoryId} label={g.category.name}>
                             {g.items.map((i) => (
                               <option key={i.productId} value={i.productId}>
-                                {i.name} · {formatMinor(i.defaultAmountMinor)}
+                                {i.name} · {money(i.defaultAmountMinor)}
                               </option>
                             ))}
                           </optgroup>
@@ -1095,7 +1096,7 @@ export function BookingScreen() {
             label="Quote total"
             value={
               stayQuoteMinor != null ? (
-                <span data-testid="stay-quote">{'$' + formatMinor(stayQuoteMinor)}</span>
+                <span data-testid="stay-quote">{money(stayQuoteMinor)}</span>
               ) : (
                 '…'
               )

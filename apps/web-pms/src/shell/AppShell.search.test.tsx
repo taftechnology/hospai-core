@@ -33,10 +33,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('./PropertyTimeZone.js', () => ({
-  PropertyTimeZoneProvider: ({ children }: { children: React.ReactNode }) => children,
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('./PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('./property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import { AppShell } from './AppShell.js';
 

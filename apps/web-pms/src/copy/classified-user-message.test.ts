@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClassifiedResponse } from '@hospai/client-core';
+import { propertyFormat, type ClassifiedResponse } from '@hospai/client-core';
 import { classifiedUserMessage } from './classified-user-message.js';
 
 function classified(partial: Pick<ClassifiedResponse, 'class'> & Partial<ClassifiedResponse>): ClassifiedResponse {
@@ -69,7 +69,7 @@ describe('domain code messages', () => {
     ['inquiry_expired', {}, /inquiry has expired/],
     ['invoice_required', {}, /Generate an invoice before checkout/],
     ['not_modifiable', {}, /cannot be changed in its current status/],
-    ['no_availability', { date: '2026-08-11' }, /No availability on 2026-08-11/],
+    ['no_availability', { date: '2026-08-11' }, /No availability on 11\/08\/2026/],
     ['no_availability', {}, /No availability — pick another room type or date/],
   ] as const)('%s', (code, extra, pattern) => {
     const msg = classifiedUserMessage(classifiedWithCode(code, extra), { fallback: 'X' });
@@ -82,5 +82,29 @@ describe('domain code messages', () => {
     const msg = classifiedUserMessage(classifiedWithCode('balance_due'), { fallback: 'Checkout failed' });
     expect(msg).toMatch(/balance is due|Guest owes/);
     expect(msg).not.toBe('Checkout failed');
+  });
+
+  it('without fmt prints grouped digits and no currency sign', () => {
+    const msg = classifiedUserMessage(
+      classifiedWithCode('balance_due', { balanceMinor: 12_450_000 }),
+      {},
+    );
+    expect(msg).toContain('124,500.00');
+    expect(msg).not.toMatch(/[$₹]|USD|INR/);
+  });
+
+  it('with fmt prints the minus sign before the currency', () => {
+    const fmt = propertyFormat({ timeZone: 'Asia/Kolkata', currency: 'INR' });
+    const checkout = classifiedUserMessage(
+      classifiedWithCode('balance_due', { balanceMinor: -2500 }),
+      { fmt },
+    );
+    expect(checkout).toContain('\u2212₹25.00');
+    const invoice = classifiedUserMessage(
+      classifiedWithCode('folio_balance_due', { balanceMinor: -100 }),
+      { fmt },
+    );
+    expect(invoice).toContain('\u2212₹1.00');
+    expect(invoice).toMatch(/before generating the invoice/);
   });
 });

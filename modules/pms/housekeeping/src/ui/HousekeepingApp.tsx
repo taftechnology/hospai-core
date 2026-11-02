@@ -62,6 +62,10 @@ export type HousekeepingAppProps = {
   formatError?: (err: unknown) => string;
   /** Host form dialog (`.app-modal`). Inventory does not ship its own overlay. */
   Dialog?: (props: HousekeepingFormDialogProps) => ReactNode;
+  format: {
+    dateHeading: (iso: string) => string;
+    dateTime: (ms: number) => string;
+  };
 };
 
 function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
@@ -87,6 +91,7 @@ function HousekeepingBoard({
   canSetOoo = false,
   classifyError,
   subtitle,
+  format,
 }: HousekeepingAppProps) {
   const readRoster = canReadRoster ?? canAssign;
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
@@ -253,17 +258,6 @@ function HousekeepingBoard({
   const showPicker = canAssign && readRoster && assignable.length > 0;
   const formRoomId = oooRoomId || rooms[0]?.roomId || '';
 
-  const businessDateLabel = useMemo(() => {
-    if (!businessDate) return '';
-    const d = new Date(`${businessDate}T00:00:00Z`);
-    return new Intl.DateTimeFormat('en-GB', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).format(d);
-  }, [businessDate]);
-
   return (
     <div className="ui-page-stack">
       <PageHeader
@@ -271,7 +265,8 @@ function HousekeepingBoard({
         subtitle={
           subtitle ?? (
             <>
-              {businessDateLabel} <span className="sep">·</span> room status and assignments
+              {businessDate ? format.dateHeading(businessDate) : ''}{' '}
+              <span className="sep">·</span> room status and assignments
             </>
           )
         }
@@ -592,6 +587,7 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         subtitle={props.subtitle}
         formatError={props.formatError}
         Dialog={props.Dialog}
+        format={props.format}
       />
     );
   }

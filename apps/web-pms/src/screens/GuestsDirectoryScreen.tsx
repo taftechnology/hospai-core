@@ -21,6 +21,7 @@ import {
   PageHeader,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 type GuestProfile = { displayName: string; email?: string; phone?: string; vip?: boolean };
@@ -49,10 +50,6 @@ function asGuestPage(result: unknown): { items: GuestDirItem[]; nextCursor: stri
   return { items, nextCursor: typeof next === 'string' ? next : null };
 }
 
-function formatCreated(createdAt: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(createdAt));
-}
-
 function displayGuestField(value?: string): ReactNode {
   const normalized = value?.trim();
   return normalized ? normalized : <span className="muted">—</span>;
@@ -60,6 +57,7 @@ function displayGuestField(value?: string): ReactNode {
 
 export function GuestsDirectoryScreen() {
   const propertyId = tenant.propertyId;
+  const { instantDate } = useFormat();
   const [params, setParams] = useSearchParams();
   const q = (params.get('q') ?? '').trim();
   const cursor = params.get('cursor');
@@ -133,7 +131,7 @@ export function GuestsDirectoryScreen() {
               </DataTableCell>
               <DataTableCell>{displayGuestField(row.profile.email)}</DataTableCell>
               <DataTableCell>{displayGuestField(row.profile.phone)}</DataTableCell>
-              <DataTableCell>{formatCreated(row.createdAt)}</DataTableCell>
+              <DataTableCell>{instantDate(row.createdAt)}</DataTableCell>
             </DataTableRow>
           ))}
         </DataTableBody>

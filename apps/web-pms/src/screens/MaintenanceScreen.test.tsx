@@ -14,9 +14,10 @@ const listRoster = vi.fn();
 const createMaintenanceTicket = vi.fn();
 const updateMaintenanceTicket = vi.fn();
 const setOooRange = vi.fn();
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 vi.mock('../shell/use-property-subtitle.js', () => ({
   usePropertySubtitle: () => ({ subtitle: 'Harbor Inn' }),

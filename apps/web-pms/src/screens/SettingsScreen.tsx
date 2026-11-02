@@ -28,6 +28,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { CURRENCIES } from '../config/currencies.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
@@ -437,6 +438,7 @@ export function SettingsScreen({
   tab?: 'property' | 'charges' | 'products' | 'maintenance' | 'sources' | 'tax';
 }) {
   const propertyId = tenant.propertyId;
+  const { date } = useFormat();
   const queryClient = useQueryClient();
   const activeTab = tab ?? 'property';
   const [reason, setReason] = useState('');
@@ -1225,8 +1227,8 @@ export function SettingsScreen({
                     <span translate="no">{r.outputChargeCode}</span>
                   </DataTableCell>
                   <DataTableCell>
-                    {r.validFrom}
-                    {r.validTo ? `–${r.validTo}` : '–open'}
+                    {date(r.validFrom)}
+                    {r.validTo ? ` – ${date(r.validTo)}` : ' – open'}
                   </DataTableCell>
                   <DataTableCell>
                     {r.validTo ? null : (

@@ -116,6 +116,7 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+import { PropertyFormatProvider } from '../shell/PropertyFormat.js';
 import { FolioScreen } from './FolioScreen.js';
 
 function renderFolio() {
@@ -125,11 +126,13 @@ function renderFolio() {
   const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/folio/res_1']}>
-        <Routes>
-          <Route path="/folio/:reservationId" element={<FolioScreen />} />
-        </Routes>
-      </MemoryRouter>
+      <PropertyFormatProvider>
+        <MemoryRouter initialEntries={['/folio/res_1']}>
+          <Routes>
+            <Route path="/folio/:reservationId" element={<FolioScreen />} />
+          </Routes>
+        </MemoryRouter>
+      </PropertyFormatProvider>
     </QueryClientProvider>,
   );
   return { client, invalidateSpy };
@@ -258,6 +261,7 @@ describe('FolioScreen wiring', () => {
     });
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
+      ledgerCurrency: 'INR',
     });
     listFxRates.mockResolvedValue({ ledgerCurrency: 'USD', rates: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
@@ -483,6 +487,45 @@ describe('FolioScreen wiring', () => {
     expect(addFolioLine.mock.calls[0]![2]).toEqual({ chargeCode: 'MINIBAR', amountMinor: 4000 });
   });
 
+  it('prefills a charge amount as plain digits and displays the price with the ledger currency', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 450000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_minibar', name: 'Minibar', sortOrder: 0, status: 'active' }],
+      items: [
+        {
+          productId: 'prod_suite',
+          categoryId: 'cat_minibar',
+          sku: null,
+          name: 'Suite',
+          chargeCode: 'MINIBAR',
+          defaultAmountMinor: 450000,
+          status: 'active',
+          taxGroup: null,
+          postable: true,
+        },
+      ],
+    });
+    renderFolio();
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-balance').textContent).toContain('₹4,500.00'),
+    );
+    fireEvent.focus(screen.getByLabelText('charge-code'));
+    const product = await screen.findByLabelText('charge-product');
+    expect(product.textContent).toContain('₹4,500.00');
+    fireEvent.change(product, { target: { value: 'prod_suite' } });
+    const amount = screen.getByLabelText('charge-amount') as HTMLInputElement;
+    expect(amount.value).toBe('4500.00');
+    expect(amount.value).not.toContain('₹');
+  });
+
   it('T18: tenders render in DataTable not ul', async () => {
     getFolio.mockResolvedValue({
       ok: true,
@@ -695,11 +738,13 @@ describe('FolioScreen wiring', () => {
 
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/folio/res_1']}>
-          <Routes>
-            <Route path="/folio/:reservationId" element={<FolioScreen />} />
-          </Routes>
-        </MemoryRouter>
+        <PropertyFormatProvider>
+          <MemoryRouter initialEntries={['/folio/res_1']}>
+            <Routes>
+              <Route path="/folio/:reservationId" element={<FolioScreen />} />
+            </Routes>
+          </MemoryRouter>
+        </PropertyFormatProvider>
       </QueryClientProvider>,
     );
 
@@ -914,7 +959,7 @@ describe('FolioScreen wiring', () => {
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('folio-credit-notice')).toBeTruthy());
     const notice = screen.getByTestId('folio-credit-notice').textContent ?? '';
-    expect(notice).toMatch(/Guest credit 50\.00/);
+    expect(notice).toMatch(/Guest credit ₹50\.00/);
     expect(notice).not.toMatch(/override/i);
     expect(notice).not.toMatch(/open balance/i);
   });
@@ -1399,8 +1444,8 @@ describe('FolioScreen wiring', () => {
     expect(card.textContent).toMatch(/res_1/);
     expect(card.textContent).toMatch(/Ada Lovelace/);
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
-    expect(card.textContent).toMatch(/2026-08-08/);
-    expect(card.textContent).toMatch(/2026-08-10/);
+    expect(card.textContent).toMatch(/08\/08\/2026/);
+    expect(card.textContent).toMatch(/10\/08\/2026/);
     expect(card.textContent).toMatch(/Adults 2/);
     expect(card.textContent).toMatch(/Children 1/);
     expect(card.textContent).not.toMatch(/424242/);
@@ -1648,8 +1693,8 @@ describe('FolioScreen wiring', () => {
       expect(screen.getByTestId('guest-profile-link').textContent).toMatch(/Ada Lovelace/);
       expect(document.body.textContent).toMatch(/Room 101/);
     });
-    expect(document.body.textContent).toMatch(/2026-08-08/);
-    expect(document.body.textContent).toMatch(/2026-08-10/);
+    expect(document.body.textContent).toMatch(/08\/08\/2026/);
+    expect(document.body.textContent).toMatch(/10\/08\/2026/);
     expect(document.body.textContent).toMatch(/Room 101/);
     expect(document.body.textContent).not.toMatch(/rm_101/);
     expect(screen.getByTestId('folio-balance')).toBeTruthy();
@@ -1755,8 +1800,8 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/COMPANY/);
     expect(screen.getByTestId('folio-message').textContent).toMatch(/Open company folio failed/i);
 
-    expect(advanced().textContent).toMatch(/Folio charge · 2026-08-14/);
-    expect(advanced().textContent).toMatch(/Folio charge · 2026-08-13/);
+    expect(advanced().textContent).toMatch(/Folio charge · 14\/08\/2026/);
+    expect(advanced().textContent).toMatch(/Folio charge · 13\/08\/2026/);
     expect(advanced().textContent).not.toMatch(/res_other/);
     expect(advanced().textContent).not.toMatch(/untagged/);
   });
@@ -1998,7 +2043,7 @@ describe('FolioScreen wiring', () => {
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
     await waitFor(() =>
-      expect(screen.getByTestId('invoice-view').textContent).toContain('10000'),
+      expect(screen.getByTestId('invoice-view').textContent).toContain('₹100.00'),
     );
   });
 

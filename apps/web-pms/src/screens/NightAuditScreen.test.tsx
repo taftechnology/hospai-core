@@ -37,9 +37,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 import { NightAuditScreen } from './NightAuditScreen.js';
 
@@ -301,8 +302,8 @@ describe('NightAuditScreen', () => {
     });
     await waitFor(() => expect(getNightAuditReport).toHaveBeenCalledWith('prop_demo', '2026-03-01', 'revenue'));
     await waitFor(() => expect(screen.getByTestId('report-table')).toBeTruthy());
-    expect(screen.getByTestId('report-table').textContent).toMatch(/150\.00/);
-    expect(screen.getByTestId('report-table').textContent).toMatch(/12\.00/);
+    expect(screen.getByTestId('report-table').textContent).toMatch(/₹150\.00/);
+    expect(screen.getByTestId('report-table').textContent).toMatch(/₹12\.00/);
     expect(screen.queryByText(/\{/)).toBeNull();
   });
 
@@ -646,7 +647,7 @@ describe('NightAuditScreen', () => {
     });
     expect(await screen.findByTestId('night-audit-run-ended')).toHaveProperty(
       'textContent',
-      'Business date is now 2026-03-02.',
+      'Business date is now 02/03/2026.',
     );
     expect(screen.getByTestId('night-audit-run-ended').className).toContain('ui-alert--settled');
     for (const queryKey of [
@@ -793,7 +794,7 @@ describe('NightAuditScreen', () => {
       );
     });
     expect((await screen.findByTestId('night-audit-run-ended')).textContent).toBe(
-      'Business date is now 2026-03-02.',
+      'Business date is now 02/03/2026.',
     );
     expect(view.invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board'] });
     expect(resolveRefetchInterval(view.client)).toBe(false);
@@ -906,15 +907,15 @@ describe('NightAuditScreen', () => {
     await showStage('Close-out');
     const table = await screen.findByTestId('night-audit-check-log');
     const text = table.textContent ?? '';
-    expect(text.indexOf('2026-03-02')).toBeGreaterThanOrEqual(0);
-    expect(text.indexOf('2026-03-02')).toBeLessThan(text.indexOf('2026-03-01'));
+    expect(text.indexOf('02/03/2026')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('02/03/2026')).toBeLessThan(text.indexOf('01/03/2026'));
     expect(text).toMatch(/Arrivals not checked in: 2 Fail/);
     expect(screen.getAllByText('All clear').length).toBe(2);
     const rows = within(table).getAllByRole('row');
-    expect(rows.some((row) => row.textContent?.includes('2026-03-02') && row.textContent?.includes('1'))).toBe(
+    expect(rows.some((row) => row.textContent?.includes('02/03/2026') && row.textContent?.includes('1'))).toBe(
       true,
     );
-    expect(rows.some((row) => row.textContent?.includes('2026-03-02') && row.textContent?.includes('2'))).toBe(
+    expect(rows.some((row) => row.textContent?.includes('02/03/2026') && row.textContent?.includes('2'))).toBe(
       true,
     );
   });

@@ -35,7 +35,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { oooReleaseEdit } from './maintenance-ooo-release.js';
 

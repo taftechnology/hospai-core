@@ -73,6 +73,8 @@ export type PropertyRead = {
   recordedJurisdiction?: unknown;
   schemaVersion?: number | null;
   propertyDo?: 'unreachable';
+  /** Stored ledger currency, or null before one is set / when the property DO is unreachable. */
+  ledgerCurrency?: string | null;
 };
 
 /** `get_products` (R1.5). `taxGroup` is the charge code's — read-only on a product. */

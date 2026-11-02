@@ -1,4 +1,4 @@
-import { permissionForForbidden } from '@hospai/client-core';
+import { permissionForForbidden, type PropertyFormat } from '@hospai/client-core';
 import {
   useMutation,
   useQueryClient,
@@ -7,8 +7,13 @@ import {
 } from '@tanstack/react-query';
 import { asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 
-export function messageForFolioMutationError(err: unknown, fallback: string): string {
+export function messageForFolioMutationError(
+  err: unknown,
+  fallback: string,
+  fmt?: PropertyFormat,
+): string {
   const c = asClassified(err);
   if (c.class === 'forbidden') {
     const perm = permissionForForbidden(c.body);
@@ -28,7 +33,7 @@ export function messageForFolioMutationError(err: unknown, fallback: string): st
   if (c.class === 'queue_unavailable') {
     return 'Could not queue — queue unavailable.';
   }
-  return classifiedUserMessage(c, { fallback });
+  return classifiedUserMessage(c, { fallback, fmt });
 }
 
 /**
@@ -44,6 +49,7 @@ export function useFolioActionMutation<TData, TVariables = void>(opts: {
   onSuccess?: UseMutationOptions<TData, unknown, TVariables>['onSuccess'];
 }): UseMutationResult<TData, unknown, TVariables> {
   const { fallback, setMessage, onLocalError, mutationFn, onSuccess } = opts;
+  const { fmt } = useFormat();
   const queryClient = useQueryClient();
   const propertyId = tenant.propertyId;
   return useMutation<TData, unknown, TVariables>({
@@ -54,7 +60,7 @@ export function useFolioActionMutation<TData, TVariables = void>(opts: {
       if (asClassified(err).class === 'forbidden') {
         void queryClient.invalidateQueries({ queryKey: ['me', propertyId] });
       }
-      setMessage(messageForFolioMutationError(err, fallback));
+      setMessage(messageForFolioMutationError(err, fallback, fmt));
     },
   });
 }

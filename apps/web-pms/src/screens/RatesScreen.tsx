@@ -29,7 +29,7 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
-import { formatMinor, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import {
   RATE_AMOUNT_RE,
   buildBulkRateCells,
@@ -39,7 +39,7 @@ import {
   utcWeekday,
   type BulkRateCell,
 } from './rates-bulk.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
@@ -127,17 +127,6 @@ function ledgerCurrency(keys: Array<{ key: string; value: unknown }> | undefined
   return typeof row?.value === 'string' && row.value ? row.value : 'USD';
 }
 
-function formatMatrixDate(iso: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
-    weekday: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
-  const day = parts.find((part) => part.type === 'day')?.value ?? '';
-  return `${weekday} ${day}`;
-}
-
 function formatDerivePercent(deriveBps: number): string {
   const pct = deriveBps / 100;
   const rounded = Math.round(pct * 100) / 100;
@@ -169,8 +158,9 @@ function ratesLaterNote(lead: ReactNode) {
 }
 
 function RateAmount({ amountMinor }: { amountMinor: number | null }) {
+  const { money } = useFormat();
   if (amountMinor == null) return <span className="muted">{'\u2014'}</span>;
-  return formatMinor(amountMinor);
+  return money(amountMinor);
 }
 
 type RestrictionDraft = {
@@ -361,7 +351,8 @@ function RateCellEditor(props: {
   onError: (err: unknown) => void;
   onSaved: () => Promise<void>;
 }) {
-  const [raw, setRaw] = useState(props.amountMinor == null ? '' : formatMinor(props.amountMinor));
+  const { date } = useFormat();
+  const [raw, setRaw] = useState(props.amountMinor == null ? '' : minorToMajorInput(props.amountMinor));
   const closed = useRef(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -405,7 +396,7 @@ function RateCellEditor(props: {
   return (
     <div ref={wrapRef}>
       <Field
-        label={<VisuallyHidden>{`Rate for ${props.code} on ${props.stayDate}`}</VisuallyHidden>}
+        label={<VisuallyHidden>{`Rate for ${props.code} on ${date(props.stayDate)}`}</VisuallyHidden>}
         control={
           <Input
             value={raw}
@@ -435,6 +426,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const queryClient = useQueryClient();
   const activeTab = tab ?? 'matrix';
   const tz = usePropertyTimeZone();
+  const { date, tapeDay } = useFormat();
   const today = tz ? propertyLocalToday(tz) : null;
   const [searchParams, setSearchParams] = useSearchParams();
   const from = searchParams.get('from') ?? (today ?? '');
@@ -1201,7 +1193,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                       <DataTableHeaderCell>Type</DataTableHeaderCell>
                       {dates.map((d) => (
                         <DataTableHeaderCell key={d} align="right">
-                          {formatMatrixDate(d)}
+                          {tapeDay(d, dates.length <= 7)}
                         </DataTableHeaderCell>
                       ))}
                     </DataTableRow>
@@ -1257,7 +1249,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                                     type="button"
                                     intent="ghost"
                                     size="sm"
-                                    aria-label={`Edit rate for ${t.code} on ${d}`}
+                                    aria-label={`Edit rate for ${t.code} on ${date(d)}`}
                                     onClick={() => setEditingKey(cellKey)}
                                   >
                                     <RateAmount amountMinor={amountMinor} />
@@ -1459,7 +1451,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   <DataTableHeaderCell>Type</DataTableHeaderCell>
                   {dates.map((d) => (
                     <DataTableHeaderCell key={d} align="right">
-                      {formatMatrixDate(d)}
+                      {tapeDay(d, dates.length <= 7)}
                     </DataTableHeaderCell>
                   ))}
                 </DataTableRow>

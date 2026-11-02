@@ -17,7 +17,7 @@ import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { ArrowUpRightIcon, CheckIcon, NightAuditIcon, PlusIcon, RoomPlanIcon } from '../shell/icons.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { propertyLocalToday } from '../status/property-local-today.js';

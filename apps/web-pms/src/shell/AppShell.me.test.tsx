@@ -35,10 +35,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('./PropertyTimeZone.js', () => ({
-  PropertyTimeZoneProvider: ({ children }: { children: React.ReactNode }) => children,
-  usePropertyTimeZone: () => tzForTest.current,
-}));
+vi.mock('./PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('./property-format-test-stub.js');
+  return propertyFormatTestModule(() => tzForTest.current);
+});
 
 import { AppShell } from './AppShell.js';
 
@@ -129,7 +129,9 @@ describe('AppShell /me states', () => {
     expect(screen.getByTestId('property-name').textContent).toBe('Demo');
     const chip = screen.getByTestId('business-date-chip');
     expect(chip.textContent).toMatch(/Business date/);
-    expect(chip.textContent).toContain(propertyLocalToday('UTC'));
+    const iso = propertyLocalToday('UTC');
+    const [year, month, day] = iso.split('-');
+    expect(chip.textContent).toContain(`${day}/${month}/${year}`);
   });
 
   it('theme switch sits in the sidebar footer and Dark stores data-theme', async () => {

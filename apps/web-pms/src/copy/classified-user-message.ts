@@ -1,9 +1,12 @@
 import {
+  FALLBACK_FORMAT,
+  formatDate,
+  formatMoney,
+  permissionForForbidden,
   type ClassifiedResponse,
   type ClientResultClass,
-  permissionForForbidden,
+  type PropertyFormat,
 } from '@hospai/client-core';
-import { formatMinor } from '../money.js';
 
 const UNKNOWN_MESSAGE = 'Something went wrong — try again or ask a manager.';
 
@@ -44,18 +47,27 @@ function bodyStringField(body: unknown, key: string): string | undefined {
   return undefined;
 }
 
-const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
-  balance_due: (body) => {
+type MessageContext = {
+  fallback?: string;
+  /** Screen-specific overrides already painted before calling helper */
+  knownCode?: string | null;
+  fmt?: PropertyFormat;
+};
+
+const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageContext) => string> = {
+  balance_due: (body, context) => {
     const balanceMinor = bodyNumberField(body, 'balanceMinor');
     if (typeof balanceMinor === 'number') {
-      return `Guest owes ${formatMinor(balanceMinor)} — settle on the folio before checkout.`;
+      const fmt = context.fmt ?? FALLBACK_FORMAT;
+      return `Guest owes ${formatMoney(balanceMinor, fmt)} — settle on the folio before checkout.`;
     }
     return 'Guest balance is due — settle on the folio before checkout.';
   },
-  folio_balance_due: (body) => {
+  folio_balance_due: (body, context) => {
     const balanceMinor = bodyNumberField(body, 'balanceMinor');
     if (typeof balanceMinor === 'number') {
-      return `Guest owes ${formatMinor(balanceMinor)} — settle on the folio before generating the invoice.`;
+      const fmt = context.fmt ?? FALLBACK_FORMAT;
+      return `Guest owes ${formatMoney(balanceMinor, fmt)} — settle on the folio before generating the invoice.`;
     }
     return 'Folio balance is due — settle before generating the invoice.';
   },
@@ -87,10 +99,10 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
   config_code_removed: () =>
     'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',
   config_key_not_writable: () => 'That setting cannot be changed.',
-  no_availability: (body) => {
+  no_availability: (body, context) => {
     const date = bodyStringField(body, 'date');
     if (date) {
-      return `No availability on ${date} — pick another room type or date.`;
+      return `No availability on ${formatDate(date, context.fmt ?? FALLBACK_FORMAT)} — pick another room type or date.`;
     }
     return 'No availability — pick another room type or date.';
   },
@@ -98,11 +110,7 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown) => string> = {
 
 export function classifiedUserMessage(
   classified: ClassifiedResponse,
-  context: {
-    fallback?: string;
-    /** Screen-specific overrides already painted before calling helper */
-    knownCode?: string | null;
-  },
+  context: MessageContext,
 ): string {
 
   if (classified.class === 'forbidden') {
@@ -113,7 +121,7 @@ export function classifiedUserMessage(
   }
 
   const code = bodyErrorCode(classified.body);
-  const domainMsg = code ? DOMAIN_CODE_MESSAGES[code]?.(classified.body) : undefined;
+  const domainMsg = code ? DOMAIN_CODE_MESSAGES[code]?.(classified.body, context) : undefined;
   if (domainMsg) return domainMsg;
 
   const mapped = CLASS_MESSAGES[classified.class];

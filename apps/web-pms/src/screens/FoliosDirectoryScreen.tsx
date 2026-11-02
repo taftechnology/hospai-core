@@ -29,7 +29,7 @@ import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -66,13 +66,6 @@ function stayBadge(departureDate: string, today: string | null): { rung: StatusR
   return { rung: 'informational', label: 'In house' };
 }
 
-function shortDate(iso: string | undefined, timeZone: string): string {
-  if (!iso) return '';
-  return new Intl.DateTimeFormat('en-US', { timeZone, month: 'short', day: 'numeric' }).format(
-    new Date(`${iso}T12:00:00Z`),
-  );
-}
-
 function errorCopy(err: unknown, fallback: string): string {
   return err instanceof ClassifiedError
     ? classifiedUserMessage(err.classified, { fallback })
@@ -104,6 +97,7 @@ function OpenFolio({ reservationId }: { reservationId: string }) {
  */
 export function FoliosDirectoryScreen() {
   const timeZone = usePropertyTimeZone();
+  const { dateRange } = useFormat();
   const today = timeZone ? propertyLocalToday(timeZone) : null;
   const { subtitle } = usePropertySubtitle('In-house and due-out stays');
   const [cursor, setCursor] = useState<string | null>(null);
@@ -210,8 +204,9 @@ export function FoliosDirectoryScreen() {
                 </DataTableCell>
                 <DataTableCell>
                   <span className="ui-num">
-                    {shortDate(row.arrivalDate, timeZone ?? 'UTC')} –{' '}
-                    {shortDate(row.departureDate, timeZone ?? 'UTC')}
+                    {row.arrivalDate && row.departureDate
+                      ? dateRange(row.arrivalDate, row.departureDate)
+                      : ''}
                   </span>
                 </DataTableCell>
                 <DataTableCell>

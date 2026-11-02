@@ -1,22 +1,27 @@
+import { propertyFormat } from '@hospai/client-core';
 import { describe, expect, it } from 'vitest';
 import {
-  formatMinor,
   formatVarianceMinor,
   isCurrentOrPreviousBusinessDate,
+  minorToMajorInput,
   parseMajorToMinor,
   previousIsoDate,
 } from './money.js';
 
+const INR = propertyFormat({ timeZone: 'Asia/Kolkata', currency: 'INR' });
+
 describe('money helpers', () => {
-  it('formats and parses major/minor', () => {
-    expect(formatMinor(10_000)).toBe('100.00');
+  it('prefills an editable amount as plain digits and parses it back', () => {
+    expect(minorToMajorInput(450_000)).toBe('4500.00');
+    expect(minorToMajorInput(10_000)).toBe('100.00');
     expect(parseMajorToMinor('100.00')).toBe(10_000);
+    expect(parseMajorToMinor(minorToMajorInput(450_000))).toBe(450_000);
   });
 
-  it('variance short/over/even', () => {
-    expect(formatVarianceMinor(0)).toBe('even');
-    expect(formatVarianceMinor(-1500)).toBe('short 15.00');
-    expect(formatVarianceMinor(250)).toBe('over 2.50');
+  it('variance short/over/even prints the ledger currency', () => {
+    expect(formatVarianceMinor(0, INR)).toBe('even');
+    expect(formatVarianceMinor(-500, INR)).toBe('short ₹5.00');
+    expect(formatVarianceMinor(250, INR)).toBe('over ₹2.50');
   });
 
   it('callout date bound suppresses when propertyLocalToday null', () => {

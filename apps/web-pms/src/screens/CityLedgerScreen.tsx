@@ -27,7 +27,8 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
-import { formatMinor, parseMajorToMinor } from '../money.js';
+import { parseMajorToMinor } from '../money.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 
 type AgingBuckets = {
   currentMinor: number;
@@ -90,6 +91,7 @@ function statusRung(status: AccountSummary['status']): 'neutral' | 'informationa
 }
 
 export function CityLedgerScreen() {
+  const { money, date } = useFormat();
   const { accountId } = useParams();
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
@@ -273,7 +275,7 @@ export function CityLedgerScreen() {
             <dl className="stack-row">
               <div>
                 <dt className="muted">Credit limit</dt>
-                <dd>{formatMinor(detail.creditLimitMinor)}</dd>
+                <dd>{money(detail.creditLimitMinor)}</dd>
               </div>
               <div>
                 <dt className="muted">Terms (days)</dt>
@@ -282,7 +284,7 @@ export function CityLedgerScreen() {
               <div>
                 <dt className="muted">Open balance</dt>
                 <dd data-testid="city-ledger-open-balance">
-                  {formatMinor(detail.openBalanceMinor)}
+                  {money(detail.openBalanceMinor)}
                 </dd>
               </div>
             </dl>
@@ -300,11 +302,11 @@ export function CityLedgerScreen() {
               </DataTableHead>
               <DataTableBody>
                 <DataTableRow>
-                  <DataTableCell>{formatMinor(detail.aging.currentMinor)}</DataTableCell>
-                  <DataTableCell>{formatMinor(detail.aging.days30Minor)}</DataTableCell>
-                  <DataTableCell>{formatMinor(detail.aging.days60Minor)}</DataTableCell>
-                  <DataTableCell>{formatMinor(detail.aging.days90PlusMinor)}</DataTableCell>
-                  <DataTableCell>{formatMinor(detail.aging.totalOpenMinor)}</DataTableCell>
+                  <DataTableCell>{money(detail.aging.currentMinor)}</DataTableCell>
+                  <DataTableCell>{money(detail.aging.days30Minor)}</DataTableCell>
+                  <DataTableCell>{money(detail.aging.days60Minor)}</DataTableCell>
+                  <DataTableCell>{money(detail.aging.days90PlusMinor)}</DataTableCell>
+                  <DataTableCell>{money(detail.aging.totalOpenMinor)}</DataTableCell>
                 </DataTableRow>
               </DataTableBody>
             </DataTable>
@@ -328,10 +330,10 @@ export function CityLedgerScreen() {
                 <DataTableBody>
                   {detail.entries.map((entry) => (
                     <DataTableRow key={entry.entryId}>
-                      <DataTableCell>{entry.businessDate}</DataTableCell>
+                      <DataTableCell>{date(entry.businessDate)}</DataTableCell>
                       <DataTableCell>{entry.kind}</DataTableCell>
-                      <DataTableCell>{formatMinor(entry.amountMinor)}</DataTableCell>
-                      <DataTableCell>{entry.dueDate}</DataTableCell>
+                      <DataTableCell>{money(entry.amountMinor)}</DataTableCell>
+                      <DataTableCell>{date(entry.dueDate)}</DataTableCell>
                       <DataTableCell>{entry.daysOverdue}</DataTableCell>
                       <DataTableCell>{entry.source}</DataTableCell>
                       <DataTableCell>{entry.reference ?? ''}</DataTableCell>
@@ -604,12 +606,12 @@ export function CityLedgerScreen() {
                     <DataTableCell>
                       <Badge rung={statusRung(account.status)}>{badgeStatusWord(account.status)}</Badge>
                     </DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.creditLimitMinor)}</DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.openBalanceMinor)}</DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.aging.currentMinor)}</DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.aging.days30Minor)}</DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.aging.days60Minor)}</DataTableCell>
-                    <DataTableCell align="right">{formatMinor(account.aging.days90PlusMinor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.creditLimitMinor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.openBalanceMinor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.aging.currentMinor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.aging.days30Minor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.aging.days60Minor)}</DataTableCell>
+                    <DataTableCell align="right">{money(account.aging.days90PlusMinor)}</DataTableCell>
                   </DataTableRow>
                 ))}
               </DataTableBody>

@@ -116,7 +116,7 @@ The artifact's calculation passes all 104 pairs, lowest 5.90 light and 5.97 dark
 - Housekeeping gets its formatter as a host prop, the way it receives `Dialog` today.
 - `formatMinor` goes away: 60 call sites in 11 files. `formatVarianceMinor` keeps its words and prints the sign (`short ₹5.00`).
 - Every local date formatter goes, across the 14 files that call `Intl.DateTimeFormat` or `toLocale*`. `property-local-today.ts` stays, because it computes a date rather than displaying one.
-- The default float of 100.00 goes: the opening float starts empty and is required.
+- The default float of 100.00 goes: the opening float starts empty and is required. `ShiftStrip`'s auto-open goes with it, because it had only that default to send. Once the field was empty, it fired as soon as the clerk typed a valid first digit, opening a ₹1 shift on the way to ₹100. This amends the [folio first-paint](2026-08-13-folio-first-paint-design.md) decision: the clerk now opens the shift.
 
 **Known limit.** `<input type="date">` displays in the browser's own locale, and no CSS or attribute changes that. An Indian Chrome shows dd/mm/yyyy, but a browser set to US English shows mm/dd/yyyy. A custom date field would fix it and no slice asks for one, so it stays native. Add browser language to the walkthrough list.
 
@@ -330,3 +330,10 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - The gallery's sample "In house" badge was green, so it now says "Paid".
 
 `check:web-pms-colors` passes on the real file with 110 contrast assertions.
+
+**Step 2.** As §4, plus:
+- `formatDateTime` and `formatInstantDate` join the table, for timestamps and created-at dates.
+- `minorToMajorInput` prefills editable amounts as plain digits, which `parseMajorToMinor` can read back.
+- Invoice lines, tax and totals printed raw minor units, so an invoice read `Charges 10000`. They now print money.
+- `no_availability` shows its date as DD/MM/YYYY.
+- `pnpm demo:seed --currency INR --time-zone Asia/Kolkata` provisions the demo hotel in rupees. Rates in the seed follow the ledger currency.

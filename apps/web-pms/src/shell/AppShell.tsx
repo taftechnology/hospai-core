@@ -38,7 +38,7 @@ import {
 } from './icons.js';
 import { ALL_NAV } from './module-ui-registry.js';
 import type { NavEntry } from './nav.js';
-import { PropertyTimeZoneProvider, usePropertyTimeZone } from './PropertyTimeZone.js';
+import { PropertyFormatProvider, useFormat, usePropertyTimeZone } from './PropertyFormat.js';
 import { useThemeChoice } from './theme.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { ShiftStrip } from './ShiftStrip.js';
@@ -107,10 +107,10 @@ function hitPrimaryLabel(hit: SearchHit): string {
   return 'Folio';
 }
 
-function hitMeta(hit: SearchHit): string {
+function hitMeta(hit: SearchHit, dateRange: (from: string, to: string) => string): string {
   const parts: string[] = [];
   if (hit.arrivalDate && hit.departureDate) {
-    parts.push(`${hit.arrivalDate} → ${hit.departureDate}`);
+    parts.push(dateRange(hit.arrivalDate, hit.departureDate));
   }
   if (hit.status) parts.push(reservationStatusLabel(hit.status));
   return parts.join(' · ');
@@ -118,6 +118,7 @@ function hitMeta(hit: SearchHit): string {
 
 function ReservationSearch() {
   const navigate = useNavigate();
+  const { dateRange } = useFormat();
   const propertyId = tenant.propertyId;
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -168,7 +169,7 @@ function ReservationSearch() {
         <ul data-testid="reservation-search-results">
           {items.map((hit) => {
             const primary = hitPrimaryLabel(hit);
-            const meta = hitMeta(hit);
+            const meta = hitMeta(hit, dateRange);
             return (
               <li key={hit.reservationId}>
                 {hit.guestRef ? (
@@ -236,6 +237,7 @@ function ThemeSwitch() {
 function OpsRail({ authority }: { authority: Authority }) {
   const propertyId = tenant.propertyId;
   const timeZone = usePropertyTimeZone();
+  const { date } = useFormat();
   const propertyQ = useQuery({
     queryKey: ['property', propertyId],
     queryFn: () => api.getProperty(propertyId),
@@ -260,7 +262,7 @@ function OpsRail({ authority }: { authority: Authority }) {
         ) : null}{' '}
         {businessDate ? (
           <span className="chip" data-testid="business-date-chip">
-            <CalendarIcon size={12} /> Business date: {businessDate}
+            <CalendarIcon size={12} /> Business date: {date(businessDate)}
           </span>
         ) : null}
       </div>
@@ -332,7 +334,7 @@ export function AppShell() {
   const quietNav = navEntries.filter((e) => e.tone === 'quiet');
 
   return (
-    <PropertyTimeZoneProvider>
+    <PropertyFormatProvider>
       <div className="app-shell">
         <aside className="app-sidebar">
           <div>
@@ -390,6 +392,6 @@ export function AppShell() {
           </div>
         </div>
       </div>
-    </PropertyTimeZoneProvider>
+    </PropertyFormatProvider>
   );
 }

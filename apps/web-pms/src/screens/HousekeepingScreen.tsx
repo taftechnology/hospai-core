@@ -11,10 +11,11 @@ import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 
 export function HousekeepingScreen() {
   const timeZone = usePropertyTimeZone();
+  const { dateHeading, dateTime } = useFormat();
   const defaultBusinessDate = timeZone
     ? propertyLocalToday(timeZone)
     : new Date().toISOString().slice(0, 10);
@@ -59,6 +60,7 @@ export function HousekeepingScreen() {
       subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
       Dialog={FormDialog}
+      format={{ dateHeading, dateTime }}
       formatError={(err) =>
         classifiedUserMessage(asClassified(err), {
           fallback: inventory

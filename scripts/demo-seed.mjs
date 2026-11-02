@@ -3,7 +3,9 @@
  * Provision the local demo hotel against a running pms-core Worker.
  *
  *   pnpm demo:seed
- *   node scripts/demo-seed.mjs [--base-url http://127.0.0.1:8787] [--actor user_owner]
+ *   node scripts/demo-seed.mjs [--base-url http://127.0.0.1:8787] [--actor user_owner] [--currency INR] [--time-zone Asia/Kolkata]
+ *
+ * Currency and zone apply when the property is first provisioned; both are fixed after that.
  */
 
 const ORG_ID = 'org_demo';
@@ -17,6 +19,8 @@ const WORKER_HINT = 'Start the Worker first: pnpm --filter @hospai/pms-core dev'
 function parseArgs(argv) {
   let baseUrl = 'http://127.0.0.1:8787';
   let actor = 'user_owner';
+  let currency = CURRENCY;
+  let timeZone = TIME_ZONE;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--base-url') {
@@ -25,13 +29,19 @@ function parseArgs(argv) {
     } else if (arg === '--actor') {
       actor = argv[i + 1] ?? actor;
       i += 1;
+    } else if (arg === '--currency') {
+      currency = argv[i + 1] ?? currency;
+      i += 1;
+    } else if (arg === '--time-zone') {
+      timeZone = argv[i + 1] ?? timeZone;
+      i += 1;
     } else if (arg.startsWith('--base-url=')) {
       baseUrl = arg.slice('--base-url='.length);
     } else if (arg.startsWith('--actor=')) {
       actor = arg.slice('--actor='.length);
     }
   }
-  return { baseUrl: baseUrl.replace(/\/$/, ''), actor };
+  return { baseUrl: baseUrl.replace(/\/$/, ''), actor, currency, timeZone };
 }
 
 function fail(message, detail) {
@@ -50,7 +60,7 @@ async function readJson(res) {
 }
 
 async function main() {
-  const { baseUrl, actor } = parseArgs(process.argv.slice(2));
+  const { baseUrl, actor, currency, timeZone } = parseArgs(process.argv.slice(2));
   const headers = { 'content-type': 'application/json', 'x-dev-actor': actor };
 
   try {
@@ -75,8 +85,8 @@ async function main() {
     body: JSON.stringify({
       propertyId: PROPERTY_ID,
       name: PROPERTY_NAME,
-      timeZone: TIME_ZONE,
-      currency: CURRENCY,
+      timeZone,
+      currency,
     }),
   });
   const propBody = await readJson(propRes);

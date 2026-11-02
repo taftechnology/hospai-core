@@ -33,7 +33,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { GuestNameLink } from './guest-row.js';
 
@@ -80,17 +80,9 @@ function asRows(body: unknown): ExceptionRow[] {
   return Array.isArray(exceptions) ? (exceptions as ExceptionRow[]) : [];
 }
 
-function formatInstant(ms: number, timeZone: string | null): string {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: timeZone ?? 'UTC',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(ms));
-}
-
 export function ExceptionsScreen() {
   const propertyId = tenant.propertyId;
-  const timeZone = usePropertyTimeZone();
+  const { date, dateTime } = useFormat();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -508,10 +500,10 @@ export function ExceptionsScreen() {
                     </label>
                   </DataTableCell>
                   <DataTableCell>
-                    <span className="tabular-nums">{formatInstant(row.createdAt, timeZone)}</span>
+                    <span className="tabular-nums">{dateTime(row.createdAt)}</span>
                   </DataTableCell>
                   <DataTableCell>
-                    <span className="tabular-nums">{row.businessDate}</span>
+                    <span className="tabular-nums">{date(row.businessDate)}</span>
                   </DataTableCell>
                   <DataTableCell>
                     <span translate="no" className="min-w-0 truncate">
@@ -635,7 +627,7 @@ export function ExceptionsScreen() {
               <ol>
                 {detail.actions.map((a, i) => (
                   <li key={`${a.at}-${i}`}>
-                    {formatInstant(a.at, timeZone)} · {a.actor} · {a.action}
+                    {dateTime(a.at)} · {a.actor} · {a.action}
                   </li>
                 ))}
               </ol>

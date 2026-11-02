@@ -1,4 +1,9 @@
-import type { QueuedCommandEntry } from '@hospai/client-core';
+import {
+  FALLBACK_FORMAT,
+  formatDate,
+  type PropertyFormat,
+  type QueuedCommandEntry,
+} from '@hospai/client-core';
 
 const COMMAND_ID_LABELS: Record<string, string> = {
   'reservations.check_in': 'Check-in',
@@ -18,8 +23,11 @@ const COMMAND_ID_LABELS: Record<string, string> = {
   'housekeeping.set_priority': 'Housekeeping priority',
 };
 
-export function queuedCommandLine(entry: QueuedCommandEntry): string {
-  const date = entry.businessDate ?? entry.issuedAt.slice(0, 10);
+export function queuedCommandLine(
+  entry: QueuedCommandEntry,
+  fmt: PropertyFormat = FALLBACK_FORMAT,
+): string {
+  const date = formatDate(entry.businessDate ?? entry.issuedAt.slice(0, 10), fmt);
   const label = COMMAND_ID_LABELS[entry.commandId] ?? 'Queued action';
   const suffix =
     entry.reservationId != null && entry.reservationId !== ''

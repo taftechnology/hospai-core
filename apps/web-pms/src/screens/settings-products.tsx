@@ -24,7 +24,8 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
-import { formatMinor, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseMajorToMinor } from '../money.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
 import { FormDialog } from '../shell/FormDialog.js';
@@ -58,6 +59,7 @@ type ItemDraft = {
  * products module. The tax group shown is the charge code's (spec §2.3).
  */
 export function ProductsSettings({ onMessage }: { onMessage: (message: string) => void }) {
+  const { money } = useFormat();
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
   const [categoryDraft, setCategoryDraft] = useState<{ categoryId: string | null; name: string } | null>(
@@ -310,7 +312,7 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                     </DataTableCell>
                     <DataTableCell>{i.taxGroup ?? <span className="muted">Exempt</span>}</DataTableCell>
                     <DataTableCell align="right">
-                      <span className="ui-num">{formatMinor(i.defaultAmountMinor)}</span>
+                      <span className="ui-num">{money(i.defaultAmountMinor)}</span>
                     </DataTableCell>
                     <DataTableCell>
                       {i.status === 'archived' ? (
@@ -333,7 +335,7 @@ export function ProductsSettings({ onMessage }: { onMessage: (message: string) =
                               name: i.name,
                               categoryId: i.categoryId,
                               chargeCode: i.chargeCode,
-                              price: formatMinor(i.defaultAmountMinor),
+                              price: minorToMajorInput(i.defaultAmountMinor),
                               sku: i.sku ?? '',
                             });
                           }}

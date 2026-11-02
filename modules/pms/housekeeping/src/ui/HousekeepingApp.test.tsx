@@ -38,6 +38,11 @@ function TestDialog({
   );
 }
 
+const testFormat = {
+  dateHeading: (iso: string) => iso,
+  dateTime: (ms: number) => String(ms),
+};
+
 function renderApp(
   api: HousekeepingApi,
   opts:
@@ -70,6 +75,7 @@ function renderApp(
           canReadRoster={flags.canReadRoster}
           canSetOoo={flags.canSetOoo}
           formatError={'formatError' in flags ? flags.formatError : undefined}
+          format={testFormat}
           Dialog={TestDialog}
         />
       </MemoryRouter>

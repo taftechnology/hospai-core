@@ -31,7 +31,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
-import { usePropertyTimeZone } from '../shell/PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { GuestNameLink } from './guest-row.js';
 
 type DirWindow = 'today' | 'tomorrow' | 'week' | 'all';
@@ -44,43 +44,6 @@ const WINDOW_TABS: Array<{ id: DirWindow; label: string }> = [
   { id: 'week', label: 'This Week' },
   { id: 'all', label: 'All' },
 ];
-
-function formatLongDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('weekday')}, ${part('day')} ${part('month')} ${part('year')}`;
-}
-
-function dirDateParts(iso: string, timeZone: string): { day: string; month: string } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return { day: part('day'), month: part('month') };
-}
-
-function datesLabel(
-  arrival: string | undefined,
-  departure: string | undefined,
-  timeZone: string,
-): string {
-  if (!arrival || !departure) return '';
-  const a = dirDateParts(arrival, timeZone);
-  const d = dirDateParts(departure, timeZone);
-  return a.month === d.month
-    ? `${a.day}–${d.day} ${d.month}`
-    : `${a.day} ${a.month} – ${d.day} ${d.month}`;
-}
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -131,6 +94,7 @@ export function ReservationsDirectoryScreen() {
   const [date, setDate] = useState<string | null>(() => dateParam);
   const seededRef = useRef(windowParam === 'all' || Boolean(dateParam));
   const timeZone = usePropertyTimeZone();
+  const { dateHeading, dateRange } = useFormat();
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
@@ -319,7 +283,9 @@ export function ReservationsDirectoryScreen() {
               </DataTableCell>
               <DataTableCell>
                 <span className="ui-num">
-                  {datesLabel(row.arrivalDate, row.departureDate, timeZone ?? 'UTC')}
+                  {row.arrivalDate && row.departureDate
+                    ? dateRange(row.arrivalDate, row.departureDate)
+                    : ''}
                 </span>
               </DataTableCell>
               <DataTableCell>
@@ -363,7 +329,7 @@ export function ReservationsDirectoryScreen() {
     <div className="board-page">
       <PageHeader
         title="Reservations"
-        subtitle={date ? `${formatLongDate(date, timeZone ?? 'UTC')} · all stays` : undefined}
+        subtitle={date ? `${dateHeading(date)} · all stays` : undefined}
         actions={
           <Link className="ui-link-btn ui-link-btn--primary" to="/book">
             New booking

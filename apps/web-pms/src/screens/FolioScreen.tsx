@@ -45,7 +45,8 @@ import {
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
-import { formatMinor } from '../money.js';
+import { minorToMajorInput } from '../money.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
@@ -123,28 +124,6 @@ function tenderLabel(p: FolioPaymentRow): string {
   return 'Card';
 }
 
-function formatFolioDate(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')} ${part('month')}`;
-}
-
-function formatFolioEpochDate(epochMs: number, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'short',
-    day: 'numeric',
-  }).formatToParts(new Date(epochMs));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')} ${part('month')}`;
-}
-
 function nightsBetween(arrival: string, departure: string): number {
   const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
   return Math.max(0, Math.round(ms / 86_400_000));
@@ -211,6 +190,7 @@ type LedgerRow = {
 export function FolioScreen() {
   const { reservationId = '' } = useParams();
   const propertyId = tenant.propertyId;
+  const { money, date, dateRange, instantDate, fmt } = useFormat();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [chargeCode, setChargeCode] = useState('MISC');
@@ -1158,9 +1138,9 @@ export function FolioScreen() {
     for (const node of fold.roots) {
       const line = node.line;
       if (line.paymentId != null && tenderById.has(line.paymentId)) continue;
-      const date = line.businessDate
-        ? formatFolioDate(line.businessDate, propertyTz)
-        : formatFolioEpochDate(line.createdAt, propertyTz);
+      const rowDate = line.businessDate
+        ? date(line.businessDate)
+        : instantDate(line.createdAt);
       const sortKey = line.businessDate
         ? Date.parse(`${line.businessDate}T00:00:00Z`)
         : line.createdAt;
@@ -1168,7 +1148,7 @@ export function FolioScreen() {
       rows.push({
         key: line.folioLineId,
         sortKey,
-        date,
+        date: rowDate,
         code: line.chargeCode,
         description: node.orphanTax ? (
           <>
@@ -1185,7 +1165,7 @@ export function FolioScreen() {
         rows.push({
           key: t.line.folioLineId,
           sortKey,
-          date,
+          date: rowDate,
           code: 'TAX',
           description: `Tax · ${parentDesc}`,
           chargeMinor: t.line.ledgerAmountMinor > 0 ? t.line.ledgerAmountMinor : 0,
@@ -1198,7 +1178,7 @@ export function FolioScreen() {
       rows.push({
         key: `pay-${p.paymentId}`,
         sortKey: p.createdAt,
-        date: formatFolioEpochDate(p.createdAt, propertyTz),
+        date: instantDate(p.createdAt),
         code: cash ? 'CASH' : 'CARD',
         description: cash ? 'Cash payment' : `Card payment · ${tenderLabel(p)}`,
         chargeMinor: 0,
@@ -1207,7 +1187,7 @@ export function FolioScreen() {
     }
     rows.sort((a, b) => a.sortKey - b.sortKey);
     return rows;
-  }, [fold, payments, chargeCodesQ.data, propertyTz]);
+  }, [fold, payments, chargeCodesQ.data, date, instantDate]);
 
   const invoiceBody = invoiceQ.data?.body as
     | { snapshot?: InvoiceSnapshot; presentation?: Record<string, unknown> }
@@ -1247,8 +1227,7 @@ export function FolioScreen() {
                       </>
                     ) : null}
                     <span className="sep">·</span>
-                    {formatFolioDate(res.arrivalDate, propertyTz)} →{' '}
-                    {formatFolioDate(res.departureDate, propertyTz)}
+                    {dateRange(res.arrivalDate, res.departureDate)}
                     <span className="sep">·</span>{' '}
                     {nightsBetween(res.arrivalDate, res.departureDate)} nights
                   </>
@@ -1310,7 +1289,7 @@ export function FolioScreen() {
 
       {typeof balanceMinor === 'number' && balanceMinor < 0 ? (
         <Alert intent="informational" data-testid="folio-credit-notice">
-          <AlertTitle>Guest credit {formatMinor(Math.abs(balanceMinor))}</AlertTitle>
+          <AlertTitle>Guest credit {money(Math.abs(balanceMinor))}</AlertTitle>
           <span>The folio is overpaid. Issue a refund after departure if the guest asks for one.</span>
         </Alert>
       ) : null}
@@ -1352,10 +1331,10 @@ export function FolioScreen() {
                       </DataTableCell>
                       <DataTableCell>{row.description}</DataTableCell>
                       <DataTableCell align="right">
-                        {row.chargeMinor > 0 ? formatMinor(row.chargeMinor) : '—'}
+                        {row.chargeMinor > 0 ? money(row.chargeMinor) : '—'}
                       </DataTableCell>
                       <DataTableCell align="right">
-                        {row.paymentMinor < 0 ? formatMinor(row.paymentMinor) : '—'}
+                        {row.paymentMinor < 0 ? money(row.paymentMinor) : '—'}
                       </DataTableCell>
                     </DataTableRow>
                   ))}
@@ -1367,8 +1346,8 @@ export function FolioScreen() {
         {!folioQ.isError ? (
           <CardFooter>
             <div className="ui-summary">
-              <StatField label="Charges" value={formatMinor(ledgerChargesMinor)} />
-              <StatField label="Payments" value={formatMinor(-ledgerPaymentsMinor)} />
+              <StatField label="Charges" value={money(ledgerChargesMinor)} />
+              <StatField label="Payments" value={money(-ledgerPaymentsMinor)} />
             </div>
           </CardFooter>
         ) : null}
@@ -1395,7 +1374,7 @@ export function FolioScreen() {
                         setChargeProductId(e.target.value);
                         if (item) {
                           setChargeCode(item.chargeCode);
-                          setChargeAmount(formatMinor(item.defaultAmountMinor));
+                          setChargeAmount(minorToMajorInput(item.defaultAmountMinor));
                         }
                       }}
                     >
@@ -1404,7 +1383,7 @@ export function FolioScreen() {
                         <optgroup key={g.category.categoryId} label={g.category.name}>
                           {g.items.map((i) => (
                             <option key={i.productId} value={i.productId}>
-                              {i.name} · {formatMinor(i.defaultAmountMinor)}
+                              {i.name} · {money(i.defaultAmountMinor)}
                             </option>
                           ))}
                         </optgroup>
@@ -1543,15 +1522,15 @@ export function FolioScreen() {
               value={
                 typeof balanceMinor === 'number'
                   ? balanceMinor < 0
-                    ? `${formatMinor(Math.abs(balanceMinor))} credit`
-                    : formatMinor(balanceMinor)
+                    ? `${money(Math.abs(balanceMinor))} credit`
+                    : money(balanceMinor)
                   : '…'
               }
             />
             {held > 0 || noPost || folioQ.data?.balanceAtRisk ? (
               <div className="ui-row">
                 {held > 0 ? (
-                  <span className="muted">{formatMinor(held)} held on card</span>
+                  <span className="muted">{money(held)} held on card</span>
                 ) : null}
                 {noPost ? (
                   <Badge rung="informational" data-testid="no-post-chip">
@@ -1592,17 +1571,17 @@ export function FolioScreen() {
               <DataTableBody>
                 {tenderPayments.map((p) => {
                   const remaining = p.amountMinor - (p.capturedAmountMinor ?? 0);
-                  const defaultAmt = formatMinor(remaining);
+                  const defaultAmt = minorToMajorInput(remaining);
                   const value = captureAmounts[p.paymentId] ?? defaultAmt;
                   const capturedBase = p.capturedAmountMinor ?? p.amountMinor;
                   const refundedBase = p.refundedAmountMinor ?? 0;
                   const remainingMinor = capturedBase - refundedBase;
-                  const defaultRefund = formatMinor(remainingMinor);
+                  const defaultRefund = minorToMajorInput(remainingMinor);
                   const refundValue = refundAmounts[p.paymentId] ?? defaultRefund;
                   return (
                     <DataTableRow key={p.paymentId}>
                       <DataTableCell>{tenderLabel(p)}</DataTableCell>
-                      <DataTableCell>{formatMinor(p.amountMinor)}</DataTableCell>
+                      <DataTableCell>{money(p.amountMinor)}</DataTableCell>
                       <DataTableCell>{p.status}</DataTableCell>
                       <DataTableCell>
                         {p.status === 'unknown' ? (
@@ -1737,9 +1716,11 @@ export function FolioScreen() {
               {invoiceSnapshot.lines.map((line, i) => (
                 <li key={`${line.chargeName ?? line.chargeCode ?? 'line'}-${i}`}>
                   {line.chargeName ?? line.chargeCode ?? 'Line'}{' '}
-                  {typeof line.ledgerAmountMinor === 'number'
-                    ? line.ledgerAmountMinor
-                    : (line.amountMinor ?? 0)}
+                  {money(
+                    typeof line.ledgerAmountMinor === 'number'
+                      ? line.ledgerAmountMinor
+                      : (line.amountMinor ?? 0),
+                  )}
                 </li>
               ))}
             </ul>
@@ -1750,19 +1731,19 @@ export function FolioScreen() {
             <ul className="ui-list">
               {invoiceSnapshot.taxSummary.map((t, i) => (
                 <li key={`${t.taxRuleId ?? t.label ?? 'tax'}-${i}`}>
-                  {t.label ?? 'Tax'} {t.amountMinor ?? 0}
+                  {t.label ?? 'Tax'} {money(t.amountMinor ?? 0)}
                 </li>
               ))}
             </ul>
           ) : null}
           {invoiceSnapshot?.totals ? (
             <p>
-              Charges {invoiceSnapshot.totals.chargesMinor ?? 0}
+              Charges {money(invoiceSnapshot.totals.chargesMinor ?? 0)}
               {showInvoiceTax && typeof invoiceSnapshot.totals.taxMinor === 'number'
-                ? ` · Tax ${invoiceSnapshot.totals.taxMinor}`
+                ? ` · Tax ${money(invoiceSnapshot.totals.taxMinor)}`
                 : ''}
               {' · Balance '}
-              {invoiceSnapshot.totals.balanceMinor ?? 0}
+              {money(invoiceSnapshot.totals.balanceMinor ?? 0)}
             </p>
           ) : null}
           {canAdjust ? (
@@ -1833,7 +1814,7 @@ export function FolioScreen() {
                     rung={w.status === 'CLOSED' ? 'informational' : 'neutral'}
                     data-testid={`window-chip-${w.folioWindowId}`}
                   >
-                    {w.kind} {w.status} · {formatMinor(w.balanceMinor)}
+                    {w.kind} {w.status} · {money(w.balanceMinor)}
                   </Badge>
                   {canAdjust && w.status === 'OPEN' ? (
                     <Button
@@ -1962,8 +1943,8 @@ export function FolioScreen() {
               {node.line.txnCurrency !== ledgerCurrency ||
               (node.line.fxRate && node.line.fxRate !== '1') ? (
                 <span data-testid="line-fx">
-                  {node.line.txnCurrency} {formatMinor(node.line.amountMinor)} → {ledgerCurrency}{' '}
-                  {formatMinor(node.line.ledgerAmountMinor)} @ {node.line.fxRate ?? '1'}
+                  {money(node.line.amountMinor, node.line.txnCurrency)} →{' '}
+                  {money(node.line.ledgerAmountMinor)} @ {node.line.fxRate ?? '1'}
                 </span>
               ) : null}
               {canAdjust && transferDestsFor(node.line.folioWindowId).length > 0 ? (
@@ -2020,7 +2001,7 @@ export function FolioScreen() {
             <ul>
               {queued.forReservation.map((e) => (
                 <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                  {queuedCommandLine(e)}
+                  {queuedCommandLine(e, fmt)}
                 </li>
               ))}
             </ul>
@@ -2031,7 +2012,7 @@ export function FolioScreen() {
               <ul>
                 {queued.other.map((e) => (
                   <li key={`${e.commandId}-${e.idempotencyKey}`}>
-                    {queuedCommandLine(e)}
+                    {queuedCommandLine(e, fmt)}
                   </li>
                 ))}
               </ul>
@@ -2337,7 +2318,7 @@ export function FolioScreen() {
       {checkoutOverrideOpen ? (
         <ConfirmDialog
           title="Depart with open balance?"
-          description={`Depart with open balance ${formatMinor(balanceMinor ?? 0)}? This posts checkout with a balance override.`}
+          description={`Depart with open balance ${money(balanceMinor ?? 0)}? This posts checkout with a balance override.`}
           confirmLabel="Check out"
           onCancel={() => setCheckoutOverrideOpen(false)}
           onConfirm={() => {

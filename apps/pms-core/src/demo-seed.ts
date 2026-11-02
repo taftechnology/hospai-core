@@ -13,6 +13,7 @@ import { resolvePropertyFromRegistry } from './provision.js';
 import {
   addIsoDate,
   buildDemoSeedPlan,
+  DEMO_CURRENCY,
   DEMO_GUESTS,
   DEMO_RATE_AMOUNTS,
   DEMO_ROOMS,
@@ -158,6 +159,8 @@ export async function runDemoSeed(input: {
 
   await stub.ensurePastAvailabilityDays(plan.backfillFrom, plan.backfillToExclusive);
 
+  // Rates follow the property's ledger, so the seed also works on an INR property.
+  const currency = (await stub.readStoredLedgerCurrency()) ?? DEMO_CURRENCY;
   for (const rt of DEMO_ROOM_TYPES) {
     for (const stayDate of enumerateInclusive(plan.rateFrom, plan.rateTo)) {
       const cell = {
@@ -165,7 +168,7 @@ export async function runDemoSeed(input: {
         ratePlanId: DEFAULT_RATE_PLAN_ID,
         stayDate,
         amountMinor: DEMO_RATE_AMOUNTS[rt.roomTypeId],
-        currency: 'USD' as const,
+        currency,
       };
       const fp = await fingerprintPayload(cell);
       const upserted = await stub.tryUpsertRateDay(input.actor, cell, {

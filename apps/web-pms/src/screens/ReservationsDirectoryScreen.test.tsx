@@ -31,9 +31,10 @@ vi.mock('../client.js', () => ({
 }));
 
 const tzState: { current: string | null } = { current: 'UTC' };
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => tzState.current,
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => tzState.current);
+});
 
 import { ReservationsDirectoryScreen } from './ReservationsDirectoryScreen.js';
 

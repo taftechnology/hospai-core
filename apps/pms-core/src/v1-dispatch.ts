@@ -783,11 +783,13 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
   try {
     const recorded = await resolved.stub.getRecordedJurisdiction();
     const schemaVersion = await resolved.stub.getSchemaVersion();
+    const ledgerCurrency = await resolved.stub.readStoredLedgerCurrency();
     return json({
       property: resolved.property,
       locationHint: resolved.locationHint,
       recordedJurisdiction: recorded ?? null,
       schemaVersion,
+      ledgerCurrency,
     });
   } catch (e) {
     if (!isPropertyDoTransportFailure(e, ctx.env)) throw e;
@@ -797,6 +799,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
       recordedJurisdiction: null,
       schemaVersion: null,
       propertyDo: 'unreachable',
+      ledgerCurrency: null,
     });
   }
 }

@@ -36,9 +36,10 @@ vi.mock('../client.js', () => ({
   },
 }));
 
-vi.mock('../shell/PropertyTimeZone.js', () => ({
-  usePropertyTimeZone: () => 'UTC',
-}));
+vi.mock('../shell/PropertyFormat.js', async () => {
+  const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
+  return propertyFormatTestModule(() => 'UTC');
+});
 
 vi.mock('../status/property-local-today.js', () => ({
   propertyLocalToday: () => '2026-10-28',

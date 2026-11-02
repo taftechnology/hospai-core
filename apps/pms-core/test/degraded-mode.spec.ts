@@ -9,7 +9,7 @@ import {
   PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE,
 } from '../src/property-do-transport.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
+import { ensurePlatformSchema, insertProperty, resetPlatformSchemaGate, setKillSwitch, upsertOrg } from '../src/registry.js';
 import { idemFor, idemForCommand, seedBarRatesForHorizon } from './fixtures';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers';
 import { createHousekeeper } from './roster-helpers';
@@ -1317,14 +1317,16 @@ describe('degraded mode §4.6 fault injection', () => {
       propertyDo?: string;
       schemaVersion: unknown;
       recordedJurisdiction: unknown;
+      ledgerCurrency: string | null;
     };
     expect(body.property.timeZone).toBeTruthy();
     expect(body.propertyDo).toBe('unreachable');
     expect(body.schemaVersion).toBeNull();
     expect(body.recordedJurisdiction).toBeNull();
+    expect(body.ledgerCurrency).toBeNull();
   });
 
-  it('get_property: healthy omits propertyDo', async () => {
+  it('get_property: healthy returns the stored ledger currency and omits propertyDo', async () => {
     const actor = 'user_get_prop_ok';
     const { propertyId } = await provisionHotel(actor);
     const res = await worker.fetch(
@@ -1334,9 +1336,39 @@ describe('degraded mode §4.6 fault injection', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { propertyDo?: string; schemaVersion: number };
+    const body = (await res.json()) as {
+      propertyDo?: string;
+      schemaVersion: number;
+      ledgerCurrency: string | null;
+    };
     expect(body.propertyDo).toBeUndefined();
     expect(typeof body.schemaVersion).toBe('number');
+    expect(body.ledgerCurrency).toBe('USD');
+  });
+
+  it('get_property: ledgerCurrency is null before one is stored', async () => {
+    const actor = 'user_get_prop_nocur';
+    const orgId = `org_nocur_${crypto.randomUUID()}`;
+    const propertyId = `prop_nocur_${crypto.randomUUID()}`;
+    await upsertOrg(env, orgId, 'No Currency Org');
+    await testOrgStub(orgId).ensureMember(actor, 'owner');
+    await insertProperty(env, {
+      propertyId,
+      orgId,
+      name: 'No Currency Hotel',
+      jurisdiction: null,
+      timeZone: 'UTC',
+    });
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ledgerCurrency: string | null; propertyDo?: string };
+    expect(body.propertyDo).toBeUndefined();
+    expect(body.ledgerCurrency).toBeNull();
   });
 });
 

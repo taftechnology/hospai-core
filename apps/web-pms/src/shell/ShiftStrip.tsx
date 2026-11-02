@@ -2,26 +2,34 @@ import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
 import { Button, Field, Input, Alert } from '@hospai/ui-kit';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import {
-  formatMinor,
   isCurrentOrPreviousBusinessDate,
   parseMajorToMinor,
 } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { statusClass } from '../status/status-class.js';
-import { usePropertyTimeZone } from './PropertyTimeZone.js';
+import { useFormat, usePropertyTimeZone } from './PropertyFormat.js';
+
+/** Empty and non-numeric floats are invalid. Zero is a valid opening float. */
+function openingFloatMinor(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  return parseMajorToMinor(trimmed);
+}
 
 export function ShiftStrip({ authority }: { authority: Authority }) {
   const propertyId = tenant.propertyId;
   const showOpen = canShowShellOpen(authority);
   const queryClient = useQueryClient();
   const timeZone = usePropertyTimeZone();
+  const { money, date } = useFormat();
   const localToday = timeZone ? propertyLocalToday(timeZone) : null;
-  const [floatMajor, setFloatMajor] = useState('100.00');
+  const [floatMajor, setFloatMajor] = useState('');
+  const floatMinor = openingFloatMinor(floatMajor);
   const [message, setMessage] = useState<string | null>(null);
   /** §2.7 — mint once when the open form is prepared; remint only after success. */
   const [openShiftId, setOpenShiftId] = useState(() => `shift_${crypto.randomUUID()}`);
@@ -69,18 +77,6 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
     },
   });
 
-  const autoAttemptedRef = useRef(false);
-
-  useEffect(() => {
-    if (autoAttemptedRef.current) return;
-    if (!showOpen) return;
-    if (!openQ.isSuccess) return;
-    const body = openQ.data as { shift?: unknown } | undefined;
-    if (!body || body.shift != null) return;
-    autoAttemptedRef.current = true;
-    openMut.mutate();
-  }, [showOpen, openQ.isSuccess, openQ.data, openMut]);
-
   if (openQ.isError) {
     const c = asClassified(openQ.error);
     if (c.class === 'fail_closed') {
@@ -110,7 +106,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
 
   const callout = showForceCloseCallout ? (
     <div className={`shift-callout ${statusClass('exception')}`} data-testid="force-close-callout">
-      Drawer never counted for {newest.businessDate}.{' '}
+      Drawer never counted for {date(newest.businessDate)}.{' '}
       <Link to={`/shift/${encodeURIComponent(newest.shiftId)}`}>View shift</Link>
     </div>
   ) : null;
@@ -124,6 +120,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
             className="shift-open-form"
             onSubmit={(e) => {
               e.preventDefault();
+              if (floatMinor == null) return;
               openMut.mutate();
             }}
           >
@@ -137,9 +134,10 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
                 />
               }
             />
-            <Button type="submit" intent="primary" disabled={openMut.isPending}>
+            <Button type="submit" intent="primary" disabled={openMut.isPending || floatMinor == null}>
               Open shift
             </Button>
+            {floatMinor == null ? <span className="muted">Enter an opening float.</span> : null}
           </form>
         ) : null}
         {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
@@ -154,7 +152,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
     <div className="shift-strip">
       <span className="shift-strip__dot" aria-hidden="true" />
       <span data-testid="open-shift-badge">
-        Shift open · float ${formatMinor(shift.openingFloat)} · {shift.attributedCashCount} cash posts
+        Shift open · float {money(shift.openingFloat)} · {shift.attributedCashCount} cash posts
       </span>
       <Link className="shift-strip__close" to="/shift">
         Close shift

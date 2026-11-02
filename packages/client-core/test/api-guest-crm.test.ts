@@ -76,6 +76,25 @@ describe('guest CRM API', () => {
     expect(body).toMatchObject({ q: 'Ada', cursor: 'cur_2', limit: 10 });
   });
 
+  it('searchDesk POSTs /reservations-search with q in the body, never as a query param', async () => {
+    let path = '';
+    let method = '';
+    let body: Record<string, unknown> = {};
+    const client = clientWith((p, init) => {
+      path = p;
+      method = init?.method ?? '';
+      body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      return ok({ ok: true, items: [] });
+    });
+    await client.searchDesk('prop_1', 'Ada Sharma');
+    expect(method).toBe('POST');
+    const url = new URL(path, 'http://test');
+    expect(url.pathname).toBe('/v1/properties/prop_1/reservations-search');
+    expect(url.searchParams.has('q')).toBe(false);
+    expect(url.search).not.toContain('Ada');
+    expect(body).toEqual({ q: 'Ada Sharma' });
+  });
+
   it('listGuestStays and getGuest are GETs', async () => {
     const captured: Array<{ path: string; method: string }> = [];
     const client = clientWith((p, init) => {

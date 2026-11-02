@@ -169,6 +169,8 @@ import {
   RATES_BULK_UPDATE_MAX,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
+  RESERVATION_SEARCH_GUEST_REF_CAP,
+  RESERVATION_SEARCH_ROW_LIMIT,
   configUndeclared,
   isCommandError,
   type CommandError,
@@ -1707,6 +1709,11 @@ function validateNullableReservationCode(value: string | null): typeof VALIDATIO
 
 const FRONT_DESK_LIST_SELECT = `reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
   adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id, source_code, market_segment_code`;
+
+/** Same columns as the front-desk list, qualified, plus the live-or-any room code. */
+const DESK_SEARCH_SELECT = `r.reservation_id, r.room_type_id, r.guest_ref, r.arrival_date, r.departure_date, r.status, r.room_id,
+  r.adults, r.children, r.front_office_comment, r.vip_flag, r.dnd_flag, r.confirm_by, r.rate_plan_id, r.source_code, r.market_segment_code,
+  rm.code AS room_code`;
 
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
@@ -11203,6 +11210,95 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: true, items: exact.map((row) => this.mapFrontDeskListRow(row)) };
     }
     return { ok: true, items: [] };
+  }
+
+  private readDeskSearchRows(
+    sql: string,
+    ...bindings: Array<string | number>
+  ): Array<ReturnType<PropertyDO['mapFrontDeskListRow']> & { roomCode: string | null }> {
+    const rows = this.ctx.storage.sql.exec(sql, ...bindings).toArray() as Array<
+      Parameters<PropertyDO['mapFrontDeskListRow']>[0] & { room_code: string | null }
+    >;
+    return rows.map((row) => ({
+      ...this.mapFrontDeskListRow(row),
+      roomCode: row.room_code ?? null,
+    }));
+  }
+
+  /**
+   * Desk search branches (a) reservation id and (b) live room code.
+   * Room matches use `reservation_room_idx`. Read only.
+   */
+  async searchReservationsForDesk(q: string): Promise<{
+    ok: true;
+    items: Array<ReturnType<PropertyDO['mapFrontDeskListRow']> & { roomCode: string | null }>;
+  }> {
+    this.assertRpcAvailable();
+    const trimmed = q.trim();
+    const byId = this.readDeskSearchRows(
+      `SELECT ${DESK_SEARCH_SELECT}
+         FROM reservation r
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+        WHERE r.reservation_id = ?
+        LIMIT ?`,
+      trimmed,
+      RESERVATION_SEARCH_ROW_LIMIT,
+    );
+    if (byId.length > 0) return { ok: true, items: byId };
+    const byRoom = this.readDeskSearchRows(
+      `SELECT ${DESK_SEARCH_SELECT}
+         FROM reservation r
+         INNER JOIN room rm ON rm.room_id = r.room_id
+        WHERE rm.archived_at IS NULL
+          AND lower(rm.code) = lower(?)
+          AND r.status IN ('pending', 'confirmed', 'checked_in')
+        ORDER BY CASE r.status WHEN 'checked_in' THEN 0 ELSE 1 END,
+                 r.arrival_date ASC,
+                 r.reservation_id ASC
+        LIMIT ?`,
+      trimmed,
+      RESERVATION_SEARCH_ROW_LIMIT,
+    );
+    return { ok: true, items: byRoom };
+  }
+
+  /**
+   * Stays at this property for guests already scoped by OrgDO search.
+   * Active (pending, confirmed, checked_in) first, then most recent arrival.
+   */
+  async listStaysForGuests(
+    guestRefs: string[],
+    limit: number,
+  ): Promise<
+    | {
+        ok: true;
+        items: Array<ReturnType<PropertyDO['mapFrontDeskListRow']> & { roomCode: string | null }>;
+      }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+  > {
+    this.assertRpcAvailable();
+    if (guestRefs.length > RESERVATION_SEARCH_GUEST_REF_CAP) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+    if (guestRefs.length === 0) return { ok: true, items: [] };
+    const rowLimit = Math.min(
+      RESERVATION_SEARCH_ROW_LIMIT,
+      Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : RESERVATION_SEARCH_ROW_LIMIT,
+    );
+    const placeholders = guestRefs.map(() => '?').join(', ');
+    const items = this.readDeskSearchRows(
+      `SELECT ${DESK_SEARCH_SELECT}
+         FROM reservation r
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+        WHERE r.guest_ref IN (${placeholders})
+        ORDER BY CASE WHEN r.status IN ('pending', 'confirmed', 'checked_in') THEN 0 ELSE 1 END,
+                 r.arrival_date DESC,
+                 r.reservation_id DESC
+        LIMIT ?`,
+      ...guestRefs,
+      rowLimit,
+    );
+    return { ok: true, items };
   }
 
   async listReservationsByGuestRef(

@@ -343,3 +343,8 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - `FieldGroup inline` lets each field share the row up to its width cap, because a kit field is 100% wide on its own.
 - Folio charge, cash, authorisation, discount and FX amounts start empty, and so does the shift's blind closing count. Each button stays disabled until its amount parses (`parseAmountToMinor`). The card chargeback fee keeps its 0.00.
 - `boardRowSeverity` goes now. `tapeBlockSeverity` goes in step 5, together with the tape bars it colours.
+
+**Step 4.** As §6, plus:
+- The no-names case is tested through `setDenyGuestReadForTest` on OrgDO, which only works in unsafe-local mode, because every real role has `guests:read` today.
+- The search popover keeps focus in the field (`returnFocus={false}`). Opening a result clears the field and closes the panel, because the panel isn't tied to focus.
+- The shift float field's reason sits in a `VisuallyHidden` node that the disabled Open shift button references through `aria-describedby`.

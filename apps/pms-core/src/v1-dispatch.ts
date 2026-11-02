@@ -156,6 +156,8 @@ import {
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
   ROSTER_KINDS_MAX,
+  RESERVATION_SEARCH_GUEST_REF_CAP,
+  RESERVATION_SEARCH_ROW_LIMIT,
   ROSTER_OPS_SKILLS_MAX,
   normalizeRosterOpsSkills,
   rosterOpsFieldsValid,
@@ -2400,6 +2402,109 @@ async function handleGetReservationSearch(ctx: V1DispatchContext): Promise<Respo
     const displayName =
       entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
     return json({ ok: true, items: [{ ...row, displayName }] }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env) || isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+type DeskSearchRow = Awaited<
+  ReturnType<PropertyDO['searchReservationsForDesk']>
+>['items'][number];
+
+function deskSearchItems(
+  rows: DeskSearchRow[],
+  names: ReadonlyMap<string, string | null> | 'forbidden',
+): Array<DeskSearchRow & { displayName: string | null }> {
+  return rows.slice(0, RESERVATION_SEARCH_ROW_LIMIT).map((row) => ({
+    ...row,
+    displayName: names === 'forbidden' ? null : (names.get(row.guestRef) ?? null),
+  }));
+}
+
+async function handlePostReservationSearch(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const raw = await parseRequestJson(ctx.request);
+  if (raw instanceof Response) return raw;
+  const body = (raw ?? null) as { q?: unknown } | null;
+  const q = typeof body?.q === 'string' ? body.q.trim() : '';
+  if (q.length < 1 || q.length > 128) {
+    return json({ error: 'invalid_query' }, 400, GUEST_HEADERS);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  try {
+    const found = await resolvedCtx.resolved.stub.searchReservationsForDesk(q);
+    let rows = found.items.slice(0, RESERVATION_SEARCH_ROW_LIMIT);
+    let profiles: Map<string, string | null> | null = null;
+
+    if (rows.length === 0 && q.length >= 2) {
+      await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+      const searched = await org.searchGuests(actor, propertyId, {
+        q,
+        limit: RESERVATION_SEARCH_GUEST_REF_CAP,
+      });
+      if (!searched.ok) {
+        if (searched.error === FORBIDDEN) {
+          return json({ ok: true, items: [] }, 200, GUEST_HEADERS);
+        }
+        return guestDirectoryErrorResponse(searched.error);
+      }
+      const refs = searched.items.map((item) => item.guestId);
+      if (refs.length > RESERVATION_SEARCH_GUEST_REF_CAP) {
+        return json({ ok: false, error: LIMIT_EXCEEDED }, 422, GUEST_HEADERS);
+      }
+      if (refs.length > 0) {
+        const stays = await resolvedCtx.resolved.stub.listStaysForGuests(
+          refs,
+          RESERVATION_SEARCH_ROW_LIMIT,
+        );
+        if (!stays.ok) {
+          return json({ ok: false, error: stays.error }, 422, GUEST_HEADERS);
+        }
+        rows = stays.items.slice(0, RESERVATION_SEARCH_ROW_LIMIT);
+        profiles = new Map(
+          searched.items.map((item) => [item.guestId, item.profile.displayName ?? null]),
+        );
+      }
+    }
+
+    if (rows.length === 0) {
+      return json({ ok: true, items: [] }, 200, GUEST_HEADERS);
+    }
+
+    if (profiles) {
+      return json({ ok: true, items: deskSearchItems(rows, profiles) }, 200, GUEST_HEADERS);
+    }
+
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+    const hydrated = await org.readGuests(actor, propertyId, [
+      ...new Set(rows.map((row) => row.guestRef)),
+    ]);
+    if (!hydrated.ok) {
+      if (hydrated.error === FORBIDDEN) {
+        return json({ ok: true, items: deskSearchItems(rows, 'forbidden') }, 200, GUEST_HEADERS);
+      }
+      return guestDirectoryErrorResponse(hydrated.error);
+    }
+    const names = new Map<string, string | null>();
+    for (const row of rows) {
+      const entry = hydrated.guests[row.guestRef];
+      names.set(
+        row.guestRef,
+        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null,
+      );
+    }
+    return json({ ok: true, items: deskSearchItems(rows, names) }, 200, GUEST_HEADERS);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env) || isPropertyDoTransportFailure(e, ctx.env)) {
       return degradedFailClosedReadResponse();
@@ -9382,6 +9487,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'night_audit:run',
     entitlement: 'pms.core',
     handler: handleGetNightAuditCheckLog,
+  },
+  {
+    id: 'post_reservation_search',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations-search$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handlePostReservationSearch,
   },
 ];
 

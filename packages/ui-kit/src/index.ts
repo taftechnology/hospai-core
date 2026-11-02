@@ -4,6 +4,9 @@ export type { AlertProps, AlertTitleProps, BadgeProps, SkeletonProps } from './B
 export { Dialog } from './Dialog.js';
 export type { DialogProps } from './Dialog.js';
 
+export { Popover } from './Popover.js';
+export type { PopoverProps } from './Popover.js';
+
 export { FieldGroup } from './FieldGroup.js';
 export type { FieldGroupProps } from './FieldGroup.js';
 

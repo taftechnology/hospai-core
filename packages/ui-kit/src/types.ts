@@ -47,6 +47,7 @@ export type AriaLabelProps = Pick<
   | 'aria-required'
   | 'aria-expanded'
   | 'aria-controls'
+  | 'aria-activedescendant'
   | 'aria-haspopup'
   | 'aria-live'
   | 'aria-busy'

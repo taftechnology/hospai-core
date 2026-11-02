@@ -1178,3 +1178,17 @@ a.ui-metric:hover {
     break-inside: avoid;
   }
 }
+
+.ui-popover {
+  position: fixed;
+  inset-inline-start: var(--ui-popover-x, 0px);
+  inset-block-start: var(--ui-popover-y, 0px);
+  z-index: 40;
+  box-sizing: border-box;
+  max-block-size: min(24rem, calc(100dvh - 1rem));
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}

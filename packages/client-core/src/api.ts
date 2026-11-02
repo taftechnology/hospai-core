@@ -732,6 +732,14 @@ export function createClient(opts: {
         `/v1/properties/${enc(propertyId)}/reservations-search?q=${encodeURIComponent(q)}`,
       );
     },
+    /** Desk search. `q` stays in the JSON body so names never land in a URL. */
+    async searchDesk(propertyId: string, q: string) {
+      return getJson(`/v1/properties/${enc(propertyId)}/reservations-search`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ q }),
+      });
+    },
     async getFolioPayments(
       propertyId: string,
       reservationId: string,

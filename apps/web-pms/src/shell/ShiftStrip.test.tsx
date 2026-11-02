@@ -32,6 +32,7 @@ vi.mock('./PropertyFormat.js', async () => {
 });
 
 import type { Authority } from '../auth/me.js';
+import { BandHost, BandProvider } from './Band.js';
 import { ShiftStrip } from './ShiftStrip.js';
 
 const livePost: Authority = {
@@ -55,7 +56,10 @@ function renderStrip(authority: Authority = { kind: 'unknown' }) {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <ShiftStrip authority={authority} />
+        <BandProvider>
+          <ShiftStrip authority={authority} />
+          <BandHost />
+        </BandProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -99,7 +103,9 @@ describe('ShiftStrip', () => {
     const input = await screen.findByLabelText('opening-float');
     const open = screen.getByRole('button', { name: /open shift/i }) as HTMLButtonElement;
     expect(open.disabled).toBe(true);
-    expect(screen.getByText(/Enter an opening float/i)).toBeTruthy();
+    const hintId = open.getAttribute('aria-describedby');
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId!)?.textContent).toMatch(/Enter an opening float/i);
     // "1" is already a valid amount on the way to typing "100.00".
     fireEvent.change(input, { target: { value: '1' } });
     await new Promise((resolve) => setTimeout(resolve, 0));

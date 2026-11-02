@@ -21,7 +21,7 @@ vi.mock('../client.js', () => ({
     openShift: async () => ({ ok: true }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
     getProvisionalExceptions: async () => ({ items: [] }),
-    searchReservations: async () => ({ classified: { class: 'live' }, body: { ok: true, items: [] } }),
+    searchDesk: async () => ({ classified: { class: 'live' }, body: { ok: true, items: [] } }),
   },
   queuedCommands: { entries: () => [] },
   asClassified: (err: unknown) => {
@@ -123,7 +123,8 @@ describe('AppShell /me states', () => {
     renderShell();
 
     await waitFor(() => expect(screen.getByTestId('shell-role').textContent).toBe('Owner'));
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Guest name, room or booking ID' })).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: /role/i })).toBeNull();
     expect(screen.queryByText(/Simulation Active/i)).toBeNull();
     expect(screen.queryByText(/Whistle/i)).toBeNull();
     expect(screen.getByTestId('property-name').textContent).toBe('Demo');
@@ -148,7 +149,7 @@ describe('AppShell /me states', () => {
     expect(light.getAttribute('aria-pressed')).toBe('false');
     expect(dark.getAttribute('aria-pressed')).toBe('false');
     expect(group.closest('.app-sidebar-footer')).toBeTruthy();
-    expect(document.querySelector('.ops-rail [role="group"][aria-label="Theme"]')).toBeNull();
+    expect(document.querySelector('.top-bar [role="group"][aria-label="Theme"]')).toBeNull();
     fireEvent.click(dark);
     expect(dark.getAttribute('aria-pressed')).toBe('true');
     expect(system.getAttribute('aria-pressed')).toBe('false');

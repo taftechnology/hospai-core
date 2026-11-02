@@ -32,6 +32,7 @@ export type InputProps = TestIdProps &
     autoComplete?: string;
     id?: string;
     name?: string;
+    role?: 'combobox';
   };
 
 export const Input = forwardRef(function Input(
@@ -52,12 +53,16 @@ export const Input = forwardRef(function Input(
     autoComplete,
     id,
     name,
+    role,
     'data-testid': dataTestId,
     'aria-label': ariaLabel,
     'aria-labelledby': ariaLabelledBy,
     'aria-describedby': ariaDescribedBy,
     'aria-invalid': ariaInvalid,
     'aria-required': ariaRequired,
+    'aria-expanded': ariaExpanded,
+    'aria-controls': ariaControls,
+    'aria-activedescendant': ariaActiveDescendant,
     onChange,
     onInput,
     onFocus,
@@ -87,12 +92,16 @@ export const Input = forwardRef(function Input(
       autoComplete={autoComplete}
       id={id}
       name={name}
+      role={role}
       data-testid={dataTestId}
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}
       aria-describedby={ariaDescribedBy}
       aria-invalid={ariaInvalid}
       aria-required={ariaRequired}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
+      aria-activedescendant={ariaActiveDescendant}
       onChange={onChange}
       onInput={onInput}
       onFocus={onFocus}

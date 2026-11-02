@@ -829,7 +829,15 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[166] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(167);
+    expect(V1_HTTP_ROUTE_AUDIT[167]?.id).toBe('post_reservation_search');
+    expect(V1_HTTP_ROUTE_AUDIT[167]).toMatchObject({
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[167] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(168);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
     expect(COMMAND_CATALOG).toHaveLength(104);

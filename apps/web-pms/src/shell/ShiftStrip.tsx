@@ -1,8 +1,8 @@
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Button, Field, Input, Alert } from '@hospai/ui-kit';
-import { useState } from 'react';
+import { Button, Input, Skeleton, VisuallyHidden } from '@hospai/ui-kit';
+import { useId, useState } from 'react';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -12,7 +12,7 @@ import {
   parseMajorToMinor,
 } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
-import { statusClass } from '../status/status-class.js';
+import { useBand } from './Band.js';
 import { useFormat, usePropertyTimeZone } from './PropertyFormat.js';
 
 /** Empty and non-numeric floats are invalid. Zero is a valid opening float. */
@@ -30,6 +30,8 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   const [floatMajor, setFloatMajor] = useState('');
   const floatMinor = openingFloatMinor(floatMajor);
   const [message, setMessage] = useState<string | null>(null);
+  const floatHintId = useId();
+  const floatId = useId();
   /** §2.7 — mint once when the open form is prepared; remint only after success. */
   const [openShiftId, setOpenShiftId] = useState(() => `shift_${crypto.randomUUID()}`);
 
@@ -76,16 +78,52 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
     },
   });
 
+  const newest = recentQ.data?.shifts?.[0];
+  const showForceCloseCallout =
+    openQ.isSuccess &&
+    newest?.status === 'FORCE_CLOSED' &&
+    isCurrentOrPreviousBusinessDate(newest.businessDate, localToday);
+
+  useBand(
+    'shift-strip-message',
+    message
+      ? {
+          intent: 'exception',
+          message,
+          testId: 'shift-strip-message',
+          role: 'alert',
+        }
+      : null,
+  );
+  useBand(
+    'force-close-callout',
+    showForceCloseCallout && newest
+      ? {
+          intent: 'exception',
+          message: `Drawer never counted for ${date(newest.businessDate)}.`,
+          link: {
+            to: `/shift/${encodeURIComponent(newest.shiftId)}`,
+            label: 'View shift',
+          },
+          testId: 'force-close-callout',
+        }
+      : null,
+  );
+
   if (openQ.isError) {
     const c = asClassified(openQ.error);
     if (c.class === 'fail_closed') {
-      return <div className="shift-strip error">Shift unavailable — property unreachable</div>;
+      return <div className="shift-strip">Shift unavailable — property unreachable</div>;
     }
-    return <div className="shift-strip muted">Shift status unavailable</div>;
+    return <div className="shift-strip">Shift status unavailable</div>;
   }
 
   if (openQ.isPending) {
-    return <div className="shift-strip muted">Loading shift…</div>;
+    return (
+      <div className="shift-strip">
+        <Skeleton label="Loading shift" width="8rem" height="0.75rem" />
+      </div>
+    );
   }
 
   const body = openQ.data as
@@ -98,22 +136,10 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
       } | null }
     | undefined;
 
-  const newest = recentQ.data?.shifts?.[0];
-  const showForceCloseCallout =
-    newest?.status === 'FORCE_CLOSED' &&
-    isCurrentOrPreviousBusinessDate(newest.businessDate, localToday);
-
-  const callout = showForceCloseCallout ? (
-    <div className={`shift-callout ${statusClass('exception')}`} data-testid="force-close-callout">
-      Drawer never counted for {date(newest.businessDate)}.{' '}
-      <Link to={`/shift/${encodeURIComponent(newest.shiftId)}`}>View shift</Link>
-    </div>
-  ) : null;
-
   if (!body || body.shift == null) {
     return (
       <div className="shift-strip">
-        <span className={statusClass('neutral')}>No open shift</span>
+        <span>No open shift</span>
         {showOpen ? (
           <form
             className="shift-open-form"
@@ -123,24 +149,31 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
               openMut.mutate();
             }}
           >
-            <Field
-              label="Opening float"
-              control={
-                <Input
-                  aria-label="opening-float"
-                  value={floatMajor}
-                  onChange={(e) => setFloatMajor(e.target.value)}
-                />
-              }
+            <VisuallyHidden>
+              <label htmlFor={floatId}>Opening float</label>
+            </VisuallyHidden>
+            <Input
+              id={floatId}
+              aria-label="opening-float"
+              placeholder="Opening float"
+              value={floatMajor}
+              onChange={(e) => setFloatMajor(e.target.value)}
             />
-            <Button type="submit" intent="primary" disabled={openMut.isPending || floatMinor == null}>
+            {floatMinor == null ? (
+              <VisuallyHidden>
+                <span id={floatHintId}>Enter an opening float.</span>
+              </VisuallyHidden>
+            ) : null}
+            <Button
+              type="submit"
+              intent="primary"
+              disabled={openMut.isPending || floatMinor == null}
+              aria-describedby={floatMinor == null ? floatHintId : undefined}
+            >
               Open shift
             </Button>
-            {floatMinor == null ? <span className="muted">Enter an opening float.</span> : null}
           </form>
         ) : null}
-        {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
-        {callout}
       </div>
     );
   }
@@ -150,14 +183,12 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   return (
     <div className="shift-strip">
       <span className="shift-strip__dot" aria-hidden="true" />
-      <span data-testid="open-shift-badge">
+      <Link className="shift-strip__badge" data-testid="open-shift-badge" to="/shift">
         Shift open · float {money(shift.openingFloat)} · {shift.attributedCashCount} cash posts
-      </span>
+      </Link>
       <Link className="shift-strip__close" to="/shift">
         Close shift
       </Link>
-      {message ? <Alert data-testid="shift-strip-message">{message}</Alert> : null}
-      {callout}
     </div>
   );
 }

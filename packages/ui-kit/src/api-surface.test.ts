@@ -5,6 +5,7 @@ import type {
   CardHeaderProps,
   DialogProps,
   EmptyStateProps,
+  PopoverProps,
   FieldGroupProps,
   FieldProps,
   InputProps,
@@ -47,6 +48,11 @@ describe('ui-kit API surface', () => {
     expectTypeOf<EmptyStateProps>().not.toHaveProperty('className');
     expectTypeOf<DialogProps>().not.toHaveProperty('className');
     expectTypeOf<DialogProps>().not.toHaveProperty('style');
+    expectTypeOf<PopoverProps>().not.toHaveProperty('className');
+    expectTypeOf<PopoverProps>().not.toHaveProperty('style');
+    expectTypeOf<PopoverProps['placement']>().toEqualTypeOf<
+      'bottom-start' | 'bottom-end' | 'auto' | undefined
+    >();
     expectTypeOf<FieldGroupProps>().not.toHaveProperty('className');
     expectTypeOf<TotalProps>().not.toHaveProperty('className');
     // @ts-expect-error className is forbidden on ui-kit components

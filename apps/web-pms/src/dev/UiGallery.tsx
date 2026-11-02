@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -22,6 +22,7 @@ import {
   Input,
   LinkButton,
   NativeSelect,
+  Popover,
   RoomStatus,
   Separator,
   Skeleton,
@@ -32,6 +33,8 @@ import {
 
 export function UiGallery() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const popoverAnchorRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Card className="ui-stack">
@@ -90,6 +93,29 @@ export function UiGallery() {
           >
             <p className="muted">Dialog body copy for the gallery.</p>
           </Dialog>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Popover</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            ref={popoverAnchorRef}
+            onClick={() => setPopoverOpen((open) => !open)}
+          >
+            Open sample popover
+          </Button>
+          <Popover
+            open={popoverOpen}
+            onClose={() => setPopoverOpen(false)}
+            anchorRef={popoverAnchorRef}
+            label="Sample popover"
+          >
+            <p className="muted">Popover body for the gallery. Escape or a click outside closes it.</p>
+          </Popover>
         </CardContent>
       </Card>
 

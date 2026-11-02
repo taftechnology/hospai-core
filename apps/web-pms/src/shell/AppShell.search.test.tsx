@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClassifiedError } from '@hospai/client-core';
 
 const getMe = vi.fn();
-const searchReservations = vi.fn();
+const searchDesk = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -19,7 +19,7 @@ vi.mock('../client.js', () => ({
     openShift: async () => ({ ok: true }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
     getProvisionalExceptions: async () => ({ items: [] }),
-    searchReservations: (...a: unknown[]) => searchReservations(...a),
+    searchDesk: (...a: unknown[]) => searchDesk(...a),
   },
   queuedCommands: { entries: () => [] },
   asClassified: (err: unknown) => {
@@ -53,6 +53,23 @@ const liveMe = {
   role: 'owner' as const,
   permissions: ['reservations:read', 'folio:read', 'folio:post'] as const,
   orgPermissions: ['org:read'] as const,
+};
+
+const oneHit = {
+  classified: { class: 'live' },
+  body: {
+    ok: true,
+    items: [
+      {
+        reservationId: 'res_hit',
+        displayName: 'Ada',
+        roomCode: '204',
+        status: 'confirmed',
+        arrivalDate: '2026-08-11',
+        departureDate: '2026-08-12',
+      },
+    ],
+  },
 };
 
 function renderShell(path = '/arrivals') {
@@ -89,50 +106,40 @@ function renderShell(path = '/arrivals') {
   );
 }
 
+async function typeQuery(value: string) {
+  fireEvent.change(screen.getByTestId('reservation-search'), { target: { value } });
+  await waitFor(() => expect(searchDesk).toHaveBeenCalledWith('prop_demo', value));
+}
+
 describe('AppShell reservation search', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    searchReservations.mockResolvedValue({
-      classified: { class: 'live' },
-      body: {
-        ok: true,
-        items: [
-          {
-            reservationId: 'res_hit',
-            guestRef: 'g1',
-            displayName: 'Ada',
-            status: 'confirmed',
-            arrivalDate: '2026-08-11',
-            departureDate: '2026-08-12',
-          },
-        ],
-      },
-    });
+    searchDesk.mockResolvedValue(oneHit);
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it('24: visible with reservations:read; click navigates to folio', async () => {
+  it('searches by property and query, and a click opens the folio', async () => {
     getMe.mockResolvedValue(liveMe);
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
-    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).toMatch(
-      /reservation id/i,
-    );
-    fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Ada' } });
-    await waitFor(() => expect(searchReservations).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByRole('button', { name: /Ada/ })).toBeTruthy());
-    expect(screen.queryByText(/res_hit/)).toBeNull();
-    expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
-    fireEvent.click(screen.getByRole('button', { name: /Ada/ }));
+    const input = screen.getByTestId('reservation-search') as HTMLInputElement;
+    expect(input.placeholder).toBe('Guest name, room or booking ID');
+    expect(input.getAttribute('aria-label')).toBe('Guest name, room or booking ID');
+    await typeQuery('Ada');
+    const option = await screen.findByRole('option', { name: /Ada/ });
+    expect(option.textContent).toMatch(/204/);
+    expect(option.textContent).toMatch(/Confirmed/);
+    expect(screen.queryByTestId('guest-profile-link')).toBeNull();
+    fireEvent.click(option);
     await waitFor(() => {
       expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/folio/res_hit');
     });
   });
 
-  it('24: hidden without reservations:read', async () => {
+  it('is hidden without reservations:read', async () => {
     getMe.mockResolvedValue({
       ...liveMe,
       permissions: ['folio:read', 'folio:post'],
@@ -142,17 +149,17 @@ describe('AppShell reservation search', () => {
     expect(screen.queryByTestId('reservation-search')).toBeNull();
   });
 
-  it('search meta uses reservation status label, not wire status', async () => {
+  it('uses the status word, not the wire status', async () => {
     getMe.mockResolvedValue(liveMe);
-    searchReservations.mockResolvedValue({
+    searchDesk.mockResolvedValue({
       classified: { class: 'live' },
       body: {
         ok: true,
         items: [
           {
             reservationId: 'res_inhouse',
-            guestRef: 'g_maria',
             displayName: 'Maria',
+            roomCode: null,
             status: 'checked_in',
             arrivalDate: '2026-08-11',
             departureDate: '2026-08-12',
@@ -162,27 +169,103 @@ describe('AppShell reservation search', () => {
     });
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
-    fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Maria' } });
-    await waitFor(() => expect(screen.getByRole('button', { name: /Maria/ })).toBeTruthy());
-    expect(screen.getByRole('button', { name: /Maria/ }).textContent).toMatch(/In house/);
-    expect(screen.getByRole('button', { name: /Maria/ }).textContent).not.toMatch(/checked_in/);
+    await typeQuery('Maria');
+    const option = await screen.findByRole('option', { name: /Maria/ });
+    expect(option.textContent).toMatch(/In house/);
+    expect(option.textContent).toMatch(/Unassigned/);
+    expect(option.textContent).not.toMatch(/checked_in/);
   });
 
-  it('T-P3c: placeholder says reservation id not guest name', async () => {
+  it('Enter on the only result opens the folio', async () => {
     getMe.mockResolvedValue(liveMe);
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
-    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).toMatch(
-      /reservation id/i,
-    );
-    expect((screen.getByTestId('reservation-search') as HTMLInputElement).placeholder).not.toMatch(
-      /guest name/i,
+    await typeQuery('Ada');
+    await screen.findByRole('option', { name: /Ada/ });
+    fireEvent.keyDown(screen.getByTestId('reservation-search'), { key: 'Enter' });
+    await waitFor(() => {
+      expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/folio/res_hit');
+    });
+    expect((screen.getByTestId('reservation-search') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByTestId('reservation-search-results')).toBeNull();
+  });
+
+  it('Ctrl+K focuses the field; arrows, Enter and Escape move through results', async () => {
+    getMe.mockResolvedValue(liveMe);
+    searchDesk.mockResolvedValue({
+      classified: { class: 'live' },
+      body: {
+        ok: true,
+        items: [
+          {
+            reservationId: 'res_one',
+            displayName: 'Ada',
+            roomCode: '101',
+            status: 'confirmed',
+            arrivalDate: '2026-08-11',
+            departureDate: '2026-08-12',
+          },
+          {
+            reservationId: 'res_two',
+            displayName: 'Bea',
+            roomCode: '102',
+            status: 'pending',
+            arrivalDate: '2026-08-13',
+            departureDate: '2026-08-14',
+          },
+        ],
+      },
+    });
+    renderShell();
+    const input = await screen.findByTestId('reservation-search');
+    input.blur();
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+    expect(document.activeElement).toBe(input);
+    await typeQuery('Be');
+    await screen.findByRole('option', { name: /Ada/ });
+    expect(screen.getByRole('option', { name: /Ada/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /Bea/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: /Ada/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(screen.getByRole('option', { name: /Bea/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => {
+      expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/folio/res_two');
+    });
+  });
+
+  it('Escape closes the results and keeps the text', async () => {
+    getMe.mockResolvedValue(liveMe);
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    await typeQuery('Ada');
+    await screen.findByTestId('reservation-search-results');
+    fireEvent.keyDown(screen.getByTestId('reservation-search'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('reservation-search-results')).toBeNull());
+    expect((screen.getByTestId('reservation-search') as HTMLInputElement).value).toBe('Ada');
+  });
+
+  it('empty copy quotes the query', async () => {
+    getMe.mockResolvedValue(liveMe);
+    searchDesk.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, items: [] },
+    });
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    await typeQuery('Shar');
+    await waitFor(() =>
+      expect(
+        screen.getByText('No stay matches “Shar”. Try a full name, room number or booking ID.'),
+      ).toBeTruthy(),
     );
   });
 
-  it('24: fail_closed copy', async () => {
+  it('fail_closed copy', async () => {
     getMe.mockResolvedValue(liveMe);
-    searchReservations.mockRejectedValue(
+    searchDesk.mockRejectedValue(
       new ClassifiedError({
         class: 'fail_closed',
         status: 503,
@@ -192,9 +275,35 @@ describe('AppShell reservation search', () => {
     );
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
-    fireEvent.change(screen.getByTestId('reservation-search'), { target: { value: 'Ada' } });
+    await typeQuery('Ada');
     await waitFor(() =>
       expect(screen.getByText('Search unavailable — property unreachable.')).toBeTruthy(),
     );
+  });
+
+  it('a null name reads Guest unavailable', async () => {
+    getMe.mockResolvedValue(liveMe);
+    searchDesk.mockResolvedValue({
+      classified: { class: 'live' },
+      body: {
+        ok: true,
+        items: [
+          {
+            reservationId: 'res_noname',
+            displayName: null,
+            roomCode: '12',
+            status: 'confirmed',
+            arrivalDate: '2026-08-11',
+            departureDate: '2026-08-12',
+          },
+        ],
+      },
+    });
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
+    await typeQuery('res_noname');
+    const option = await screen.findByRole('option', { name: /Guest unavailable/ });
+    expect(option.textContent).toMatch(/12/);
+    expect(screen.queryByTestId('guest-profile-link')).toBeNull();
   });
 });

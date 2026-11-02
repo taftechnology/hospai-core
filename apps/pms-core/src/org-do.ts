@@ -389,6 +389,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
   private transportBlockedForTest = false;
+  private denyGuestReadForTest = false;
   private guestReadRpcCountForTest = 0;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
@@ -607,6 +608,12 @@ export class OrgDO extends DurableObject<PmsEnv> {
   async setTransportBlockedForTest(blocked: boolean): Promise<void> {
     this.assertUnsafeLocal('setTransportBlockedForTest');
     this.transportBlockedForTest = blocked;
+  }
+
+  /** Vitest only: `guests:read` answers forbidden while reservations routes still pass. */
+  async setDenyGuestReadForTest(deny: boolean): Promise<void> {
+    this.assertUnsafeLocal('setDenyGuestReadForTest');
+    this.denyGuestReadForTest = deny;
   }
 
   async resetGuestReadRpcCountForTest(): Promise<void> {
@@ -890,6 +897,10 @@ export class OrgDO extends DurableObject<PmsEnv> {
     permission: Permission,
   ): Promise<{ ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH } | null> {
     if (actor.kind === 'system') return null;
+
+    if (this.denyGuestReadForTest && permission === 'guests:read') {
+      return { ok: false, error: FORBIDDEN };
+    }
 
     const result = await this.assertPermission({ userId: actor.userId, propertyId, permission });
     if (!result.ok) return { ok: false, error: result.error };

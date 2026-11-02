@@ -222,7 +222,7 @@ After roadmap R1.10 (night audit checks, 2026-10-31) — update this table when 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **104** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **167** routes, last id **`get_night_audit_check_log`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **168** routes, last id **`post_reservation_search`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `PROPERTY_SCHEMA_HEAD` | **40** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |

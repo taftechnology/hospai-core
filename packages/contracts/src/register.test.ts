@@ -1257,6 +1257,50 @@ describe('command catalog', () => {
     }
   });
 
+  it('invoice numbering DOMAIN keys are consumersExempt and audited', () => {
+    for (const key of [
+      'pms.invoice.prefix',
+      'pms.invoice.suffix',
+      'pms.invoice.starting_idx',
+      'pms.invoice.gen_mode',
+      'pms.invoice.allow_pending',
+      'pms.invoice.date_rule',
+      'pms.invoice.title',
+      'pms.invoice.footer',
+      'pms.invoice.show_taxfee',
+    ] as const) {
+      const e = CONFIG_REGISTER.find((x) => x.key === key);
+      expect(e?.class).toBe('DOMAIN');
+      expect(e?.consumersExempt).toBe(true);
+      expect(e?.audited).toBe(true);
+      expect(e?.permission).toBe('settings:configure');
+    }
+  });
+
+  it('pms.invoice.series is DOMAIN with no prototype key', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.invoice.series');
+    expect(e?.class).toBe('DOMAIN');
+    expect(e?.prototypeKey).toBeNull();
+    expect(e?.default).toBe('continuous');
+    expect(e?.consumersExempt).toBe(true);
+    expect(e?.audited).toBe(true);
+    expect(CONFIG_REGISTER.some((x) => x.prototypeKey === 'pms.invoice.series')).toBe(false);
+  });
+
+  it('pms.invoice.gen_mode schema accepts Automatically and Manually only', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.invoice.gen_mode');
+    expect(e?.schema.safeParse('Automatically').success).toBe(true);
+    expect(e?.schema.safeParse('Manually').success).toBe(true);
+    expect(e?.schema.safeParse('Whenever').success).toBe(false);
+  });
+
+  it('pms.invoice.date_rule schema accepts CHECKOUT and BUSINESS_DATE only', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.invoice.date_rule');
+    expect(e?.schema.safeParse('CHECKOUT').success).toBe(true);
+    expect(e?.schema.safeParse('BUSINESS_DATE').success).toBe(true);
+    expect(e?.schema.safeParse('TODAY').success).toBe(false);
+  });
+
   it('cashiering commands are FAIL_CLOSED with folio:post and shift.changed / payment events', () => {
     for (const id of ['folio.open_shift', 'folio.close_shift'] as const) {
       const c = COMMAND_CATALOG.find((x) => x.id === id);
@@ -1335,6 +1379,16 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.reservations',
       'pms.housekeeping',
       'pms.ops.auto_assign_rooms',
+      'pms.invoice.prefix',
+      'pms.invoice.suffix',
+      'pms.invoice.starting_idx',
+      'pms.invoice.gen_mode',
+      'pms.invoice.allow_pending',
+      'pms.invoice.date_rule',
+      'pms.invoice.title',
+      'pms.invoice.footer',
+      'pms.invoice.show_taxfee',
+      'pms.invoice.series',
     ];
     for (const e of domainConfigKeys()) {
       expect(

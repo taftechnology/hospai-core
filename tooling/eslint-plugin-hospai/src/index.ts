@@ -55,6 +55,16 @@ export const DOMAIN_KEY_PREFIXES = [
   'pms.reservations',
   'pms.housekeeping',
   'pms.ops.auto_assign_rooms',
+  'pms.invoice.prefix',
+  'pms.invoice.suffix',
+  'pms.invoice.starting_idx',
+  'pms.invoice.gen_mode',
+  'pms.invoice.allow_pending',
+  'pms.invoice.date_rule',
+  'pms.invoice.title',
+  'pms.invoice.footer',
+  'pms.invoice.show_taxfee',
+  'pms.invoice.series',
 ] as const;
 
 function stringLooksLikeDomainKey(value: string): boolean {

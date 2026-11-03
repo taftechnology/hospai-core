@@ -25,7 +25,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | `/staff`, `/roster` | TemplateDirectory | DataTable, TagEditor, FieldGroup, Dialog |
 | `/night-audit` | TemplateWorkbench | Tabs, Alert, CheckResult, DataTable |
 | `/exceptions` | TemplateDirectory | Toolbar, SidePanel, PayloadInspector, Pagination |
-| `/settings/*` (property, charges, tax, products, maintenance, sources, **users**, **system**, **logs**) | TemplateSettings | Tabs, Field, AutosaveStatus, DataTable, OrderableList, Dialog, EmptyState |
+| `/settings/*` (property, charges, tax, **finance**, products, maintenance, sources, **users**, **system**, **logs**) | TemplateSettings | Tabs, Field, AutosaveStatus, DataTable, OrderableList, Dialog, EmptyState |
 | `/housekeeping`, `/housekeeping/priority`, `/housekeeping/inventory` | TemplateDirectory | Tabs, Metrics, DataTable, RoomStatus, Dialog |
 | `/maintenance` | TemplateDirectory | Toolbar, DataTable, Dialog, ChecklistRunner |
 | `/sign-in` | AuthLayout | Field, Input, Button |

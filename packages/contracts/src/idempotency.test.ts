@@ -37,6 +37,7 @@ import {
   INVOICE_NOT_FOUND,
   INVOICE_VOIDED,
   INVOICE_R2_UNBOUND,
+  INVOICE_NUMBER_INVALID,
   INVOICE_REQUIRED,
   FOLIO_BALANCE_DUE,
   CITY_LEDGER_ACCOUNT_NOT_FOUND,
@@ -177,6 +178,7 @@ describe('fingerprintPayload', () => {
     expect(INVOICE_NOT_FOUND).toBe('invoice_not_found');
     expect(INVOICE_VOIDED).toBe('invoice_voided');
     expect(INVOICE_R2_UNBOUND).toBe('invoice_r2_unbound');
+    expect(INVOICE_NUMBER_INVALID).toBe('invoice_number_invalid');
     expect(INVOICE_REQUIRED).toBe('invoice_required');
     expect(FOLIO_BALANCE_DUE).toBe('folio_balance_due');
     expect(CITY_LEDGER_ACCOUNT_NOT_FOUND).toBe('city_ledger_account_not_found');
@@ -292,7 +294,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(180);
+    expect(count).toBe(181);
   });
 });
 

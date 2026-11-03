@@ -163,6 +163,10 @@ private formatInvoiceNumberSync(counter: number): string {
 - `invoice_number` is **globally unique per property** (UNIQUE constraint).
 - Changing `starting_idx` after first issue does **not** rewind the counter (config change affects future properties only if counter absent).
 
+#### Financial-year series (R1.12)
+
+Optional DOMAIN key `pms.invoice.series` (`continuous` default | `gst_financial_year`). Financial year is **April–March**, derived from the snapshot `invoiceDate` (the existing `date_rule`, computed once per generate). Counter storage: `__meta.invoice_counter` for `continuous`; `__meta.invoice_counter.fy.NN-NN` (FY label from `invoiceDate`) for `gst_financial_year`. Formatting uses `formatInvoiceNumber` in `@hospai/contracts`. The 16-character GST rule is refused as `invoice_number_invalid` (422) at generate and at config write of `prefix` / `suffix` / `starting_idx` / `series`, with **no** counter move. `starting_idx` seeds only when `invoice` has no rows; later FYs start at 1. R2 object key encodes the number with `encodeURIComponent`. Uniqueness is per property; two properties on one GSTIN must use different prefixes until **R4.22** (no GSTIN column in Phase 1).
+
 ### Lock 3 — R2 object + snapshot JSON
 
 **Key:** `invoices/{propertyId}/{invoiceNumber}.json` (literal `invoiceNumber` string, including prefix/suffix — URL-safe as stored).

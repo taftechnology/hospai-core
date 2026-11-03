@@ -1,5 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import { zonedWallClockMs } from '@hospai/contracts';
+import {
+  financialYearLabel,
+  formatInvoiceNumber,
+  invoiceNumberProblem,
+  type InvoiceSeries,
+  zonedWallClockMs,
+} from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
   CONSTITUENT_IN_USE,
@@ -162,6 +168,7 @@ import {
   INVALID_PROMO_KIND_FIELD,
   PROMO_ID_EXISTS,
   INVOICE_COUNTER_RACE,
+  INVOICE_NUMBER_INVALID,
   ORG_UNREACHABLE,
   INTERNAL_ERROR,
   DOMAIN_ERROR,
@@ -4255,33 +4262,102 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.reportsR2UnboundForTest = unbound;
   }
 
-  private readInvoiceCounterSync(): number {
+  private readInvoiceSeriesSync(): InvoiceSeries {
+    const raw = String(this.readConfigValueSync('pms.invoice.series') ?? 'continuous');
+    return raw === 'gst_financial_year' ? 'gst_financial_year' : 'continuous';
+  }
+
+  private invoiceCounterKeySync(series: InvoiceSeries, invoiceDate: string): string {
+    if (series === 'gst_financial_year') {
+      return `__meta.invoice_counter.fy.${financialYearLabel(invoiceDate)}`;
+    }
+    return '__meta.invoice_counter';
+  }
+
+  private hasAnyInvoiceRowSync(): boolean {
+    const rows = this.ctx.storage.sql.exec(`SELECT 1 FROM invoice LIMIT 1`).toArray();
+    return rows.length > 0;
+  }
+
+  private readInvoiceCounterSync(counterKey: string): number {
     const rows = this.ctx.storage.sql
-      .exec(`SELECT value_json FROM property_config WHERE key = ?`, '__meta.invoice_counter')
+      .exec(`SELECT value_json FROM property_config WHERE key = ?`, counterKey)
       .toArray() as Array<{ value_json: string }>;
-    if (!rows[0]) {
+    if (rows[0]) {
+      return JSON.parse(rows[0].value_json) as number;
+    }
+    if (!this.hasAnyInvoiceRowSync()) {
       const start = Number(this.readConfigValueSync('pms.invoice.starting_idx') ?? 1);
       return start - 1;
     }
-    return JSON.parse(rows[0].value_json) as number;
+    return 0;
   }
 
-  private bumpInvoiceCounterSync(expectedNext: number): void {
-    const current = this.readInvoiceCounterSync();
+  private bumpInvoiceCounterSync(counterKey: string, expectedNext: number): void {
+    const current = this.readInvoiceCounterSync(counterKey);
     if (current + 1 !== expectedNext) throw new Error('invoice_counter_race');
     this.ctx.storage.sql.exec(
       `INSERT INTO property_config (key, value_json, version, updated_at)
-       VALUES ('__meta.invoice_counter', ?, 1, ?)
+       VALUES (?, ?, 1, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      counterKey,
       JSON.stringify(expectedNext),
       Date.now(),
     );
   }
 
-  private formatInvoiceNumberSync(counter: number): string {
+  private resolveInvoiceDateForReservationSync(reservationId: string): string {
+    const reservationRows = this.ctx.storage.sql
+      .exec(`SELECT departure_date FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ departure_date: string }>;
+    const departureDate = reservationRows[0]?.departure_date ?? '';
+    const dateRule = String(this.readConfigValueSync('pms.invoice.date_rule') ?? 'CHECKOUT');
+    if (dateRule === 'CHECKOUT') {
+      return departureDate;
+    }
+    return this.readBusinessDateSync() ?? departureDate;
+  }
+
+  private formatInvoiceNumberSync(counter: number, invoiceDate: string): string {
+    const series = this.readInvoiceSeriesSync();
     const prefix = String(this.readConfigValueSync('pms.invoice.prefix') ?? 'INV-');
     const suffix = String(this.readConfigValueSync('pms.invoice.suffix') ?? '');
-    return `${prefix}${String(counter).padStart(6, '0')}${suffix}`;
+    return formatInvoiceNumber({ series, prefix, suffix, counter, invoiceDate });
+  }
+
+  private assertInvoiceNumberValidSync(input: {
+    series: InvoiceSeries;
+    prefix: string;
+    suffix: string;
+    counter: number;
+    invoiceDate: string;
+  }): void {
+    const problem = invoiceNumberProblem(input);
+    if (problem) throw new Error(INVOICE_NUMBER_INVALID);
+  }
+
+  private assertInvoiceConfigWriteValidSync(key: string, parsedValue: unknown): void {
+    const prefix =
+      key === 'pms.invoice.prefix'
+        ? String(parsedValue)
+        : String(this.readConfigValueSync('pms.invoice.prefix') ?? 'INV-');
+    const suffix =
+      key === 'pms.invoice.suffix'
+        ? String(parsedValue)
+        : String(this.readConfigValueSync('pms.invoice.suffix') ?? '');
+    const startingRaw =
+      key === 'pms.invoice.starting_idx'
+        ? parsedValue
+        : this.readConfigValueSync('pms.invoice.starting_idx');
+    const startingIdx = Number(startingRaw ?? 1);
+    const seriesRaw =
+      key === 'pms.invoice.series' ? parsedValue : this.readConfigValueSync('pms.invoice.series');
+    const series: InvoiceSeries =
+      String(seriesRaw ?? 'continuous') === 'gst_financial_year' ? 'gst_financial_year' : 'continuous';
+    const sampleCounter = Math.max(startingIdx, 1);
+    // FY label is five charset-safe chars; missing business date cannot flip accept/reject.
+    const invoiceDate = this.readBusinessDateSync() ?? '2000-04-01';
+    this.assertInvoiceNumberValidSync({ series, prefix, suffix, counter: sampleCounter, invoiceDate });
   }
 
   private async putInvoiceObject(
@@ -4319,6 +4395,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private buildInvoiceSnapshotSync(input: {
     invoiceId: string;
     invoiceNumber: string;
+    invoiceDate: string;
     propertyId: string;
     reservationId: string;
     folioWindowId: string;
@@ -4418,11 +4495,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const balanceMinor = lineRows.reduce((sum, row) => sum + row.ledger_amount_minor, 0);
 
-    const dateRule = String(this.readConfigValueSync('pms.invoice.date_rule') ?? 'CHECKOUT');
-    const invoiceDate =
-      dateRule === 'CHECKOUT'
-        ? reservation.departure_date
-        : (this.readBusinessDateSync() ?? reservation.departure_date);
+    const invoiceDate = input.invoiceDate;
 
     const presentation = {
       title: this.readConfigValueSync('pms.invoice.title'),
@@ -5572,6 +5645,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const parsed = validateConfigWrite(key, value);
+          if (
+            key === 'pms.invoice.prefix' ||
+            key === 'pms.invoice.suffix' ||
+            key === 'pms.invoice.starting_idx' ||
+            key === 'pms.invoice.series'
+          ) {
+            this.assertInvoiceConfigWriteValidSync(key, parsed);
+          }
           const existing = this.ctx.storage.sql
             .exec(`SELECT version, value_json FROM property_config WHERE key = ?`, key)
             .toArray() as Array<{ version: number; value_json: string }>;
@@ -19926,6 +20007,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       invoiceId: string;
       invoiceNumber: string;
       nextCounter: number;
+      counterKey: string;
       snapshot: Record<string, unknown>;
     };
     type PrepareErr = { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS_TRANSITION };
@@ -19960,13 +20042,26 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           throw new FolioBalanceDueError(balanceMinor);
         }
 
-        const nextCounter = this.readInvoiceCounterSync() + 1;
-        const invoiceNumber = this.formatInvoiceNumberSync(nextCounter);
+        const invoiceDate = this.resolveInvoiceDateForReservationSync(input.reservationId);
+        const series = this.readInvoiceSeriesSync();
+        const counterKey = this.invoiceCounterKeySync(series, invoiceDate);
+        const nextCounter = this.readInvoiceCounterSync(counterKey) + 1;
+        const prefix = String(this.readConfigValueSync('pms.invoice.prefix') ?? 'INV-');
+        const suffix = String(this.readConfigValueSync('pms.invoice.suffix') ?? '');
+        this.assertInvoiceNumberValidSync({
+          series,
+          prefix,
+          suffix,
+          counter: nextCounter,
+          invoiceDate,
+        });
+        const invoiceNumber = this.formatInvoiceNumberSync(nextCounter, invoiceDate);
         const invoiceId = crypto.randomUUID();
         const generatedAt = Date.now();
         const snapshot = this.buildInvoiceSnapshotSync({
           invoiceId,
           invoiceNumber,
+          invoiceDate,
           propertyId,
           reservationId: input.reservationId,
           folioWindowId: resolvedWindow,
@@ -19979,6 +20074,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           invoiceId,
           invoiceNumber,
           nextCounter,
+          counterKey,
           snapshot,
         };
       });
@@ -20007,7 +20103,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (this.hasActiveInvoiceForWindowSync(input.reservationId, resolvedWindow)) {
             throw new InvoiceAlreadyExistsError();
           }
-          this.bumpInvoiceCounterSync(prepared.nextCounter);
+          this.bumpInvoiceCounterSync(prepared.counterKey, prepared.nextCounter);
           const generatedAt = Date.now();
           const generatedBy =
             input.generatedBy === 'checkout' ? 'system:checkout' : this.auditActorSync(actor);

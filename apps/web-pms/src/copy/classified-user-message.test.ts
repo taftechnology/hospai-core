@@ -68,6 +68,11 @@ describe('domain code messages', () => {
     ['hold_expired', {}, /hold has expired/],
     ['inquiry_expired', {}, /inquiry has expired/],
     ['invoice_required', {}, /Generate an invoice before checkout/],
+    [
+      'invoice_number_invalid',
+      {},
+      /That invoice number is not valid for this series/,
+    ],
     ['not_modifiable', {}, /cannot be changed in its current status/],
     ['no_availability', { date: '2026-08-11' }, /No availability on 11\/08\/2026/],
     ['no_availability', {}, /No availability — pick another room type or date/],

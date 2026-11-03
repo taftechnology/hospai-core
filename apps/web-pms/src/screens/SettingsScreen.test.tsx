@@ -60,6 +60,7 @@ import {
   NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW,
   NIGHT_AUDIT_CHECK_HINT_DEPARTURES_EXTEND,
 } from '../copy/night-audit-check-labels.js';
+import * as propertyLocalTodayModule from '../status/property-local-today.js';
 import { SettingsScreen } from './SettingsScreen.js';
 
 function domain(key: string, value: unknown) {
@@ -78,7 +79,9 @@ function renderSettings(path: string) {
           <Route path="/settings/property" element={<SettingsScreen tab="property" />} />
           <Route path="/settings/charges" element={<SettingsScreen tab="charges" />} />
           <Route path="/settings/tax" element={<SettingsScreen tab="tax" />} />
+          <Route path="/settings/finance" element={<SettingsScreen tab="finance" />} />
           <Route path="/settings/users" element={<SettingsScreen tab="users" />} />
+          <Route path="/city-ledger" element={<div>city-ledger-page</div>} />
           <Route path="/settings/system" element={<SettingsScreen tab="system" />} />
           <Route path="/settings/logs" element={<SettingsScreen tab="logs" />} />
           <Route path="/staff" element={<div>staff-page</div>} />
@@ -710,6 +713,121 @@ describe('SettingsScreen', () => {
     await waitFor(() => {
       const last = getAuditLog.mock.calls.at(-1) as [string, { limit?: number }] | undefined;
       expect(last?.[1]?.limit).toBe(200);
+    });
+  });
+
+  describe('finance tab', () => {
+    beforeEach(() => {
+      vi.spyOn(propertyLocalTodayModule, 'propertyLocalToday').mockReturnValue('2026-04-01');
+    });
+
+    it('renders four cards and Finance tab link', async () => {
+      renderSettings('/settings/finance');
+      expect(await screen.findByRole('link', { name: 'Finance' })).toBeTruthy();
+      expect(await screen.findByRole('heading', { name: 'Invoice numbering' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Invoices' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Card payments' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Related settings' })).toBeTruthy();
+    });
+
+    it('example number updates when series and prefix change', async () => {
+      renderSettings('/settings/finance');
+      await screen.findByText(/Example: INV-000001/);
+      fireEvent.change(screen.getByLabelText('Series'), {
+        target: { value: 'gst_financial_year' },
+      });
+      fireEvent.change(screen.getByLabelText('Prefix'), { target: { value: 'INV-' } });
+      expect(await screen.findByText(/Example: INV-26-27\/00001/)).toBeTruthy();
+    });
+
+    it('GST over-long prefix shows reason and disables Save prefix', async () => {
+      renderSettings('/settings/finance');
+      await screen.findByLabelText('Series');
+      fireEvent.change(screen.getByLabelText('Series'), {
+        target: { value: 'gst_financial_year' },
+      });
+      fireEvent.change(screen.getByLabelText('Prefix'), { target: { value: 'INV-XX' } });
+      expect(
+        await screen.findByText(
+          'Invoice numbers in a financial-year series must be at most 16 characters.',
+        ),
+      ).toBeTruthy();
+      expect((screen.getByRole('button', { name: 'Save prefix' }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+      fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+        target: { value: 'ops:bad' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save prefix' }));
+      expect(putDomainConfig).not.toHaveBeenCalled();
+    });
+
+    it('valid prefix save calls putDomainConfig and invalidates domain-config', async () => {
+      const { invalidateSpy } = renderSettings('/settings/finance');
+      await screen.findByLabelText('Prefix');
+      fireEvent.change(screen.getByLabelText('Prefix'), { target: { value: 'TINV-' } });
+      fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+        target: { value: 'ops:prefix' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save prefix' }));
+      await waitFor(() => expect(putDomainConfig).toHaveBeenCalled());
+      expect(putDomainConfig.mock.calls.at(-1)?.[1]).toMatchObject({
+        key: 'pms.invoice.prefix',
+        value: 'TINV-',
+        reason: 'ops:prefix',
+      });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['domain-config', 'prop_demo'] });
+    });
+
+    it('saving the series keeps an unsaved prefix edit', async () => {
+      renderSettings('/settings/finance');
+      await screen.findByLabelText('Series');
+      fireEvent.change(screen.getByLabelText('Series'), {
+        target: { value: 'gst_financial_year' },
+      });
+      fireEvent.change(screen.getByLabelText('Prefix'), { target: { value: 'AMR/' } });
+      fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+        target: { value: 'ops:series' },
+      });
+      listDomainConfig.mockResolvedValue({
+        keys: [{ key: 'pms.invoice.series', value: 'gst_financial_year', version: 1 }],
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save series' }));
+      await waitFor(() =>
+        expect(putDomainConfig.mock.calls.at(-1)?.[1]).toMatchObject({
+          key: 'pms.invoice.series',
+          value: 'gst_financial_year',
+        }),
+      );
+      await waitFor(() => expect(listDomainConfig.mock.calls.length).toBeGreaterThan(1));
+      expect((screen.getByLabelText('Prefix') as HTMLInputElement).value).toBe('AMR/');
+      expect(screen.getByText(/Example: AMR\/26-27\/00001/)).toBeTruthy();
+    });
+
+    it('has no gateway or routing controls; card payments is copy only', async () => {
+      renderSettings('/settings/finance');
+      await screen.findByRole('heading', { name: 'Card payments' });
+      expect(screen.queryByLabelText(/gateway/i)).toBeNull();
+      expect(screen.queryByLabelText(/terminal/i)).toBeNull();
+      expect(screen.queryByLabelText(/AVS/i)).toBeNull();
+      expect(screen.queryByLabelText(/PayPal/i)).toBeNull();
+      expect(screen.queryByLabelText(/card brand/i)).toBeNull();
+      expect(screen.queryByLabelText(/channel routing/i)).toBeNull();
+      const cardPayments = screen.getByRole('heading', { name: 'Card payments' }).closest('.ui-card');
+      if (!(cardPayments instanceof HTMLElement)) throw new Error('card payments card missing');
+      expect(within(cardPayments).queryByRole('textbox')).toBeNull();
+      expect(within(cardPayments).queryByRole('combobox')).toBeNull();
+      expect(within(cardPayments).queryByRole('checkbox')).toBeNull();
+    });
+
+    it('related settings links point to charges, tax, and city ledger', async () => {
+      renderSettings('/settings/finance');
+      expect(await screen.findByRole('link', { name: 'Charge codes and folio routing rules' })).toHaveProperty(
+        'pathname',
+        '/settings/charges',
+      );
+      expect(screen.getByRole('link', { name: 'Tax rules' })).toHaveProperty('pathname', '/settings/tax');
+      expect(screen.getByRole('link', { name: 'City ledger' })).toHaveProperty('pathname', '/city-ledger');
     });
   });
 

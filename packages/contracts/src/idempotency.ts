@@ -148,6 +148,7 @@ export const INVOICE_NOT_FOUND = 'invoice_not_found' as const;
 export const INVOICE_VOIDED = 'invoice_voided' as const;
 export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;
 export const INVOICE_COUNTER_RACE = 'invoice_counter_race' as const;
+export const INVOICE_NUMBER_INVALID = 'invoice_number_invalid' as const;
 export const REPORTS_R2_UNBOUND = 'reports_r2_unbound' as const;
 export const INVOICE_REQUIRED = 'invoice_required' as const;
 export const FOLIO_BALANCE_DUE = 'folio_balance_due' as const;

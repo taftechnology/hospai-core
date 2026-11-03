@@ -40,6 +40,7 @@ import { MaintenanceSettings } from './settings-maintenance.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
 import { SettingsUsersTab } from './settings-users.js';
+import { SettingsFinanceTab } from './settings-finance.js';
 import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
 import { SettingsLogsTab } from './settings-logs.js';
 import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
@@ -396,6 +397,7 @@ export function SettingsScreen({
     | 'maintenance'
     | 'sources'
     | 'tax'
+    | 'finance'
     | 'users'
     | 'system'
     | 'logs';
@@ -606,6 +608,7 @@ export function SettingsScreen({
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
+        <Link className="ui-tab" to="/settings/finance" aria-current={activeTab === 'finance' ? 'page' : undefined}>Finance</Link>
         <Link className="ui-tab" to="/settings/users" aria-current={activeTab === 'users' ? 'page' : undefined}>Users</Link>
         <Link className="ui-tab" to="/settings/system" aria-current={activeTab === 'system' ? 'page' : undefined}>System</Link>
         {showLogsTab ? (
@@ -1072,6 +1075,22 @@ export function SettingsScreen({
       {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'users' ? <SettingsUsersTab /> : null}
+      {activeTab === 'finance' ? (
+        configQ.isPending ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : (
+          <SettingsFinanceTab
+            keys={keys}
+            reason={reason}
+            propertyId={propertyId}
+            onSaved={onSaved}
+            timeZone={propertyQ.data?.property?.timeZone}
+            reasonControl={
+              <SettingsSystemReasonField reason={reason} onReasonChange={setReason} />
+            }
+          />
+        )
+      ) : null}
       {activeTab === 'system' ? (
         configQ.isPending ? (
           <Skeleton label="Loading settings" lines={3} />

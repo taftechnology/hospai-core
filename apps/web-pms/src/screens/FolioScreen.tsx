@@ -157,6 +157,8 @@ type InvoiceSnapshotLine = {
 };
 
 type InvoiceSnapshot = {
+  invoiceNumber?: string;
+  invoiceDate?: string;
   lines?: InvoiceSnapshotLine[];
   taxSummary?: Array<{ label?: string; amountMinor?: number; taxRuleId?: string }>;
   totals?: {
@@ -1213,6 +1215,20 @@ export function FolioScreen() {
   const invoicePresentation =
     invoiceSnapshot?.presentation ?? invoiceBody?.presentation;
   const showInvoiceTax = presentationFlag(invoicePresentation, 'showTaxfee');
+  const invoiceTitleRaw = invoicePresentation?.title;
+  const invoiceHeadingTitle =
+    typeof invoiceTitleRaw === 'string' && invoiceTitleRaw.trim().length > 0
+      ? invoiceTitleRaw.trim()
+      : 'Invoice';
+  const invoiceHeadingNumber = invoiceSnapshot?.invoiceNumber;
+  const invoiceCardTitle = invoiceHeadingNumber
+    ? `${invoiceHeadingTitle} ${invoiceHeadingNumber}`
+    : invoiceHeadingTitle;
+  const invoiceFooterRaw = invoicePresentation?.footer;
+  const invoiceFooter =
+    typeof invoiceFooterRaw === 'string' && invoiceFooterRaw.trim().length > 0
+      ? invoiceFooterRaw.trim()
+      : null;
   const folioDegraded = readState(folioQ) === 'fail_closed' || readState(reservationQ) === 'fail_closed';
 
   const ledgerChargesMinor = ledgerRows.reduce((sum, r) => sum + r.chargeMinor, 0);
@@ -1725,9 +1741,12 @@ export function FolioScreen() {
       {activeInvoiceId && invoiceQ.isSuccess ? (
         <Card data-testid="invoice-view">
           <CardHeader>
-            <CardTitle>Invoice</CardTitle>
+            <CardTitle>{invoiceCardTitle}</CardTitle>
           </CardHeader>
           <CardContent>
+          {invoiceSnapshot?.invoiceDate ? (
+            <p className="muted">{date(invoiceSnapshot.invoiceDate)}</p>
+          ) : null}
           {invoiceSnapshot?.lines && invoiceSnapshot.lines.length > 0 ? (
             <ul className="ui-list">
               {invoiceSnapshot.lines.map((line, i) => (
@@ -1763,6 +1782,7 @@ export function FolioScreen() {
               {money(invoiceSnapshot.totals.balanceMinor ?? 0)}
             </p>
           ) : null}
+          {invoiceFooter ? <p className="muted">{invoiceFooter}</p> : null}
           {canAdjust ? (
             <Button
               type="button"

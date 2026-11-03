@@ -116,6 +116,7 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+import { formatDate, propertyFormat } from '@hospai/client-core';
 import { PropertyFormatProvider } from '../shell/PropertyFormat.js';
 import { FolioScreen } from './FolioScreen.js';
 
@@ -2034,6 +2035,47 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     expect(await screen.findByTestId('invoice-generate')).toBeTruthy();
+  });
+
+  it('invoice view shows title, number, date, and footer from snapshot', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_1' },
+      classified: { class: 'live' },
+    });
+    const fmt = propertyFormat({ timeZone: 'UTC', currency: 'INR' });
+    const formattedDate = formatDate('2026-04-01', fmt);
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_1',
+        snapshot: {
+          invoiceNumber: 'INV-26-27/00001',
+          invoiceDate: '2026-04-01',
+          presentation: { title: 'Tax invoice', footer: 'GSTIN on file', showTaxfee: true },
+          totals: { chargesMinor: 10000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 10000 }],
+        },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    const card = await screen.findByTestId('invoice-view');
+    const text = card.textContent ?? '';
+    expect(text).toContain('Tax invoice');
+    expect(text).toContain('INV-26-27/00001');
+    expect(text).toContain(formattedDate);
+    expect(text).toContain('GSTIN on file');
   });
 
   it('Lock 12 SPA 2: click generate opens invoice view with snapshot totals', async () => {

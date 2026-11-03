@@ -20,7 +20,7 @@ export function reportObjectKey(propertyId: string, businessDate: string, report
 }
 
 export function invoiceObjectKey(propertyId: string, invoiceNumber: string): string {
-  return `invoices/${propertyId}/${invoiceNumber}.json`;
+  return `invoices/${propertyId}/${encodeURIComponent(invoiceNumber)}.json`;
 }
 
 export function invoicesPrefixForProperty(propertyId: string): string {

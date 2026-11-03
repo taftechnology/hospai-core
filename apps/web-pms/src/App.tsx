@@ -171,6 +171,11 @@ export const router = createBrowserRouter(
                   <SettingsScreen tab="tax" />
                 </Suspense>
               } />
+              <Route path="finance" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="finance" />
+                </Suspense>
+              } />
               <Route path="users" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="users" />

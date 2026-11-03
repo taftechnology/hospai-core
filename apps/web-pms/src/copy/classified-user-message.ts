@@ -78,6 +78,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   hold_expired: () => 'This hold has expired — create a new booking.',
   inquiry_expired: () => 'This inquiry has expired — create a new booking.',
   invoice_required: () => 'Generate an invoice before checkout.',
+  invoice_number_invalid: () =>
+    'That invoice number is not valid for this series. Shorten the prefix or suffix, or switch back to one continuous series.',
   not_modifiable: () => 'This reservation cannot be changed in its current status.',
   charge_code_not_postable: () =>
     'That charge code cannot be used for a product — pick an active, non-system code.',

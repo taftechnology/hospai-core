@@ -39,6 +39,11 @@ import { ProductsSettings } from './settings-products.js';
 import { MaintenanceSettings } from './settings-maintenance.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
+import { SettingsUsersTab } from './settings-users.js';
+import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
+import { SettingsLogsTab } from './settings-logs.js';
+import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
+import { hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
   'ROOM',
@@ -112,46 +117,6 @@ function AutoSaveStatusIndicator(props: { status: AutoSaveStatus; dirty: boolean
     </p>
   ) : (
     <p className="settings-property__status" aria-hidden="true" />
-  );
-}
-
-function DomainBool(props: {
-  label: string;
-  configKey: string;
-  initial: unknown;
-  reason: string;
-  hint?: string;
-  propertyId: string;
-  onSaved: () => void;
-}) {
-  const [on, setOn] = useState(Boolean(props.initial));
-  useEffect(() => {
-    setOn(Boolean(props.initial));
-  }, [props.initial]);
-  const dirty = on !== Boolean(props.initial);
-  const save = useMutation({
-    mutationFn: () =>
-      api.putDomainConfig(props.propertyId, {
-        key: props.configKey,
-        value: on,
-        reason: props.reason,
-      }),
-    onSuccess: () => {
-      props.onSaved();
-      setStatus('saved');
-    },
-    onError: () => setStatus('error'),
-  });
-  const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
-  return (
-    <div className="ui-stack">
-      <Field
-        label={props.label}
-        hint={props.hint}
-        control={<Checkbox checked={on} onChange={(e) => setOn(e.target.checked)} />}
-      />
-      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
-    </div>
   );
 }
 
@@ -424,7 +389,16 @@ function PropertyNameField(props: {
 export function SettingsScreen({
   tab,
 }: {
-  tab?: 'property' | 'charges' | 'products' | 'maintenance' | 'sources' | 'tax';
+  tab?:
+    | 'property'
+    | 'charges'
+    | 'products'
+    | 'maintenance'
+    | 'sources'
+    | 'tax'
+    | 'users'
+    | 'system'
+    | 'logs';
 }) {
   const propertyId = tenant.propertyId;
   const { date } = useFormat();
@@ -467,6 +441,21 @@ export function SettingsScreen({
     queryFn: () => api.getProperty(propertyId),
     retry: false,
   });
+  const meQ = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const meShell = meShellStateFromQuery({
+    status: meQ.status,
+    data: meQ.data,
+    classified: meQ.isError ? asClassified(meQ.error) : undefined,
+  });
+  const showLogsTab =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    hasPropertyPermission(meShell.authority.me, 'folio:read');
   const chargesQ = useQuery({
     queryKey: ['charge-codes', propertyId],
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
@@ -617,6 +606,11 @@ export function SettingsScreen({
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
+        <Link className="ui-tab" to="/settings/users" aria-current={activeTab === 'users' ? 'page' : undefined}>Users</Link>
+        <Link className="ui-tab" to="/settings/system" aria-current={activeTab === 'system' ? 'page' : undefined}>System</Link>
+        {showLogsTab ? (
+          <Link className="ui-tab" to="/settings/logs" aria-current={activeTab === 'logs' ? 'page' : undefined}>Logs</Link>
+        ) : null}
       </Tabs>
       {message ? (
         <p className="muted" aria-live="polite">
@@ -867,13 +861,6 @@ export function SettingsScreen({
               <CardTitle>Ops (unread)</CardTitle>
             </CardHeader>
             <CardContent>
-              <DomainBool
-                label="Auto assign rooms"
-                configKey="pms.ops.auto_assign_rooms"
-                initial={lookup(keys, 'pms.ops.auto_assign_rooms')}
-                hint="When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready."
-                {...common}
-              />
               <SectionLabel>FX Rates</SectionLabel>
               <p className="muted">
                 Foreign-currency quotes are property-scoped and edited on the folio. Open an in-house
@@ -1084,6 +1071,23 @@ export function SettingsScreen({
       {activeTab === 'products' ? <ProductsSettings onMessage={setMessage} /> : null}
       {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
+      {activeTab === 'users' ? <SettingsUsersTab /> : null}
+      {activeTab === 'system' ? (
+        configQ.isPending ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : (
+          <SettingsSystemTab
+            keys={keys}
+            reason={reason}
+            propertyId={propertyId}
+            onSaved={onSaved}
+            reasonControl={
+              <SettingsSystemReasonField reason={reason} onReasonChange={setReason} />
+            }
+          />
+        )
+      ) : null}
+      {activeTab === 'logs' ? <SettingsLogsTab /> : null}
       {activeTab === 'tax' ? (
         <>
           <Card>

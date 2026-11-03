@@ -257,4 +257,45 @@ describe('reservation check-in triangle', () => {
     const room = rooms.rooms.find((r) => r.roomId === 'rm_30');
     expect(room?.status).toBe('clean');
   });
+
+  it('31. allow_dirty_check_in_override=false blocks overrideCleanliness', async () => {
+    const name = `ci-31-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    expect(
+      await stub.tryPutDomainConfig(
+        TEST_OWNER_ACTOR,
+        'pms.reservations.allow_dirty_check_in_override',
+        false,
+        { reason: 'test' },
+        await idemFor('cfg-dirty-override', {
+          key: 'pms.reservations.allow_dirty_check_in_override',
+          value: false,
+          reason: 'test',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    await createRoom(stub, 'rm_31', '131');
+    expect(
+      await stub.tryUpdateRoomStatus(
+        TEST_OWNER_ACTOR,
+        { roomId: 'rm_31', status: 'dirty' },
+        await idemFor('dirty31', { roomId: 'rm_31', status: 'dirty' }),
+      ),
+    ).toMatchObject({ ok: true });
+    await bookConfirmed(stub, guestRef, 'res_31', arrival, departure);
+    const result = await stub.tryCheckIn(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_31', roomId: 'rm_31', overrideCleanliness: true },
+      await idemFor('ci31', {
+        reservationId: 'res_31',
+        roomId: 'rm_31',
+        overrideCleanliness: true,
+      }),
+    );
+    expect(result).toMatchObject({ ok: false, error: ROOM_NOT_READY });
+    expect(await stub.getReservationStatus('res_31')).toBe('confirmed');
+  });
 });

@@ -168,6 +168,12 @@ describe('config register', () => {
     expect(NightAuditChecksSchema.safeParse({ arrivals_not_checked_in: 'fail' }).success).toBe(true);
     expect(getConfigEntry('pms.ops.auto_assign_rule')?.class).toBe('OPERATIONAL');
     expect(getConfigEntry('pms.ops.auto_assign_rooming')?.class).toBe('OPERATIONAL');
+    const dirtyOverride = getConfigEntry('pms.reservations.allow_dirty_check_in_override');
+    expect(dirtyOverride?.class).toBe('DOMAIN');
+    expect(dirtyOverride?.consumersExempt).toBe(true);
+    const balanceOverride = getConfigEntry('pms.reservations.allow_balance_override');
+    expect(balanceOverride?.class).toBe('DOMAIN');
+    expect(balanceOverride?.consumersExempt).toBe(true);
   });
 
   it('classifies all 97 prototype config keys', () => {

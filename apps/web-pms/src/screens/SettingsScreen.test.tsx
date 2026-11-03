@@ -20,6 +20,7 @@ const listTaxRules = vi.fn();
 const createTaxRule = vi.fn();
 const supersedeTaxRule = vi.fn();
 const listOperationalConfig = vi.fn();
+const getAuditLog = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -40,6 +41,7 @@ vi.mock('../client.js', () => ({
     createTaxRule: (...a: unknown[]) => createTaxRule(...a),
     supersedeTaxRule: (...a: unknown[]) => supersedeTaxRule(...a),
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
+    getAuditLog: (...a: unknown[]) => getAuditLog(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -52,6 +54,7 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+import { zonedWallClockMs } from '@hospai/contracts';
 import {
   NIGHT_AUDIT_CHECK_HINT_ANY_FAIL,
   NIGHT_AUDIT_CHECK_HINT_ARRIVALS_NO_SHOW,
@@ -75,6 +78,12 @@ function renderSettings(path: string) {
           <Route path="/settings/property" element={<SettingsScreen tab="property" />} />
           <Route path="/settings/charges" element={<SettingsScreen tab="charges" />} />
           <Route path="/settings/tax" element={<SettingsScreen tab="tax" />} />
+          <Route path="/settings/users" element={<SettingsScreen tab="users" />} />
+          <Route path="/settings/system" element={<SettingsScreen tab="system" />} />
+          <Route path="/settings/logs" element={<SettingsScreen tab="logs" />} />
+          <Route path="/staff" element={<div>staff-page</div>} />
+          <Route path="/roster" element={<div>roster-page</div>} />
+          <Route path="/folio/:reservationId" element={<div>folio-page</div>} />
           <Route path="/in-house" element={<div>in-house</div>} />
         </Routes>
       </MemoryRouter>
@@ -193,14 +202,11 @@ describe('SettingsScreen', () => {
     ).toBeTruthy();
   });
 
-  it('shows auto_assign_rooms consumer copy', async () => {
+  it('property tab does not show auto_assign_rooms control', async () => {
     renderSettings('/settings/property');
-    expect(await screen.findByLabelText('Auto assign rooms')).toBeTruthy();
-    expect(
-      screen.getByText(
-        'When on, check-in without a room picks the lowest room code of the booked type that is vacant and ready.',
-      ),
-    ).toBeTruthy();
+    await screen.findByTestId('settings-screen');
+    expect(screen.queryByLabelText(/Auto-assign a room at check-in/i)).toBeNull();
+    expect(screen.queryByLabelText('Auto assign rooms')).toBeNull();
   });
 
   it('ledger currency is read-only', async () => {
@@ -486,6 +492,225 @@ describe('SettingsScreen', () => {
     });
     fireEvent.click(save);
     expect(putDomainConfig).not.toHaveBeenCalled();
+  });
+
+  it('users: pending me shows loading skeleton, not no-access', async () => {
+    getMe.mockReturnValue(new Promise(() => {}));
+    renderSettings('/settings/users');
+    expect(await screen.findByRole('status', { name: 'Loading staff access' })).toBeTruthy();
+    expect(
+      screen.queryByText('You do not have access to staff management for this property.'),
+    ).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Staff' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Roster' })).toBeNull();
+  });
+
+  it('users: unknown authority fail-open shows both links', async () => {
+    getMe.mockRejectedValue(new Error('network'));
+    renderSettings('/settings/users');
+    expect(await screen.findByRole('link', { name: 'Open Staff' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Roster' })).toBeTruthy();
+    expect(
+      screen.queryByText('You do not have access to staff management for this property.'),
+    ).toBeNull();
+  });
+
+  it('users: staff link only with staff:read', async () => {
+    configureMe(['settings:configure', 'staff:read']);
+    renderSettings('/settings/users');
+    const staff = await screen.findByRole('link', { name: 'Open Staff' });
+    expect(staff).toHaveProperty('pathname', '/staff');
+    expect(screen.queryByRole('link', { name: 'Open Roster' })).toBeNull();
+  });
+
+  it('users: roster link only with roster:read', async () => {
+    configureMe(['settings:configure', 'roster:read']);
+    renderSettings('/settings/users');
+    const roster = await screen.findByRole('link', { name: 'Open Roster' });
+    expect(roster).toHaveProperty('pathname', '/roster');
+    expect(screen.queryByRole('link', { name: 'Open Staff' })).toBeNull();
+  });
+
+  it('users: neither permission shows no-access empty state', async () => {
+    configureMe(['settings:configure']);
+    renderSettings('/settings/users');
+    expect(
+      await screen.findByText('You do not have access to staff management for this property.'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open Staff' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Open Roster' })).toBeNull();
+  });
+
+  it('system: shows exactly three override keys and saves with reason', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.ops.auto_assign_rooms', true),
+        domain('pms.reservations.allow_dirty_check_in_override', true),
+        domain('pms.reservations.allow_balance_override', true),
+      ],
+    });
+    const { invalidateSpy } = renderSettings('/settings/system');
+    expect(
+      await screen.findByLabelText('Auto-assign a room at check-in when none is picked'),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Let staff check in to a room that isn't clean (override)"),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText(
+        'Let staff check out while the guest window still has a balance (override)',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/notification/i)).toBeNull();
+    expect(screen.queryByText('pms.ui.')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Auto-assign a room at check-in when none is picked'));
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:auto-assign-off' },
+    });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
+      key: 'pms.ops.auto_assign_rooms',
+      value: false,
+      reason: 'ops:auto-assign-off',
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['domain-config', 'prop_demo'] });
+  });
+
+  it('logs tab link hidden without folio:read', async () => {
+    configureMe(['settings:configure']);
+    renderSettings('/settings/property');
+    await screen.findByTestId('settings-screen');
+    expect(screen.queryByRole('link', { name: 'Logs' })).toBeNull();
+  });
+
+  it('logs tab link shown with folio:read', async () => {
+    configureMe(['settings:configure', 'folio:read']);
+    renderSettings('/settings/property');
+    expect(await screen.findByRole('link', { name: 'Logs' })).toHaveProperty(
+      'pathname',
+      '/settings/logs',
+    );
+  });
+
+  it('logs: getAuditLog query uses property-local midnight bounds', async () => {
+    configureMe(['settings:configure', 'folio:read']);
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo Inn' },
+    });
+    getAuditLog.mockResolvedValue({ ok: true, rows: [] });
+    renderSettings('/settings/logs');
+    const from = await screen.findByLabelText('From');
+    const to = await screen.findByLabelText('To');
+    fireEvent.change(from, { target: { value: '2026-06-15' } });
+    fireEvent.change(to, { target: { value: '2026-06-15' } });
+    await waitFor(() => expect(getAuditLog).toHaveBeenCalled());
+    const query = (getAuditLog.mock.calls.at(-1) as [string, Record<string, unknown>])[1];
+    expect(query.fromAt).toBe(zonedWallClockMs('2026-06-15', 'Asia/Kolkata', 0, 0));
+    expect(query.toAt).toBe(zonedWallClockMs('2026-06-16', 'Asia/Kolkata', 0, 0) - 1);
+    expect(query.fromAt).not.toBe(Date.UTC(2026, 5, 15));
+  });
+
+  it('logs: spring-forward day uses zonedWallClockMs for bounds', async () => {
+    configureMe(['settings:configure', 'folio:read']);
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'America/New_York', name: 'Demo Inn' },
+    });
+    getAuditLog.mockResolvedValue({ ok: true, rows: [] });
+    renderSettings('/settings/logs');
+    const from = await screen.findByLabelText('From');
+    fireEvent.change(from, { target: { value: '2026-03-08' } });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-03-08' } });
+    await waitFor(() => expect(getAuditLog).toHaveBeenCalled());
+    const query = (getAuditLog.mock.calls.at(-1) as [string, Record<string, unknown>])[1];
+    expect(query.fromAt).toBe(zonedWallClockMs('2026-03-08', 'America/New_York', 0, 0));
+    expect(query.toAt).toBe(zonedWallClockMs('2026-03-09', 'America/New_York', 0, 0) - 1);
+  });
+
+  it('logs: renders rows, load more, details dialog, and empty states', async () => {
+    configureMe(['settings:configure', 'folio:read']);
+    getAuditLog.mockResolvedValue({ ok: true, rows: [] });
+    renderSettings('/settings/logs');
+    expect(await screen.findByText('No audit entries for this property today.')).toBeTruthy();
+    expect(document.querySelector('[data-kind="empty"]')).toBeTruthy();
+    expect(screen.queryByText('No entries for these filters.')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Actor'), { target: { value: 'nobody' } });
+    expect(await screen.findByText('No entries for these filters.')).toBeTruthy();
+    expect(document.querySelector('[data-kind="nomatch"]')).toBeTruthy();
+    expect(screen.queryByText('No audit entries for this property today.')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(await screen.findByText('No audit entries for this property today.')).toBeTruthy();
+    expect(screen.queryByText('No entries for these filters.')).toBeNull();
+    expect(document.querySelector('[data-kind="empty"]')).toBeTruthy();
+
+    getAuditLog.mockResolvedValue({
+      ok: true,
+      rows: [
+        {
+          seq: 1,
+          at: 1_700_000_000_000,
+          actor: 'user_1',
+          commandId: 'reservations.check_in',
+          entityType: 'reservation',
+          entityId: 'res_a',
+          beforeJson: { status: 'confirmed' },
+          afterJson: { status: 'checked_in' },
+          shiftId: null,
+          reservationId: 'res_a',
+          createdAt: 1_700_000_000_000,
+        },
+        {
+          seq: 2,
+          at: 1_700_000_000_000,
+          actor: 'user_1',
+          commandId: 'housekeeping.complete_task',
+          entityType: 'task',
+          entityId: 'task_1',
+          beforeJson: null,
+          afterJson: {},
+          shiftId: null,
+          reservationId: null,
+          createdAt: 1_700_000_000_000,
+        },
+      ],
+    });
+    fireEvent.change(screen.getByLabelText('Actor'), { target: { value: 'user_1' } });
+    expect(await screen.findByText('Check in')).toBeTruthy();
+    expect(screen.getByText('Housekeeping · complete task')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Folio' })).toHaveProperty('pathname', '/folio/res_a');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]!);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByRole('dialog').textContent).toContain('"confirmed"');
+    expect(screen.getByRole('dialog').textContent).toContain('"checked_in"');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  });
+
+  it('logs: load more raises limit', async () => {
+    configureMe(['settings:configure', 'folio:read']);
+    const rows = Array.from({ length: 100 }, (_, i) => ({
+      seq: i,
+      at: i,
+      actor: 'user_1',
+      commandId: 'config.put_domain',
+      entityType: 'config',
+      entityId: `k_${i}`,
+      beforeJson: null,
+      afterJson: {},
+      shiftId: null,
+      reservationId: null,
+      createdAt: i,
+    }));
+    getAuditLog.mockResolvedValue({ ok: true, rows });
+    renderSettings('/settings/logs');
+    await screen.findByRole('button', { name: 'Load more' });
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => {
+      const last = getAuditLog.mock.calls.at(-1) as [string, { limit?: number }] | undefined;
+      expect(last?.[1]?.limit).toBe(200);
+    });
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

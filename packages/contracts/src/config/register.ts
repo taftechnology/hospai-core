@@ -287,16 +287,18 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
   entry({
     key: 'pms.reservations.allow_dirty_check_in_override',
     prototypeKey: 'pms_res_allow_dirty_override',
-    class: 'OPERATIONAL',
+    class: 'DOMAIN',
     schema: bool,
     default: true,
+    consumersExempt: true,
   }),
   entry({
     key: 'pms.reservations.allow_balance_override',
     prototypeKey: 'pms_res_allow_balance_override',
-    class: 'OPERATIONAL',
+    class: 'DOMAIN',
     schema: bool,
     default: true,
+    consumersExempt: true,
   }),
 
   // —— PRESENTATION ——

@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { zonedWallClockMs } from './zoned-wall-clock.js';
+import { zonedWallClockMs } from '@hospai/contracts';
 import {
   ARCHIVE_BLOCKED,
   CONSTITUENT_IN_USE,

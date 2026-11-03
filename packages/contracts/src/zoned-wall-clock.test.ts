@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { zonedWallClockMs } from '../src/zoned-wall-clock.js';
+import { zonedWallClockMs } from './zoned-wall-clock.js';
 
 function localParts(instantMs: number, timeZone: string): {
   year: number;
@@ -47,7 +47,6 @@ describe('zonedWallClockMs (N1)', () => {
         expect(p.hour).toBe(2);
         expect(p.minute).toBe(0);
         expect(ymdFromParts(p)).toBe('2026-11-01');
-        // First of two 02:00 occurrences is the earlier UTC instant
         const secondGuess = ms + 60 * 60 * 1000;
         const p2 = localParts(secondGuess, 'America/New_York');
         if (p2.hour === 2 && p2.minute === 0 && ymdFromParts(p2) === '2026-11-01') {

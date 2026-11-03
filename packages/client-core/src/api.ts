@@ -363,6 +363,45 @@ export function createClient(opts: {
         }>;
       };
     },
+    async getAuditLog(
+      propertyId: string,
+      query: {
+        actor?: string;
+        shiftId?: string;
+        reservationId?: string;
+        fromAt?: number;
+        toAt?: number;
+        limit?: number;
+      },
+    ) {
+      const qs = new URLSearchParams();
+      if (query.actor) qs.set('actor', query.actor);
+      if (query.shiftId) qs.set('shiftId', query.shiftId);
+      if (query.reservationId) qs.set('reservationId', query.reservationId);
+      if (query.fromAt !== undefined) qs.set('fromAt', String(query.fromAt));
+      if (query.toAt !== undefined) qs.set('toAt', String(query.toAt));
+      if (query.limit !== undefined) qs.set('limit', String(query.limit));
+      const suffix = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/audit-log${suffix ? `?${suffix}` : ''}`,
+      );
+      return body as {
+        ok: true;
+        rows: Array<{
+          seq: number;
+          at: number;
+          actor: string;
+          commandId: string;
+          entityType: string;
+          entityId: string;
+          beforeJson: unknown | null;
+          afterJson: unknown;
+          shiftId: string | null;
+          reservationId: string | null;
+          createdAt: number;
+        }>;
+      };
+    },
     async getFrontOfficeDirectory(
       propertyId: string,
       query: {

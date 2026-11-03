@@ -149,6 +149,44 @@ describe('reservation check-out', () => {
     });
   });
 
+  it('36b. allow_balance_override=false blocks overrideBalance', async () => {
+    const name = `co-36b-${crypto.randomUUID()}`;
+    const { stub, guestRef } = await provisionedPropertyWithGuest(name);
+    expect(
+      await stub.tryPutDomainConfig(
+        TEST_OWNER_ACTOR,
+        'pms.reservations.allow_balance_override',
+        false,
+        { reason: 'test' },
+        await idemFor('cfg-balance-override', {
+          key: 'pms.reservations.allow_balance_override',
+          value: false,
+          reason: 'test',
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    const added = await addRoomType(stub, 'rt_king', 5);
+    const arrival = added.fromDate;
+    const departure = addCalendarDays(arrival, 1);
+    await stayCheckedIn(stub, guestRef, 'res_36b', 'rm_36b', arrival, departure);
+    const line = {
+      folioLineId: 'fl_36b',
+      reservationId: 'res_36b',
+      chargeCode: 'MISC',
+      amountMinor: 2500,
+    };
+    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('fl36b', line))).toMatchObject({
+      ok: true,
+    });
+    const result = await stub.tryCheckOut(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_36b', overrideBalance: true },
+      await idemFor('co36b', { reservationId: 'res_36b', overrideBalance: true }),
+    );
+    expect(result).toMatchObject({ ok: false, error: BALANCE_DUE });
+    expect(await stub.getReservationStatus('res_36b')).toBe('checked_in');
+  });
+
   it('37. require-zero false + open balance, no flag → out, folio.balance_due overridden false', async () => {
     const name = `co-37-${crypto.randomUUID()}`;
     const { stub, guestRef } = await provisionedPropertyWithGuest(name);

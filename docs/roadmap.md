@@ -300,11 +300,12 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Locked:** tokens + `ui-kit` only, closed API, no Tailwind, desktop only, no drag on the tape, 14-day cap (F2), no trends on desk screens. Green is never a stay, because BluePMS uses green for a free room; check that on the client's real screen at the walkthrough (Q8). New components for later slices are built when those slices arrive.
   - **Amends with the code:** ARCHITECTURE §16.4, AGENTS.md (#4, the kit paragraph and the pins, which move to 168 routes for `post_reservation_search`), `.cursor/rules/spa-page-chrome.mdc`, and the R1.7a spec, which this supersedes.
 
-- [ ] **R1.11 Settings: Users / System / Logs**
+- [x] **R1.11 Settings: Users / System / Logs** — shipped 2026-11-03
   - **Depends:** R0.2.
   - **Prototype:** Settings `users`, `system` (preferences, notifications, tags), `logs`.
   - **Live:** Staff + Roster screens; limited property settings.
   - **Locked:** **Users** = Staff screen linked from Settings. **System preferences** = classified keys pms-core reads. **Notifications** = hide until **R5.2**. **Tags** = R1.8. **Logs** = existing `get_audit_log` read UI (folio:read). Do **not** add `audit.append` HTTP ([audit log spec](superpowers/specs/2026-08-07-audit-log-design.md)).
+  - **As-built:** Users links to Staff/Roster by permission; System edits `pms.ops.auto_assign_rooms`, `pms.reservations.allow_dirty_check_in_override`, and `pms.reservations.allow_balance_override` (overrides reclassified DOMAIN so they save); Logs is the folio:read `get_audit_log` viewer; notifications and tags stay hidden.
 
 - [ ] **R1.12 Settings: Finance remainder**
   - **Depends:** R0.3.

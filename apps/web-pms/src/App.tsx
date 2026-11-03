@@ -171,6 +171,26 @@ export const router = createBrowserRouter(
                   <SettingsScreen tab="tax" />
                 </Suspense>
               } />
+              <Route path="users" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="users" />
+                </Suspense>
+              } />
+              <Route path="system" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="system" />
+                </Suspense>
+              } />
+              <Route path="logs" element={<PermissionRoute permission="folio:read" />}>
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<Skeleton />}>
+                      <SettingsScreen tab="logs" />
+                    </Suspense>
+                  }
+                />
+              </Route>
             </Route>
             <Route path="housekeeping/*" element={<PermissionRoute permission="housekeeping:read" />}>
               <Route path="*" element={<HousekeepingScreen />} />

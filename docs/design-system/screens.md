@@ -25,7 +25,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | `/staff`, `/roster` | TemplateDirectory | DataTable, TagEditor, FieldGroup, Dialog |
 | `/night-audit` | TemplateWorkbench | Tabs, Alert, CheckResult, DataTable |
 | `/exceptions` | TemplateDirectory | Toolbar, SidePanel, PayloadInspector, Pagination |
-| `/settings/*` | TemplateSettings | Tabs, Field, AutosaveStatus, DataTable, OrderableList, Dialog |
+| `/settings/*` (property, charges, tax, products, maintenance, sources, **users**, **system**, **logs**) | TemplateSettings | Tabs, Field, AutosaveStatus, DataTable, OrderableList, Dialog, EmptyState |
 | `/housekeeping`, `/housekeeping/priority`, `/housekeeping/inventory` | TemplateDirectory | Tabs, Metrics, DataTable, RoomStatus, Dialog |
 | `/maintenance` | TemplateDirectory | Toolbar, DataTable, Dialog, ChecklistRunner |
 | `/sign-in` | AuthLayout | Field, Input, Button |
@@ -48,7 +48,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | POS | Connector only | R4.9, R4.21 | MappingEditor, ConnectorStatus, DataTable. **No order or table screens.** |
 | Channels | Connector | R4.3 | MappingEditor, ConnectorStatus, DataTable |
 | Reports | Named set, Manager Report | R4.14, R4.32 | ReportRunner, DateRange, OrderableList, NativeSelect of fixed formulas |
-| Admin | Users, system, logs, finance | R1.11, R1.12, R1.17, R1.18, R3.1 | TemplateSettings, Timeline, DataTable |
+| Admin | Finance | R1.12, R1.17, R1.18, R3.1 | TemplateSettings, Timeline, DataTable |
 | | Import, accounting | R4.8, R4.12 | FileUpload, JobProgress, MappingEditor |
 | | Billing, API, property switcher, org views | R5.6, R5.3, R5.11, R4.4, R5.7 | PlanPicker, UsageMeter, UpgradePrompt, DataTable, PropertySwitcher |
 | Copilot | Answers, then agents | R4.16, R4.6, R5.9 | CopilotThread |

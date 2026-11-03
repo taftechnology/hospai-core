@@ -106,22 +106,37 @@ Open **http://127.0.0.1:5173/**. Optionally build the SPA and hit **http://127.0
 
 ### 3 — Seed the demo hotel (once per local DO/D1 store)
 
-Worker must already be running (step 2, terminal A).
+Fresh local store (stops any need to hand-wipe first — refuses if the Worker is already on the port):
+
+```bash
+pnpm demo:reset
+```
+
+Default profile is **India** (**Amaltas Hospitality** / **Amaltas Residency**, `Asia/Kolkata`, INR). US demo:
+
+```bash
+pnpm demo:reset --profile us
+```
+
+That wipes `apps/pms-core/.wrangler/state`, starts `pnpm --filter @hospai/pms-core dev`, seeds, and leaves the Worker running until Ctrl+C.
+
+If the Worker is already running and you only want to re-seed:
 
 ```bash
 pnpm demo:seed
+pnpm demo:seed --profile india
 ```
 
-This provisions **Harborlight Hospitality** / **The Meridian Seattle** (`org_demo` / `prop_demo` — same ids as `apps/web-pms/.env.example`): ~20 rooms, BAR rates, and today’s board (8 in-house, 4 arrivals, 3 due out). Re-run is safe (idempotent).
+`pnpm demo:seed` (default **us**) provisions **Harborlight Hospitality** / **The Meridian Seattle** (`org_demo` / `prop_demo` — same ids as `apps/web-pms/.env.example`): ~20 rooms, BAR rates, and today’s board (8 in-house, 4 arrivals, 3 due out). Re-run is safe (idempotent).
 
 Meeting script: [`docs/demo/8-minute-script.md`](docs/demo/8-minute-script.md)
 
-If a dry run left the hotel dirty, wipe local persist and seed again:
+Manual fallback if you prefer to wipe without `demo:reset`:
 
 1. Stop `pnpm --filter @hospai/pms-core dev`
 2. Delete `apps/pms-core/.wrangler/state`
 3. Start the Worker again
-4. `pnpm demo:seed`
+4. `pnpm demo:seed` (India: `pnpm demo:seed --profile india`)
 
 Do not run org purge for this.
 

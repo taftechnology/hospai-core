@@ -3,24 +3,38 @@
  * Provision the local demo hotel against a running pms-core Worker.
  *
  *   pnpm demo:seed
- *   node scripts/demo-seed.mjs [--base-url http://127.0.0.1:8787] [--actor user_owner] [--currency INR] [--time-zone Asia/Kolkata]
+ *   node scripts/demo-seed.mjs [--profile us|india] [--base-url http://127.0.0.1:8787] [--actor user_owner]
+ *   [--currency INR] [--time-zone Asia/Kolkata]
  *
- * Currency and zone apply when the property is first provisioned; both are fixed after that.
+ * Profile sets org/property names and default currency/zone on first provision.
+ * --currency and --time-zone override the profile when present.
  */
 
 const ORG_ID = 'org_demo';
-const ORG_NAME = 'Harborlight Hospitality';
 const PROPERTY_ID = 'prop_demo';
-const PROPERTY_NAME = 'The Meridian Seattle';
-const TIME_ZONE = 'America/Los_Angeles';
-const CURRENCY = 'USD';
+const PROFILES = {
+  us: {
+    orgName: 'Harborlight Hospitality',
+    propertyName: 'The Meridian Seattle',
+    timeZone: 'America/Los_Angeles',
+    currency: 'USD',
+  },
+  india: {
+    orgName: 'Amaltas Hospitality',
+    propertyName: 'Amaltas Residency',
+    timeZone: 'Asia/Kolkata',
+    currency: 'INR',
+  },
+};
+
 const WORKER_HINT = 'Start the Worker first: pnpm --filter @hospai/pms-core dev';
 
 function parseArgs(argv) {
   let baseUrl = 'http://127.0.0.1:8787';
   let actor = 'user_owner';
-  let currency = CURRENCY;
-  let timeZone = TIME_ZONE;
+  let profile = 'us';
+  let currencyOverride;
+  let timeZoneOverride;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--base-url') {
@@ -29,19 +43,39 @@ function parseArgs(argv) {
     } else if (arg === '--actor') {
       actor = argv[i + 1] ?? actor;
       i += 1;
+    } else if (arg === '--profile') {
+      profile = argv[i + 1] ?? profile;
+      i += 1;
     } else if (arg === '--currency') {
-      currency = argv[i + 1] ?? currency;
+      currencyOverride = argv[i + 1];
       i += 1;
     } else if (arg === '--time-zone') {
-      timeZone = argv[i + 1] ?? timeZone;
+      timeZoneOverride = argv[i + 1];
       i += 1;
     } else if (arg.startsWith('--base-url=')) {
       baseUrl = arg.slice('--base-url='.length);
     } else if (arg.startsWith('--actor=')) {
       actor = arg.slice('--actor='.length);
+    } else if (arg.startsWith('--profile=')) {
+      profile = arg.slice('--profile='.length);
+    } else if (arg.startsWith('--currency=')) {
+      currencyOverride = arg.slice('--currency='.length);
+    } else if (arg.startsWith('--time-zone=')) {
+      timeZoneOverride = arg.slice('--time-zone='.length);
     }
   }
-  return { baseUrl: baseUrl.replace(/\/$/, ''), actor, currency, timeZone };
+  const preset = PROFILES[profile];
+  if (!preset) fail(`Unknown profile: ${profile} (use us or india)`);
+  const currency = currencyOverride ?? preset.currency;
+  const timeZone = timeZoneOverride ?? preset.timeZone;
+  return {
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    actor,
+    orgName: preset.orgName,
+    propertyName: preset.propertyName,
+    currency,
+    timeZone,
+  };
 }
 
 function fail(message, detail) {
@@ -60,7 +94,7 @@ async function readJson(res) {
 }
 
 async function main() {
-  const { baseUrl, actor, currency, timeZone } = parseArgs(process.argv.slice(2));
+  const { baseUrl, actor, orgName, propertyName, currency, timeZone } = parseArgs(process.argv.slice(2));
   const headers = { 'content-type': 'application/json', 'x-dev-actor': actor };
 
   try {
@@ -72,7 +106,7 @@ async function main() {
   const orgRes = await fetch(`${baseUrl}/v1/orgs`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ orgId: ORG_ID, name: ORG_NAME }),
+    body: JSON.stringify({ orgId: ORG_ID, name: orgName }),
   });
   const orgBody = await readJson(orgRes);
   if (orgRes.status !== 201 && !(orgRes.status === 409 && orgBody?.error === 'org_exists')) {
@@ -84,7 +118,7 @@ async function main() {
     headers,
     body: JSON.stringify({
       propertyId: PROPERTY_ID,
-      name: PROPERTY_NAME,
+      name: propertyName,
       timeZone,
       currency,
     }),
@@ -104,11 +138,11 @@ async function main() {
   if (getRes.status !== 200) {
     fail(JSON.stringify(getBody), `GET /v1/properties/${PROPERTY_ID} failed (${getRes.status})`);
   }
-  if (getBody?.property?.name !== PROPERTY_NAME) {
+  if (getBody?.property?.name !== propertyName) {
     const patchRes = await fetch(`${baseUrl}/v1/properties/${encodeURIComponent(PROPERTY_ID)}`, {
       method: 'PATCH',
       headers,
-      body: JSON.stringify({ name: PROPERTY_NAME, idempotencyKey: 'demo-seed:v1:property-name' }),
+      body: JSON.stringify({ name: propertyName, idempotencyKey: 'demo-seed:v1:property-name' }),
     });
     const patchBody = await readJson(patchRes);
     if (patchRes.status !== 200) {
@@ -127,11 +161,13 @@ async function main() {
   }
 
   const board = seedBody.board ?? {};
-  console.log(seedBody.propertyName ?? PROPERTY_NAME);
+  console.log(seedBody.propertyName ?? propertyName);
   console.log(`rooms: ${seedBody.rooms}`);
   console.log(`board: ${board.inHouse} in-house / ${board.arrivals} arrivals / ${board.departures} due out`);
   console.log(`today: ${seedBody.today}`);
-  console.log('Wipe + re-seed: stop pms-core, delete apps/pms-core/.wrangler/state, restart, pnpm demo:seed');
+  console.log(
+    'Fresh wipe + seed: pnpm demo:reset (or stop pms-core, delete apps/pms-core/.wrangler/state, restart, pnpm demo:seed)',
+  );
 }
 
 main().catch((err) => {

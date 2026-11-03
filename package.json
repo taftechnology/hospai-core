@@ -32,6 +32,7 @@
     "check:error-mapper-singleton": "node scripts/check-error-mapper-singleton.mjs",
     "check:resolve-property-prefetch": "node scripts/check-resolve-property-prefetch.mjs",
     "demo:seed": "node scripts/demo-seed.mjs",
+    "demo:reset": "node scripts/demo-reset.mjs",
     "smoke:staging": "node scripts/smoke-staging.mjs"
   },
   "devDependencies": {

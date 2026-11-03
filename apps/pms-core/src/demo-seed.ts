@@ -21,6 +21,7 @@ import {
   demoIdempotencyKey,
   type DemoRoomType,
 } from './demo-seed-fixture.js';
+import { runIndiaDemoSeed } from './demo-seed-india.js';
 
 export type DemoSeedResult = {
   ok: true;
@@ -63,8 +64,7 @@ export async function runDemoSeed(input: {
   timeZone: string;
 }): Promise<DemoSeedResult> {
   const today = enumerateHorizonDates(input.timeZone, new Date(), 1)[0]!;
-  const plan = buildDemoSeedPlan(today);
-  let mutated = false;
+  const mutated = { value: false };
 
   const resolved = await resolvePropertyFromRegistry(input.env, input.propertyId);
   if (!resolved) throw new Error('property_do_missing');
@@ -97,7 +97,7 @@ export async function runDemoSeed(input: {
         { key: demoIdempotencyKey('rt', rt.roomTypeId), fingerprint: addFp },
       );
       if (added.ok) {
-        mutated = true;
+        mutated.value = true;
         continue;
       }
       if (added.error !== ROOM_TYPE_EXISTS) {
@@ -129,7 +129,7 @@ export async function runDemoSeed(input: {
         { key: demoIdempotencyKey('rt-upd', rt.roomTypeId), fingerprint: updFp },
       );
       if (!updated.ok) throw new Error(`demo_seed_room_type_update:${rt.roomTypeId}:${updated.error}`);
-      mutated = true;
+      mutated.value = true;
     }
   }
 
@@ -150,118 +150,131 @@ export async function runDemoSeed(input: {
       fingerprint: fp,
     });
     if (created.ok) {
-      mutated = true;
+      mutated.value = true;
       continue;
     }
     if (created.error === ROOM_CODE_EXISTS) continue;
     throw new Error(`demo_seed_room:${room.roomId}:${created.error}`);
   }
 
-  await stub.ensurePastAvailabilityDays(plan.backfillFrom, plan.backfillToExclusive);
-
-  // Rates follow the property's ledger, so the seed also works on an INR property.
   const currency = (await stub.readStoredLedgerCurrency()) ?? DEMO_CURRENCY;
-  for (const rt of DEMO_ROOM_TYPES) {
-    for (const stayDate of enumerateInclusive(plan.rateFrom, plan.rateTo)) {
-      const cell = {
-        roomTypeId: rt.roomTypeId,
-        ratePlanId: DEFAULT_RATE_PLAN_ID,
-        stayDate,
-        amountMinor: DEMO_RATE_AMOUNTS[rt.roomTypeId],
-        currency,
-      };
-      const fp = await fingerprintPayload(cell);
-      const upserted = await stub.tryUpsertRateDay(input.actor, cell, {
-        key: demoIdempotencyKey('rate', `${rt.roomTypeId}:${stayDate}`),
-        fingerprint: fp,
-      });
-      if (!upserted.ok) throw new Error(`demo_seed_rate:${rt.roomTypeId}:${stayDate}:${upserted.error}`);
-    }
-  }
 
-  for (const guest of DEMO_GUESTS) {
-    const existingGuest = await org.readGuest(input.actor, input.propertyId, guest.guestId);
-    if (existingGuest.ok) continue;
-    const profile = { displayName: guest.displayName, email: guest.email };
-    const fp = await fingerprintPayload({ guestId: guest.guestId, ...profile });
-    const created = await org.tryCreateGuest(
-      input.actor,
-      input.propertyId,
-      { guestId: guest.guestId, profile },
-      { key: demoIdempotencyKey('guest', guest.guestId), fingerprint: fp },
-    );
-    if (created.ok) {
-      mutated = true;
-      continue;
-    }
-    if (created.error === GUEST_EXISTS) continue;
-    throw new Error(`demo_seed_guest:${guest.guestId}:${created.error}`);
-  }
-
-  for (const stay of plan.stays) {
-    const existing = await stub.readReservation(stay.reservationId);
-    if (!existing.ok) {
-      await stub.readAvailabilityRange(plan.rateFrom, plan.rateTo);
-      const createPayload = {
-        reservationId: stay.reservationId,
-        roomTypeId: stay.roomTypeId,
-        guestRef: stay.guestId,
-        arrivalDate: stay.arrivalDate,
-        departureDate: stay.departureDate,
-        status: 'confirmed' as const,
-        ratePlanId: DEFAULT_RATE_PLAN_ID,
-      };
-      const fp = await fingerprintPayload({
-        reservationId: stay.reservationId,
-        roomTypeId: stay.roomTypeId,
-        arrivalDate: stay.arrivalDate,
-        departureDate: stay.departureDate,
-        guestRef: stay.guestId,
-        status: 'confirmed',
-      });
-      const created = await stub.tryCreateReservation(input.actor, createPayload, {
-        key: demoIdempotencyKey('res', stay.reservationId),
-        fingerprint: fp,
-      });
-      if (!created.ok) {
-        throw new Error(`demo_seed_res:${stay.reservationId}:${created.error}`);
+  if (currency === 'INR') {
+    await runIndiaDemoSeed({
+      actor: input.actor,
+      orgId: input.orgId,
+      propertyId: input.propertyId,
+      stub,
+      org,
+      today,
+      currency,
+      mutated,
+    });
+  } else {
+    const plan = buildDemoSeedPlan(today);
+    await stub.ensurePastAvailabilityDays(plan.backfillFrom, plan.backfillToExclusive);
+    for (const rt of DEMO_ROOM_TYPES) {
+      for (const stayDate of enumerateInclusive(plan.rateFrom, plan.rateTo)) {
+        const cell = {
+          roomTypeId: rt.roomTypeId,
+          ratePlanId: DEFAULT_RATE_PLAN_ID,
+          stayDate,
+          amountMinor: DEMO_RATE_AMOUNTS[rt.roomTypeId],
+          currency,
+        };
+        const fp = await fingerprintPayload(cell);
+        const upserted = await stub.tryUpsertRateDay(input.actor, cell, {
+          key: demoIdempotencyKey('rate', `${rt.roomTypeId}:${stayDate}`),
+          fingerprint: fp,
+        });
+        if (!upserted.ok) throw new Error(`demo_seed_rate:${rt.roomTypeId}:${stayDate}:${upserted.error}`);
       }
-      const link = await org.upsertGuestPropertyAssociation(
+    }
+
+    for (const guest of DEMO_GUESTS) {
+      const existingGuest = await org.readGuest(input.actor, input.propertyId, guest.guestId);
+      if (existingGuest.ok) continue;
+      const profile = { displayName: guest.displayName, email: guest.email };
+      const fp = await fingerprintPayload({ guestId: guest.guestId, ...profile });
+      const created = await org.tryCreateGuest(
         input.actor,
         input.propertyId,
-        stay.guestId,
+        { guestId: guest.guestId, profile },
+        { key: demoIdempotencyKey('guest', guest.guestId), fingerprint: fp },
       );
-      if (!link.ok) {
-        throw new Error(`demo_seed_guest_link:${stay.reservationId}:${link.error}`);
+      if (created.ok) {
+        mutated.value = true;
+        continue;
       }
-      mutated = true;
+      if (created.error === GUEST_EXISTS) continue;
+      throw new Error(`demo_seed_guest:${guest.guestId}:${created.error}`);
     }
 
-    const current = await stub.readReservation(stay.reservationId);
-    if (!current.ok) throw new Error(`demo_seed_res_missing:${stay.reservationId}`);
+    for (const stay of plan.stays) {
+      const existing = await stub.readReservation(stay.reservationId);
+      if (!existing.ok) {
+        await stub.readAvailabilityRange(plan.rateFrom, plan.rateTo);
+        const createPayload = {
+          reservationId: stay.reservationId,
+          roomTypeId: stay.roomTypeId,
+          guestRef: stay.guestId,
+          arrivalDate: stay.arrivalDate,
+          departureDate: stay.departureDate,
+          status: 'confirmed' as const,
+          ratePlanId: DEFAULT_RATE_PLAN_ID,
+        };
+        const fp = await fingerprintPayload({
+          reservationId: stay.reservationId,
+          roomTypeId: stay.roomTypeId,
+          arrivalDate: stay.arrivalDate,
+          departureDate: stay.departureDate,
+          guestRef: stay.guestId,
+          status: 'confirmed',
+        });
+        const created = await stub.tryCreateReservation(input.actor, createPayload, {
+          key: demoIdempotencyKey('res', stay.reservationId),
+          fingerprint: fp,
+        });
+        if (!created.ok) {
+          throw new Error(`demo_seed_res:${stay.reservationId}:${created.error}`);
+        }
+        const link = await org.upsertGuestPropertyAssociation(
+          input.actor,
+          input.propertyId,
+          stay.guestId,
+        );
+        if (!link.ok) {
+          throw new Error(`demo_seed_guest_link:${stay.reservationId}:${link.error}`);
+        }
+        mutated.value = true;
+      }
 
-    if (stay.roomId && current.reservation.roomId == null) {
-      const fp = await fingerprintPayload({ reservationId: stay.reservationId, roomId: stay.roomId });
-      const assigned = await stub.tryAssignRoom(
-        input.actor,
-        { reservationId: stay.reservationId, roomId: stay.roomId },
-        { key: demoIdempotencyKey('assign', stay.reservationId), fingerprint: fp },
-      );
-      if (!assigned.ok) throw new Error(`demo_seed_assign:${stay.reservationId}:${assigned.error}`);
-      mutated = true;
-    }
+      const current = await stub.readReservation(stay.reservationId);
+      if (!current.ok) throw new Error(`demo_seed_res_missing:${stay.reservationId}`);
 
-    const afterAssign = await stub.readReservation(stay.reservationId);
-    if (!afterAssign.ok) throw new Error(`demo_seed_res_missing:${stay.reservationId}`);
-    if (stay.checkIn && afterAssign.reservation.status === 'confirmed') {
-      const fp = await fingerprintPayload({ reservationId: stay.reservationId });
-      const checked = await stub.tryCheckIn(
-        input.actor,
-        { reservationId: stay.reservationId },
-        { key: demoIdempotencyKey('checkin', stay.reservationId), fingerprint: fp },
-      );
-      if (!checked.ok) throw new Error(`demo_seed_checkin:${stay.reservationId}:${checked.error}`);
-      mutated = true;
+      if (stay.roomId && current.reservation.roomId == null) {
+        const fp = await fingerprintPayload({ reservationId: stay.reservationId, roomId: stay.roomId });
+        const assigned = await stub.tryAssignRoom(
+          input.actor,
+          { reservationId: stay.reservationId, roomId: stay.roomId },
+          { key: demoIdempotencyKey('assign', stay.reservationId), fingerprint: fp },
+        );
+        if (!assigned.ok) throw new Error(`demo_seed_assign:${stay.reservationId}:${assigned.error}`);
+        mutated.value = true;
+      }
+
+      const afterAssign = await stub.readReservation(stay.reservationId);
+      if (!afterAssign.ok) throw new Error(`demo_seed_res_missing:${stay.reservationId}`);
+      if (stay.checkIn && afterAssign.reservation.status === 'confirmed') {
+        const fp = await fingerprintPayload({ reservationId: stay.reservationId });
+        const checked = await stub.tryCheckIn(
+          input.actor,
+          { reservationId: stay.reservationId },
+          { key: demoIdempotencyKey('checkin', stay.reservationId), fingerprint: fp },
+        );
+        if (!checked.ok) throw new Error(`demo_seed_checkin:${stay.reservationId}:${checked.error}`);
+        mutated.value = true;
+      }
     }
   }
 
@@ -287,7 +300,7 @@ export async function runDemoSeed(input: {
     propertyName: input.propertyName,
     timeZone: input.timeZone,
     today,
-    alreadySeeded: !mutated,
+    alreadySeeded: !mutated.value,
     rooms: rooms.rooms.length,
     roomTypes,
     board: {

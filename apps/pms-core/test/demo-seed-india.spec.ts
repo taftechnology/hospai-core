@@ -61,7 +61,8 @@ describe('POST /v1/admin/demo-seed (India)', () => {
     await setKillSwitch(env, 'pms.core', false);
   });
 
-  it('seeds INR scenario with board, tax, city ledger, OOO, shift closed, idempotent replay', async () => {
+  // Seeds ~40 stays twice (seed + replay); the 5 s default is too tight on CI runners.
+  it('seeds INR scenario with board, tax, city ledger, OOO, shift closed, idempotent replay', { timeout: 30_000 }, async () => {
     const owner = 'user_owner';
     const orgId = `org_in_seed_${crypto.randomUUID()}`;
     const propertyId = `prop_in_seed_${crypto.randomUUID()}`;

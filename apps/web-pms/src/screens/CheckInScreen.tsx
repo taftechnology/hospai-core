@@ -1,3 +1,4 @@
+import { getConfigEntry } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -31,6 +32,98 @@ function bodyErrorCode(body: unknown): string | null {
 }
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
+
+const CHECK_IN_CLEANLINESS = 'pms.reservations.check_in_cleanliness';
+const REQUIRE_INSPECTION = 'pms.housekeeping.require_inspection';
+const ALLOW_DIRTY_OVERRIDE = 'pms.reservations.allow_dirty_check_in_override';
+const AUTO_ASSIGN_ROOMS = 'pms.ops.auto_assign_rooms';
+
+const CHECK_IN_BLOCK_REASON_ID = 'check-in-block-reason';
+
+type ConfigKey = { key: string; value: unknown };
+
+type CheckInRoom = {
+  code: string;
+  status: string;
+  oooRanges?: Array<{ startDate: string; endDate: string }>;
+};
+
+function configBool(keys: ConfigKey[] | undefined, key: string, fallback: boolean): boolean {
+  const row = keys?.find((k) => k.key === key);
+  if (row?.value === true) return true;
+  if (row?.value === false) return false;
+  return fallback;
+}
+
+function configStr(keys: ConfigKey[] | undefined, key: string, fallback: string): string {
+  const row = keys?.find((k) => k.key === key);
+  return typeof row?.value === 'string' ? row.value : fallback;
+}
+
+function registeredBool(key: string, fallback: boolean): boolean {
+  const value = getConfigEntry(key)?.default;
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function registeredStr(key: string, fallback: string): string {
+  const value = getConfigEntry(key)?.default;
+  return typeof value === 'string' ? value : fallback;
+}
+
+/** Same window as PropertyDO: start < departure and end > arrival. */
+function roomOutOfOrder(room: CheckInRoom, arrival: string, departure: string): boolean {
+  if (room.status === 'out_of_order') return true;
+  if (!arrival || !departure) return false;
+  return (room.oooRanges ?? []).some(
+    (range) => range.startDate < departure && range.endDate > arrival,
+  );
+}
+
+function roomNotReady(
+  room: CheckInRoom,
+  cleanliness: string,
+  requireInspection: boolean,
+): 'dirty' | 'uninspected' | null {
+  if (cleanliness !== 'strict') return null;
+  if (room.status === 'dirty') return 'dirty';
+  if (requireInspection && room.status === 'clean') return 'uninspected';
+  return null;
+}
+
+function checkInBlockReason(input: {
+  status: string | undefined;
+  roomPicked: boolean;
+  room: CheckInRoom | null;
+  autoAssign: boolean;
+  cleanliness: string;
+  requireInspection: boolean;
+  allowOverride: boolean;
+  overrideTicked: boolean;
+  arrival: string;
+  departure: string;
+}): string | null {
+  const { status } = input;
+  if (status == null || status === 'checked_in' || TERMINAL_STATUSES.has(status)) return null;
+  if (status === 'pending') return 'Confirm the booking before check-in.';
+  if (status !== 'confirmed') return 'Only a confirmed booking can be checked in.';
+  if (!input.roomPicked) {
+    return input.autoAssign ? null : 'Pick a room first.';
+  }
+  if (!input.room) return null;
+  if (roomOutOfOrder(input.room, input.arrival, input.departure)) {
+    return `Room ${input.room.code} is out of order. Pick another room.`;
+  }
+  const notReady = roomNotReady(input.room, input.cleanliness, input.requireInspection);
+  if (!notReady || input.overrideTicked) return null;
+  const lead =
+    notReady === 'dirty'
+      ? `Room ${input.room.code} is dirty.`
+      : `Room ${input.room.code} has not been inspected.`;
+  const tail = input.allowOverride
+    ? 'Tick Override cleanliness to check in anyway.'
+    : 'Pick a clean room.';
+  return `${lead} ${tail}`;
+}
 
 function nightsBetween(arrival: string, departure: string): number {
   const ms = Date.parse(`${departure}T00:00:00Z`) - Date.parse(`${arrival}T00:00:00Z`);
@@ -71,6 +164,11 @@ export function CheckInScreen() {
   const typesQ = useQuery({
     queryKey: ['room-types', tenant.propertyId, 'active'],
     queryFn: () => api.listRoomTypes(tenant.propertyId, { status: 'active' }),
+    retry: false,
+  });
+  const domainConfigQ = useQuery({
+    queryKey: ['domain-config', tenant.propertyId],
+    queryFn: () => api.listDomainConfig(tenant.propertyId),
     retry: false,
   });
 
@@ -154,7 +252,6 @@ export function CheckInScreen() {
   const terminalOrInHouse =
     status != null &&
     (TERMINAL_STATUSES.has(status) || status === 'checked_in');
-  const canCheckIn = !checkIn.isPending && !terminalOrInHouse;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const guestResolved = guestState?.kind === 'resolved';
   const displayName = guestState?.kind === 'resolved' ? guestState.displayName : null;
@@ -180,6 +277,52 @@ export function CheckInScreen() {
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
   const res = reservationQ.data;
+  const configKeys = Array.isArray(domainConfigQ.data?.keys)
+    ? (domainConfigQ.data.keys as ConfigKey[])
+    : undefined;
+  const cleanliness = configStr(
+    configKeys,
+    CHECK_IN_CLEANLINESS,
+    registeredStr(CHECK_IN_CLEANLINESS, 'strict'),
+  );
+  const requireInspection = configBool(
+    configKeys,
+    REQUIRE_INSPECTION,
+    registeredBool(REQUIRE_INSPECTION, false),
+  );
+  const allowDirtyOverride = configBool(
+    configKeys,
+    ALLOW_DIRTY_OVERRIDE,
+    registeredBool(ALLOW_DIRTY_OVERRIDE, true),
+  );
+  const autoAssign = configBool(
+    configKeys,
+    AUTO_ASSIGN_ROOMS,
+    registeredBool(AUTO_ASSIGN_ROOMS, true),
+  );
+  const selectedRoom = rooms.find((r) => r.roomId === roomId) ?? null;
+  const arrival = res?.arrivalDate ?? '';
+  const departure = res?.departureDate ?? '';
+  const blockReason = checkInBlockReason({
+    status,
+    roomPicked: roomId.trim().length > 0,
+    room: selectedRoom,
+    autoAssign,
+    cleanliness,
+    requireInspection,
+    allowOverride: allowDirtyOverride,
+    overrideTicked: overrideCleanliness,
+    arrival,
+    departure,
+  });
+  const canCheckIn = !checkIn.isPending && !terminalOrInHouse && blockReason == null;
+  const offerOverride =
+    showOverride ||
+    (status === 'confirmed' &&
+      selectedRoom != null &&
+      !roomOutOfOrder(selectedRoom, arrival, departure) &&
+      roomNotReady(selectedRoom, cleanliness, requireInspection) != null &&
+      allowDirtyOverride);
 
   return (
     <>
@@ -219,15 +362,23 @@ export function CheckInScreen() {
             : undefined
         }
         actions={
-          <Button
-            type="button"
-            intent="primary"
-            data-testid="check-in"
-            disabled={!canCheckIn}
-            onClick={() => checkIn.mutate()}
-          >
-            Check in
-          </Button>
+          <div className="ui-stack ui-stack--tight">
+            <Button
+              type="button"
+              intent="primary"
+              data-testid="check-in"
+              disabled={!canCheckIn}
+              aria-describedby={blockReason ? CHECK_IN_BLOCK_REASON_ID : undefined}
+              onClick={() => checkIn.mutate()}
+            >
+              Check in
+            </Button>
+            {blockReason ? (
+              <p className="muted" id={CHECK_IN_BLOCK_REASON_ID}>
+                {blockReason}
+              </p>
+            ) : null}
+          </div>
         }
       />
 
@@ -237,7 +388,9 @@ export function CheckInScreen() {
         </CardHeader>
         <CardContent>
           <div className="ui-stack">
-            <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
+            {autoAssign ? (
+              <p className="muted">Leave blank to auto-assign a vacant room of the booked type.</p>
+            ) : null}
             {res ? (
               <p>
                 Adults {adults} · Children {children}
@@ -271,7 +424,7 @@ export function CheckInScreen() {
                 Assign room
               </Button>
             </div>
-            {showOverride ? (
+            {offerOverride ? (
               <Field
                 label="Override cleanliness"
                 control={

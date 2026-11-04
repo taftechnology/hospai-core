@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { isValidElement } from 'react';
+import { Navigate } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { router } from './App.js';
 
@@ -13,5 +15,15 @@ describe('App router fallbacks', () => {
     const shell = router.routes.find((r) => r.children?.some((c) => c.path === 'dashboard'));
     expect(shell?.errorElement).toBeTruthy();
     expect(shell?.children?.some((c) => c.path === '*')).toBe(true);
+  });
+});
+
+describe('App router reports', () => {
+  it('redirects /reports to the Dashboard until the operational report set ships', () => {
+    const shell = router.routes.find((r) => r.children?.some((c) => c.path === 'dashboard'));
+    const reports = shell?.children?.find((c) => c.path === 'reports');
+    const element = reports?.element;
+    expect(isValidElement(element) && element.type === Navigate).toBe(true);
+    expect(isValidElement(element) ? element.props : null).toEqual({ to: '/dashboard', replace: true });
   });
 });

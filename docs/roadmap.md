@@ -316,10 +316,11 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 - **R1.13** — unused number, not a lost slice. Stay workspace is **R1.15**. Do not invent work under this id.
 
-- [ ] **R1.14 Reports — OLTP only (optional nav)**
+- [x] **R1.14 Reports — OLTP only (optional nav)** — shipped 2026-11-03
   - **Depends:** R1.1.
   - **Prototype:** `ReportsAnalytics.tsx` is **Yield**. That is Track 5.
   - **Locked:** Do **not** add Yield Analytics in Phase 1. Dashboard Hub (R1.1) is the report. If a `/reports` route is needed for IA, make it a redirect to Dashboard until **R4.14** (Track P) gives it the named operational report set.
+  - **As-built:** `/reports` redirects to `/dashboard` (replace, so Back skips it); no sidebar item, since a Reports entry that opens the Dashboard would mislead. Night-audit snapshot reports stay on `/night-audit`. R4.14 replaces the redirect with the named set.
 
 ### R1 — Stay workspace, cashiering, Settings leftovers
 

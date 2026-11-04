@@ -64,6 +64,8 @@ export const router = createBrowserRouter(
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardScreen />} />
+            {/* R1.14: the Dashboard is the report until R4.14 ships the named operational set. */}
+            <Route path="reports" element={<Navigate to="/dashboard" replace />} />
             <Route path="board" element={<TapeChartScreen />} />
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />
             <Route path="departures" element={<BoardScreen mode="departures" />} />

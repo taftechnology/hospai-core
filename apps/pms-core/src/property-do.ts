@@ -1725,6 +1725,7 @@ const DESK_SEARCH_SELECT = `r.reservation_id, r.room_type_id, r.guest_ref, r.arr
 export class PropertyDO extends DurableObject<PmsEnv> {
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
+  private laneClockForTestMs: number | null = null;
   private readonly entitlementCache = new EntitlementDoCache();
   private readonly permissionCache = new PermissionDoCache();
 
@@ -2535,10 +2536,29 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
-  /** Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state). */
-  async resetLaneGuardForTest(opts?: LaneGuardOptions): Promise<void> {
+  /**
+   * Test helper (unsafe-local only): replace LaneGuard (e.g. quietMs override or reset admission state).
+   * `manualClockMs` puts the guard on a clock that moves only through `advanceLaneGuardClockForTest`.
+   */
+  async resetLaneGuardForTest(
+    opts?: Omit<LaneGuardOptions, 'now'> & { manualClockMs?: number },
+  ): Promise<void> {
     this.assertUnsafeLocal('resetLaneGuardForTest');
-    this.lanes = new LaneGuard(opts);
+    const { manualClockMs, ...laneOpts } = opts ?? {};
+    this.laneClockForTestMs = manualClockMs ?? null;
+    this.lanes = new LaneGuard(
+      manualClockMs === undefined
+        ? laneOpts
+        : { ...laneOpts, now: () => this.laneClockForTestMs ?? Date.now() },
+    );
+  }
+
+  async advanceLaneGuardClockForTest(ms: number): Promise<void> {
+    this.assertUnsafeLocal('advanceLaneGuardClockForTest');
+    if (this.laneClockForTestMs === null) {
+      throw new Error('advanceLaneGuardClockForTest: LaneGuard is not on a manual clock');
+    }
+    this.laneClockForTestMs += ms;
   }
 
   async touchInteractiveForTest(): Promise<void> {

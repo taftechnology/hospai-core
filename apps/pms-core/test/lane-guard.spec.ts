@@ -91,7 +91,8 @@ describe('LaneGuard (Phase 0)', () => {
   it('flushes after quiet window elapses with no further interactive touches', async () => {
     const name = `lg_quiet_${crypto.randomUUID()}`;
     const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD', undefined, { flushOutbox: false });
-    await stub.resetLaneGuardForTest({ quietMs: 50 });
+    // Manual clock: a wall-clock window raced slow CI runners (the first alarm sometimes ran after it).
+    await stub.resetLaneGuardForTest({ quietMs: 250, manualClockMs: Date.now() });
 
     const meta = { reason: 'laneguard-quiet' };
     const key = 'pms.availability.allow_overbooking';
@@ -101,8 +102,9 @@ describe('LaneGuard (Phase 0)', () => {
     expect(await stub.outboxUnackedCount()).toBeGreaterThan(0);
 
     expect(await stub.runOutboxAlarmForTest()).toBeNull();
-
-    await new Promise((r) => setTimeout(r, 60));
+    await stub.advanceLaneGuardClockForTest(249);
+    expect(await stub.runOutboxAlarmForTest()).toBeNull();
+    await stub.advanceLaneGuardClockForTest(1);
 
     const result = await stub.runOutboxAlarmForTest();
     expect(result?.flushed).toBeGreaterThan(0);

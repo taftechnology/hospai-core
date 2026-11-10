@@ -53,7 +53,8 @@ export function ShiftScreen() {
 
 function ShiftCloseForm() {
   const propertyId = tenant.propertyId;
-  const { money, date } = useFormat();
+  const { money, date, fmt } = useFormat();
+  const ledgerCode = fmt.currency;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [closingMajor, setClosingMajor] = useState('');
@@ -116,7 +117,7 @@ function ShiftCloseForm() {
     if (c.class === 'fail_closed') {
       return <Alert>Shift unavailable — property unreachable</Alert>;
     }
-    return <p className="muted">Shift status unavailable</p>;
+    return <Alert>{classifiedUserMessage(c, { fallback: 'Shift status unavailable' })}</Alert>;
   }
 
   const open = openQ.data as
@@ -175,7 +176,12 @@ function ShiftCloseForm() {
             }}
           >
             <Field
-              label="Closing count"
+              label={ledgerCode ? `Closing count (${ledgerCode})` : 'Closing count'}
+              hint={
+                ledgerCode
+                  ? `Count foreign-currency cash at its ${ledgerCode} value as posted on the folio.`
+                  : 'Count foreign-currency cash at its ledger-currency value as posted on the folio.'
+              }
               control={
                 <Input
                   aria-label="closing-count"
@@ -230,6 +236,13 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
           variance: shift.variance,
         });
 
+  // Expected cash is blind until the count is in; after a counted close it is count + variance.
+  const expectedCash =
+    shift.status === 'CLOSED' && shift.closingCount != null && shift.variance != null
+      ? shift.closingCount + shift.variance
+      : null;
+  const unattributed = shift.unattributedCashCount;
+
   const varianceCopy =
     shift.status === 'FORCE_CLOSED'
       ? 'never counted'
@@ -255,15 +268,29 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
               label="Closing count"
               value={shift.closingCount == null ? '—' : money(shift.closingCount)}
             />
+            {expectedCash != null ? (
+              <StatField
+                label="Expected cash"
+                value={<span data-testid="receipt-expected">{money(expectedCash)}</span>}
+              />
+            ) : null}
             <StatField
               label="Variance"
               value={<span data-testid="receipt-variance">{varianceCopy}</span>}
             />
             <StatField
-              label="Unattributed cash posts"
-              value={<span data-testid="receipt-unattributed">{shift.unattributedCashCount}</span>}
+              label="Cash with no shift"
+              value={<span data-testid="receipt-unattributed">{unattributed}</span>}
             />
           </div>
+          {unattributed > 0 ? (
+            <Alert intent="attention" data-testid="receipt-unattributed-alert">
+              {unattributed === 1
+                ? `1 cash payment on ${date(shift.businessDate)} was taken with no shift open.`
+                : `${unattributed} cash payments on ${date(shift.businessDate)} were taken with no shift open.`}{' '}
+              {unattributed === 1 ? 'It is' : 'They are'} not in any drawer's expected cash.
+            </Alert>
+          ) : null}
           {shift.status === 'FORCE_CLOSED' ? <Alert>Drawer never counted.</Alert> : null}
         </CardContent>
         <CardFooter>

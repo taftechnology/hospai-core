@@ -19,7 +19,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | `/city-ledger`, `/city-ledger/:id` | TemplateDirectory, TemplateRecord | DataTable, StatGrid, Dialog |
 | `/guests` | TemplateDirectory | SearchField, DataTable, Pagination |
 | `/guests/:ref` | TemplateRecord | StatGrid, TagEditor, DataTable, Dialog |
-| `/shift`, `/shift/:id` | TemplateForm, TemplateRecord | MoneyInput, StatGrid, Total |
+| `/shift`, `/shift/:id` | TemplateForm, TemplateRecord | MoneyInput, StatGrid, Total, Alert |
 | `/rates/plans` | TemplateSettings | Tabs, DataTable, Dialog |
 | `/rates/matrix`, `/rates/restrictions` | TemplateGrid | DateRange, MatrixGrid |
 | `/inventory`, `/inventory/rooms` | TemplateDirectory | Tabs, DataTable, Dialog |

@@ -18,10 +18,10 @@ describe('money helpers', () => {
     expect(parseMajorToMinor(minorToMajorInput(450_000))).toBe(450_000);
   });
 
-  it('variance short/over/even prints the ledger currency', () => {
+  it('variance is expected − counted: positive is short, negative is over', () => {
     expect(formatVarianceMinor(0, INR)).toBe('even');
-    expect(formatVarianceMinor(-500, INR)).toBe('short ₹5.00');
-    expect(formatVarianceMinor(250, INR)).toBe('over ₹2.50');
+    expect(formatVarianceMinor(500, INR)).toBe('short ₹5.00');
+    expect(formatVarianceMinor(-250, INR)).toBe('over ₹2.50');
   });
 
   it('callout date bound suppresses when propertyLocalToday null', () => {

@@ -2,8 +2,12 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   fingerprintPayload,
+  IDEM_KEY_REUSED,
+  MONEY_INVALID,
   PAYMENT_NOT_CAPTURABLE,
   SHIFT_ALREADY_OPEN,
+  SHIFT_NOT_FOUND,
+  SHIFT_NOT_OPEN,
 } from '@hospai/contracts';
 import { addCalendarDays } from './date-helpers.js';
 import worker from '../src/index.js';
@@ -744,5 +748,184 @@ describe('cashiering matrix', () => {
     expect(body.shifts.some((s) => s.shiftId === stillOpen)).toBe(false);
     expect(body.shifts.some((s) => s.shiftId === other)).toBe(false);
     expect(body.shifts[0]).not.toHaveProperty('unattributedCashCount');
+  });
+});
+
+async function getShift(propertyId: string, actor: string, shiftId: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/shifts/${encodeURIComponent(shiftId)}`,
+      { headers: { 'x-dev-actor': actor } },
+    ),
+    env,
+  );
+}
+
+async function putCloseShiftRaw(propertyId: string, actor: string, shiftId: string, raw: string) {
+  return worker.fetch(
+    new Request(
+      `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/shifts/${encodeURIComponent(shiftId)}/close`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
+        body: raw,
+      },
+    ),
+    env,
+  );
+}
+
+type ShiftGet = {
+  ok: true;
+  shift: {
+    shiftId: string;
+    businessDate: string;
+    openingFloat: number;
+    closingCount: number | null;
+    variance: number | null;
+    status: string;
+  };
+};
+
+// R1.16: pin the wire the Close shift form and receipt read. Variance is expected − counted.
+describe('get_shift / put_shift_close characterization', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+    await setKillSwitch(env, 'pms.core', false);
+  });
+
+  async function openWithCash(owner: string, openingFloat: number, cashMinor: number) {
+    const hotel = await provisionHotel(owner);
+    const reservationId = `res_${owner}`;
+    expect(
+      (
+        await postReservation(
+          hotel.propertyId,
+          owner,
+          reservationId,
+          hotel.arrival,
+          addDays(hotel.arrival, 2),
+          hotel.guestRef,
+        )
+      ).status,
+    ).toBe(201);
+    const shiftId = `shift_${owner}_${crypto.randomUUID()}`;
+    expect((await postShift(hotel.propertyId, owner, { shiftId, openingFloat })).status).toBe(201);
+    if (cashMinor > 0) {
+      expect(
+        (
+          await postCash(hotel.propertyId, owner, reservationId, {
+            paymentId: `pay_${crypto.randomUUID()}`,
+            amountMinor: cashMinor,
+          })
+        ).status,
+      ).toBe(201);
+    }
+    return { ...hotel, shiftId };
+  }
+
+  it('GET open shift: OPEN, nothing counted, stamped with the property business date', async () => {
+    const owner = 'user_char_get_open';
+    const { propertyId, shiftId, stub } = await openWithCash(owner, 5000, 0);
+    const res = await getShift(propertyId, owner, shiftId);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      shift: {
+        shiftId,
+        status: 'OPEN',
+        openingFloat: 5000,
+        closingCount: null,
+        variance: null,
+        businessDate: await stub.readBusinessDate(),
+      },
+    });
+  });
+
+  it('short count: variance is positive and count + variance = float + cash taken', async () => {
+    const owner = 'user_char_short';
+    const { propertyId, shiftId } = await openWithCash(owner, 5000, 2000);
+    const closed = await putCloseShift(propertyId, owner, shiftId, { closingCount: 6500 });
+    expect(closed.status).toBe(200);
+    expect(await closed.json()).toMatchObject({ ok: true, shiftId, variance: 500 });
+    const { shift } = (await (await getShift(propertyId, owner, shiftId)).json()) as ShiftGet;
+    expect(shift).toMatchObject({ status: 'CLOSED', closingCount: 6500, variance: 500 });
+    expect(shift.closingCount! + shift.variance!).toBe(5000 + 2000);
+  });
+
+  it('over count: variance is negative', async () => {
+    const owner = 'user_char_over';
+    const { propertyId, shiftId } = await openWithCash(owner, 5000, 2000);
+    const closed = await putCloseShift(propertyId, owner, shiftId, { closingCount: 7300 });
+    expect(closed.status).toBe(200);
+    expect(await closed.json()).toMatchObject({ variance: -300 });
+  });
+
+  it('GET unknown shift is 404 shift_not_found', async () => {
+    const owner = 'user_char_unknown';
+    const { propertyId } = await provisionHotel(owner);
+    const res = await getShift(propertyId, owner, `shift_missing_${crypto.randomUUID()}`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ ok: false, error: SHIFT_NOT_FOUND });
+  });
+
+  it("another cashier cannot close my shift: 404, and it stays OPEN", async () => {
+    const owner = 'user_char_mine';
+    const { propertyId, shiftId, org } = await openWithCash(owner, 1000, 0);
+    const other = 'user_char_other';
+    await org.ensureMember(other, 'staff');
+    const res = await putCloseShift(propertyId, other, shiftId, { closingCount: 1000 });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not_found' });
+    const { shift } = (await (await getShift(propertyId, owner, shiftId)).json()) as ShiftGet;
+    expect(shift.status).toBe('OPEN');
+  });
+
+  it('replay with the same key returns the same body; a changed count on that key is refused', async () => {
+    const owner = 'user_char_replay';
+    const { propertyId, shiftId } = await openWithCash(owner, 1000, 0);
+    const idempotencyKey = `idem-close-${crypto.randomUUID()}`;
+    const first = await putCloseShift(propertyId, owner, shiftId, { closingCount: 900, idempotencyKey });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    const replay = await putCloseShift(propertyId, owner, shiftId, { closingCount: 900, idempotencyKey });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(firstBody);
+    const changed = await putCloseShift(propertyId, owner, shiftId, {
+      closingCount: 1000,
+      idempotencyKey,
+    });
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toMatchObject({ error: IDEM_KEY_REUSED });
+    const { shift } = (await (await getShift(propertyId, owner, shiftId)).json()) as ShiftGet;
+    expect(shift).toMatchObject({ closingCount: 900, variance: 100 });
+  });
+
+  it('closing a closed shift with a new key is shift_not_open', async () => {
+    const owner = 'user_char_twice';
+    const { propertyId, shiftId } = await openWithCash(owner, 1000, 0);
+    expect((await putCloseShift(propertyId, owner, shiftId, { closingCount: 1000 })).status).toBe(200);
+    const again = await putCloseShift(propertyId, owner, shiftId, { closingCount: 1000 });
+    expect(again.status).toBe(422);
+    expect(await again.json()).toMatchObject({ error: SHIFT_NOT_OPEN });
+  });
+
+  it('bad counts and bodies: money_invalid, invalid_body, invalid_json', async () => {
+    const owner = 'user_char_bad';
+    const { propertyId, shiftId } = await openWithCash(owner, 1000, 0);
+    for (const closingCount of [-1, 1.5]) {
+      const res = await putCloseShift(propertyId, owner, shiftId, { closingCount });
+      expect(res.status).toBe(422);
+      expect(await res.json()).toMatchObject({ error: MONEY_INVALID });
+    }
+    const noKey = await putCloseShiftRaw(propertyId, owner, shiftId, JSON.stringify({ closingCount: 1000 }));
+    expect(noKey.status).toBe(400);
+    expect(await noKey.json()).toMatchObject({ error: 'invalid_body' });
+    const malformed = await putCloseShiftRaw(propertyId, owner, shiftId, '{"closingCount":');
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({ error: 'invalid_json' });
+    const { shift } = (await (await getShift(propertyId, owner, shiftId)).json()) as ShiftGet;
+    expect(shift.status).toBe('OPEN');
   });
 });

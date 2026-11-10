@@ -66,7 +66,7 @@ describe('ShiftScreen', () => {
     closeShift.mockResolvedValue({
       ok: true,
       shiftId: 'shift_close_1',
-      variance: -1500,
+      variance: 1500,
       unattributedCashCount: 0,
     });
     getShiftById.mockResolvedValue({
@@ -76,7 +76,7 @@ describe('ShiftScreen', () => {
         businessDate: '2026-08-09',
         openingFloat: 10_000,
         closingCount: 8500,
-        variance: -1500,
+        variance: 1500,
         status: 'CLOSED',
         unattributedCashCount: 0,
       },
@@ -91,6 +91,8 @@ describe('ShiftScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(screen.getByTestId('receipt-variance').textContent).toMatch(/short ₹15\.00/);
+    // Expected cash = count + variance once counted: 85.00 + 15.00 = the 100.00 float.
+    expect(screen.getByTestId('receipt-expected').textContent).toBe('₹100.00');
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['open-shift', 'prop_demo'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['recent-shifts', 'prop_demo'] });
   });
@@ -114,14 +116,84 @@ describe('ShiftScreen', () => {
     expect(screen.getByTestId('receipt-unattributed').textContent).toBe('2');
     expect(screen.getByTestId('receipt-status').textContent).toMatch(/Force closed/);
     const receipt = screen.getByTestId('shift-receipt');
+    // No expected cash on a force-close: the drawer was never counted.
     expect(receipt.querySelectorAll('.ui-stat-field').length).toBe(5);
+    expect(screen.queryByTestId('receipt-expected')).toBeNull();
     expect(receipt.querySelector('.ui-stat-grid')).toBeTruthy();
-    for (const label of ['Business date', 'Opening float', 'Closing count', 'Variance', 'Unattributed cash posts']) {
+    for (const label of ['Business date', 'Opening float', 'Closing count', 'Variance', 'Cash with no shift']) {
       expect(screen.getByText(label)).toBeTruthy();
     }
+    expect(screen.getByTestId('receipt-unattributed-alert').textContent).toBe(
+      "2 cash payments on 09/08/2026 were taken with no shift open. They are not in any drawer's expected cash.",
+    );
     const back = screen.getByRole('link', { name: 'Back to board' });
     expect(back.className).toContain('ui-link-btn');
     expect(back.getAttribute('href')).toBe('/arrivals');
+  });
+
+  it('over count reads over, with expected cash, and one no-shift payment reads singular', async () => {
+    getShiftById.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_over',
+        businessDate: '2026-08-09',
+        openingFloat: 10_000,
+        closingCount: 12_500,
+        variance: -500,
+        status: 'CLOSED',
+        unattributedCashCount: 1,
+      },
+    });
+    renderAt('/shift/shift_over');
+    await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
+    expect(screen.getByTestId('receipt-variance').textContent).toBe('over ₹5.00');
+    expect(screen.getByTestId('receipt-expected').textContent).toBe('₹120.00');
+    expect(screen.getByTestId('receipt-unattributed-alert').textContent).toBe(
+      "1 cash payment on 09/08/2026 was taken with no shift open. It is not in any drawer's expected cash.",
+    );
+  });
+
+  it('counted close with no stray cash shows no no-shift alert', async () => {
+    getShiftById.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_even',
+        businessDate: '2026-08-09',
+        openingFloat: 10_000,
+        closingCount: 10_000,
+        variance: 0,
+        status: 'CLOSED',
+        unattributedCashCount: 0,
+      },
+    });
+    renderAt('/shift/shift_even');
+    await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
+    expect(screen.getByTestId('receipt-variance').textContent).toBe('even');
+    expect(screen.queryByTestId('receipt-unattributed-alert')).toBeNull();
+  });
+
+  it('close form names the ledger currency and the foreign-cash rule', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: { shiftId: 'shift_fx', businessDate: '2026-08-09', openingFloat: 10_000 },
+    });
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByText('Closing count (INR)')).toBeTruthy());
+    const input = screen.getByLabelText('closing-count');
+    const hintId = input.getAttribute('aria-describedby');
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId!)?.textContent).toBe(
+      'Count foreign-currency cash at its INR value as posted on the folio.',
+    );
+  });
+
+  it('open-shift load error is an Alert, not a bare paragraph', async () => {
+    getOpenShift.mockRejectedValue(
+      new ClassifiedError({ class: 'server_error', status: 500, body: {}, retryAfterMs: null }),
+    );
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(document.body.textContent).not.toMatch(/server_error/);
   });
 
   it('close form and receipt hide wire shift ids', async () => {
@@ -155,7 +227,8 @@ describe('ShiftScreen', () => {
     renderAt('/shift/shift_fc');
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(document.body.textContent).not.toMatch(/shift_fc/);
-    expect(screen.getByText(/09\/08\/2026/)).toBeTruthy();
+    // Exact match: the business-date stat, not the no-shift alert sentence that also names it.
+    expect(screen.getByText('09/08/2026')).toBeTruthy();
   });
 
   it('close shift error uses classifiedUserMessage without class token', async () => {

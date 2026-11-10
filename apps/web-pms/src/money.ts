@@ -20,11 +20,14 @@ export function parseAmountToMinor(raw: string): number | null {
   return parseMajorToMinor(trimmed);
 }
 
-/** Signed variance in minor units → short/over/even copy, with the ledger currency. */
+/**
+ * Shift variance on the wire is expected − counted (cashiering spec §2.4):
+ * positive means the drawer is short, negative means it is over.
+ */
 export function formatVarianceMinor(variance: number, fmt: PropertyFormat): string {
   if (variance === 0) return 'even';
   const maj = formatMoney(Math.abs(variance), fmt);
-  return variance < 0 ? `short ${maj}` : `over ${maj}`;
+  return variance > 0 ? `short ${maj}` : `over ${maj}`;
 }
 
 /** Calendar day before YYYY-MM-DD (UTC date arithmetic). */

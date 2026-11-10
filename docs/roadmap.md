@@ -324,7 +324,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 ### R1 — Stay workspace, cashiering, Settings leftovers
 
-- [ ] **R1.15 Reservation stay workspace**
+- [x] **R1.15 Reservation stay workspace** — shipped 2026-11-09
   - **Depends:** R0.6. Add-ons need R1.5 products if you post incidentals here.
   - **Prototype:** `Reservations.tsx` (not just the list — the selected-stay card: modify dates/type, confirm pending, inquiry filter, cancel + policy penalty, no-show, cancel check-in, confirmation code, add-ons, damage-deposit checkbox).
   - **Live:** `ReservationsDirectoryScreen.tsx` is a **list**. Folio and Check-in are separate routes. Commands for hold/confirm/cancel/no-show already exist — **wire the stay card**, do not invent new status verbs.
@@ -333,6 +333,7 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **In-house stays:** `reservations.modify` refuses `checked_in` (`NOT_MODIFIABLE`). The card shows that and links to **R4.24**; do not widen modify here.
   - **Out:** extra named guests; dirty-room force check-in; recurring engine; second folio UI; PAN; new deposit commands.
   - **Tests:** cancel outside window posts one penalty line; modify dates moves availability; cancel-check-in returns confirmed without deleting folio history; DAMAGE void leaves stay capture-due untouched.
+  - **As-built:** `/reservations/:reservationId` stay card wires confirm, modify (`PATCH`), cancel, no-show, cancel check-in and the check-in link; impossible actions are disabled with the reason; in-house modify is disabled (R4.24). `GET` reservation gains `cancellation` (snapshotted terms, `freeUntil`, and `cancelNowMinor` / `noShowMinor` from the same `penaltyMinor` the writes use, read-only, null when the policy cannot be priced); dialogs show the charge before tax. `post_folio_authorize` accepts `purpose` (`DAMAGE` joins the fingerprint; `STAY` stays the default and fingerprints as before); Folio gets Release (void) and Forfeit (`DAMAGE` line, then capture, capture-only retry); the stay card shows the hold read-only. No confirmation-code field exists, so the card shows the reservation ID. Directory links to the card and filters Inquiry / Pending / Confirmed / In house. No new command, route or migration.
 
 - [ ] **R1.16 Cashiering / shift as a first-class desk surface**
   - **Depends:** R0.14 for L9–L10 cash FX and business-date on close. If R0.14 is still open, do not start this slice.

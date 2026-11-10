@@ -81,6 +81,35 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   invoice_number_invalid: () =>
     'That invoice number is not valid for this series. Shorten the prefix or suffix, or switch back to one continuous series.',
   not_modifiable: () => 'This reservation cannot be changed in its current status.',
+  no_show_before_arrival: () =>
+    'No-show is only allowed on or after the arrival business date.',
+  already_cancelled: () => 'This reservation is already cancelled.',
+  invalid_cancel_policy: () =>
+    "The cancellation policy isn't valid, so the charge can't be posted.",
+  occupancy_exceeded: () => 'That party is larger than the room type allows.',
+  invalid_status_transition: () => "That status change isn't allowed.",
+  invalid_stay_range: () => 'Departure must be after arrival.',
+  unbookable: (body, context) => {
+    const date = bodyStringField(body, 'date');
+    if (date) {
+      return `Those dates aren't bookable on ${formatDate(date, context.fmt ?? FALLBACK_FORMAT)}.`;
+    }
+    return "Those dates aren't bookable.";
+  },
+  rate_missing: (body, context) => {
+    const date = bodyStringField(body, 'date');
+    if (date) {
+      return `No rate is set for ${formatDate(date, context.fmt ?? FALLBACK_FORMAT)}.`;
+    }
+    return 'No rate is set for those dates.';
+  },
+  restriction_violated: (body, context) => {
+    const date = bodyStringField(body, 'date');
+    const rule = bodyStringField(body, 'rule');
+    const when = date ? ` on ${formatDate(date, context.fmt ?? FALLBACK_FORMAT)}` : '';
+    const which = rule ? ` (${rule})` : '';
+    return `A stay restriction blocks those dates${when}${which}.`;
+  },
   charge_code_not_postable: () =>
     'That charge code cannot be used for a product — pick an active, non-system code.',
   category_exists: () => 'A category with that id already exists.',

@@ -8248,6 +8248,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     roomTypeId: string,
     ratePlanId: string,
     stayDate: string,
+    opts?: { persist?: boolean },
   ): number {
     const snap = this.ctx.storage.sql
       .exec(
@@ -8258,6 +8259,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ amount_minor: number }>;
     if (snap[0]) return snap[0].amount_minor;
     const amount = this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+    if (opts?.persist === false) return amount;
     const currency = this.readStoredLedgerCurrencySync();
     if (!currency) throw new Error(CURRENCY_UNSET);
     this.ctx.storage.sql.exec(
@@ -8291,6 +8293,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     },
     nowMs: number,
     timeZone: string,
+    opts?: { persistNights?: boolean },
   ): number {
     if (row.status === 'inquiry') return 0;
     if (row.cancel_penalty_type === 'none') return 0;
@@ -8298,21 +8301,40 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (nowMs < arrivalStart - row.cancel_grace_hours * 3_600_000) return 0;
 
     const nights = enumerateStayDates(row.arrival_date, row.departure_date);
+    const nightOpts = opts?.persistNights === false ? { persist: false as const } : undefined;
     if (row.cancel_penalty_type === 'first_night') {
-      return this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, row.arrival_date);
+      return this.rateNightAmountSync(
+        row.reservation_id,
+        row.room_type_id,
+        row.rate_plan_id,
+        row.arrival_date,
+        nightOpts,
+      );
     }
     if (row.cancel_penalty_type === 'nights') {
       const count = Math.min(row.cancel_penalty_nights ?? 0, nights.length);
       if (count < 1) throw new InvalidCancelPolicyError();
       let total = 0;
       for (let i = 0; i < count; i++) {
-        total += this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, nights[i]!);
+        total += this.rateNightAmountSync(
+          row.reservation_id,
+          row.room_type_id,
+          row.rate_plan_id,
+          nights[i]!,
+          nightOpts,
+        );
       }
       return total;
     }
     let stayTotal = 0;
     for (const stayDate of nights) {
-      stayTotal += this.rateNightAmountSync(row.reservation_id, row.room_type_id, row.rate_plan_id, stayDate);
+      stayTotal += this.rateNightAmountSync(
+        row.reservation_id,
+        row.room_type_id,
+        row.rate_plan_id,
+        stayDate,
+        nightOpts,
+      );
     }
     if (row.cancel_penalty_type === 'full') return stayTotal;
     if (row.cancel_penalty_type === 'percent') {
@@ -10992,6 +11014,76 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * What cancel / no-show would post right now. Same `penaltyMinor` and the same
+   * zoned midnight as the write paths. Night amounts are read, never inserted.
+   * An invalid policy or a missing rate becomes null — the read does not throw.
+   */
+  private cancellationPreviewSync(row: {
+    reservation_id: string;
+    status: string;
+    arrival_date: string;
+    departure_date: string;
+    room_type_id: string;
+    rate_plan_id: string;
+    cancel_penalty_type: string;
+    cancel_grace_hours: number;
+    cancel_penalty_nights: number | null;
+    cancel_penalty_bps: number | null;
+  }): {
+    penaltyType: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
+    graceHours: number | null;
+    penaltyNights: number | null;
+    penaltyBps: number | null;
+    freeUntil: number | null;
+    cancelNowMinor: number | null;
+    noShowMinor: number | null;
+    currency: string;
+  } {
+    const penaltyType = isCancelPenaltyType(row.cancel_penalty_type) ? row.cancel_penalty_type : 'none';
+    const timeZone = this.readStoredTimeZoneSync();
+    const currency = this.readStoredLedgerCurrencySync() ?? '';
+    const graceHours = Number.isInteger(row.cancel_grace_hours) ? row.cancel_grace_hours : null;
+    const freeUntil =
+      penaltyType === 'none' || timeZone == null || graceHours == null
+        ? null
+        : zonedMidnightMs(row.arrival_date, timeZone) - graceHours * 3_600_000;
+    let amount: number | null = null;
+    if (penaltyType === row.cancel_penalty_type && timeZone != null) {
+      try {
+        amount = this.penaltyMinor(
+          {
+            reservation_id: row.reservation_id,
+            status: row.status,
+            arrival_date: row.arrival_date,
+            departure_date: row.departure_date,
+            room_type_id: row.room_type_id,
+            rate_plan_id: row.rate_plan_id,
+            cancel_penalty_type: row.cancel_penalty_type,
+            cancel_grace_hours: row.cancel_grace_hours,
+            cancel_penalty_nights: row.cancel_penalty_nights,
+            cancel_penalty_bps: row.cancel_penalty_bps,
+          },
+          Date.now(),
+          timeZone,
+          { persistNights: false },
+        );
+      } catch {
+        amount = null;
+      }
+    }
+    return {
+      penaltyType,
+      graceHours,
+      penaltyNights: row.cancel_penalty_nights,
+      penaltyBps: row.cancel_penalty_bps,
+      freeUntil,
+      cancelNowMinor: amount,
+      noShowMinor: amount,
+      currency,
+    };
+  }
+
   /** Read a single reservation row. No idempotency — plain read RPC. */
   async readReservation(reservationId: string): Promise<
     | {
@@ -11020,6 +11112,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           marketSegmentCode: string | null;
           createdAt: number;
           updatedAt: number;
+          cancellation: {
+            penaltyType: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
+            graceHours: number | null;
+            penaltyNights: number | null;
+            penaltyBps: number | null;
+            freeUntil: number | null;
+            cancelNowMinor: number | null;
+            noShowMinor: number | null;
+            currency: string;
+          };
         };
       }
     | { ok: false; error: typeof NOT_FOUND }
@@ -11028,6 +11130,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
                 adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, promo_id, cancel_penalty_type,
+                cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
                 confirm_by, expires_at, allocated_room_type_id, source_code, market_segment_code, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
@@ -11049,6 +11152,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       rate_plan_id: string;
       promo_id: string | null;
       cancel_penalty_type: string;
+      cancel_grace_hours: number;
+      cancel_penalty_nights: number | null;
+      cancel_penalty_bps: number | null;
       confirm_by: number | null;
       expires_at: number | null;
       allocated_room_type_id: string;
@@ -11085,6 +11191,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         marketSegmentCode: row.market_segment_code,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        cancellation: this.cancellationPreviewSync(row),
       },
     };
   }

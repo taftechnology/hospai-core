@@ -24,6 +24,7 @@ const refundPayment = vi.fn();
 const postDiscount = vi.fn();
 const postStayDiscount = vi.fn();
 const captureDue = vi.fn();
+const capturePayment = vi.fn();
 const updateFrontOffice = vi.fn();
 const getProperty = vi.fn();
 const listFxRates = vi.fn();
@@ -85,7 +86,7 @@ vi.mock('../client.js', () => ({
     earlyDepart: (...args: unknown[]) => earlyDepart(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
-    capturePayment: vi.fn(),
+    capturePayment: (...args: unknown[]) => capturePayment(...args),
     splitFolioLine: (...args: unknown[]) => splitFolioLine(...args),
     closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
     reopenFolioWindow: vi.fn(),
@@ -2192,6 +2193,113 @@ describe('FolioScreen wiring', () => {
         { kind: 'COMPANY', billedParty: 'Acme Corp' },
         expect.any(String),
       ),
+    );
+  });
+
+  it('labels a DAMAGE hold and releases it through void', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_dmg',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'INR',
+          status: 'authorized',
+          purpose: 'DAMAGE',
+          gatewayReference: 'gw',
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    voidPayment.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('release-payment-pay_dmg')).toBeTruthy());
+    expect(screen.getAllByText('Damage deposit').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByTestId('release-payment-pay_dmg'));
+    expect(screen.getByText('Release the damage deposit hold?')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() =>
+      expect(voidPayment).toHaveBeenCalledWith('prop_demo', 'pay_dmg', expect.any(String)),
+    );
+  });
+
+  it('forfeit posts DAMAGE then captures, and a failed capture retries capture only', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_dmg',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'INR',
+          status: 'authorized',
+          purpose: 'DAMAGE',
+          gatewayReference: 'gw',
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    capturePayment.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: { error: 'psp_unavailable' },
+        retryAfterMs: null,
+      }),
+    );
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('forfeit-payment-pay_dmg')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('forfeit-payment-pay_dmg'));
+    fireEvent.click(screen.getByTestId('forfeit-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('forfeit-note').textContent).toMatch(
+        /damage charge was posted, but capturing the hold failed/i,
+      ),
+    );
+    expect(addFolioLine).toHaveBeenCalledTimes(1);
+    expect(addFolioLine).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      { chargeCode: 'DAMAGE', amountMinor: 5000 },
+      'damage-forfeit:pay_dmg:5000:line',
+    );
+    expect(capturePayment).toHaveBeenCalledTimes(1);
+    expect(capturePayment).toHaveBeenCalledWith(
+      'prop_demo',
+      'pay_dmg',
+      { amountMinor: 5000 },
+      'damage-forfeit:pay_dmg:5000:capture',
+    );
+    fireEvent.click(screen.getByTestId('forfeit-submit'));
+    await waitFor(() => expect(capturePayment).toHaveBeenCalledTimes(2));
+    expect(addFolioLine).toHaveBeenCalledTimes(1);
+    expect(capturePayment).toHaveBeenLastCalledWith(
+      'prop_demo',
+      'pay_dmg',
+      { amountMinor: 5000 },
+      'damage-forfeit:pay_dmg:5000:capture',
     );
   });
 });

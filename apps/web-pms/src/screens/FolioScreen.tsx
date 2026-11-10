@@ -43,7 +43,9 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
+import { FormDialog } from '../shell/FormDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { minorToMajorInput, parseAmountToMinor } from '../money.js';
 import { useFormat } from '../shell/PropertyFormat.js';
@@ -75,10 +77,11 @@ function readState(q: {
   return 'pending';
 }
 
-function heldAmount(payments: FolioPaymentRow[]): number {
+/** Open hold for one purpose. A damage deposit never pays the stay, so it is counted apart. */
+function heldAmount(payments: FolioPaymentRow[], purpose: 'STAY' | 'DAMAGE'): number {
   let sum = 0;
   for (const p of payments) {
-    if (p.status === 'authorized') {
+    if (p.status === 'authorized' && (p.purpose === 'DAMAGE' ? 'DAMAGE' : 'STAY') === purpose) {
       const captured = p.capturedAmountMinor ?? 0;
       sum += Math.max(0, p.amountMinor - captured);
     }
@@ -116,6 +119,7 @@ function formatBrandLabel(brand: string): string {
 }
 
 function tenderLabel(p: FolioPaymentRow): string {
+  if (p.purpose === 'DAMAGE') return 'Damage deposit';
   if (tenderMethod(p) === 'Cash') return 'Cash';
   if (p.cardLast4) {
     if (p.cardBrand) return `${formatBrandLabel(p.cardBrand)} •••• ${p.cardLast4}`;
@@ -199,6 +203,7 @@ export function FolioScreen() {
   const [chargeAmount, setChargeAmount] = useState('');
   const [cashAmount, setCashAmount] = useState('');
   const [authAmount, setAuthAmount] = useState('');
+  const [authPurpose, setAuthPurpose] = useState<'STAY' | 'DAMAGE'>('STAY');
   const [splitLineId, setSplitLineId] = useState('');
   const [splitA, setSplitA] = useState('');
   const [splitB, setSplitB] = useState('');
@@ -228,6 +233,12 @@ export function FolioScreen() {
   const [fxRate, setFxRate] = useState('');
   const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
+  const [releasePaymentId, setReleasePaymentId] = useState<string | null>(null);
+  const [forfeitPaymentId, setForfeitPaymentId] = useState<string | null>(null);
+  const [forfeitAmount, setForfeitAmount] = useState('');
+  const [forfeitPostedMinor, setForfeitPostedMinor] = useState<number | null>(null);
+  const [forfeitNote, setForfeitNote] = useState<string | null>(null);
+  const [forfeitPending, setForfeitPending] = useState(false);
   const [checkoutOverrideOpen, setCheckoutOverrideOpen] = useState(false);
   const [earlyDepartOpen, setEarlyDepartOpen] = useState(false);
   const [closeWindowId, setCloseWindowId] = useState<string | null>(null);
@@ -428,7 +439,8 @@ export function FolioScreen() {
   }, [reservationId, message, folioQ.dataUpdatedAt, paymentsQ.dataUpdatedAt]);
 
   const payments = paymentsQ.data?.payments ?? [];
-  const held = heldAmount(payments);
+  const held = heldAmount(payments, 'STAY');
+  const damageHeld = heldAmount(payments, 'DAMAGE');
   const balanceMinor = folioQ.data?.balanceMinor;
   const windows = folioQ.data?.windows ?? [];
   const openWindows = windows.filter((w) => w.status === 'OPEN');
@@ -560,15 +572,17 @@ export function FolioScreen() {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
       const amountMinor = parseAmountToMinor(authAmount);
       if (amountMinor == null) throw new Error('invalid_amount');
+      const opId = `${authOpId}:${authPurpose}:${amountMinor}:${selectedPayCurrency}`;
       return api.authorizePayment(
         propertyId,
         reservationId,
         {
-          paymentId: `pay_${authOpId}`,
+          paymentId: `pay_${opId}`,
           amountMinor,
+          purpose: authPurpose,
           ...(selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {}),
         },
-        authOpId,
+        opId,
       );
     },
     onSuccess: () => {
@@ -578,6 +592,52 @@ export function FolioScreen() {
       });
     },
   });
+
+  async function submitForfeit() {
+    const payment = (paymentsQ.data?.payments ?? []).find((p) => p.paymentId === forfeitPaymentId);
+    if (!payment) return;
+    const holdMinor = payment.amountMinor - (payment.capturedAmountMinor ?? 0);
+    const typed = parseAmountToMinor(forfeitAmount);
+    const amountMinor = forfeitPostedMinor ?? typed;
+    if (amountMinor == null || amountMinor <= 0 || amountMinor > holdMinor) {
+      setForfeitNote('Enter an amount up to the hold.');
+      return;
+    }
+    const lineOp = `damage-forfeit:${payment.paymentId}:${amountMinor}:line`;
+    const captureOp = `damage-forfeit:${payment.paymentId}:${amountMinor}:capture`;
+    setForfeitPending(true);
+    setForfeitNote(null);
+    let linePosted = forfeitPostedMinor != null;
+    try {
+      if (!linePosted) {
+        await api.addFolioLine(
+          propertyId,
+          reservationId,
+          { chargeCode: 'DAMAGE', amountMinor },
+          lineOp,
+        );
+        linePosted = true;
+        setForfeitPostedMinor(amountMinor);
+      }
+      await api.capturePayment(propertyId, payment.paymentId, { amountMinor }, captureOp);
+      setMessage('Damage deposit forfeited.');
+      setForfeitPaymentId(null);
+      setForfeitPostedMinor(null);
+      setForfeitNote(null);
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      void queryClient.invalidateQueries({ queryKey: ['folio-payments', propertyId, reservationId] });
+    } catch (err) {
+      if (linePosted) {
+        setForfeitNote(
+          'The damage charge was posted, but capturing the hold failed. Retry capture only.',
+        );
+      } else {
+        setForfeitNote(classifiedUserMessage(asClassified(err), { fallback: 'Forfeit failed', fmt }));
+      }
+    } finally {
+      setForfeitPending(false);
+    }
+  }
 
   const chargeback = useFolioActionMutation({
     fallback: 'Chargeback failed',
@@ -873,8 +933,9 @@ export function FolioScreen() {
         `void:${paymentId}:${crypto.randomUUID()}`,
       );
     },
-    onSuccess: () => {
-      setMessage('Payment voided.');
+    onSuccess: (_data, paymentId) => {
+      const voided = (paymentsQ.data?.payments ?? []).find((p) => p.paymentId === paymentId);
+      setMessage(voided?.purpose === 'DAMAGE' ? 'Damage deposit released.' : 'Payment voided.');
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
@@ -1526,6 +1587,21 @@ export function FolioScreen() {
                     />
                   }
                 />
+                <Field
+                  label="Purpose"
+                  control={
+                    <NativeSelect
+                      data-testid="authorize-purpose"
+                      aria-label="authorize-purpose"
+                      value={authPurpose}
+                      disabled={!policy.canPay}
+                      onChange={(e) => setAuthPurpose(e.target.value === 'DAMAGE' ? 'DAMAGE' : 'STAY')}
+                    >
+                      <option value="STAY">Stay</option>
+                      <option value="DAMAGE">Damage deposit</option>
+                    </NativeSelect>
+                  }
+                />
                 <Button
                   type="button"
                   data-testid="authorize-card"
@@ -1560,10 +1636,15 @@ export function FolioScreen() {
                   : '…'
               }
             />
-            {held > 0 || noPost || folioQ.data?.balanceAtRisk ? (
+            {held > 0 || damageHeld > 0 || noPost || folioQ.data?.balanceAtRisk ? (
               <div className="ui-row">
                 {held > 0 ? (
                   <span className="muted">{money(held)} held on card</span>
+                ) : null}
+                {damageHeld > 0 ? (
+                  <span className="muted" data-testid="damage-held">
+                    {money(damageHeld)} damage deposit held
+                  </span>
                 ) : null}
                 {noPost ? (
                   <Badge rung="informational" data-testid="no-post-chip">
@@ -1645,7 +1726,35 @@ export function FolioScreen() {
                             </Button>
                           </>
                         ) : null}
-                        {p.status === 'authorized' ? (
+                        {p.status === 'authorized' && p.purpose === 'DAMAGE' ? (
+                          <>
+                            {canPost ? (
+                              <Button
+                                type="button"
+                                intent="destructive"
+                                data-testid={`release-payment-${p.paymentId}`}
+                                disabled={voidPay.isPending}
+                                onClick={() => setReleasePaymentId(p.paymentId)}
+                              >
+                                Release
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              data-testid={`forfeit-payment-${p.paymentId}`}
+                              disabled={!policy.canPay || !policy.canPostCharge || forfeitPending}
+                              onClick={() => {
+                                setForfeitPaymentId(p.paymentId);
+                                setForfeitAmount(minorToMajorInput(p.amountMinor - (p.capturedAmountMinor ?? 0)));
+                                setForfeitPostedMinor(null);
+                                setForfeitNote(null);
+                              }}
+                            >
+                              Forfeit
+                            </Button>
+                          </>
+                        ) : null}
+                        {p.status === 'authorized' && p.purpose !== 'DAMAGE' ? (
                           <>
                             <Input
                               aria-label={`capture-amount-${p.paymentId}`}
@@ -2351,6 +2460,64 @@ export function FolioScreen() {
             voidPay.mutate(paymentId);
           }}
         />
+      ) : null}
+      {releasePaymentId ? (
+        <ConfirmDialog
+          title="Release damage deposit"
+          description="Release the damage deposit hold?"
+          confirmLabel="Release"
+          intent="destructive"
+          onCancel={() => setReleasePaymentId(null)}
+          onConfirm={() => {
+            const paymentId = releasePaymentId;
+            setReleasePaymentId(null);
+            voidPay.mutate(paymentId);
+          }}
+        />
+      ) : null}
+      {forfeitPaymentId ? (
+        <FormDialog
+          title="Forfeit damage deposit"
+          onClose={() => {
+            if (forfeitPending) return;
+            setForfeitPaymentId(null);
+          }}
+          actions={
+            <>
+            <Button type="button" disabled={forfeitPending} onClick={() => setForfeitPaymentId(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="destructive"
+              data-testid="forfeit-submit"
+              disabled={forfeitPending}
+              onClick={() => {
+                void submitForfeit();
+              }}
+            >
+              {forfeitPostedMinor != null ? 'Retry capture' : 'Forfeit'}
+            </Button>
+            </>
+          }
+        >
+          <p className="muted">
+            Posts a damage charge for this amount to the folio, then takes it from the hold. The
+            rest of the hold is released.
+          </p>
+          <Field
+            label="Amount"
+            control={
+              <Input
+                data-testid="forfeit-amount"
+                value={forfeitAmount}
+                disabled={forfeitPostedMinor != null}
+                onChange={(e) => setForfeitAmount(e.target.value)}
+              />
+            }
+          />
+          {forfeitNote ? <Alert data-testid="forfeit-note">{forfeitNote}</Alert> : null}
+        </FormDialog>
       ) : null}
       {checkoutOverrideOpen ? (
         <ConfirmDialog

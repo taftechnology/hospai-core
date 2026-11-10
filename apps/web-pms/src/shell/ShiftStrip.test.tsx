@@ -165,8 +165,9 @@ describe('ShiftStrip', () => {
     fireEvent.change(await screen.findByLabelText('opening-float'), { target: { value: '100.00' } });
     fireEvent.click(screen.getByRole('button', { name: /open shift/i }));
     await waitFor(() => expect(openShift).toHaveBeenCalledTimes(1));
+    // The error renders a tick after the rejected call; wait for it rather than racing it.
+    expect(await screen.findByText(/Open shift failed/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy();
-    expect(screen.getByText(/Open shift failed/i)).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toMatch(/Open shift failed/i);
     expect(screen.queryByText(/client_error/i)).toBeNull();
   });

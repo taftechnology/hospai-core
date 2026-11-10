@@ -7034,28 +7034,36 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
     amountMinor: number;
     currency?: string;
     idempotencyKey: string;
+    purpose?: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
+  let purpose: 'STAY' | 'DAMAGE' = 'STAY';
+  if (body.purpose !== undefined) {
+    if (body.purpose !== 'STAY' && body.purpose !== 'DAMAGE') {
+      return json({ error: 'invalid_body' }, 422);
+    }
+    purpose = body.purpose;
+  }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const requestFingerprint = await commandFingerprint('folio.authorize', {
-    paymentId: body.paymentId,
-    reservationId,
-    amountMinor: body.amountMinor,
-    ...(body.currency ? { currency: body.currency } : {}),
-  });
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const commandPayload = {
     paymentId: body.paymentId,
     reservationId,
     amountMinor: body.amountMinor,
+    // STAY is the default: leave it out so stay-hold fingerprints match the pre-purpose route.
+    ...(purpose === 'DAMAGE' ? { purpose } : {}),
     ...(body.currency ? { currency: body.currency } : {}),
+  };
+  const requestFingerprint = await commandFingerprint('folio.authorize', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const sentPayload = {
+    ...commandPayload,
     idempotencyKey: body.idempotencyKey,
     requestFingerprint,
   };
@@ -7066,9 +7074,9 @@ async function handlePostFolioAuthorize(ctx: V1DispatchContext): Promise<Respons
       routeId: 'post_folio_authorize',
       idempotencyKey: body.idempotencyKey,
       requestFingerprint,
-      commandPayload,
+      commandPayload: sentPayload,
     }),
-    invoke: () => resolvedCtx.resolved.stub.tryAuthorizePayment(actor, commandPayload),
+    invoke: () => resolvedCtx.resolved.stub.tryAuthorizePayment(actor, sentPayload),
   });
 
   return finishPropertyDoInvoke({

@@ -157,6 +157,20 @@ export type RoomTypeRead = {
   updatedAt?: number;
 };
 
+export type ReservationCancellation = {
+  penaltyType: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
+  graceHours: number | null;
+  penaltyNights: number | null;
+  penaltyBps: number | null;
+  /** Property-timezone midnight of arrival, minus grace hours. Null when the plan has no penalty. */
+  freeUntil: number | null;
+  /** What cancel would post if called now. Null when the snapshotted policy is invalid. */
+  cancelNowMinor: number | null;
+  /** What no-show would post if called now. Null when the snapshotted policy is invalid. */
+  noShowMinor: number | null;
+  currency: string;
+};
+
 export type ReservationRead = {
   reservationId: string;
   roomTypeId: string;
@@ -172,12 +186,15 @@ export type ReservationRead = {
   vipFlag?: boolean;
   dndFlag?: boolean;
   ratePlanId?: string;
+  promoId?: string | null;
+  expiresAt?: number | null;
   sourceCode?: string | null;
   marketSegmentCode?: string | null;
   confirmBy?: number | null;
   allocatedRoomTypeId?: string;
   createdAt: number;
   updatedAt: number;
+  cancellation?: ReservationCancellation;
 };
 
 export type FolioPaymentRow = {
@@ -835,7 +852,12 @@ export function createClient(opts: {
     async authorizePayment(
       propertyId: string,
       reservationId: string,
-      input: { paymentId: string; amountMinor: number; currency?: string },
+      input: {
+        paymentId: string;
+        amountMinor: number;
+        currency?: string;
+        purpose?: 'STAY' | 'DAMAGE';
+      },
       opId: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
@@ -848,6 +870,7 @@ export function createClient(opts: {
             paymentId: input.paymentId,
             amountMinor: input.amountMinor,
             ...(input.currency ? { currency: input.currency } : {}),
+            ...(input.purpose ? { purpose: input.purpose } : {}),
             idempotencyKey,
           }),
         },
@@ -1335,6 +1358,81 @@ export function createClient(opts: {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ idempotencyKey }),
         },
+      );
+    },
+    async modifyReservation(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      body: {
+        roomTypeId: string;
+        arrivalDate: string;
+        departureDate: string;
+        adults?: number;
+        children?: number;
+        ratePlanId?: string;
+        noPost?: boolean;
+        quoteAriVersion?: number;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomTypeId: body.roomTypeId,
+            arrivalDate: body.arrivalDate,
+            departureDate: body.departureDate,
+            ...(body.adults !== undefined ? { adults: body.adults } : {}),
+            ...(body.children !== undefined ? { children: body.children } : {}),
+            ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+            ...(body.noPost !== undefined ? { noPost: body.noPost } : {}),
+            ...(body.quoteAriVersion !== undefined ? { quoteAriVersion: body.quoteAriVersion } : {}),
+            idempotencyKey,
+          }),
+        },
+      );
+    },
+    async cancelReservation(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async noShowReservation(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/no-show`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify({}),
+        },
+      );
+    },
+    async cancelCheckIn(propertyId: string, reservationId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/cancel-check-in`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify({}),
+        },
+        { reservationId },
       );
     },
     async holdReservation(

@@ -155,6 +155,127 @@ describe('folio API', () => {
     expect(JSON.parse(bodies[1]!).currency).toBe('EUR');
   });
 
+  it('authorizePayment sends optional purpose', async () => {
+    let body = '';
+    let path = '';
+    let method = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? '';
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.authorizePayment(
+      'p',
+      'res_1',
+      { paymentId: 'pay_1', amountMinor: 5000, purpose: 'DAMAGE' },
+      'op-dmg',
+    );
+    expect(method).toBe('POST');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/folio/payments/authorize');
+    const parsed = JSON.parse(body) as { purpose?: string; idempotencyKey?: string };
+    expect(parsed.purpose).toBe('DAMAGE');
+    expect(parsed.idempotencyKey).toBeTruthy();
+  });
+
+  it('modifyReservation PATCHes the stay with a JSON idempotency key', async () => {
+    let body = '';
+    let path = '';
+    let method = '';
+    let headerKey: string | null = null;
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? '';
+      const headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);
+      headerKey = headers.get('x-idempotency-key');
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.modifyReservation('p', 'res_1', 'op-mod', {
+      roomTypeId: 'rt',
+      arrivalDate: '2026-11-10',
+      departureDate: '2026-11-12',
+      adults: 2,
+      children: 1,
+      ratePlanId: 'BAR',
+    });
+    expect(method).toBe('PATCH');
+    expect(path).toBe('/v1/properties/p/reservations/res_1');
+    expect(headerKey).toBeNull();
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    expect(parsed.idempotencyKey).toEqual(expect.any(String));
+    expect(parsed.roomTypeId).toBe('rt');
+    expect(parsed.arrivalDate).toBe('2026-11-10');
+    expect(parsed.departureDate).toBe('2026-11-12');
+    expect(parsed.adults).toBe(2);
+    expect(parsed.children).toBe(1);
+    expect(parsed.ratePlanId).toBe('BAR');
+  });
+
+  it('cancelReservation posts JSON idempotencyKey on /cancel', async () => {
+    let body = '';
+    let path = '';
+    let method = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? '';
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.cancelReservation('p', 'res_1', 'op-cancel');
+    expect(method).toBe('POST');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/cancel');
+    expect(JSON.parse(body).idempotencyKey).toEqual(expect.any(String));
+  });
+
+  it('noShowReservation sends x-idempotency-key and an empty body', async () => {
+    let body = '';
+    let path = '';
+    let method = '';
+    let headers: Headers | undefined;
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? '';
+      headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.noShowReservation('p', 'res_9', 'op-ns');
+    expect(method).toBe('POST');
+    expect(path).toBe('/v1/properties/p/reservations/res_9/no-show');
+    expect(headers?.get('x-idempotency-key')).toBeTruthy();
+    expect(body).toBe('{}');
+  });
+
+  it('cancelCheckIn sends the header key and records a provisional queue entry', async () => {
+    let path = '';
+    let method = '';
+    let headers: Headers | undefined;
+    let body = '';
+    const { client, queued } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? '';
+      headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          provisional: true,
+          commandId: 'reservations.cancel_check_in',
+          idempotencyKey: 'k',
+          issuedAt: '2026-08-08T00:00:00.000Z',
+        }),
+        { status: 202 },
+      );
+    });
+    await client.cancelCheckIn('p', 'res_9', 'op-cci');
+    expect(method).toBe('POST');
+    expect(path).toBe('/v1/properties/p/reservations/res_9/cancel-check-in');
+    expect(headers?.get('x-idempotency-key')).toBeTruthy();
+    expect(body).toBe('{}');
+    expect(queued.entries()[0]?.reservationId).toBe('res_9');
+  });
+
   it('fx-rate, chargeback, and adjustment methods hit the new routes', async () => {
     const paths: string[] = [];
     const { client } = clientWith(async (path) => {

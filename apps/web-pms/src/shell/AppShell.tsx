@@ -130,7 +130,11 @@ function NavItems({ entries }: { entries: NavEntry[] }) {
   return entries.map((entry) => {
     const Icon = NAV_ICONS[entry.id];
     return (
-      <NavLink key={entry.id} to={entry.path} end={entry.id !== 'rates' && entry.id !== 'settings'}>
+      <NavLink
+        key={entry.id}
+        to={entry.path}
+        end={entry.id !== 'rates' && entry.id !== 'settings' && entry.id !== 'reservations'}
+      >
         {Icon ? <Icon size={16} /> : null}
         {entry.label}
       </NavLink>

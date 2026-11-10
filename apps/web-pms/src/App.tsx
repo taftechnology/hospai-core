@@ -15,6 +15,7 @@ import { BoardScreen } from './screens/BoardScreen.js';
 import { DashboardScreen } from './screens/DashboardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
+import { ReservationStayScreen } from './screens/ReservationStayScreen.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { FoliosDirectoryScreen } from './screens/FoliosDirectoryScreen.js';
@@ -71,6 +72,7 @@ export const router = createBrowserRouter(
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />
             <Route path="reservations" element={<ReservationsDirectoryScreen />} />
+            <Route path="reservations/:reservationId" element={<ReservationStayScreen />} />
             <Route path="guests" element={<GuestsDirectoryScreen />} />
             <Route path="guests/:guestRef" element={<GuestProfileScreen />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />

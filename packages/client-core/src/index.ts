@@ -40,6 +40,7 @@ export {
   type ProductsList,
   type FolioTransferResult,
   type ReservationRead,
+  type ReservationCancellation,
   type FolioPaymentRow,
   type AvailabilityRead,
   type NightAuditStatus,

@@ -235,6 +235,12 @@ export function ReservationsDirectoryScreen() {
             {hits.map((hit) => (
               <DataTableRow key={hit.reservationId}>
                 <DataTableCell>
+                  <Link
+                    className="ui-link-btn ui-link-btn--sm ui-link-btn--primary"
+                    to={`/reservations/${encodeURIComponent(hit.reservationId)}`}
+                  >
+                    Open
+                  </Link>{' '}
                   <Link to={`/folio/${encodeURIComponent(hit.reservationId)}`}>Folio</Link>
                 </DataTableCell>
                 <DataTableCell>
@@ -308,6 +314,12 @@ export function ReservationsDirectoryScreen() {
               <DataTableCell align="right">
                 <RowActions>
                   <Link
+                    className="ui-link-btn ui-link-btn--sm ui-link-btn--primary"
+                    to={`/reservations/${encodeURIComponent(row.reservationId)}`}
+                  >
+                    Open
+                  </Link>
+                  <Link
                     className="ui-link-btn ui-link-btn--sm"
                     to={`/folio/${encodeURIComponent(row.reservationId)}`}
                   >
@@ -376,6 +388,10 @@ export function ReservationsDirectoryScreen() {
                 onChange={(e) => setStatus(e.target.value || null)}
               >
                 <option value="">All statuses</option>
+                <option value="inquiry">Inquiry</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="checked_in">In house</option>
                 <option value={ACTIVE_STATUS}>Active</option>
                 <option value={TERMINAL_STATUS}>Terminal</option>
               </NativeSelect>

@@ -11,6 +11,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | `/board` Available tab | TemplateDirectory | Tabs, DataTable, RoomStatus |
 | `/arrivals`, `/departures`, `/in-house` | TemplateDirectory | Tabs, DataTable, StatusBadge, RowActions, Dialog, RoomPicker |
 | `/reservations` | TemplateDirectory | Toolbar, DataTable, Pagination |
+| `/reservations/:id` | TemplateRecord | PageHeader, Card, StatusBadge, StatField, Dialog, Alert |
 | `/book` | TemplateForm | SearchPick, ChoiceGroup, FieldGroup, MoneySummary |
 | `/check-in/:id` | TemplateForm | RoomPicker, Alert, PrintDocument |
 | `/folio/:id` | TemplateRecord | StatGrid, Tabs (windows), DataTable dense, Total, Dialog, Disclosure |
@@ -36,8 +37,7 @@ Every route that ships today and every surface on the roadmap, with the template
 
 | Area | Surface | Slice | Uses |
 |---|---|---|---|
-| Front office | Stay card | R1.15 | TemplateRecord or SideLayout (undecided in the roadmap) |
-| | Room move, in-house changes | R1.19, R4.24 | Dialog with a reason, RoomPicker |
+| Front office | Room move, in-house changes | R1.19, R4.24 | Dialog with a reason, RoomPicker |
 | | Day-wise rates, room at booking | R4.20, R4.26 | NightGrid, RoomPicker |
 | | Live room view | R4.27 | RoomGrid, RoomTile |
 | | Grid depth | R4.28 | TapeChart, with an occupancy row and per-date cells |

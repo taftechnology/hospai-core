@@ -6,6 +6,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 export default defineWorkersConfig({
   test: {
+    // Cancels DO alarms a spec file leaves armed, so they cannot fire during later files.
+    setupFiles: ['./test/setup/cancel-do-alarms.ts'],
     alias: {
       '@hospai/crypto-shredding/keystore-conformance': join(
         root,

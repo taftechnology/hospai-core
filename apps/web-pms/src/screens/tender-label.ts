@@ -56,3 +56,33 @@ export function stayGuaranteeText(
   const word = pick.status === 'authorized' ? 'authorized' : 'paid';
   return `${tenderLabel(pick)} ${word} ${amount}`;
 }
+
+/**
+ * R2.5: tender status as desk words, not the wire enum. A captured tender that has been
+ * refunded in part or in full says so, because the amount column shows what was taken.
+ */
+export function tenderStatusLabel(p: FolioPaymentRow): string {
+  switch (p.status) {
+    case 'authorized':
+      return 'Authorized';
+    case 'captured': {
+      const captured = p.capturedAmountMinor ?? p.amountMinor;
+      const refunded = p.refundedAmountMinor ?? 0;
+      if (refunded > 0 && refunded >= captured) return 'Refunded';
+      if (refunded > 0) return 'Partly refunded';
+      return 'Paid';
+    }
+    case 'voided':
+      return 'Voided';
+    case 'refunded':
+      return 'Refunded';
+    case 'declined':
+      return 'Declined';
+    case 'pending':
+      return 'Pending';
+    case 'unknown':
+      return 'Unconfirmed';
+    default:
+      return String(p.status);
+  }
+}

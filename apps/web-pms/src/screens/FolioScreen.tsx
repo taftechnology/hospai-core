@@ -49,7 +49,7 @@ import { FormDialog } from '../shell/FormDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { minorToMajorInput, parseAmountToMinor } from '../money.js';
 import { useFormat } from '../shell/PropertyFormat.js';
-import { tenderLabel, tenderMethod } from './tender-label.js';
+import { tenderLabel, tenderMethod, tenderStatusLabel } from './tender-label.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
@@ -1675,7 +1675,7 @@ export function FolioScreen() {
                     <DataTableRow key={p.paymentId}>
                       <DataTableCell>{tenderLabel(p)}</DataTableCell>
                       <DataTableCell>{money(p.amountMinor)}</DataTableCell>
-                      <DataTableCell>{p.status}</DataTableCell>
+                      <DataTableCell>{tenderStatusLabel(p)}</DataTableCell>
                       <DataTableCell>
                         {p.status === 'unknown' ? (
                           <>

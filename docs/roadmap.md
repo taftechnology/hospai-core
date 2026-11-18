@@ -399,8 +399,9 @@ Do after R0.11 at minimum (audit UI). Can run in parallel with Track 1 slices th
   - CSS only `.reg-card`; never UUID room (audit U5/I6). Already a view — make it match prototype card fields (guest, dates, room **code**, rate plan name).
   - **As-built:** The card is a labelled grid (`StatField`): Guest, Confirmation, Arrival, Departure, Nights, Guests (“2 adults · 1 child”), Room type, Room (code or “Not assigned”, never the room id), Rate plan, then VIP/DND badges, special requests and a guest-signature / date line. `useRegCardLabels` reads room type and rate plan names on the shared `['room-types', propertyId, 'active']` and `['rate-plans', propertyId]` keys. Fixed on the way: the Folio’s card never passed the room type and printed “Room type unavailable”. Print CSS is unchanged — only `.reg-card` prints. Prototype templates, uploads and the nightly rate stay out (templates are R4.13).
 
-- [ ] **R2.5 Folio / Book / Check-in layout**
+- [x] **R2.5 Folio / Book / Check-in layout** — shipped 2026-11-18
   - Interaction parity: tenders as table, quote as money, room picker by code. Do not rebuild as a second billing app. Stay on ui-kit.
+  - **As-built:** Checked live: the Folio tenders are a `DataTable` (Method / Amount / Status / Actions), Book shows the quote as money (“Quote total ₹4,200.00”), and Check-in, Assign room and Move room pick rooms by code. Left over and fixed: the tenders Status column printed the wire enum (`captured`, `unknown`); `tenderStatusLabel` now says Authorized, Paid, Partly refunded, Refunded, Voided, Declined, Pending or Unconfirmed. Unit tests cover the labels and the brand / last-4 method text.
 
 - [ ] **R2.6 Role-based nav (not impersonation)**
   - Prototype `App.tsx` has a 4-role switcher and a housekeeping-only fallback. **Lock:** live RBAC + `PermissionRoute` already; send a HK-only actor to Housekeeping as home. **Do not** add role impersonation or a fake four-role toggle.

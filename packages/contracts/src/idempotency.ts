@@ -75,6 +75,7 @@ export const ROOM_NOT_READY = 'room_not_ready' as const;
 export const ROOM_MOVE_REASON_REQUIRED = 'room_move_reason_required' as const;
 export const ROOM_OUT_OF_ORDER = 'room_out_of_order' as const;
 export const BALANCE_DUE = 'balance_due' as const;
+export const PREPAYMENT_REQUIRED = 'prepayment_required' as const;
 export const OCCUPANCY_EXCEEDED = 'occupancy_exceeded' as const;
 export const FRONT_OFFICE_COMMENT_TOO_LONG = 'front_office_comment_too_long' as const;
 export const INVALID_STATUS = 'invalid_status' as const;

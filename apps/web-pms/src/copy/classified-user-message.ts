@@ -74,6 +74,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   room_already_assigned: () => 'That room is already assigned — pick another room.',
   room_move_reason_required: () => 'Give a reason for the room move.',
   room_not_ready: () => 'That room is not ready yet — pick a clean or inspected room.',
+  prepayment_required: () =>
+    'This hotel requires a card hold or payment before check-in. Authorize a card or take a payment on the folio.',
   room_out_of_order: () => 'Room is out of order — pick another room.',
   room_type_mismatch: () =>
     'That room does not match the booked room type — pick another room.',

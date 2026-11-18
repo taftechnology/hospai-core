@@ -22,6 +22,7 @@ import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useFormat } from '../shell/PropertyFormat.js';
+import { isStayGuarantee, stayGuaranteeText } from './tender-label.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -37,6 +38,10 @@ const CHECK_IN_CLEANLINESS = 'pms.reservations.check_in_cleanliness';
 const REQUIRE_INSPECTION = 'pms.housekeeping.require_inspection';
 const ALLOW_DIRTY_OVERRIDE = 'pms.reservations.allow_dirty_check_in_override';
 const AUTO_ASSIGN_ROOMS = 'pms.ops.auto_assign_rooms';
+const REQUIRE_PREPAYMENT = 'pms.booking.require_prepayment';
+
+const PREPAYMENT_BLOCK_REASON =
+  'This hotel requires a card hold or payment before check-in. Authorize a card or take a payment on the folio.';
 
 const CHECK_IN_BLOCK_REASON_ID = 'check-in-block-reason';
 
@@ -101,11 +106,14 @@ function checkInBlockReason(input: {
   overrideTicked: boolean;
   arrival: string;
   departure: string;
+  prepaymentRequired: boolean;
+  guaranteed: boolean;
 }): string | null {
   const { status } = input;
   if (status == null || status === 'checked_in' || TERMINAL_STATUSES.has(status)) return null;
   if (status === 'pending') return 'Confirm the booking before check-in.';
   if (status !== 'confirmed') return 'Only a confirmed booking can be checked in.';
+  if (input.prepaymentRequired && !input.guaranteed) return PREPAYMENT_BLOCK_REASON;
   if (!input.roomPicked) {
     return input.autoAssign ? null : 'Pick a room first.';
   }
@@ -131,7 +139,7 @@ function nightsBetween(arrival: string, departure: string): number {
 }
 
 export function CheckInScreen() {
-  const { dateRange } = useFormat();
+  const { dateRange, money } = useFormat();
   const queryClient = useQueryClient();
   const { reservationId = '' } = useParams();
   const [roomId, setRoomId] = useState('');
@@ -170,6 +178,11 @@ export function CheckInScreen() {
     queryKey: ['domain-config', tenant.propertyId],
     queryFn: () => api.listDomainConfig(tenant.propertyId),
     retry: false,
+  });
+  const paymentsQ = useQuery({
+    queryKey: ['folio-payments', tenant.propertyId, reservationId],
+    queryFn: () => api.getFolioPayments(tenant.propertyId, reservationId),
+    enabled: Boolean(reservationId),
   });
 
   const typeDir = useMemo(() => {
@@ -300,6 +313,14 @@ export function CheckInScreen() {
     AUTO_ASSIGN_ROOMS,
     registeredBool(AUTO_ASSIGN_ROOMS, true),
   );
+  const requirePrepayment = configBool(
+    configKeys,
+    REQUIRE_PREPAYMENT,
+    registeredBool(REQUIRE_PREPAYMENT, false),
+  );
+  const payments = paymentsQ.data?.payments ?? [];
+  const guaranteed = paymentsQ.isSuccess && payments.some(isStayGuarantee);
+  const guaranteeText = paymentsQ.isSuccess ? stayGuaranteeText(payments, money) : null;
   const selectedRoom = rooms.find((r) => r.roomId === roomId) ?? null;
   const arrival = res?.arrivalDate ?? '';
   const departure = res?.departureDate ?? '';
@@ -314,6 +335,8 @@ export function CheckInScreen() {
     overrideTicked: overrideCleanliness,
     arrival,
     departure,
+    prepaymentRequired: requirePrepayment,
+    guaranteed,
   });
   const canCheckIn = !checkIn.isPending && !terminalOrInHouse && blockReason == null;
   const offerOverride =
@@ -376,6 +399,14 @@ export function CheckInScreen() {
             {blockReason ? (
               <p className="muted" id={CHECK_IN_BLOCK_REASON_ID}>
                 {blockReason}
+                {blockReason === PREPAYMENT_BLOCK_REASON ? (
+                  <>
+                    {' '}
+                    <Link className="ui-link-btn" to={`/folio/${reservationId}`}>
+                      Folio
+                    </Link>
+                  </>
+                ) : null}
               </p>
             ) : null}
           </div>
@@ -396,6 +427,9 @@ export function CheckInScreen() {
                 Adults {adults} · Children {children}
               </p>
             ) : null}
+            <p data-testid="check-in-guarantee">
+              Guarantee{guaranteeText ? `: ${guaranteeText}` : ''}
+            </p>
             <div className="ui-row">
               {roomsQ.isSuccess ? (
                 <Field

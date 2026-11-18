@@ -81,7 +81,7 @@ export function SettingsDomainBool(props: {
   });
   const [status, setStatus] = useAutoSave({ dirty, reason: props.reason, save: () => save.mutate() });
   return (
-    <div className="ui-stack">
+    <div className="ui-stack" data-config-key={props.configKey}>
       <Field
         label={props.label}
         hint={props.hint}

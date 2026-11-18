@@ -49,6 +49,7 @@ import { FormDialog } from '../shell/FormDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { minorToMajorInput, parseAmountToMinor } from '../money.js';
 import { useFormat } from '../shell/PropertyFormat.js';
+import { tenderLabel, tenderMethod } from './tender-label.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
@@ -95,37 +96,6 @@ function chargeDescription(
 ): string {
   const hit = codes?.find((c) => c.code === chargeCode);
   return hit?.name ?? chargeCode;
-}
-
-function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' {
-  if (p.tenderType === 'CASH') return 'Cash';
-  if (p.tenderType === 'CARD') return 'Card';
-  if (p.status === 'authorized') return 'Card';
-  if (p.status === 'captured' && p.gatewayReference == null) return 'Cash';
-  return 'Card';
-}
-
-const BRAND_LABEL: Record<string, string> = {
-  visa: 'Visa',
-  mastercard: 'Mastercard',
-  amex: 'Amex',
-  discover: 'Discover',
-};
-
-function formatBrandLabel(brand: string): string {
-  const mapped = BRAND_LABEL[brand.toLowerCase()];
-  if (mapped) return mapped;
-  return brand.charAt(0).toUpperCase() + brand.slice(1).toLowerCase();
-}
-
-function tenderLabel(p: FolioPaymentRow): string {
-  if (p.purpose === 'DAMAGE') return 'Damage deposit';
-  if (tenderMethod(p) === 'Cash') return 'Cash';
-  if (p.cardLast4) {
-    if (p.cardBrand) return `${formatBrandLabel(p.cardBrand)} •••• ${p.cardLast4}`;
-    return `Card •••• ${p.cardLast4}`;
-  }
-  return 'Card';
 }
 
 function nightsBetween(arrival: string, departure: string): number {

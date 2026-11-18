@@ -65,6 +65,11 @@ describe('domain code messages', () => {
     ['room_already_assigned', {}, /already assigned — pick another room/],
     ['room_move_reason_required', {}, /Give a reason for the room move/],
     ['room_not_ready', {}, /not ready yet — pick a clean or inspected room/],
+    [
+      'prepayment_required',
+      {},
+      /requires a card hold or payment before check-in/,
+    ],
     ['room_out_of_order', {}, /out of order — pick another room/],
     ['room_type_mismatch', {}, /does not match the booked room type/],
     ['hold_expired', {}, /hold has expired/],

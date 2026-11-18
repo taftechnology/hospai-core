@@ -383,7 +383,6 @@ describe('SettingsScreen', () => {
     for (const key of [
       'pms.booking.same_day_bookings',
       'pms.booking.same_day_cutoff',
-      'pms.booking.require_prepayment',
       'pms.booking.booking_date_change',
     ]) {
       expect(document.querySelector(`[data-config-key="${key}"]`)).toBeNull();
@@ -391,6 +390,20 @@ describe('SettingsScreen', () => {
     expect(screen.queryByLabelText(/Same-day bookings/i)).toBeNull();
     expect(screen.queryByLabelText(/Require prepayment/i)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Booking' })).toBeNull();
+  });
+
+  it('shows require-prepayment on the Reservations card', async () => {
+    renderSettings('/settings/property');
+    await screen.findByRole('heading', { name: 'Reservations' });
+    const node = document.querySelector('[data-config-key="pms.booking.require_prepayment"]');
+    expect(node).toBeTruthy();
+    expect(node!.closest('.ui-card')?.querySelector('h2')?.textContent).toBe('Reservations');
+    expect(screen.getByLabelText('Require a card hold or payment before check-in')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Check-in is refused until the guest folio has an authorized card hold or a captured payment for the stay. Damage deposits do not count.',
+      ),
+    ).toBeTruthy();
   });
 
   it('20: changing a select and saving writes the whole checks map', async () => {

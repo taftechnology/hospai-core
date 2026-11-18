@@ -14,6 +14,7 @@ const listRooms = vi.fn();
 const listRoomTypes = vi.fn();
 const listOperationalConfig = vi.fn();
 const listDomainConfig = vi.fn();
+const getFolioPayments = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -37,6 +38,7 @@ vi.mock('../client.js', () => ({
     listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
+    getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
   },
 }));
 
@@ -124,6 +126,7 @@ describe('CheckInScreen', () => {
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     listDomainConfig.mockResolvedValue({ ok: true, keys: [] });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     listRoomTypes.mockResolvedValue({
       ok: true,
       roomTypes: [{ roomTypeId: 'rt', code: 'KNG', name: 'King Room' }],
@@ -570,5 +573,114 @@ describe('CheckInScreen', () => {
       expect(checkInButton().disabled).toBe(false);
     });
     expect(screen.queryByText(/has not been inspected/i)).toBeNull();
+  });
+
+  it('rule off: Check in stays enabled and the guarantee line is None on file', async () => {
+    const { client } = renderCheckIn();
+    await waitFor(() => expect(screen.getByText(/None on file/)).toBeTruthy());
+    expect(checkInButton().disabled).toBe(false);
+    expect(client.getQueryState(['folio-payments', 'prop_demo', 'res_1'])?.status).toBe('success');
+  });
+
+  it('rule on and no payments: Check in disabled with the folio link', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    const { client } = renderCheckIn();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/requires a card hold or payment before check-in/),
+      ).toBeTruthy(),
+    );
+    expect(checkInButton().disabled).toBe(true);
+    const link = screen.getByRole('link', { name: 'Folio' });
+    expect(link.getAttribute('href')).toBe('/folio/res_1');
+    expect(link.className).toContain('ui-link-btn');
+    expect(client.getQueryState(['folio-payments', 'prop_demo', 'res_1'])?.status).toBe('success');
+  });
+
+  it('rule on and an authorized STAY card: Check in enabled and shows Visa •••• 4242', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_1',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'authorized',
+          purpose: 'STAY',
+          gatewayReference: 'sim_pay_1',
+          capturedAmountMinor: null,
+          refundedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+          tenderType: 'CARD',
+          cardBrand: 'visa',
+          cardLast4: '4242',
+        },
+      ],
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByText(/Visa •••• 4242/)).toBeTruthy());
+    expect(screen.getByText(/authorized/)).toBeTruthy();
+    expect(checkInButton().disabled).toBe(false);
+  });
+
+  it('rule on and only a DAMAGE hold: Check in stays disabled', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_dmg',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'authorized',
+          purpose: 'DAMAGE',
+          gatewayReference: 'sim_pay_dmg',
+          capturedAmountMinor: null,
+          refundedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+          tenderType: 'CARD',
+          cardBrand: 'visa',
+          cardLast4: '9999',
+        },
+      ],
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByText(/None on file/)).toBeTruthy());
+    expect(screen.queryByText(/9999/)).toBeNull();
+    expect(checkInButton().disabled).toBe(true);
+    expect(screen.getByRole('link', { name: 'Folio' })).toBeTruthy();
+  });
+
+  it('rule on keeps Check in disabled while folio payments are still loading', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    let resolvePayments: (value: { ok: true; payments: [] }) => void = () => {};
+    getFolioPayments.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePayments = resolve;
+      }),
+    );
+    renderCheckIn();
+    await waitFor(() => expect(checkInButton().disabled).toBe(true));
+    expect(screen.queryByText(/None on file/)).toBeNull();
+    resolvePayments({ ok: true, payments: [] });
+    await waitFor(() => expect(screen.getByText(/None on file/)).toBeTruthy());
+    expect(checkInButton().disabled).toBe(true);
   });
 });

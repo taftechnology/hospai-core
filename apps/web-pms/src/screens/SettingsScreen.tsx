@@ -855,6 +855,13 @@ export function SettingsScreen({
                   initial={lookup(keys, 'pms.reservations.check_out_require_zero_balance')}
                   {...common}
                 />
+                <DomainBool
+                  label="Require a card hold or payment before check-in"
+                  configKey="pms.booking.require_prepayment"
+                  initial={lookup(keys, 'pms.booking.require_prepayment')}
+                  hint="Check-in is refused until the guest folio has an authorized card hold or a captured payment for the stay. Damage deposits do not count."
+                  {...common}
+                />
               </div>
             </CardContent>
           </Card>

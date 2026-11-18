@@ -75,6 +75,7 @@ import {
   ROOM_NOT_READY,
   ROOM_MOVE_REASON_REQUIRED,
   BALANCE_DUE,
+  PREPAYMENT_REQUIRED,
   FOLIO_BALANCE_DUE,
   INVOICE_ALREADY_EXISTS,
   INVOICE_NOT_FOUND,
@@ -915,6 +916,13 @@ class BalanceDueError extends Error {
   }
 }
 
+class PrepaymentRequiredError extends Error {
+  constructor() {
+    super(PREPAYMENT_REQUIRED);
+    this.name = 'PrepaymentRequiredError';
+  }
+}
+
 class InvoiceAlreadyExistsError extends Error {
   constructor() {
     super(INVOICE_ALREADY_EXISTS);
@@ -1226,6 +1234,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
   | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
   | { ok: false; error: typeof BALANCE_DUE }
+  | { ok: false; error: typeof PREPAYMENT_REQUIRED }
   | { ok: false; error: typeof FOLIO_BALANCE_DUE }
   | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
   | { ok: false; error: typeof INVOICE_REQUIRED }
@@ -1282,6 +1291,7 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
   if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
   if (e instanceof BalanceDueError) return { ok: false, error: BALANCE_DUE };
+  if (e instanceof PrepaymentRequiredError) return { ok: false, error: PREPAYMENT_REQUIRED };
   if (e instanceof FolioBalanceDueError) return { ok: false, error: FOLIO_BALANCE_DUE };
   if (e instanceof InvoiceAlreadyExistsError) return { ok: false, error: INVOICE_ALREADY_EXISTS };
   if (e instanceof InvoiceRequiredError) return { ok: false, error: INVOICE_REQUIRED };
@@ -10170,6 +10180,32 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
+   * STAY money that may stand in for a guarantee: an authorized hold, or a
+   * captured tender that still has unrefunded minor units. DAMAGE, voided,
+   * declined, pending, unknown, and fully refunded rows do not count.
+   * CARD and CASH both count. Sync — called inside `transactionSync`.
+   */
+  private hasStayGuaranteeSync(reservationId: string): boolean {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS hit FROM payment
+          WHERE reservation_id = ?
+            AND purpose = 'STAY'
+            AND (
+              status = 'authorized'
+              OR (
+                status = 'captured'
+                AND COALESCE(captured_amount_minor, amount_minor) - COALESCE(refunded_amount_minor, 0) > 0
+              )
+            )
+          LIMIT 1`,
+        reservationId,
+      )
+      .toArray();
+    return rows.length > 0;
+  }
+
+  /**
    * Check in a confirmed reservation. Implements catalog `reservations.check_in`.
    * Fingerprint: `{ reservationId, roomId?, overrideCleanliness? }`.
    */
@@ -10182,6 +10218,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true; reservationId: string }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
+    | { ok: false; error: typeof PREPAYMENT_REQUIRED }
     | { ok: false; error: typeof ROOM_REQUIRED }
     | { ok: false; error: typeof ROOM_NOT_READY }
     | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
@@ -10236,6 +10273,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
           if (reservation.status !== 'confirmed') {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+          if (
+            this.readConfigValueSync('pms.booking.require_prepayment') === true &&
+            !this.hasStayGuaranteeSync(input.reservationId)
+          ) {
+            throw new PrepaymentRequiredError();
           }
 
           let resolvedRoomId = input.roomId ?? reservation.room_id ?? null;

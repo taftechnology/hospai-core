@@ -175,7 +175,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: bool,
     default: false,
-    consumers: ari,
+    consumersExempt: true,
   }),
   entry({
     key: 'pms.booking.booking_date_change',

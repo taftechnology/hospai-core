@@ -4,6 +4,7 @@ import {
   ALREADY_MEMBER,
   ALREADY_RESOLVED,
   BALANCE_DUE,
+  PREPAYMENT_REQUIRED,
   BULK_NOT_ADMITTED,
   BUSINESS_DATE_CLOSED,
   BUSINESS_DATE_UNSET,
@@ -304,6 +305,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case ROOM_ALREADY_ASSIGNED:
     case ROOM_NOT_ASSIGNABLE:
     case BALANCE_DUE:
+    case PREPAYMENT_REQUIRED:
     case INVOICE_REQUIRED:
     case FOLIO_BALANCE_DUE:
     case HOLD_EXPIRED:

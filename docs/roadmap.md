@@ -429,8 +429,9 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 - [x] **R3.4 Early-departure command**
   - Same as audit L6 / R0.14. If R0.14 is done, tick both.
 
-- [ ] **R3.5 B3 HTTP `noPost` on guest PATCH**
+- [x] **R3.5 B3 HTTP `noPost` on guest PATCH**
   - Audit Vertical 14. SPA already uses front-office RPC.
+  - **Done in R0.14 (`24f8dba`, 2026-09-05), ticked 2026-11-18:** `PATCH /v1/properties/:id/reservations/:rid` accepts `noPost` and passes it to `reservations.modify` (it joins the fingerprint only when sent); `POST …/front-office` takes it too. Covered by `reservations-routes.spec.ts` ("PATCH modify with noPost: true sets noPost flag", "POST front-office noPost only does not clobber comment/VIP"). `noPost` is a stay flag, so the guest-profile PATCH (`patch_guest`, OrgDO) correctly has no such field.
 
 - [ ] **R3.6 Launch-country tax model**
   - **Decided (2026-10-27): India first — the pilot client's state.** Supersedes the 2026-09-12 Canada-first call; Ontario and British Columbia follow as configuration on the same engine in **R4.19** (Track 4). Recorded in [`ARCHITECTURE.md` §7.9](../ARCHITECTURE.md#79-regulatory--the-hidden-second-product).

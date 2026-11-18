@@ -1157,6 +1157,18 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'settings:configure',
     notes: 'R1.6: property-scoped OPERATIONAL keys in OrgDO; allowlist pms.property.sources and pms.property.market_segments only.',
   },
+  {
+    id: 'config.put_guest_settings',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['config.operational_changed'],
+    entitlement: 'pms.core',
+    permission: 'org:manage',
+    notes:
+      'R1.17: org-wide pms.guests.settings in OrgDO operational_config (property_id *). Audited in operational_config_audit. JSON idempotencyKey.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

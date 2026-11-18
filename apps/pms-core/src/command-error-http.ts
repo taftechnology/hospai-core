@@ -40,8 +40,11 @@ import {
   FX_RATE_OPEN_EXISTS,
   FX_REASON_REQUIRED,
   GUEST_ALREADY_ERASED,
+  GUEST_DUPLICATE,
+  GUEST_EMAIL_REQUIRED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
+  GUEST_PHONE_REQUIRED,
   GUEST_REF_REQUIRED,
   GUEST_WINDOW_NOT_OPENABLE,
   HOLD_EXPIRED,
@@ -238,6 +241,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CITY_LEDGER_CHARGE_ALREADY_POSTED:
     case NO_AVAILABILITY:
     case GUEST_ALREADY_ERASED:
+    case GUEST_DUPLICATE:
     case GUEST_EXISTS:
     case INVENTORY_ITEM_EXISTS:
     case INVENTORY_ITEM_ARCHIVED:
@@ -384,6 +388,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case INVALID_BUSINESS_DATE:
     case INVALID_ASSIGNEE_REF:
     case INVALID_DATE:
+    case GUEST_EMAIL_REQUIRED:
+    case GUEST_PHONE_REQUIRED:
     case GUEST_REF_REQUIRED:
     case INVALID_STAY_RANGE:
     case INVALID_WINDOW:

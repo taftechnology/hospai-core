@@ -5,6 +5,7 @@ import {
   BUSINESS_DATE_UNSET,
   FORBIDDEN,
   GUEST_ALREADY_ERASED,
+  GUEST_DUPLICATE,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
   guestCrmBodyTypesValid,
@@ -1272,6 +1273,76 @@ async function handlePutOperationalConfig(ctx: V1DispatchContext): Promise<Respo
   }
 }
 
+async function handleGetOrgGuestSettings(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    await org.ensureMetaOrgId(orgId);
+    const result = await org.readGuestSettings(actor);
+    if (!result.ok) {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return json({ error: 'forbidden', permission: 'org:manage' }, 403);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
+    throw e;
+  }
+}
+
+async function handlePutOrgGuestSettings(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+
+  const bodyParsed = await parseJsonBody<{
+    value?: unknown;
+    reason?: string;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    body?.value === undefined ||
+    typeof body.reason !== 'string' ||
+    !body.reason.trim() ||
+    typeof body.idempotencyKey !== 'string' ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = { value: body.value, reason: body.reason };
+  const fingerprint = await commandFingerprint('config.put_guest_settings', commandPayload);
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  try {
+    await org.ensureMetaOrgId(orgId);
+    const result = await org.tryPutGuestSettings(actor, commandPayload, {
+      key: body.idempotencyKey,
+      fingerprint,
+    });
+    if (!result.ok) {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      if (result.error === FORBIDDEN || result.error === 'scope_mismatch') {
+        return json({ error: 'forbidden', permission: 'org:manage' }, 403);
+      }
+      return commandFailureResponse(result.error, 'org:manage');
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json(
+        { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'config.put_guest_settings' },
+        503,
+        { 'Retry-After': '30' },
+      );
+    }
+    throw e;
+  }
+}
+
 async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -1322,6 +1393,12 @@ async function handlePostGuests(ctx: V1DispatchContext): Promise<Response> {
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
+      if (result.error === GUEST_DUPLICATE && 'guestRef' in result) {
+        return json(
+          { ok: false, error: GUEST_DUPLICATE, match: result.match, guestRef: result.guestRef },
+          409,
+        );
+      }
       return commandErrorResponse(result.error, 'guests:write');
     }
     return json(result, 200);
@@ -9504,6 +9581,24 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handlePostReservationSearch,
+  },
+  {
+    id: 'get_org_guest_settings',
+    scope: 'org',
+    method: 'GET',
+    pattern: /^\/v1\/orgs\/([^/]+)\/guest-settings$/,
+    permission: 'org:manage',
+    entitlement: 'pms.core',
+    handler: handleGetOrgGuestSettings,
+  },
+  {
+    id: 'put_org_guest_settings',
+    scope: 'org',
+    method: 'PUT',
+    pattern: /^\/v1\/orgs\/([^/]+)\/guest-settings$/,
+    permission: 'org:manage',
+    commandId: 'config.put_guest_settings',
+    handler: handlePutOrgGuestSettings,
   },
 ];
 

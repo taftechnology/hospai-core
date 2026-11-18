@@ -17,8 +17,12 @@ import {
   V1_HTTP_ROUTE_AUDIT,
   assertRegisterInvariants,
   domainConfigKeys,
+  DEFAULT_GUEST_SETTINGS,
+  GUEST_SETTINGS_KEY,
+  GuestSettingsSchema,
   getConfigEntry,
   isStructuredCloneable,
+  parseStoredGuestSettings,
   NIGHT_AUDIT_CHECK_IDS,
   NIGHT_AUDIT_CHECK_SEVERITIES,
   NIGHT_AUDIT_CHECKS_DEFAULT,
@@ -185,6 +189,32 @@ describe('config register', () => {
     for (const excluded of EXCLUDED_PROTOTYPE_KEYS) {
       expect(PROTOTYPE_CONFIG_KEYS).not.toContain(excluded);
     }
+  });
+
+  it('pms.guests.settings is a strict boolean object with no fan-out consumers', () => {
+    const entry = getConfigEntry(GUEST_SETTINGS_KEY);
+    expect(entry?.scope).toBe('org');
+    expect(entry?.class).toBe('OPERATIONAL');
+    expect(entry?.permission).toBe('org:manage');
+    expect(entry?.default).toEqual(DEFAULT_GUEST_SETTINGS);
+    expect(entry?.consumers).toEqual({
+      invalidatesAri: false,
+      reschedulesNightAudit: false,
+      rematerializesRates: false,
+    });
+    expect(GuestSettingsSchema.safeParse(DEFAULT_GUEST_SETTINGS).success).toBe(true);
+    expect(GuestSettingsSchema.safeParse({}).success).toBe(false);
+    expect(
+      GuestSettingsSchema.safeParse({ ...DEFAULT_GUEST_SETTINGS, extra: true }).success,
+    ).toBe(false);
+    expect(
+      GuestSettingsSchema.safeParse({ ...DEFAULT_GUEST_SETTINGS, requireEmail: 'yes' }).success,
+    ).toBe(false);
+    expect(parseStoredGuestSettings(undefined)).toEqual(DEFAULT_GUEST_SETTINGS);
+    expect(parseStoredGuestSettings({ requireEmail: true })).toEqual({
+      ...DEFAULT_GUEST_SETTINGS,
+      requireEmail: true,
+    });
   });
 
   it('has DOMAIN keys with consumers', () => {
@@ -843,10 +873,31 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[167] ?? {})).toBe(false);
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(168);
+    expect(V1_HTTP_ROUTE_AUDIT[168]?.id).toBe('get_org_guest_settings');
+    expect(V1_HTTP_ROUTE_AUDIT[168]).toMatchObject({
+      scope: 'org',
+      permission: 'org:manage',
+      entitlement: 'pms.core',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[168] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[169]?.id).toBe('put_org_guest_settings');
+    expect(V1_HTTP_ROUTE_AUDIT[169]).toMatchObject({
+      scope: 'org',
+      permission: 'org:manage',
+      commandId: 'config.put_guest_settings',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(170);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
-    expect(COMMAND_CATALOG).toHaveLength(104);
+    expect(COMMAND_CATALOG).toHaveLength(105);
+    const putGuestSettings = COMMAND_CATALOG.find((c) => c.id === 'config.put_guest_settings');
+    expect(putGuestSettings?.lane).toBe('INTERACTIVE');
+    expect(putGuestSettings?.degraded).toBe('FAIL_CLOSED');
+    expect(putGuestSettings?.entitlement).toBe('pms.core');
+    expect(putGuestSettings?.permission).toBe('org:manage');
+    expect(putGuestSettings?.events).toEqual(['config.operational_changed']);
+    expect(AUDIT_WRITER_COMMAND_IDS.has('config.put_guest_settings')).toBe(false);
+    expect(AUDIT_WRITER_EXEMPTIONS.some((e) => e.id === 'config.put_guest_settings')).toBe(true);
     const setOps = COMMAND_CATALOG.find((c) => c.id === 'roster.set_ops');
     expect(setOps?.lane).toBe('INTERACTIVE');
     expect(setOps?.degraded).toBe('FAIL_CLOSED');

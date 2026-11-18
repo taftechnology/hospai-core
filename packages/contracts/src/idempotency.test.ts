@@ -53,7 +53,10 @@ import {
   CHARGE_CODE_EXISTS,
   ROUTING_RULE_CONFLICT,
   SYSTEM_CHARGE_CODE_PROTECTED,
+  GUEST_DUPLICATE,
+  GUEST_EMAIL_REQUIRED,
   GUEST_EXISTS,
+  GUEST_PHONE_REQUIRED,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
   PSP_UNAVAILABLE,
@@ -200,6 +203,9 @@ describe('fingerprintPayload', () => {
     expect(GUEST_EXISTS).toBe('guest_exists');
     expect(GUEST_NOT_FOUND).toBe('guest_not_found');
     expect(GUEST_ALREADY_ERASED).toBe('guest_already_erased');
+    expect(GUEST_EMAIL_REQUIRED).toBe('guest_email_required');
+    expect(GUEST_PHONE_REQUIRED).toBe('guest_phone_required');
+    expect(GUEST_DUPLICATE).toBe('guest_duplicate');
   });
 
   it('exports payment wire codes', () => {
@@ -294,7 +300,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(181);
+    expect(count).toBe(184);
   });
 });
 

@@ -130,6 +130,18 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   config_code_removed: () =>
     'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',
   config_key_not_writable: () => 'That setting cannot be changed.',
+  guest_email_required: () => 'Email is required on new guest profiles.',
+  guest_phone_required: () => 'Phone is required on new guest profiles.',
+  guest_duplicate: (body) => {
+    const match = bodyStringField(body, 'match');
+    if (match === 'email') {
+      return 'A guest with this email is already on file at this property. Search for them instead.';
+    }
+    if (match === 'phone') {
+      return 'A guest with this phone is already on file at this property. Search for them instead.';
+    }
+    return 'A guest with this email or phone is already on file at this property. Search for them instead.';
+  },
   no_availability: (body, context) => {
     const date = bodyStringField(body, 'date');
     if (date) {

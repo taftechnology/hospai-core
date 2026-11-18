@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  DEFAULT_GUEST_SETTINGS,
+  GUEST_SETTINGS_KEY,
+  GuestSettingsSchema,
+} from '../guest-settings.js';
 import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
 import type { Permission } from '../permissions.js';
 
@@ -333,7 +338,16 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
   entry({ key: 'pms.property.split_inventory', prototypeKey: 'pms_property_split_inventory', class: 'OPERATIONAL', schema: json, default: [] }),
   entry({ key: 'pms.property.sources', prototypeKey: 'pms_property_sources', class: 'OPERATIONAL', schema: NamedList, default: [] }),
   entry({ key: 'pms.property.market_segments', prototypeKey: 'pms_property_market_segments', class: 'OPERATIONAL', schema: NamedList, default: [] }),
-  entry({ key: 'pms.guests.settings', prototypeKey: 'pms_guest_settings', class: 'OPERATIONAL', schema: json, default: {}, scope: 'org' }),
+  entry({
+    key: GUEST_SETTINGS_KEY,
+    prototypeKey: 'pms_guest_settings',
+    class: 'OPERATIONAL',
+    schema: GuestSettingsSchema,
+    default: DEFAULT_GUEST_SETTINGS,
+    scope: 'org',
+    permission: 'org:manage',
+    consumers: { invalidatesAri: false, reschedulesNightAudit: false, rematerializesRates: false },
+  }),
   entry({ key: 'pms.marketplace.connections', prototypeKey: 'pms_marketplace_connections', class: 'OPERATIONAL', schema: json, default: {}, scope: 'org' }),
   entry({ key: 'pms.email.optin_headline', prototypeKey: 'pms_optin_headline', class: 'PRESENTATION', schema: str, default: '', audited: false }),
   entry({ key: 'pms.email.optin_disclaimer', prototypeKey: 'pms_optin_disclaimer', class: 'PRESENTATION', schema: str, default: '', audited: false }),

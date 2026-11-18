@@ -6,7 +6,12 @@ export type DegradedReadClass = 'READ_STALE' | 'FAIL_CLOSED';
 /** HTTP /v1 route permission audit — validated by check:permissions; consumed by pms-core dispatcher. */
 export type V1HttpRouteAudit =
   | { scope: 'bootstrap' | 'dev' }
-  | { scope: 'org'; permission: Permission; entitlement?: FeatureKey }
+  | {
+      scope: 'org';
+      permission: Permission;
+      commandId?: string;
+      entitlement?: FeatureKey;
+    }
   | {
       scope: 'property';
       permission: Permission;
@@ -1019,6 +1024,18 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_org_guest_settings',
+    scope: 'org',
+    permission: 'org:manage',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'put_org_guest_settings',
+    scope: 'org',
+    permission: 'org:manage',
+    commandId: 'config.put_guest_settings',
   },
 ];
 

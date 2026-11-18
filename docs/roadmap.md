@@ -145,7 +145,7 @@ Cross-checked against live SPA/routes, ARCHITECTURE.md §7.1/§7.8/§11/§14/§1
 | Maintenance work orders | **R1.9 as `pms.maintenance` module** (HK leftover 5). Subscribe to `room.ooo_changed`. Not valet/coffee. Not a TicketsSettings clone. |
 | Roster skills / shifts / capacity | **R1.9** on `/roster` (roster leftover 7). |
 | Settings → Tickets concierge | **R5.2** Whistle tasks. |
-| Settings → Guests | **R1.17**. `pms.guests.settings` exists unread. |
+| Settings → Guests | **R1.17** shipped 2026-11-17. Four create-time profile rules. |
 | Settings → Accommodations | **R1.18** = Inventory deep-link. |
 | Booking wizard remainder | **R1.4**. Already ships adults, Inquiry/Hold/Confirm, promo, guest search. Remainder: consume booking Settings keys or hide (R0.11); add-ons via **R1.5**; source/segment via **R1.6**; FAIL_CLOSED disable. |
 | Billing & Guarantee / PAN modal | **R1.20** = consume `require_prepayment` + existing **simulate** `folio.authorize` (payments-simulate + card-last4 specs). No new PAN fields. No `held` inventory. |
@@ -343,12 +343,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Out:** new tender types; PCI card data; Apple Pay / terminals (R5.4).
   - **As-built:** R0.14 had already fixed the server (expected cash sums `ledger_amount_minor`; no-shift cash is dated by `folio_line.business_date`). The SPA read the variance sign backwards: the wire is expected − counted, so a short drawer is positive, and the receipt said "over". `formatVarianceMinor` now reads positive as short; the tests that encoded the old sign were corrected. Close shift labels the count with the ledger currency and says foreign cash counts at its ledger value as posted on the folio; a load failure is an `Alert`. The receipt shows expected cash (count + variance) only after a counted close, renames the stat to "Cash with no shift", and raises an attention alert naming the business date when any cash was taken with no shift open. `cashiering.spec.ts` pins `get_shift` / `put_shift_close`: open shape, short/over sign, unknown 404, another cashier 404 and still open, same-key replay and changed-count 409, closed → `shift_not_open`, `money_invalid` / `invalid_body` / `invalid_json`. No new command, route or migration.
 
-- [ ] **R1.17 Settings → Guests (profile defaults)**
+- [x] **R1.17 Settings → Guests (profile defaults)** — shipped 2026-11-17
   - **Depends:** R0.11. Merge UI is R1.8.
   - **Prototype:** `Settings.tsx` `activeSection === 'guests'` (default country/language, require email/phone, require ID at check-in, duplicate matching).
-  - **Live:** `pms.guests.settings` OPERATIONAL JSON exists; no Settings section; check-in does not read it.
+  - **Live:** Settings → Guests reads `pms.guests.settings` on create. Check-in does not (ID-at-check-in is R4.15).
   - **Locked:** Settings section bound to that key. Every toggle pms-core **reads** (ID-at-check-in must fail check-in when on). Duplicate match rules gate create; merge remains R1.8. Hide Opera-flavoured controls with no consumer.
   - **Out:** a second guest book; decrypt-on-list.
+  - **As-built:** Settings → Guests (`/settings/guests`, nav only with `org:manage`) shows four controls — require email, require phone, match on email, match on phone — in “Required on new profiles” and “Duplicate check at this property”. OrgDO `tryCreateGuest` reads all four, and only on new guest profiles; PATCH is unchanged. Duplicate match is property-scoped (blind index → live guest → `guest_property` for the URL property; email before phone). Hidden, with the slice that owns them: require ID at check-in (R4.15), stay preferences and passport/ID match (R4.15), default country and language (no owner yet), auto-suggest merge / allow explicit duplicates / share profiles across properties (no owner yet), VIP and loyalty thresholds (not scheduled). Routes `get_org_guest_settings` and `put_org_guest_settings`; command `config.put_guest_settings` (INTERACTIVE, `pms.core`, kill-switch on). Pins: catalog **105**, audit **170**, last id `put_org_guest_settings`. Spec: [Settings → Guests](superpowers/specs/2026-11-17-settings-guests-design.md).
 
 - [ ] **R1.18 Settings → Accommodations**
   - **Prototype:** Property subtab `accommodations`.
@@ -488,7 +489,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Undefers** two named leftovers of the [guest CRM directory spec](superpowers/specs/2026-08-13-guest-crm-directory-design.md) — ID documents and `guests.update_consent`. Amend that spec's leftover list in the same change-set; do not leave it saying "defer".
   - **Locked:** ID documents live on the **OrgDO profile**, encrypted under the per-org HKDF key; scans in R2 under the same key, **covered by `PurgeWorkflow` and its certificate** (erasure must delete the objects, not orphan them). Events carry `guest_ref` only. Every document read is audited. Fields include passport and visa details for foreign nationals, because **R6.2** Form C reads them. **Aadhaar numbers are stored masked (last four) only** — confirm current UIDAI rules before shipping.
   - **Locked (consent):** per-purpose consent with timestamp, source and notice version, read by whatever sends to the guest (R5.2 later). India's DPDP Act sets the notice and withdrawal rules — confirm with the advisor.
-  - **Also locked:** **R1.17**'s *require ID at check-in* reads this — check-in fails closed when it is on and no document is recorded.
+  - **Also locked:** **R1.17**'s *require ID at check-in* reads this — check-in fails closed when it is on and no document is recorded. R4.15 adds the "Require ID at check-in" control to Settings → Guests (R1.17 hid it).
   - **Tests:** two-property same-org — hotel A cannot list or read hotel B's guest documents (AGENTS §5); purge removes R2 objects and the certificate says so.
   - **Guest lookup:** the [Front Office page](https://www.bluepms.com/modules/front-office/) (Command Center And Guest Intake) previews photo and ID when choosing a match. Show them **after a match is selected**, through the audited read. Lists stay free of decrypted documents (no decrypt-on-list). Equality blind-index search stays.
   - **Stay flags (client Q20):** the page's early check-in, late checkout and airport transfer flags belong to the stay, not the profile; add only those the client uses. VIP already ships on the stay.

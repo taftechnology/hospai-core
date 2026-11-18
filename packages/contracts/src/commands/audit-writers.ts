@@ -90,6 +90,10 @@ export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string
     id: 'config.put_operational',
     reason: 'OrgDO home — covered by operational_config_audit (R1.6), like config.put_domain',
   },
+  {
+    id: 'config.put_guest_settings',
+    reason: 'OrgDO home — covered by operational_config_audit (R1.17), like config.put_operational',
+  },
   { id: 'roster.add', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.update', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },
   { id: 'roster.status', reason: 'OrgDO home — staff PII not on PropertyDO audit_log' },

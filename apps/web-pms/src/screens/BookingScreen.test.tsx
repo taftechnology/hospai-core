@@ -646,6 +646,37 @@ describe('BookingScreen', () => {
     ).toBe(true);
   });
 
+  it.each([
+    ['guest_email_required', /Email is required on new guest profiles/],
+    ['guest_phone_required', /Phone is required on new guest profiles/],
+    ['guest_duplicate:email', /this email is already on file at this property/],
+    ['guest_duplicate:phone', /this phone is already on file at this property/],
+    ['guest_duplicate:generic', /email or phone is already on file at this property/],
+  ] as const)('booking shows %s', async (label, pattern) => {
+    const code = label.startsWith('guest_duplicate') ? 'guest_duplicate' : label;
+    const match = label.endsWith(':email') ? 'email' : label.endsWith(':phone') ? 'phone' : undefined;
+    createGuest.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: code === 'guest_duplicate' ? 409 : 422,
+        body: {
+          ok: false,
+          error: code,
+          ...(match ? { match, guestRef: 'guest_ada' } : {}),
+        },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(screen.getByTestId('book-message').textContent).toMatch(pattern));
+    expect(createReservation).not.toHaveBeenCalled();
+  });
+
   it('Confirm disabled when quote and type present but guest unresolved', async () => {
     renderBook();
     await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());

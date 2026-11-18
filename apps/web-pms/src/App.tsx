@@ -185,6 +185,11 @@ export const router = createBrowserRouter(
                   <SettingsScreen tab="users" />
                 </Suspense>
               } />
+              <Route path="guests" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="guests" />
+                </Suspense>
+              } />
               <Route path="system" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="system" />

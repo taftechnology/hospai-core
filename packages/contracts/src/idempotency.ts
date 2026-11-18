@@ -212,6 +212,9 @@ export const SHIFT_NOT_OPEN = 'shift_not_open' as const;
 export const GUEST_NOT_FOUND = 'guest_not_found' as const;
 export const GUEST_ALREADY_ERASED = 'guest_already_erased' as const;
 export const GUEST_EXISTS = 'guest_exists' as const;
+export const GUEST_EMAIL_REQUIRED = 'guest_email_required' as const;
+export const GUEST_PHONE_REQUIRED = 'guest_phone_required' as const;
+export const GUEST_DUPLICATE = 'guest_duplicate' as const;
 
 export const STAFF_NOT_FOUND = 'staff_not_found' as const;
 export const STAFF_EXITED = 'staff_exited' as const;

@@ -83,6 +83,24 @@ describe('domain code messages', () => {
     expect(msg).not.toMatch(new RegExp(code, 'i'));
   });
 
+  it('guest profile rules name the missing field or the match', () => {
+    expect(classifiedUserMessage(classifiedWithCode('guest_email_required'), {})).toBe(
+      'Email is required on new guest profiles.',
+    );
+    expect(classifiedUserMessage(classifiedWithCode('guest_phone_required'), {})).toBe(
+      'Phone is required on new guest profiles.',
+    );
+    expect(
+      classifiedUserMessage(classifiedWithCode('guest_duplicate', { match: 'email', guestRef: 'g1' }), {}),
+    ).toMatch(/this email is already on file/);
+    expect(
+      classifiedUserMessage(classifiedWithCode('guest_duplicate', { match: 'phone', guestRef: 'g1' }), {}),
+    ).toMatch(/this phone is already on file/);
+    expect(classifiedUserMessage(classifiedWithCode('guest_duplicate'), {})).toMatch(
+      /email or phone is already on file/,
+    );
+  });
+
   it('domain message beats class-mapped client_error fallback', () => {
     const msg = classifiedUserMessage(classifiedWithCode('balance_due'), { fallback: 'Checkout failed' });
     expect(msg).toMatch(/balance is due|Guest owes/);

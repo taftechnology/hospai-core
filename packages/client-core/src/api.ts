@@ -1,5 +1,6 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type {
+  GuestSettings,
   HousekeepingInventoryCategory,
   HousekeepingInventoryItemRow,
   HousekeepingInventoryMovementKind,
@@ -2551,6 +2552,32 @@ export function createClient(opts: {
         opts.keyStore,
       );
       return getJson(`/v1/properties/${enc(propertyId)}/operational-config/${enc(key)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value, reason, idempotencyKey }),
+      });
+    },
+    async getGuestSettings(
+      orgId: string,
+    ): Promise<{ ok: true; value: GuestSettings; version: number }> {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/guest-settings`);
+      return body as { ok: true; value: GuestSettings; version: number };
+    },
+    /**
+     * `baseVersion` is the stored version the edit started from. It is part of the
+     * operation id, so saving A, then B, then A again is three writes, not a replay of the first.
+     */
+    async putGuestSettings(
+      orgId: string,
+      value: GuestSettings,
+      reason: string,
+      baseVersion: number,
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `guest-settings:v${baseVersion}:${JSON.stringify(value)}:${reason}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/orgs/${enc(orgId)}/guest-settings`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ value, reason, idempotencyKey }),

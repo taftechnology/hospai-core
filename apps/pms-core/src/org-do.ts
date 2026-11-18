@@ -2,9 +2,16 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   EMPTY_KINDS,
   FORBIDDEN,
+  DEFAULT_GUEST_SETTINGS,
   GUEST_ALREADY_ERASED,
+  GUEST_DUPLICATE,
+  GUEST_EMAIL_REQUIRED,
   GUEST_EXISTS,
   GUEST_NOT_FOUND,
+  GUEST_PHONE_REQUIRED,
+  GUEST_SETTINGS_KEY,
+  GuestSettingsSchema,
+  parseStoredGuestSettings,
   IDEM_KEY_REUSED,
   INVALID_KINDS,
   LIMIT_EXCEEDED,
@@ -35,6 +42,7 @@ import {
   type ActorContext,
   type CommandError,
   type EventSource,
+  type GuestSettings,
   type IdempotencyKey,
   type OrgRole,
   type OrgScopedPermission,
@@ -181,6 +189,18 @@ class GuestExistsError extends Error {
   }
 }
 
+class GuestDuplicateError extends Error {
+  readonly match: 'email' | 'phone';
+  readonly guestRef: string;
+
+  constructor(match: 'email' | 'phone', guestRef: string) {
+    super(GUEST_DUPLICATE);
+    this.name = 'GuestDuplicateError';
+    this.match = match;
+    this.guestRef = guestRef;
+  }
+}
+
 class GuestErasedError extends Error {
   constructor() {
     super('Guest already erased');
@@ -322,6 +342,9 @@ const SEARCH_PHONE_RE = /^[+]?[\d\s().-]{7,}$/;
 
 const OPERATIONAL_CONFIG_ALLOWLIST = ['pms.property.sources', 'pms.property.market_segments'] as const;
 
+/** Org-wide operational_config rows. Never returned by listOperationalConfig. */
+const ORG_CONFIG_ROW = '*';
+
 /** Fixed inventory for purge VERIFY — the DO SQLite authorizer rejects dynamic table identifiers (SQLITE_AUTH); same pattern as PropertyDO. */
 const ORG_PURGE_INVENTORY_TABLES = [
   'alarm_schedule',
@@ -432,6 +455,52 @@ export class OrgDO extends DurableObject<PmsEnv> {
       this.blindIndexKeyPromise = deriveOrgBlindIndexKeyHex(hex, orgId);
     }
     return this.blindIndexKeyPromise;
+  }
+
+  private readGuestSettingsSync(): GuestSettings {
+    return this.readGuestSettingsRowSync().value;
+  }
+
+  /** Stored org guest rules plus their version (0 = never saved, defaults apply). */
+  private readGuestSettingsRowSync(): { value: GuestSettings; version: number } {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT value_json, version FROM operational_config WHERE property_id = ? AND key = ?`,
+        ORG_CONFIG_ROW,
+        GUEST_SETTINGS_KEY,
+      )
+      .toArray() as Array<{ value_json: string; version: number }>;
+    const row = rows[0];
+    if (!row) return { value: { ...DEFAULT_GUEST_SETTINGS }, version: 0 };
+    try {
+      return { value: parseStoredGuestSettings(JSON.parse(row.value_json) as unknown), version: row.version };
+    } catch {
+      return { value: { ...DEFAULT_GUEST_SETTINGS }, version: row.version };
+    }
+  }
+
+  /** Live guest at this property with the same blind-index hash. Excludes `excludeGuestId`. */
+  private findPropertyGuestByBlindIndexSync(
+    propertyId: string,
+    kind: 'email' | 'phone',
+    hash: Uint8Array,
+    excludeGuestId: string,
+  ): string | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT g.guest_id AS guest_id
+         FROM guest_blind_index bi
+         INNER JOIN guest g ON g.guest_id = bi.guest_id AND g.erased_at IS NULL
+         INNER JOIN guest_property gp ON gp.guest_id = g.guest_id AND gp.property_id = ?
+         WHERE bi.kind = ? AND bi.index_hash = ? AND bi.guest_id != ?
+         LIMIT 1`,
+        propertyId,
+        kind,
+        hash,
+        excludeGuestId,
+      )
+      .toArray() as Array<{ guest_id: string }>;
+    return rows[0]?.guest_id ?? null;
   }
 
   private replaceGuestBlindIndexSync(
@@ -1738,6 +1807,117 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async readGuestSettings(
+    actor: ActorContext,
+  ): Promise<
+    | { ok: true; value: GuestSettings; version: number }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+  > {
+    this.assertRpcAvailable();
+    if (actor.kind !== 'user') return { ok: false, error: NOT_MEMBER };
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId: null,
+      permission: 'org:manage',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? FORBIDDEN : gate.error };
+    return { ok: true, ...this.readGuestSettingsRowSync() };
+  }
+
+  async tryPutGuestSettings(
+    actor: ActorContext,
+    input: { value: unknown; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; value: GuestSettings; version: number }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapOrgCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const parsed = GuestSettingsSchema.safeParse(input.value);
+    if (!parsed.success) return { ok: false, error: VALIDATION_ERROR };
+
+    const reason = input.reason.trim();
+    if (!reason) return { ok: false, error: VALIDATION_ERROR };
+
+    if (actor.kind !== 'user') return { ok: false, error: NOT_MEMBER };
+    const gate = await this.assertPermission({
+      userId: actor.userId,
+      propertyId: null,
+      permission: 'org:manage',
+    });
+    if (!gate.ok) return { ok: false, error: gate.error === 'scope_mismatch' ? FORBIDDEN : gate.error };
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const auditActor = actor.userId;
+    const value = parsed.data;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT value_json, version FROM operational_config WHERE property_id = ? AND key = ?`,
+              ORG_CONFIG_ROW,
+              GUEST_SETTINGS_KEY,
+            )
+            .toArray() as Array<{ value_json: string; version: number }>;
+          const beforeJson = existing[0]?.value_json ?? null;
+          const version = (existing[0]?.version ?? 0) + 1;
+          const afterJson = JSON.stringify(value);
+          const now = Date.now();
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO operational_config (property_id, key, value_json, version, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(property_id, key) DO UPDATE SET
+               value_json = excluded.value_json,
+               version = excluded.version,
+               updated_at = excluded.updated_at,
+               updated_by = excluded.updated_by`,
+            ORG_CONFIG_ROW,
+            GUEST_SETTINGS_KEY,
+            afterJson,
+            version,
+            now,
+            auditActor,
+          );
+          this.ctx.storage.sql.exec(
+            `INSERT INTO operational_config_audit (property_id, key, actor, reason, before_json, after_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            ORG_CONFIG_ROW,
+            GUEST_SETTINGS_KEY,
+            auditActor,
+            reason,
+            beforeJson,
+            afterJson,
+            now,
+          );
+          this.appendOrgOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'config.operational_changed',
+            payload: { orgId, propertyId: ORG_CONFIG_ROW, key: GUEST_SETTINGS_KEY, version },
+          });
+          return { ok: true as const, value, version };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapOrgCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
   async listPropertyRefs(): Promise<
     Array<{
       propertyId: string;
@@ -1780,7 +1960,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_EXISTS | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof GUEST_EXISTS | typeof GUEST_EMAIL_REQUIRED | typeof GUEST_PHONE_REQUIRED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof GUEST_DUPLICATE; match: 'email' | 'phone'; guestRef: string }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -1825,6 +2006,30 @@ export class OrgDO extends DurableObject<PmsEnv> {
           if (again[0]?.erased_at != null) throw new GuestErasedError();
           if (again[0]) throw new GuestExistsError();
 
+          const settings = this.readGuestSettingsSync();
+          const emailRow = indexRows.find((row) => row.kind === 'email');
+          const phoneRow = indexRows.find((row) => row.kind === 'phone');
+          if (settings.requireEmail && !emailRow) throw new Error(GUEST_EMAIL_REQUIRED);
+          if (settings.requirePhone && !phoneRow) throw new Error(GUEST_PHONE_REQUIRED);
+          if (settings.matchOnEmail && emailRow) {
+            const guestRef = this.findPropertyGuestByBlindIndexSync(
+              propertyId,
+              'email',
+              emailRow.hash,
+              input.guestId,
+            );
+            if (guestRef) throw new GuestDuplicateError('email', guestRef);
+          }
+          if (settings.matchOnPhone && phoneRow) {
+            const guestRef = this.findPropertyGuestByBlindIndexSync(
+              propertyId,
+              'phone',
+              phoneRow.hash,
+              input.guestId,
+            );
+            if (guestRef) throw new GuestDuplicateError('phone', guestRef);
+          }
+
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO data_key (pii_key_id, scope, subject_id, wrapped_key, created_at, key_version) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1859,6 +2064,9 @@ export class OrgDO extends DurableObject<PmsEnv> {
       );
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof GuestDuplicateError) {
+        return { ok: false, error: GUEST_DUPLICATE, match: e.match, guestRef: e.guestRef };
+      }
       // Both erased and live existing rows collapse to GUEST_EXISTS on create — never un-erase.
       if (e instanceof GuestErasedError) return { ok: false, error: GUEST_EXISTS };
       if (e instanceof GuestExistsError) return { ok: false, error: GUEST_EXISTS };

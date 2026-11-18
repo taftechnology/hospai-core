@@ -23,6 +23,7 @@ export * from './module-ui.js';
 export * from './staff-ref.js';
 export * from './purge-certificate-columns.js';
 export * from './guest-pii-property-columns.js';
+export * from './guest-settings.js';
 export * from './guest-crm.js';
 export * from './housekeeping-priority.js';
 export * from './housekeeping-inventory.js';

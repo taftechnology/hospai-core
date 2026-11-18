@@ -41,10 +41,11 @@ import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
 import { SettingsUsersTab } from './settings-users.js';
 import { SettingsFinanceTab } from './settings-finance.js';
+import { SettingsGuests } from './settings-guests.js';
 import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
 import { SettingsLogsTab } from './settings-logs.js';
 import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
-import { hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
+import { hasOrgPermission, hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
 
 const SYSTEM_CHARGE_CODES = new Set([
   'ROOM',
@@ -400,7 +401,8 @@ export function SettingsScreen({
     | 'finance'
     | 'users'
     | 'system'
-    | 'logs';
+    | 'logs'
+    | 'guests';
 }) {
   const propertyId = tenant.propertyId;
   const { date } = useFormat();
@@ -458,6 +460,10 @@ export function SettingsScreen({
     meShell.kind === 'authority' &&
     meShell.authority.kind === 'live' &&
     hasPropertyPermission(meShell.authority.me, 'folio:read');
+  const showGuestsTab =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    hasOrgPermission(meShell.authority.me, 'org:manage');
   const chargesQ = useQuery({
     queryKey: ['charge-codes', propertyId],
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
@@ -610,6 +616,9 @@ export function SettingsScreen({
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
         <Link className="ui-tab" to="/settings/finance" aria-current={activeTab === 'finance' ? 'page' : undefined}>Finance</Link>
         <Link className="ui-tab" to="/settings/users" aria-current={activeTab === 'users' ? 'page' : undefined}>Users</Link>
+        {showGuestsTab ? (
+          <Link className="ui-tab" to="/settings/guests" aria-current={activeTab === 'guests' ? 'page' : undefined}>Guests</Link>
+        ) : null}
         <Link className="ui-tab" to="/settings/system" aria-current={activeTab === 'system' ? 'page' : undefined}>System</Link>
         {showLogsTab ? (
           <Link className="ui-tab" to="/settings/logs" aria-current={activeTab === 'logs' ? 'page' : undefined}>Logs</Link>
@@ -1075,6 +1084,15 @@ export function SettingsScreen({
       {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'users' ? <SettingsUsersTab /> : null}
+      {activeTab === 'guests' ? (
+        meShell.kind === 'authority' && meShell.authority.kind === 'pending' ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : showGuestsTab ? (
+          <SettingsGuests />
+        ) : (
+          <Alert>Requires permission org:manage. Ask an owner.</Alert>
+        )
+      ) : null}
       {activeTab === 'finance' ? (
         configQ.isPending ? (
           <Skeleton label="Loading settings" lines={3} />

@@ -631,8 +631,8 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
     },
   });
 
-  const plansFailClosed = plansQ.isError && asClassified(plansQ.error).class === 'fail_closed';
-  const typesFailClosed = typesQ.isError && asClassified(typesQ.error).class === 'fail_closed';
+  const plansFailClosed = plansQ.isError;
+  const typesFailClosed = typesQ.isError;
 
   function setWindow(nextFrom: string, nextTo: string, nextPlan = plan) {
     const next = new URLSearchParams(searchParams);
@@ -799,8 +799,19 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 </Button>
               </Alert>
             ) : null}
-            {plansFailClosed || typesFailClosed ? (
-              <Alert>Property unreachable — cannot load rates.</Alert>
+            {plansQ.isError ? (
+              <Alert>
+                {classifiedUserMessage(asClassified(plansQ.error), {
+                  fallback: 'Could not load rate plans.',
+                })}
+              </Alert>
+            ) : null}
+            {typesQ.isError ? (
+              <Alert>
+                {classifiedUserMessage(asClassified(typesQ.error), {
+                  fallback: 'Could not load room types.',
+                })}
+              </Alert>
             ) : null}
           </div>
         ) : null}
@@ -991,6 +1002,13 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               <CardTitle>Promo codes</CardTitle>
             </CardHeader>
             <CardContent>
+            {promosQ.isError ? (
+              <Alert>
+                {classifiedUserMessage(asClassified(promosQ.error), {
+                  fallback: 'Could not load promo codes.',
+                })}
+              </Alert>
+            ) : null}
             {promos.length > 0 ? (
             <ul className="ui-list" data-testid="promo-list">
             {promos.map((p) => (
@@ -1190,6 +1208,13 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               />
             </Toolbar>
             <CardContent flush>
+              {daysQ.isError ? (
+                <Alert>
+                  {classifiedUserMessage(asClassified(daysQ.error), {
+                    fallback: 'Could not load rate days.',
+                  })}
+                </Alert>
+              ) : (
               <div className="rates-matrix__table">
                 <DataTable>
                   <DataTableHead>
@@ -1269,6 +1294,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   </DataTableBody>
                 </DataTable>
               </div>
+              )}
             </CardContent>
             {isDerivedMatrix ? (
               <CardFooter>

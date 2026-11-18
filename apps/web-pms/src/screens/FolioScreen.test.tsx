@@ -68,7 +68,7 @@ vi.mock('../status/property-local-today.js', () => ({
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
-  queuedCommands: { entries: () => queuedStore.entries },
+  queuedCommands: { entries: () => queuedStore.entries, subscribe: () => () => {} },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
     return {
@@ -882,6 +882,8 @@ describe('FolioScreen wiring', () => {
         /Request queued — will apply when the property is reachable\./,
       ),
     );
+    expect(screen.getByTestId('folio-message').className).toContain('ui-alert--attention');
+    expect(screen.getByTestId('folio-message').textContent).not.toMatch(/posted/i);
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/provisional/i);
   });
 
@@ -915,7 +917,8 @@ describe('FolioScreen wiring', () => {
     await waitFor(() =>
       expect(screen.getByTestId('folio-message').textContent).toMatch(/queued/i),
     );
-    expect(screen.getByTestId('folio-message').textContent).not.toMatch(/^Checked out\.?$/);
+    expect(screen.getByTestId('folio-message').className).toContain('ui-alert--attention');
+    expect(screen.getByTestId('folio-message').textContent).not.toMatch(/Checked out/);
     expect(screen.getByText('In house', { selector: '.ui-badge' })).toBeTruthy();
     expect(screen.queryByText(/checked_in/)).toBeNull();
   });
@@ -1618,6 +1621,31 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(updateFrontOffice).toHaveBeenCalled());
     const noPostExtra = updateFrontOffice.mock.calls[0]![3] as Record<string, unknown>;
     expect(noPostExtra).toEqual({ noPost: true });
+  });
+
+  it('a queued no-post toggle is attention copy, not set or cleared', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+      noPost: false,
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    updateFrontOffice.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('toggle-no-post'));
+    const alert = await screen.findByTestId('folio-message');
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).toMatch(/queued/i);
+    expect(alert.textContent).not.toMatch(/No-post set/);
+    expect(alert.textContent).not.toMatch(/cleared/);
   });
 
   it('15b: comment over 2000 disables save', async () => {
@@ -2367,6 +2395,46 @@ describe('FolioScreen wiring', () => {
       { amountMinor: 5000 },
       'damage-forfeit:pay_dmg:5000:capture',
     );
+  });
+
+  it('a queued damage post stops before capture and is not called posted', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_dmg',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'INR',
+          status: 'authorized',
+          purpose: 'DAMAGE',
+          gatewayReference: 'gw',
+          capturedAmountMinor: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    addFolioLine.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('forfeit-payment-pay_dmg'));
+    fireEvent.click(screen.getByTestId('forfeit-submit'));
+    const alert = await screen.findByTestId('folio-message');
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).toMatch(/queued/i);
+    expect(alert.textContent).not.toMatch(/posted/i);
+    expect(capturePayment).not.toHaveBeenCalled();
   });
 
   it('R3.2: recurring card adds the exact body and cancel confirms first', async () => {

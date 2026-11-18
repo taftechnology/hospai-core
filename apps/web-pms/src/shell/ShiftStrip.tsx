@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { permissionForForbidden } from '@hospai/client-core';
-import { Button, Input, Skeleton, VisuallyHidden } from '@hospai/ui-kit';
+import { Button, Input, Skeleton, VisuallyHidden, Alert } from '@hospai/ui-kit';
 import { useId, useState } from 'react';
 import { canShowShellOpen, type Authority } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
@@ -111,11 +111,15 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   );
 
   if (openQ.isError) {
-    const c = asClassified(openQ.error);
-    if (c.class === 'fail_closed') {
-      return <div className="shift-strip">Shift unavailable — property unreachable</div>;
-    }
-    return <div className="shift-strip">Shift status unavailable</div>;
+    return (
+      <div className="shift-strip">
+        <Alert>
+          {classifiedUserMessage(asClassified(openQ.error), {
+            fallback: 'Shift status unavailable.',
+          })}
+        </Alert>
+      </div>
+    );
   }
 
   if (openQ.isPending) {

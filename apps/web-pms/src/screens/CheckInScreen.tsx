@@ -18,6 +18,7 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -143,7 +144,16 @@ export function CheckInScreen() {
   const queryClient = useQueryClient();
   const { reservationId = '' } = useParams();
   const [roomId, setRoomId] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageText] = useState<string | null>(null);
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention'>('exception');
+  const setMessage = (text: string | null) => {
+    setMessageIntent('exception');
+    setMessageText(text);
+  };
+  const setQueuedNotice = (text: string) => {
+    setMessageIntent('attention');
+    setMessageText(text);
+  };
   const [showOverride, setShowOverride] = useState(false);
   const [overrideCleanliness, setOverrideCleanliness] = useState(false);
 
@@ -206,14 +216,13 @@ export function CheckInScreen() {
     mutationFn: () =>
       api.assignRoom(tenant.propertyId, reservationId, roomId, `assign:${reservationId}:${roomId}`),
     onError: (err) => {
-      const c = asClassified(err);
-      if (c.class === 'fail_closed') {
-        setMessage('Room assignment refused — property unreachable.');
+      setMessage(classifiedUserMessage(asClassified(err), { fallback: 'Assign failed' }));
+    },
+    onSuccess: (result) => {
+      if (isQueuedResult(result)) {
+        setQueuedNotice(queuedWriteCopy());
         return;
       }
-      setMessage(classifiedUserMessage(c, { fallback: 'Assign failed' }));
-    },
-    onSuccess: () => {
       setMessage('Room assigned');
       void queryClient.invalidateQueries({ queryKey: ['board'] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
@@ -239,19 +248,11 @@ export function CheckInScreen() {
         setMessage('Room is not ready. Override cleanliness if allowed.');
         return;
       }
-      if (c.class === 'queue_unavailable') {
-        setMessage('Check-in could not be queued — queue unavailable.');
-        return;
-      }
-      if (c.class === 'fail_closed') {
-        setMessage('Check-in refused.');
-        return;
-      }
       setMessage(classifiedUserMessage(c, { fallback: 'Check-in failed' }));
     },
     onSuccess: (result) => {
-      if (result.classified.class === 'provisional') {
-        setMessage('Request queued — will apply when the property is reachable.');
+      if (isQueuedResult(result)) {
+        setQueuedNotice(queuedWriteCopy());
         return;
       }
       setMessage('Checked in');
@@ -414,6 +415,21 @@ export function CheckInScreen() {
         }
       />
 
+      {reservationQ.isError ? (
+        <Alert data-testid="check-in-reservation-error">
+          {classifiedUserMessage(asClassified(reservationQ.error), {
+            fallback: 'Could not load this reservation.',
+          })}
+        </Alert>
+      ) : null}
+      {roomsQ.isError ? (
+        <Alert data-testid="check-in-rooms-error">
+          {classifiedUserMessage(asClassified(roomsQ.error), {
+            fallback: 'Could not load rooms.',
+          })}
+        </Alert>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Room assignment</CardTitle>
@@ -471,7 +487,11 @@ export function CheckInScreen() {
                 }
               />
             ) : null}
-            {message ? <Alert data-testid="check-in-message">{message}</Alert> : null}
+            {message ? (
+              <Alert intent={messageIntent} data-testid="check-in-message">
+                {message}
+              </Alert>
+            ) : null}
           </div>
         </CardContent>
       </Card>

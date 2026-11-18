@@ -268,10 +268,6 @@ export function CityLedgerScreen() {
 
   if (accountId) {
     const detail = asAccountDetail(detailQ.data?.body);
-    const failClosed =
-      detailQ.isError &&
-      (asClassified(detailQ.error).class === 'fail_closed' ||
-        detailQ.error instanceof ClassifiedError);
 
     return (
       <div className="ui-page-stack city-ledger-screen">
@@ -292,11 +288,12 @@ export function CityLedgerScreen() {
         ) : null}
 
         {detailQ.isLoading ? <Skeleton label="Loading city ledger account" lines={5} /> : null}
-        {failClosed ? (
-          <Alert>City ledger unavailable — property unreachable.</Alert>
-        ) : null}
-        {detailQ.isError && !failClosed ? (
-          <Alert>Could not load account.</Alert>
+        {detailQ.isError ? (
+          <Alert>
+            {classifiedUserMessage(asClassified(detailQ.error), {
+              fallback: 'Could not load account.',
+            })}
+          </Alert>
         ) : null}
 
         {detail ? (
@@ -502,9 +499,6 @@ export function CityLedgerScreen() {
 }
 
   const accounts = asAccountList(listQ.data?.body);
-  const listFailClosed =
-    listQ.isError &&
-    (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
 
   return (
     <div className="ui-page-stack city-ledger-screen">
@@ -590,7 +584,7 @@ export function CityLedgerScreen() {
           <CardTitle>Accounts</CardTitle>
         </CardHeader>
 
-        {message || listQ.isLoading || meQ.isLoading || listFailClosed || accounts.length === 0 ? (
+        {message || listQ.isLoading || meQ.isLoading || listQ.isError || accounts.length === 0 ? (
           <CardContent>
             {message ? (
               <Alert data-testid="city-ledger-message">
@@ -601,11 +595,15 @@ export function CityLedgerScreen() {
             {listQ.isLoading || meQ.isLoading ? (
               <Skeleton label="Loading city ledger accounts" lines={5} />
             ) : null}
-            {listFailClosed ? (
-              <Alert>City ledger unavailable — property unreachable.</Alert>
+            {listQ.isError ? (
+              <Alert>
+                {classifiedUserMessage(asClassified(listQ.error), {
+                  fallback: 'Could not load city ledger.',
+                })}
+              </Alert>
             ) : null}
 
-            {!listQ.isLoading && meQ.isSuccess && accounts.length === 0 && !listFailClosed ? (
+            {!listQ.isLoading && meQ.isSuccess && accounts.length === 0 && !listQ.isError ? (
               <p className="muted">No city ledger accounts yet.</p>
             ) : null}
           </CardContent>

@@ -33,6 +33,7 @@ import {
   type PropertyMe,
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
@@ -91,7 +92,8 @@ export function ExceptionsScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
-  const [outcome, setOutcome] = useState('');
+  const [outcome, setOutcome] = useState<{ text: string; failed: boolean } | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     copy: string;
     run: () => void;
@@ -225,6 +227,11 @@ export function ExceptionsScreen() {
         `provisional:assign:${propertyId}:${input.exceptionId}:${crypto.randomUUID()}`,
       ),
     onSettled: invalidate,
+    onError: (err) => {
+      setAssignError(
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not assign this exception.' }),
+      );
+    },
   });
   const noteMut = useMutation({
     mutationFn: (input: { exceptionId: string; text: string }) =>
@@ -257,8 +264,14 @@ export function ExceptionsScreen() {
     }
     setOutcome(
       errors.length === 0
-        ? `${kind === 'retry' ? 'Retried' : 'Resolved'} ${capped.length}.`
-        : `${capped.length - errors.length} succeeded, ${errors.length} failed.`,
+        ? {
+            text: `${kind === 'retry' ? 'Retried' : 'Resolved'} ${capped.length}.`,
+            failed: false,
+          }
+        : {
+            text: `${capped.length - errors.length} succeeded, ${errors.length} failed.`,
+            failed: true,
+          },
     );
     setSelected(new Set());
   }
@@ -296,7 +309,7 @@ export function ExceptionsScreen() {
     if (!detailId || !noteText.trim()) return;
     await noteMut.mutateAsync({ exceptionId: detailId, text: noteText.trim() });
     setNoteText('');
-    setOutcome('Note saved.');
+    setOutcome({ text: 'Note saved.', failed: false });
   }
 
   const selectedIds = rows.filter((r) => selected.has(r.exceptionId)).map((r) => r.exceptionId);
@@ -446,19 +459,26 @@ export function ExceptionsScreen() {
             </Button>
           </div>
         ) : null}
-        <p aria-live="polite">{outcome}</p>
+        {outcome ? (
+          <Alert intent={outcome.failed ? 'exception' : 'settled'}>{outcome.text}</Alert>
+        ) : null}
+        {assignError ? <Alert>{assignError}</Alert> : null}
       </div>
       </CardContent>
       </Card>
       <Card>
       <CardContent flush>
-      {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ||
-      listQ.isLoading ||
-      rows.length === 0 ? (
+      {listQ.isError ? (
         <div className="exceptions__state">
-          {listQ.isError && asClassified(listQ.error).class === 'fail_closed' ? (
-            <Alert>Exceptions unavailable — property unreachable</Alert>
-          ) : listQ.isLoading ? (
+          <Alert>
+            {classifiedUserMessage(asClassified(listQ.error), {
+              fallback: 'Could not load exceptions.',
+            })}
+          </Alert>
+        </div>
+      ) : listQ.isLoading || rows.length === 0 ? (
+        <div className="exceptions__state">
+          {listQ.isLoading ? (
             <Skeleton label="Loading exceptions" lines={5} />
           ) : (
             <EmptyState kind="nomatch" title="No exceptions match these filters." />
@@ -562,7 +582,7 @@ export function ExceptionsScreen() {
                         <Button
                           type="button"
                           onClick={() =>
-                            void assignMut.mutateAsync({
+                            assignMut.mutate({
                               exceptionId: row.exceptionId,
                               assignedTo: me?.userId ?? null,
                             })
@@ -666,7 +686,7 @@ export function ExceptionsScreen() {
                     <Button
                       type="button"
                       onClick={() =>
-                        void assignMut.mutateAsync({
+                        assignMut.mutate({
                           exceptionId: detailId,
                           assignedTo: me?.userId ?? null,
                         })
@@ -684,7 +704,7 @@ export function ExceptionsScreen() {
                             onChange={(e) => {
                               const value = e.target.value;
                               if (!value) return;
-                              void assignMut.mutateAsync({
+                              assignMut.mutate({
                                 exceptionId: detailId,
                                 assignedTo: value,
                               });
@@ -703,7 +723,7 @@ export function ExceptionsScreen() {
                     <Button
                       type="button"
                       onClick={() =>
-                        void assignMut.mutateAsync({ exceptionId: detailId, assignedTo: null })
+                        assignMut.mutate({ exceptionId: detailId, assignedTo: null })
                       }
                     >
                       Unassign

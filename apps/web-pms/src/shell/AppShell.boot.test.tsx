@@ -32,7 +32,10 @@ vi.mock('../client.js', () => {
       getFolioPayments: failClosed,
       postGuestsBatch: failClosed,
     },
-    queuedCommands: { entries: () => [] },
+    queuedCommands: (() => {
+      const entries: never[] = [];
+      return { entries: () => entries, subscribe: () => () => {} };
+    })(),
     asClassified: (err: unknown) => {
       if (err instanceof ClassifiedError) return err.classified;
       return {

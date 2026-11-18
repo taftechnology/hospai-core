@@ -184,10 +184,9 @@ describe('ReservationsDirectoryScreen', () => {
     );
     fireEvent.click(screen.getByRole('link', { name: 'Tomorrow' }));
     await waitFor(() =>
-      expect(screen.getByRole('alert').textContent).toMatch(
-        /Property unreachable — board cannot load\. This is not an empty day\./,
-      ),
+      expect(screen.getByRole('alert').textContent).toMatch(/Property unreachable\./),
     );
+    expect(screen.getByRole('heading', { name: 'Reservations' })).toBeTruthy();
   });
 
   it('local search calls searchReservations and does not pass q to directory', async () => {
@@ -226,5 +225,33 @@ describe('ReservationsDirectoryScreen', () => {
     const input = screen.getByRole('searchbox') as HTMLInputElement;
     expect(input.placeholder).toMatch(/reservation id/i);
     expect(input.placeholder).not.toMatch(/guest name/i);
+  });
+
+  it('search loading, no match, and error are three states', async () => {
+    let resolveSearch: (value: unknown) => void = () => {};
+    searchReservations.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+    );
+    renderDirectory();
+    fireEvent.change(await screen.findByRole('searchbox'), { target: { value: 'res_x' } });
+    expect(await screen.findByRole('status', { name: 'Searching reservations' })).toBeTruthy();
+    expect(screen.queryByText('No reservations match that search.')).toBeNull();
+    resolveSearch({ classified: { class: 'live' }, body: { items: [] } });
+    expect(await screen.findByText('No reservations match that search.')).toBeTruthy();
+
+    searchReservations.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden' },
+        retryAfterMs: null,
+      }),
+    );
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'res_y' } });
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Forbidden/);
+    expect(screen.queryByText('No reservations match that search.')).toBeNull();
   });
 });

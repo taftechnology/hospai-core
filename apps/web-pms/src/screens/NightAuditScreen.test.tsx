@@ -948,4 +948,42 @@ describe('NightAuditScreen', () => {
     expect(alert).toBeTruthy();
     expect(alert!.className).toMatch(/ui-alert--informational/);
   });
+
+  it('a status read error shows a classified alert and keeps the header', async () => {
+    getNightAudit.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderScreen();
+    expect((await screen.findByTestId('night-audit-status-error')).textContent).toMatch(
+      /Property unreachable/,
+    );
+    expect(screen.getByRole('heading', { name: 'Night audit' })).toBeTruthy();
+  });
+
+  it('a report read error shows a classified alert', async () => {
+    getNightAudit.mockResolvedValue(
+      statusPayload({
+        reports: [{ reportId: 'revenue', businessDate: '2026-03-01', generatedAt: 1 }],
+      }),
+    );
+    getNightAuditReport.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: {},
+        retryAfterMs: 0,
+      }),
+    );
+    renderScreen();
+    await showStage('Close-out');
+    fireEvent.click(await screen.findByRole('button', { name: /revenue/i }));
+    expect((await screen.findByTestId('night-audit-report-error')).textContent).toMatch(
+      /Data is stale/,
+    );
+  });
 });

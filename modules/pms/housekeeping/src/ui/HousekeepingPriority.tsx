@@ -42,6 +42,16 @@ function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
   return person.status === 'active' && person.exitedAt == null && person.kinds.includes('housekeeper');
 }
 
+const QUEUED_COPY = 'Request queued — will apply when the property is reachable.';
+
+function provisionalResult(result: unknown): boolean {
+  return (
+    typeof result === 'object' &&
+    result != null &&
+    (result as { classified?: { class?: string } }).classified?.class === 'provisional'
+  );
+}
+
 export function HousekeepingPriority({
   propertyId,
   defaultBusinessDate,
@@ -50,6 +60,8 @@ export function HousekeepingPriority({
   canReadRoster,
   subtitle,
   formatError,
+  isQueuedResult = provisionalResult,
+  queuedCopy = QUEUED_COPY,
 }: {
   propertyId: string;
   defaultBusinessDate: string;
@@ -58,9 +70,12 @@ export function HousekeepingPriority({
   canReadRoster: boolean;
   subtitle?: string;
   formatError?: (err: unknown) => string;
+  isQueuedResult?: (result: unknown) => boolean;
+  queuedCopy?: string;
 }) {
   const queryClient = useQueryClient();
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
+  const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
   const readRoster = canReadRoster;
 
   const prioritiesQuery = useQuery({
@@ -119,7 +134,12 @@ export function HousekeepingPriority({
         { roomId: input.roomId, businessDate, level: input.level },
         crypto.randomUUID(),
       ),
-    onSuccess: invalidateDesk,
+    onSuccess: async (result) => {
+      if (isQueuedResult(result)) setQueuedNotice(queuedCopy);
+      else setQueuedNotice(null);
+      await invalidateDesk();
+    },
+    onError: () => setQueuedNotice(null),
   });
 
   const assignMutation = useMutation({
@@ -130,7 +150,12 @@ export function HousekeepingPriority({
         assigneeRef: input.assigneeRef,
         idempotencyKey: crypto.randomUUID(),
       }),
-    onSuccess: invalidateDesk,
+    onSuccess: async (result) => {
+      if (isQueuedResult(result)) setQueuedNotice(queuedCopy);
+      else setQueuedNotice(null);
+      await invalidateDesk();
+    },
+    onError: () => setQueuedNotice(null),
   });
 
   const queue = prioritiesQuery.data?.queue ?? [];
@@ -213,6 +238,11 @@ export function HousekeepingPriority({
             </DataTable>
           )}
           {mutationText ? <Alert>{mutationText}</Alert> : null}
+          {queuedNotice ? (
+            <Alert intent="attention" data-testid="hk-priority-queued">
+              {queuedNotice}
+            </Alert>
+          ) : null}
         </CardContent>
       </Card>
     </div>
@@ -293,7 +323,7 @@ function PriorityRow({
         {showPicker ? (
           <NativeSelect
             aria-label={`Assign ${row.code}`}
-            defaultValue=""
+            value=""
             onChange={(e) => {
               const assignee = e.target.value;
               if (assignee) onAssign(assignee);

@@ -43,6 +43,16 @@ export type {
 
 const STATUSES = ['clean', 'dirty', 'inspected'] as const;
 
+const QUEUED_COPY = 'Request queued — will apply when the property is reachable.';
+
+function provisionalResult(result: unknown): boolean {
+  return (
+    typeof result === 'object' &&
+    result != null &&
+    (result as { classified?: { class?: string } }).classified?.class === 'provisional'
+  );
+}
+
 export type HousekeepingAppProps = {
   propertyId: string;
   /** YYYY-MM-DD default for the board date control. */
@@ -55,6 +65,9 @@ export type HousekeepingAppProps = {
   /** Live property name, already composed by the host. */
   subtitle?: string;
   formatError?: (err: unknown) => string;
+  /** Shared SPA helper. Defaults to the provisional-class check. */
+  isQueuedResult?: (result: unknown) => boolean;
+  queuedCopy?: string;
   format: {
     dateHeading: (iso: string) => string;
     dateTime: (ms: number) => string;
@@ -82,9 +95,11 @@ function HousekeepingBoard({
   canAssign,
   canReadRoster,
   canSetOoo = false,
-  classifyError,
   subtitle,
   format,
+  formatError,
+  isQueuedResult = provisionalResult,
+  queuedCopy = QUEUED_COPY,
 }: HousekeepingAppProps) {
   const readRoster = canReadRoster ?? canAssign;
   const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
@@ -96,6 +111,10 @@ function HousekeepingBoard({
   const [oooReturn, setOooReturn] = useState('');
   const [oooReason, setOooReason] = useState('');
   const [oooTicketAlert, setOooTicketAlert] = useState(false);
+  const [actionNotice, setActionNotice] = useState<{
+    intent: 'attention' | 'exception';
+    text: string;
+  } | null>(null);
   const [pendingOooRelease, setPendingOooRelease] = useState<{
     roomId: string;
     range: HousekeepingOooRange;
@@ -199,8 +218,19 @@ function HousekeepingBoard({
         input.status,
         `room-status:${input.roomId}:${input.status}`,
       ),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (isQueuedResult(result)) {
+        setActionNotice({ intent: 'attention', text: queuedCopy });
+      } else {
+        setActionNotice(null);
+      }
       await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+    },
+    onError: (err) => {
+      setActionNotice({
+        intent: 'exception',
+        text: formatError?.(err) ?? 'Could not update room status.',
+      });
     },
   });
 
@@ -212,12 +242,23 @@ function HousekeepingBoard({
         assigneeRef: input.assigneeRef,
         idempotencyKey: crypto.randomUUID(),
       }),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (isQueuedResult(result)) {
+        setActionNotice({ intent: 'attention', text: queuedCopy });
+      } else {
+        setActionNotice(null);
+      }
       await queryClient.invalidateQueries({
         queryKey: ['housekeeping-priorities', propertyId, businessDate],
       });
       await queryClient.invalidateQueries({
         queryKey: ['housekeeping-assignments', propertyId, businessDate],
+      });
+    },
+    onError: (err) => {
+      setActionNotice({
+        intent: 'exception',
+        text: formatError?.(err) ?? 'Could not assign the room.',
       });
     },
   });
@@ -239,17 +280,24 @@ function HousekeepingBoard({
         idempotencyKey: crypto.randomUUID(),
       });
     },
-    onSuccess: async (_data, variables) => {
+    onSuccess: async (result, variables) => {
+      if (isQueuedResult(result)) {
+        setOooTicketAlert(false);
+        setActionNotice({ intent: 'attention', text: queuedCopy });
+      } else {
+        setActionNotice(null);
+        if (!variables.oooId) setOooTicketAlert(true);
+      }
       await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
       await queryClient.invalidateQueries({ queryKey: ['maintenance-tickets', propertyId] });
-      if (!variables.oooId) setOooTicketAlert(true);
+    },
+    onError: (err) => {
+      setActionNotice({
+        intent: 'exception',
+        text: formatError?.(err) ?? 'Could not update the out-of-order range.',
+      });
     },
   });
-
-  const roomsClass = roomsQuery.isError ? classifyError?.(roomsQuery.error)?.class : undefined;
-  const assignClass = assignmentsQuery.isError
-    ? classifyError?.(assignmentsQuery.error)?.class
-    : undefined;
 
   const emptyRoster = canAssign && readRoster && rosterQuery.isSuccess && assignable.length === 0;
   const showPicker = canAssign && readRoster && assignable.length > 0;
@@ -273,6 +321,11 @@ function HousekeepingBoard({
         <Alert intent="informational">
           Room is out of order. A maintenance ticket was opened.{' '}
           <Link to="/maintenance">View maintenance</Link>
+        </Alert>
+      ) : null}
+      {actionNotice ? (
+        <Alert intent={actionNotice.intent} data-testid="hk-action-notice">
+          {actionNotice.text}
         </Alert>
       ) : null}
       <Card>
@@ -348,11 +401,10 @@ function HousekeepingBoard({
           <div className="ui-stack">
             {(roomsQuery.isError || assignmentsQuery.isError) && (
               <Alert>
-                Unable to load housekeeping board
-                {roomsClass === 'fail_closed' || assignClass === 'fail_closed'
-                  ? ' (property unreachable)'
-                  : ''}
-                .
+                {roomsQuery.isError
+                  ? (formatError?.(roomsQuery.error) ?? 'Unable to load housekeeping board.')
+                  : (formatError?.(assignmentsQuery.error) ??
+                    'Unable to load housekeeping board.')}
               </Alert>
             )}
 
@@ -405,7 +457,13 @@ function HousekeepingBoard({
                       ) : (
                         <NativeSelect
                           aria-label={`Status for ${room.code}`}
-                          defaultValue={room.status}
+                          // Server value, except while this room's own change is in flight.
+                          value={
+                            statusMutation.isPending &&
+                            statusMutation.variables?.roomId === room.roomId
+                              ? statusMutation.variables.status
+                              : room.status
+                          }
                           onChange={(e) => {
                             const status = e.target.value;
                             if (status !== room.status) {
@@ -443,7 +501,12 @@ function HousekeepingBoard({
                       {showPicker ? (
                         <NativeSelect
                           aria-label={`Assign ${room.code}`}
-                          defaultValue=""
+                          value={
+                            assigneeRef &&
+                            assignable.some((person) => person.staffId === assigneeRef)
+                              ? assigneeRef
+                              : ''
+                          }
                           onChange={(e) => {
                             const assignee = e.target.value;
                             if (assignee) {
@@ -596,6 +659,8 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         canReadRoster={readRoster}
         subtitle={props.subtitle}
         formatError={props.formatError}
+        isQueuedResult={props.isQueuedResult}
+        queuedCopy={props.queuedCopy}
       />
     );
   }

@@ -306,7 +306,7 @@ describe('RatesScreen', () => {
       }),
     );
     renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
-    expect(await screen.findByText(/Property unreachable — cannot load rates/)).toBeTruthy();
+    expect(await screen.findByText(/Property unreachable\./)).toBeTruthy();
     expect(screen.queryByLabelText(/^Rate for KNG$/)).toBeNull();
     expect(screen.queryByText('BAR')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Add-ons: Products' })).toBeNull();
@@ -855,6 +855,34 @@ describe('RatesScreen', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Saved.');
     expect(alert.className).toContain('ui-alert');
+  });
+
+  it('promo and rate-day read errors are classified', async () => {
+    listRatePromos.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: {},
+        retryAfterMs: 0,
+      }),
+    );
+    renderRates('/rates/plans');
+    expect(await screen.findByText(/Data is stale/)).toBeTruthy();
+
+    cleanup();
+    listRatePromos.mockResolvedValue({ ok: true, promos: [] });
+    listRateDays.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden' },
+        retryAfterMs: null,
+      }),
+    );
+    renderRates('/rates/matrix?from=2026-08-13&to=2026-08-26');
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Forbidden/);
+    expect(screen.queryByText('Create a room type first.')).toBeNull();
   });
 
   it('underlines the products link in the rates subtitle', () => {

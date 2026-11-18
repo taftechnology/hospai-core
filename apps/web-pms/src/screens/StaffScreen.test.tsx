@@ -33,7 +33,10 @@ vi.mock('../client.js', () => ({
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
     getProvisionalExceptions: async () => ({ items: [] }),
   },
-  queuedCommands: { entries: () => [] },
+  queuedCommands: (() => {
+    const entries: never[] = [];
+    return { entries: () => entries, subscribe: () => () => {} };
+  })(),
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
     return {

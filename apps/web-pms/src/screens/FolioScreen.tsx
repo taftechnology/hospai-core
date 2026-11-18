@@ -47,6 +47,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
@@ -452,7 +453,16 @@ export function FolioScreen() {
   const propertyId = tenant.propertyId;
   const { money, date, dateRange, instantDate, fmt } = useFormat();
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageText] = useState<string | null>(null);
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention'>('exception');
+  const setMessage = (text: string | null) => {
+    setMessageIntent('exception');
+    setMessageText(text);
+  };
+  const setQueuedNotice = (text: string) => {
+    setMessageIntent('attention');
+    setMessageText(text);
+  };
   const [chargeCode, setChargeCode] = useState('MISC');
   const [chargeAmount, setChargeAmount] = useState('');
   const [cashAmount, setCashAmount] = useState('');
@@ -769,8 +779,8 @@ export function FolioScreen() {
       );
     },
     onSuccess: (result) => {
-      if (result.classified.class === 'provisional') {
-        setMessage('Request queued — will apply when the property is reachable.');
+      if (isQueuedResult(result)) {
+        setQueuedNotice(queuedWriteCopy());
       } else {
         setMessage('Charge posted.');
       }
@@ -864,12 +874,17 @@ export function FolioScreen() {
     let linePosted = forfeitPostedMinor != null;
     try {
       if (!linePosted) {
-        await api.addFolioLine(
+        const posted = await api.addFolioLine(
           propertyId,
           reservationId,
           { chargeCode: 'DAMAGE', amountMinor },
           lineOp,
         );
+        if (isQueuedResult(posted)) {
+          setQueuedNotice(queuedWriteCopy());
+          setForfeitPaymentId(null);
+          return;
+        }
         linePosted = true;
         setForfeitPostedMinor(amountMinor);
       }
@@ -1056,8 +1071,8 @@ export function FolioScreen() {
       );
     },
     onSuccess: (result) => {
-      if (result.classified.class === 'provisional') {
-        setMessage('Checkout queued — applies when the connection restores.');
+      if (isQueuedResult(result)) {
+        setQueuedNotice('Checkout queued — applies when the connection restores.');
       } else {
         const autoCapture =
           result.body &&
@@ -1083,7 +1098,7 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
       });
-      if (result.classified.class !== 'provisional') {
+      if (!isQueuedResult(result)) {
         void queryClient.invalidateQueries({ queryKey: ['board'] });
         void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
         void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
@@ -1397,8 +1412,12 @@ export function FolioScreen() {
         { noPost: !noPost },
       );
     },
-    onSuccess: () => {
-      setMessage(noPost ? 'No-post cleared.' : 'No-post set.');
+    onSuccess: (result) => {
+      if (isQueuedResult(result)) {
+        setQueuedNotice(queuedWriteCopy());
+      } else {
+        setMessage(noPost ? 'No-post cleared.' : 'No-post set.');
+      }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
@@ -1625,8 +1644,17 @@ export function FolioScreen() {
 
       {folioQ.isError ? (
         <Alert data-testid="folio-unread">
-          Folio unreadable — property unreachable
+          {classifiedUserMessage(asClassified(folioQ.error), {
+            fallback: 'Could not load this folio.',
+          })}
           {policy.reasons.charge ? ` · ${policy.reasons.charge}` : ''}
+        </Alert>
+      ) : null}
+      {reservationQ.isError ? (
+        <Alert data-testid="folio-reservation-error">
+          {classifiedUserMessage(asClassified(reservationQ.error), {
+            fallback: 'Could not load this reservation.',
+          })}
         </Alert>
       ) : null}
 
@@ -2184,7 +2212,11 @@ export function FolioScreen() {
         </Card>
       ) : null}
 
-      {message ? <Alert data-testid="folio-message">{message}</Alert> : null}
+      {message ? (
+        <Alert intent={messageIntent} data-testid="folio-message">
+          {message}
+        </Alert>
+      ) : null}
 
       <details
         className="folio-advanced"

@@ -316,6 +316,31 @@ describe('HousekeepingApp assign picker', () => {
     expect(await screen.findByText('Rush')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Housekeeping' })).toBeTruthy();
   });
+
+  it('queued room status is an attention alert and the select stays on the server value', async () => {
+    const updateRoomStatus = vi.fn().mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+    });
+    renderApp(stubApi({ updateRoomStatus }));
+    const status = (await screen.findByRole('combobox', { name: 'Status for 101' })) as HTMLSelectElement;
+    fireEvent.change(status, { target: { value: 'clean' } });
+    const alert = await screen.findByTestId('hk-action-notice');
+    expect(alert.textContent).toMatch(/Request queued — will apply when the property is reachable/);
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).not.toMatch(/saved|posted|set\b/i);
+    expect(status.value).toBe('dirty');
+  });
+
+  it('a failed room status shows the error and does not look applied', async () => {
+    const updateRoomStatus = vi.fn().mockRejectedValue(new Error('down'));
+    renderApp(stubApi({ updateRoomStatus }), { formatError: () => 'Property unreachable.' });
+    const status = (await screen.findByRole('combobox', { name: 'Status for 101' })) as HTMLSelectElement;
+    fireEvent.change(status, { target: { value: 'clean' } });
+    const alert = await screen.findByTestId('hk-action-notice');
+    expect(alert.textContent).toMatch(/Property unreachable/);
+    expect(alert.className).toContain('ui-alert--exception');
+    expect(status.value).toBe('dirty');
+  });
 });
 
 const VIP_ROW = {
@@ -370,6 +395,31 @@ describe('Housekeeping priority view', () => {
     expect(screen.getAllByText('Arriving').length).toBeGreaterThan(0);
     expect(screen.getByText('Vacant')).toBeTruthy();
     expect(screen.getAllByText('Ada Housekeeper').length).toBeGreaterThan(0);
+  });
+
+  it('queued priority change is an attention alert', async () => {
+    const setHousekeepingPriority = vi.fn().mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+    });
+    renderApp(
+      stubApi({
+        setHousekeepingPriority,
+        getHousekeepingPriorities: async () => ({
+          ok: true,
+          date: '2026-08-12',
+          queue: [ARRIVING_ROW],
+        }),
+        listRoster: async () => ({ ok: true, staff: [ADA] }),
+      }),
+      { path: '/housekeeping/priority', canAssign: true, canReadRoster: true },
+    );
+    const level = (await screen.findByRole('combobox', { name: 'Level for 150' })) as HTMLSelectElement;
+    fireEvent.change(level, { target: { value: 'rush' } });
+    const alert = await screen.findByTestId('hk-priority-queued');
+    expect(alert.textContent).toMatch(/Request queued — will apply when the property is reachable/);
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).not.toMatch(/saved|posted/i);
+    expect(level.value).toBe('standard');
   });
 
   it('changes a level with a fresh op id and invalidates the consumer keys', async () => {

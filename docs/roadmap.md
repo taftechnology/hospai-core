@@ -448,8 +448,9 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 - [x] **R3.8 ARI KV + staleness SLA + reject-on-commit**
   - **Shipped.** Spec: [ARI KV projection](superpowers/specs/2026-07-29-ari-kv-projection-design.md). Binding `ARI_KV`; book uses `quoteAriVersion`. **Do not rebuild.** R4.2 is the public-engine consumer.
 
-- [ ] **R3.9 Degraded SPA watermarks (gap-fill only)**
+- [x] **R3.9 Degraded SPA watermarks (gap-fill only)**
   - `StaleWatermark` + exception workbench already ship. Walk remaining screens: every `READ_STALE` / `QUEUE_PROVISIONAL` / `FAIL_CLOSED` path the clerk can hit shows a watermark or Alert. Do not add a second banner system.
+  - **Done (2026-11-18):** walked every QUEUE_PROVISIONAL command, FAIL_CLOSED read and the one READ_STALE read (`get_property_availability`). A queued (202) write now always shows an `attention` Alert and never a success message: housekeeping status / assign / OOO and priority, front-office editor, folio no-post, booking add-ons, damage forfeit (stops before capture), guest erase; queued Alerts made consistent (CheckIn and Folio were red, Board green). Main-read errors render `classifiedUserMessage` Alerts under the page header instead of "unreachable" for every error (Board, Tape, directories, guest profile, city ledger, CheckIn, Folio, Rates, Night audit, Exceptions); the summary strip no longer vanishes; the tape Free row shows loading instead of 0; search error, loading and no-match are three states. Queued-commands panel subscribes to the log, so the first queued write appears. Shared `isQueuedResult` in `apps/web-pms/src/copy/is-queued-result.ts`; no new banner.
 
 - [x] **R3.10 Entitlement catalog amendment (packaging v1)**
   - **Why now:** every Track 4 add-on is gated on a key that does not exist. `FEATURE_KEYS` holds **two** keys (`pms.core`, `pms.units.limit`); **R4.2** and **R4.3** both name keys outside it, so both are Blocked until this lands.

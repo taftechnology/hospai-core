@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
-import { VisuallyHidden } from '@hospai/ui-kit';
+import { Skeleton } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../../client.js';
 import { hasPropertyPermission } from '../../auth/me.js';
 
@@ -34,9 +34,10 @@ export function TapeFreeRow({
 
   if (!canRead) return null;
 
+  const pending = !freeQ.isSuccess && !freeQ.isError;
   const byDate = new Map<string, number>();
-  for (const d of dates) byDate.set(d, 0);
   if (freeQ.isSuccess) {
+    for (const d of dates) byDate.set(d, 0);
     for (const item of freeQ.data.items) {
       if (!roomTypeIdsOnTape.has(item.roomTypeId)) continue;
       if (!byDate.has(item.stayDate)) continue;
@@ -56,7 +57,7 @@ export function TapeFreeRow({
       {dates.map((d) => {
         const failed = freeQ.isError;
         const value = byDate.get(d);
-        const zero = !failed && value === 0;
+        const zero = freeQ.isSuccess && value === 0;
         return (
           <div
             key={d}
@@ -64,11 +65,10 @@ export function TapeFreeRow({
             role="gridcell"
             style={{ ['--tape-col' as string]: String(2 + dates.indexOf(d) * 2) }}
           >
-            {failed ? (
-              <>
-                –
-                <VisuallyHidden>Unavailable</VisuallyHidden>
-              </>
+            {pending ? (
+              <Skeleton label="Loading free rooms" width="1.5rem" height="0.75rem" />
+            ) : failed ? (
+              'Unavailable'
             ) : (
               value
             )}

@@ -14,7 +14,9 @@ import {
   NativeSelect,
   Textarea,
 } from '@hospai/ui-kit';
-import { api, tenant } from '../client.js';
+import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 
 const COMMENT_MAX = 2000;
 
@@ -64,7 +66,14 @@ export function FrontOfficeEditor({
   const [dnd, setDnd] = useState(Boolean(dndFlag));
   const [source, setSource] = useState(sourceCode ?? '');
   const [segment, setSegment] = useState(marketSegmentCode ?? '');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageText] = useState<string | null>(null);
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention' | 'settled'>(
+    'exception',
+  );
+  const setMessage = (text: string, intent: 'exception' | 'attention' | 'settled' = 'exception') => {
+    setMessageIntent(intent);
+    setMessageText(text);
+  };
 
   const configQ = useQuery({
     queryKey: ['operational-config', propertyId],
@@ -104,13 +113,18 @@ export function FrontOfficeEditor({
           marketSegmentCode: segment === '' ? null : segment,
         },
       ),
-    onSuccess: () => {
-      setMessage('Front office saved.');
+    onSuccess: (result) => {
+      if (isQueuedResult(result)) {
+        setMessage(queuedWriteCopy(), 'attention');
+        return;
+      }
+      setMessage('Front office saved.', 'settled');
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
       });
     },
-    onError: () => setMessage('Front-office update failed.'),
+    onError: (err) =>
+      setMessage(classifiedUserMessage(asClassified(err), { fallback: 'Front-office update failed.' })),
   });
 
   const saveDisabled = Boolean(disabled) || tooLong || save.isPending;
@@ -231,7 +245,11 @@ export function FrontOfficeEditor({
         {actions}
       </div>
       {tooLong ? <Alert>Comment must be 2000 characters or fewer.</Alert> : null}
-      {message ? <Alert data-testid="front-office-message">{message}</Alert> : null}
+      {message ? (
+        <Alert intent={messageIntent} data-testid="front-office-message">
+          {message}
+        </Alert>
+      ) : null}
       </CardContent>
     </Card>
   );

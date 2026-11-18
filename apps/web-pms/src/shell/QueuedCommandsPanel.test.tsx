@@ -1,27 +1,28 @@
-import { cleanup, render, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider, type Query } from '@tanstack/react-query';
+import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const entriesRef = {
-  current: [] as Array<{ commandId: string; idempotencyKey: string; issuedAt: string }>,
-};
+type Entry = { commandId: string; idempotencyKey: string; issuedAt: string };
+
+const listeners = new Set<() => void>();
+const entriesRef: { current: readonly Entry[] } = { current: [] };
 
 vi.mock('../client.js', () => ({
-  queuedCommands: { entries: () => entriesRef.current },
+  queuedCommands: {
+    entries: () => entriesRef.current,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  },
 }));
 
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 
-function resolveRefetchInterval(
-  client: QueryClient,
-): number | false | undefined {
-  const obs = client.getQueryCache().find({ queryKey: ['queued-commands'] });
-  const configured = (obs?.options as { refetchInterval?: number | false | ((query: Query) => number | false) })
-    .refetchInterval;
-  if (typeof configured === 'function') {
-    return configured(obs as Query);
-  }
-  return configured;
+function notify() {
+  for (const listener of listeners) listener();
 }
 
 function renderPanel() {
@@ -31,30 +32,33 @@ function renderPanel() {
       <QueuedCommandsPanel />
     </QueryClientProvider>,
   );
-  return { client };
 }
 
-describe('QueuedCommandsPanel poll gate (P10)', () => {
+describe('QueuedCommandsPanel', () => {
   afterEach(() => {
     entriesRef.current = [];
+    listeners.clear();
     cleanup();
   });
 
-  it('T-P10a: empty queue uses refetchInterval false', async () => {
-    entriesRef.current = [];
-    const { client } = renderPanel();
-    await waitFor(() => {
-      expect(resolveRefetchInterval(client)).toBeFalsy();
-    });
+  it('stays hidden while the log is empty and does not poll', () => {
+    renderPanel();
+    expect(screen.queryByText('Queued commands')).toBeNull();
+    expect(listeners.size).toBe(1);
   });
 
-  it('T-P10b: non-empty queue uses refetchInterval 1000', async () => {
+  it('shows the first queued command when the log notifies', async () => {
+    renderPanel();
+    expect(screen.queryByText('Queued commands')).toBeNull();
     entriesRef.current = [
-      { commandId: 'folio.add_line', idempotencyKey: 'k1', issuedAt: '2026-08-14T12:00:00.000Z' },
+      {
+        commandId: 'folio.add_line',
+        idempotencyKey: 'k1',
+        issuedAt: '2026-08-14T12:00:00.000Z',
+      },
     ];
-    const { client } = renderPanel();
-    await waitFor(() => {
-      expect(resolveRefetchInterval(client)).toBe(1000);
-    });
+    notify();
+    expect(await screen.findByText('Queued commands')).toBeTruthy();
+    expect(screen.getByText(/Folio charge/)).toBeTruthy();
   });
 });

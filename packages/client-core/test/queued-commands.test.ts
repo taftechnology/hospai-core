@@ -46,6 +46,33 @@ describe('queued-command log', () => {
     expect(log.entries()[0]?.reservationId).toBe('res_1');
   });
 
+  it('notifies subscribers when a command is recorded', () => {
+    const log = createQueuedCommandLog();
+    const seen: number[] = [];
+    const unsubscribe = log.subscribe(() => {
+      seen.push(log.entries().length);
+    });
+    log.recordFromProvisionalBody({ ok: true });
+    expect(seen).toEqual([]);
+    log.recordFromProvisionalBody({
+      provisional: true,
+      commandId: 'reservations.check_in',
+      idempotencyKey: 'k1',
+      issuedAt: '2026-08-07T12:00:00.000Z',
+    });
+    expect(seen).toEqual([1]);
+    expect(log.entries()).toHaveLength(1);
+    unsubscribe();
+    log.recordFromProvisionalBody({
+      provisional: true,
+      commandId: 'folio.add_item',
+      idempotencyKey: 'k2',
+      issuedAt: '2026-08-07T12:01:00.000Z',
+    });
+    expect(seen).toEqual([1]);
+    expect(log.entries()).toHaveLength(2);
+  });
+
   it('partition puts untagged in other', () => {
     const tagged = {
       commandId: 'folio.add_item',

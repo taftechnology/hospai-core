@@ -1285,4 +1285,28 @@ describe('BookingScreen', () => {
     fireEvent.change(screen.getByTestId('addon-draft-price'), { target: { value: 'abc' } });
     expect((screen.getByTestId('addon-commit-line') as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('a queued add-on tells the clerk and stays on the booking', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    addFolioLine.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    const alert = await screen.findByTestId('book-message');
+    expect(alert.textContent).toMatch(/queued/i);
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).not.toMatch(/posted/i);
+    expect(screen.getByTestId('confirm-book')).toBeTruthy();
+  });
 });

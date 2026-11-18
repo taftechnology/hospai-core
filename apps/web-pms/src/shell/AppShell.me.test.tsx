@@ -23,7 +23,10 @@ vi.mock('../client.js', () => ({
     getProvisionalExceptions: async () => ({ items: [] }),
     searchDesk: async () => ({ classified: { class: 'live' }, body: { ok: true, items: [] } }),
   },
-  queuedCommands: { entries: () => [] },
+  queuedCommands: (() => {
+    const entries: never[] = [];
+    return { entries: () => entries, subscribe: () => () => {} };
+  })(),
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
     return {

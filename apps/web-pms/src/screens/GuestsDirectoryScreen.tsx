@@ -1,4 +1,3 @@
-import { ClassifiedError } from '@hospai/client-core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -24,6 +23,7 @@ import {
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
@@ -91,14 +91,17 @@ export function GuestsDirectoryScreen() {
   });
 
   const page = asGuestPage(listQ.data);
-  const failClosed =
-    listQ.isError &&
-    (asClassified(listQ.error).class === 'fail_closed' || listQ.error instanceof ClassifiedError);
   const { subtitle } = usePropertySubtitle('Guest directory');
 
   let results: ReactNode;
-  if (failClosed) {
-    results = <Alert>Guest directory unavailable — organization unreachable.</Alert>;
+  if (listQ.isError) {
+    results = (
+      <Alert>
+        {classifiedUserMessage(asClassified(listQ.error), {
+          fallback: 'Could not load guests.',
+        })}
+      </Alert>
+    );
   } else if (listQ.isLoading) {
     results = <Skeleton label="Loading guests" lines={5} />;
   } else if (page.items.length === 0) {
@@ -147,7 +150,7 @@ export function GuestsDirectoryScreen() {
     );
   }
 
-  const hasTable = !failClosed && !listQ.isLoading && page.items.length > 0;
+  const hasTable = !listQ.isError && !listQ.isLoading && page.items.length > 0;
 
   function goNext() {
     if (!page.nextCursor) return;

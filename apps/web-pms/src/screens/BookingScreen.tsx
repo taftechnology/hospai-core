@@ -32,6 +32,7 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
 import { usePostableProducts } from './product-picker.js';
@@ -159,7 +160,16 @@ export function BookingScreen() {
   const [contextDisplayName, setContextDisplayName] = useState<string | null>(null);
   const [findQ, setFindQ] = useState('');
   const [debouncedFind, setDebouncedFind] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageText] = useState<string | null>(null);
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention'>('exception');
+  const setMessage = (text: string | null) => {
+    setMessageIntent('exception');
+    setMessageText(text);
+  };
+  const setQueuedNotice = (text: string) => {
+    setMessageIntent('attention');
+    setMessageText(text);
+  };
   const [frontOfficeComment, setFrontOfficeComment] = useState('');
   const [addonLines, setAddonLines] = useState<BookAddonLine[]>([]);
   const [addonDraftProductId, setAddonDraftProductId] = useState('');
@@ -431,17 +441,21 @@ export function BookingScreen() {
     availErrorClassified != null &&
     bodyErrorCode(availErrorClassified.body) === 'date_range_exceeds_max';
 
-  async function postBookAddons(lines: BookAddonLine[]): Promise<FailedBookAddon[]> {
+  async function postBookAddons(
+    lines: BookAddonLine[],
+  ): Promise<{ failures: FailedBookAddon[]; queued: boolean }> {
     const failures: FailedBookAddon[] = [];
+    let queued = false;
     for (const line of lines) {
       const opId = `book-addon:${reservationId}:${line.index}:${line.productId}:${line.quantity}:${line.unitMinor}`;
       try {
-        await api.addFolioLine(
+        const result = await api.addFolioLine(
           propertyId,
           reservationId,
           { chargeCode: line.chargeCode, amountMinor: line.unitMinor * line.quantity },
           opId,
         );
+        if (isQueuedResult(result)) queued = true;
       } catch (err) {
         failures.push({
           ...line,
@@ -454,20 +468,27 @@ export function BookingScreen() {
     if (lines.length > 0) {
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     }
-    return failures;
+    return { failures, queued };
   }
 
   const retryAddonsMutation = useMutation({
     mutationFn: () => postBookAddons(failedAddons),
-    onSuccess: (failures) => {
-      if (failures.length === 0) {
+    onSuccess: (result) => {
+      setFailedAddons(result.failures);
+      if (result.queued) {
+        setQueuedNotice(
+          result.failures.length > 0
+            ? 'Booking created. Some add-ons are queued and will apply when the property is reachable.'
+            : 'Add-ons are queued and will apply when the property is reachable.',
+        );
+        return;
+      }
+      if (result.failures.length === 0) {
         setFailedAddons([]);
         void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
           state: { createdReservationId: reservationId },
         });
-        return;
       }
-      setFailedAddons(failures);
     },
   });
 
@@ -532,12 +553,21 @@ export function BookingScreen() {
         opId,
       );
       if ((status === 'pending' || status === 'confirmed') && addonLines.length > 0) {
-        const failures = await postBookAddons(addonLines);
-        return { status, addonFailures: failures };
+        const posted = await postBookAddons(addonLines);
+        return { status, addonFailures: posted.failures, addonQueued: posted.queued };
       }
-      return { status, addonFailures: [] as FailedBookAddon[] };
+      return { status, addonFailures: [] as FailedBookAddon[], addonQueued: false };
     },
     onSuccess: (result) => {
+      if (result.addonQueued) {
+        setFailedAddons(result.addonFailures);
+        setQueuedNotice(
+          result.addonFailures.length > 0
+            ? 'Booking created. Some add-ons are queued and will apply when the property is reachable. Others could not be posted.'
+            : 'Booking created. Add-ons are queued and will apply when the property is reachable.',
+        );
+        return;
+      }
       if (result.addonFailures.length > 0) {
         setFailedAddons(result.addonFailures);
         setMessage('Booking created — some add-ons could not be posted.');
@@ -1167,7 +1197,11 @@ export function BookingScreen() {
           </div>
         </Alert>
       ) : null}
-      {message ? <Alert data-testid="book-message">{message}</Alert> : null}
+      {message ? (
+        <Alert intent={messageIntent} data-testid="book-message">
+          {message}
+        </Alert>
+      ) : null}
     </div>
   );
 }

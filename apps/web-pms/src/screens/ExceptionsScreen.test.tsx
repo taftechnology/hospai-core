@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClassifiedError } from '@hospai/client-core';
 
 const getMe = vi.fn();
 const getProvisionalExceptions = vi.fn();
@@ -28,12 +29,15 @@ vi.mock('../client.js', () => ({
     listPropertyMembers: (...a: unknown[]) => listPropertyMembers(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
   },
-  asClassified: () => ({
-    class: 'server_error' as const,
-    status: 500,
-    body: {},
-    retryAfterMs: null,
-  }),
+  asClassified: (err: unknown) => {
+    if (err instanceof ClassifiedError) return err.classified;
+    return {
+      class: 'server_error' as const,
+      status: 500,
+      body: {},
+      retryAfterMs: null,
+    };
+  },
 }));
 
 vi.mock('../shell/PropertyFormat.js', async () => {
@@ -180,5 +184,20 @@ describe('ExceptionsScreen', () => {
       '/check-in/res_1',
     );
     expect(document.querySelector('a[href="/guests/g1"]')).toBeTruthy();
+  });
+
+  it('a list error is an alert, not an empty match', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getProvisionalExceptions.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: {},
+        retryAfterMs: 0,
+      }),
+    );
+    renderScreen();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Data is stale/);
+    expect(screen.queryByText(/No exceptions match/)).toBeNull();
   });
 });

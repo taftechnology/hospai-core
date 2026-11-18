@@ -284,4 +284,20 @@ describe('GuestProfileScreen', () => {
     await waitFor(() => expect(eraseGuest).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText('Erased')).toBeTruthy());
   });
+
+  it('erase failure shows a classified alert', async () => {
+    eraseGuest.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderProfile();
+    fireEvent.click(await screen.findByTestId('guest-erase'));
+    fireEvent.click(screen.getByRole('button', { name: 'Erase guest' }));
+    expect(await screen.findByText(/Property unreachable/)).toBeTruthy();
+    expect(screen.queryByText('Erased')).toBeNull();
+  });
 });

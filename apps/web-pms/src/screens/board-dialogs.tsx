@@ -13,6 +13,7 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -21,14 +22,6 @@ import { FormDialog } from '../shell/FormDialog.js';
 
 function failureCopy(err: unknown, fallback: string, fmt?: PropertyFormat): string {
   return classifiedUserMessage(asClassified(err), { fallback, fmt });
-}
-
-function isQueued(result: unknown): boolean {
-  return (
-    typeof result === 'object' &&
-    result != null &&
-    (result as { classified?: { class?: string } }).classified?.class === 'provisional'
-  );
 }
 
 /**
@@ -70,7 +63,7 @@ export function AssignRoomDialog({
   row: FrontDeskItem;
   guestName: string;
   onClose: () => void;
-  onDone: (message: string) => void;
+  onDone: (message: string, intent: 'settled' | 'attention') => void;
 }) {
   const queryClient = useQueryClient();
   const { fmt } = useFormat();
@@ -104,10 +97,10 @@ export function AssignRoomDialog({
       void queryClient.invalidateQueries({ queryKey: ['front-desk-available', propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-summary', propertyId] });
       const code = rooms.find((r) => r.roomId === chosen)?.code ?? chosen;
+      const queued = isQueuedResult(result);
       onDone(
-        isQueued(result)
-          ? 'Request queued — will apply when the property is reachable.'
-          : `Room ${code} assigned to ${guestName}.`,
+        queued ? queuedWriteCopy() : `Room ${code} assigned to ${guestName}.`,
+        queued ? 'attention' : 'settled',
       );
     },
     onError: (err) => setError(failureCopy(err, 'Could not assign the room.', fmt)),
@@ -180,7 +173,7 @@ export function MoveRoomDialog({
   row: FrontDeskItem;
   guestName: string;
   onClose: () => void;
-  onDone: (message: string) => void;
+  onDone: (message: string, intent: 'settled' | 'attention') => void;
 }) {
   const queryClient = useQueryClient();
   const { fmt } = useFormat();
@@ -255,10 +248,12 @@ export function MoveRoomDialog({
         queryKey: ['reservation', propertyId, row.reservationId],
       });
       const code = rooms.find((r) => r.roomId === chosen)?.code ?? chosen;
+      const queued = isQueuedResult(result);
       onDone(
-        isQueued(result)
-          ? 'Request queued — will apply when the property is reachable.'
+        queued
+          ? queuedWriteCopy()
           : `Moved ${guestName} from ${oldCode} to ${code}. Room ${oldCode} is now dirty.`,
+        queued ? 'attention' : 'settled',
       );
     },
     onError: (err) => setError(failureCopy(err, 'Could not move the room.', fmt)),
@@ -341,7 +336,7 @@ export function PostChargeDialog({
   row: FrontDeskItem;
   guestName: string;
   onClose: () => void;
-  onDone: (message: string) => void;
+  onDone: (message: string, intent: 'settled' | 'attention') => void;
 }) {
   const queryClient = useQueryClient();
   const { money, fmt } = useFormat();
@@ -377,10 +372,10 @@ export function PostChargeDialog({
       ),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, row.reservationId] });
+      const queued = isQueuedResult(result);
       onDone(
-        isQueued(result)
-          ? 'Request queued — will apply when the property is reachable.'
-          : `Charge posted to ${guestName}.`,
+        queued ? queuedWriteCopy() : `Charge posted to ${guestName}.`,
+        queued ? 'attention' : 'settled',
       );
     },
     onError: (err) => setError(failureCopy(err, 'Could not post the charge.', fmt)),

@@ -1,4 +1,3 @@
-import { ClassifiedError } from '@hospai/client-core';
 import {
   GUEST_NOTES_LENGTH_MAX,
   GUEST_TAG_LENGTH_MAX,
@@ -36,6 +35,7 @@ import {
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -153,6 +153,10 @@ export function GuestProfileScreen() {
   const [editNotes, setEditNotes] = useState('');
   const [confirmErase, setConfirmErase] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [eraseNotice, setEraseNotice] = useState<{
+    text: string;
+    intent: 'attention' | 'exception';
+  } | null>(null);
 
   const meQ = useQuery({
     queryKey: ['me', propertyId],
@@ -184,12 +188,6 @@ export function GuestProfileScreen() {
 
   const guest = asGuestRead(guestQ.data);
   const stays = asStayPage(staysQ.data);
-  const contactFailClosed =
-    guestQ.isError &&
-    (asClassified(guestQ.error).class === 'fail_closed' || guestQ.error instanceof ClassifiedError);
-  const staysFailClosed =
-    staysQ.isError &&
-    (asClassified(staysQ.error).class === 'fail_closed' || staysQ.error instanceof ClassifiedError);
 
   useEffect(() => {
     const g = asGuestRead(guestQ.data);
@@ -237,9 +235,21 @@ export function GuestProfileScreen() {
 
   const eraseM = useMutation({
     mutationFn: () => api.eraseGuest(propertyId, guestRef, `guest-erase:${guestRef}`),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       setConfirmErase(false);
+      if (isQueuedResult(result)) {
+        setEraseNotice({ text: queuedWriteCopy(), intent: 'attention' });
+        return;
+      }
+      setEraseNotice(null);
       await queryClient.invalidateQueries({ queryKey: ['guest', propertyId, guestRef] });
+    },
+    onError: (err) => {
+      setConfirmErase(false);
+      setEraseNotice({
+        text: classifiedUserMessage(asClassified(err), { fallback: 'Could not erase this guest.' }),
+        intent: 'exception',
+      });
     },
   });
 
@@ -263,7 +273,7 @@ export function GuestProfileScreen() {
   }
 
   const pageTitle: ReactNode =
-    contactFailClosed || !guest || guest.erased ? (
+    guestQ.isError || !guest || guest.erased ? (
       guestRef
     ) : (
       <span className="guest-profile__title-row">
@@ -321,8 +331,13 @@ export function GuestProfileScreen() {
           ) : null
         }
       />
-      {contactFailClosed ? (
-        <Alert>Guest profile unavailable — organization unreachable.</Alert>
+      {eraseNotice ? <Alert intent={eraseNotice.intent}>{eraseNotice.text}</Alert> : null}
+      {guestQ.isError ? (
+        <Alert>
+          {classifiedUserMessage(asClassified(guestQ.error), {
+            fallback: 'Could not load this guest.',
+          })}
+        </Alert>
       ) : guestQ.isLoading ? (
         <Skeleton label="Loading guest profile" lines={5} />
       ) : guest ? (
@@ -539,8 +554,12 @@ export function GuestProfileScreen() {
             <CardTitle>Stays</CardTitle>
           </CardHeader>
           <CardContent>
-            {staysFailClosed ? (
-              <Alert>Stay history unavailable — property unreachable.</Alert>
+            {staysQ.isError ? (
+              <Alert>
+                {classifiedUserMessage(asClassified(staysQ.error), {
+                  fallback: 'Could not load stay history.',
+                })}
+              </Alert>
             ) : staysQ.isLoading ? (
               <Skeleton label="Loading guest profile" lines={5} />
             ) : stays.items.length === 0 ? (

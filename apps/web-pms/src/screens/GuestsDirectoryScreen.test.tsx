@@ -145,4 +145,20 @@ describe('GuestsDirectoryScreen', () => {
     fireEvent.click(screen.getByTestId('guest-profile-link'));
     await waitFor(() => expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1'));
   });
+
+  it('a forbidden directory read is not called unreachable', async () => {
+    listGuests.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden' },
+        retryAfterMs: null,
+      }),
+    );
+    renderDirectory();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Forbidden/);
+    expect(alert.textContent).not.toMatch(/unreachable/i);
+    expect(screen.getByRole('heading', { name: 'Guests' })).toBeTruthy();
+  });
 });

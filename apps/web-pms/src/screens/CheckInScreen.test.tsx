@@ -693,4 +693,49 @@ describe('CheckInScreen', () => {
     await waitFor(() => expect(screen.getByText(/None on file/)).toBeTruthy());
     expect(checkInButton().disabled).toBe(true);
   });
+
+  it('queued check-in is an attention alert, not a success', async () => {
+    checkIn.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderCheckIn();
+    fireEvent.click(await screen.findByTestId('check-in'));
+    const alert = await screen.findByTestId('check-in-message');
+    expect(alert.textContent).toMatch(/Request queued — will apply when the property is reachable/);
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).not.toMatch(/Checked in/);
+  });
+
+  it('fail_closed check-in uses the classified message', async () => {
+    checkIn.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderCheckIn();
+    fireEvent.click(await screen.findByTestId('check-in'));
+    const alert = await screen.findByTestId('check-in-message');
+    expect(alert.textContent).toMatch(/Property unreachable/);
+    expect(alert.textContent).not.toMatch(/Check-in refused/);
+  });
+
+  it('a failed reservation read keeps the header and classifies the alert', async () => {
+    getReservation.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: {},
+        retryAfterMs: 0,
+      }),
+    );
+    renderCheckIn();
+    expect(await screen.findByRole('heading', { name: /Check in/ })).toBeTruthy();
+    expect((await screen.findByTestId('check-in-reservation-error')).textContent).toMatch(
+      /Data is stale/,
+    );
+  });
 });

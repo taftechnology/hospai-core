@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ClassifiedError,
   shouldRetry,
   retryDelay,
 } from '@hospai/client-core';
@@ -31,6 +30,7 @@ import {
 } from '@hospai/ui-kit';
 import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -198,19 +198,11 @@ export function ReservationsDirectoryScreen() {
     void navigate({ search: `?${sp.toString()}` }, { replace: true });
   }
 
-  if (!searching && listQ.isError) {
-    const c = asClassified(listQ.error);
-    if (c.class === 'fail_closed' || listQ.error instanceof ClassifiedError) {
-      return (
-        <Alert>Property unreachable — board cannot load. This is not an empty day.</Alert>
-      );
-    }
-    if (c.class === 'unauthorized') {
-      window.location.assign('/sign-in');
-      return null;
-    }
-    return <Alert>Failed to load directory</Alert>;
+  if (!searching && listQ.isError && asClassified(listQ.error).class === 'unauthorized') {
+    window.location.assign('/sign-in');
+    return null;
   }
+  const listLoadError = !searching && listQ.isError ? asClassified(listQ.error) : null;
 
   const items = listQ.data?.items ?? [];
   const states = batchQ.data?.states ?? {};
@@ -218,8 +210,24 @@ export function ReservationsDirectoryScreen() {
 
   let body: ReactNode;
   let flush = false;
-  if (searching) {
-    if (hits.length === 0) {
+  if (listLoadError) {
+    body = (
+      <Alert>
+        {classifiedUserMessage(listLoadError, { fallback: 'Failed to load directory.' })}
+      </Alert>
+    );
+  } else if (searching) {
+    if (searchQ.isError) {
+      body = (
+        <Alert>
+          {classifiedUserMessage(asClassified(searchQ.error), {
+            fallback: 'Search failed.',
+          })}
+        </Alert>
+      );
+    } else if (searchQ.isPending) {
+      body = <Skeleton label="Searching reservations" lines={5} />;
+    } else if (hits.length === 0) {
       body = <EmptyState kind="nomatch" title="No reservations match that search." />;
     } else {
       flush = true;

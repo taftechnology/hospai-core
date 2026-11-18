@@ -146,7 +146,7 @@ describe('ShiftStrip', () => {
     );
     renderStrip(livePost);
     await waitFor(() =>
-      expect(screen.getByText(/Shift unavailable — property unreachable/i)).toBeTruthy(),
+      expect(screen.getByRole('alert').textContent).toMatch(/Property unreachable/i),
     );
     expect(openShift).not.toHaveBeenCalled();
   });

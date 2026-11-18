@@ -22,6 +22,7 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -158,8 +159,8 @@ export function ReservationStayScreen() {
       api.confirmReservation(propertyId, reservationId, confirmReservationOpId(reservationId)),
     onSuccess: (result) => {
       setMessage(
-        result.classified.class === 'provisional'
-          ? { intent: 'attention', text: 'Request queued — will apply when the property is reachable.' }
+        isQueuedResult(result)
+          ? { intent: 'attention', text: queuedWriteCopy() }
           : { intent: 'settled', text: 'Stay confirmed.' },
       );
       refresh();
@@ -219,8 +220,8 @@ export function ReservationStayScreen() {
     onSuccess: (result) => {
       setCancelCheckInOpen(false);
       setMessage(
-        result.classified.class === 'provisional'
-          ? { intent: 'attention', text: 'Request queued — will apply when the property is reachable.' }
+        isQueuedResult(result)
+          ? { intent: 'attention', text: queuedWriteCopy() }
           : { intent: 'settled', text: 'Check-in cancelled. The stay is confirmed again.' },
       );
       refresh();

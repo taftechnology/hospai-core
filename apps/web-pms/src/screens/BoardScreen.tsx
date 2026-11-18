@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   addCalendarDays,
-  ClassifiedError,
   type FrontDeskItem,
   type GuestRowState,
 } from '@hospai/client-core';
@@ -43,6 +42,7 @@ import { boardPageTitle } from '../status/board-page-title.js';
 import { guestSeverity } from '../status/guest-severity.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { GuestNameLink, guestLabel } from './guest-row.js';
@@ -377,7 +377,12 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const [assignFor, setAssignFor] = useState<FrontDeskItem | null>(null);
   const [moveFor, setMoveFor] = useState<FrontDeskItem | null>(null);
   const [chargeFor, setChargeFor] = useState<FrontDeskItem | null>(null);
-  const [boardMessage, setBoardMessage] = useState<string | null>(null);
+  const [boardMessage, setBoardMessageText] = useState<string | null>(null);
+  const [boardIntent, setBoardIntent] = useState<'settled' | 'attention'>('settled');
+  function setBoardMessage(text: string, intent: 'settled' | 'attention' = 'settled') {
+    setBoardIntent(intent);
+    setBoardMessageText(text);
+  }
 
   function setVipOnly(next: boolean) {
     const sp = new URLSearchParams(params);
@@ -468,19 +473,11 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     retry: false,
   });
 
-  if (listQ.isError) {
-    const c = asClassified(listQ.error);
-    if (c.class === 'fail_closed' || listQ.error instanceof ClassifiedError) {
-      return (
-        <Alert>Property unreachable — board cannot load. This is not an empty day.</Alert>
-      );
-    }
-    if (c.class === 'unauthorized') {
-      window.location.assign('/sign-in');
-      return null;
-    }
-    return <Alert>Failed to load board</Alert>;
+  if (listQ.isError && asClassified(listQ.error).class === 'unauthorized') {
+    window.location.assign('/sign-in');
+    return null;
   }
+  const listLoadError = listQ.isError ? asClassified(listQ.error) : null;
 
   const vipFilter = (rows: FrontDeskItem[]) =>
     vipOnly ? rows.filter((row) => row.vipFlag === true) : rows;
@@ -491,7 +488,13 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const dateLoading = (mode === 'arrivals' || mode === 'departures') && date == null;
 
   let body: ReactNode;
-  if (dateLoading) {
+  if (listLoadError) {
+    body = (
+      <Alert>
+        {classifiedUserMessage(listLoadError, { fallback: 'Failed to load board.' })}
+      </Alert>
+    );
+  } else if (dateLoading) {
     body = <Skeleton label="Loading board" lines={5} />;
   } else if (listQ.isLoading) {
     body = <Skeleton label="Loading board" lines={5} />;
@@ -689,7 +692,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
         }
       />
       {boardMessage ? (
-        <Alert intent="settled" data-testid="board-message">
+        <Alert intent={boardIntent} data-testid="board-message">
           {boardMessage}
         </Alert>
       ) : null}
@@ -699,9 +702,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           row={assignFor}
           guestName={nameOf(assignFor)}
           onClose={() => setAssignFor(null)}
-          onDone={(message) => {
+          onDone={(message, intent) => {
             setAssignFor(null);
-            setBoardMessage(message);
+            setBoardMessage(message, intent);
           }}
         />
       ) : null}
@@ -710,9 +713,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           row={moveFor}
           guestName={nameOf(moveFor)}
           onClose={() => setMoveFor(null)}
-          onDone={(message) => {
+          onDone={(message, intent) => {
             setMoveFor(null);
-            setBoardMessage(message);
+            setBoardMessage(message, intent);
           }}
         />
       ) : null}
@@ -721,9 +724,9 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           row={chargeFor}
           guestName={nameOf(chargeFor)}
           onClose={() => setChargeFor(null)}
-          onDone={(message) => {
+          onDone={(message, intent) => {
             setChargeFor(null);
-            setBoardMessage(message);
+            setBoardMessage(message, intent);
           }}
         />
       ) : null}

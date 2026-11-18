@@ -1,12 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClassifiedError } from '@hospai/client-core';
 
 const updateFrontOffice = vi.fn();
 const listOperationalConfig = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
+  asClassified: (err: unknown) => {
+    if (err instanceof ClassifiedError) return err.classified;
+    return { class: 'server_error' as const, status: 500, body: {}, retryAfterMs: null };
+  },
   api: {
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
@@ -101,5 +106,36 @@ describe('FrontOfficeEditor', () => {
     await waitFor(() => expect(listOperationalConfig).toHaveBeenCalled());
     expect(screen.queryByTestId('fo-source')).toBeNull();
     expect(screen.queryByTestId('fo-segment')).toBeNull();
+  });
+
+  it('queued save is an attention alert, not saved', async () => {
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
+    updateFrontOffice.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('front-office-save'));
+    const alert = await screen.findByTestId('front-office-message');
+    expect(alert.textContent).toMatch(/Request queued — will apply when the property is reachable/);
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(alert.textContent).not.toMatch(/saved/i);
+  });
+
+  it('save errors use the classified message', async () => {
+    listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
+    updateFrontOffice.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('front-office-save'));
+    const alert = await screen.findByTestId('front-office-message');
+    expect(alert.textContent).toMatch(/Property unreachable/);
+    expect(alert.textContent).not.toMatch(/Front-office update failed/);
   });
 });

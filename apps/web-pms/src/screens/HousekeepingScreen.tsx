@@ -8,6 +8,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -68,6 +69,8 @@ export function HousekeepingScreen() {
               : 'Could not load housekeeping',
         })
       }
+      isQueuedResult={isQueuedResult}
+      queuedCopy={queuedWriteCopy()}
     />
   );
 }

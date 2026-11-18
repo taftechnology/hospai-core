@@ -2,17 +2,21 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClassifiedError } from '@hospai/client-core';
 
 const getFrontOfficeSummary = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
-  asClassified: () => ({
-    class: 'server_error' as const,
-    status: 500,
-    body: {},
-    retryAfterMs: null,
-  }),
+  asClassified: (err: unknown) => {
+    if (err instanceof ClassifiedError) return err.classified;
+    return {
+      class: 'server_error' as const,
+      status: 500,
+      body: {},
+      retryAfterMs: null,
+    };
+  },
   api: {
     getFrontOfficeSummary: (...args: unknown[]) => getFrontOfficeSummary(...args),
   },
@@ -119,5 +123,19 @@ describe('BoardSummary', () => {
     renderSummary('strip');
     await waitFor(() => expect(screen.getByText('occupied', { exact: false })).toBeTruthy());
     expect(screen.queryByTestId('board-summary-overstay')).toBeNull();
+  });
+
+  it('a failed summary read renders a classified alert', async () => {
+    getFrontOfficeSummary.mockRejectedValue(
+      new ClassifiedError({
+        class: 'read_stale',
+        status: 503,
+        body: {},
+        retryAfterMs: 0,
+      }),
+    );
+    renderSummary();
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Data is stale/);
+    expect(screen.queryByTestId('board-summary')).toBeNull();
   });
 });

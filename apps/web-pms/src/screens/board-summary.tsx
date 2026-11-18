@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
-import { Badge, CountStrip, Metric, Metrics } from '@hospai/ui-kit';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { Alert, Badge, CountStrip, Metric, Metrics } from '@hospai/ui-kit';
 
 export function BoardSummary({
   date,
@@ -19,6 +20,15 @@ export function BoardSummary({
     retryDelay: (n, err) => retryDelay(asClassified(err), n),
   });
 
+  if (summaryQ.isError) {
+    return (
+      <Alert>
+        {classifiedUserMessage(asClassified(summaryQ.error), {
+          fallback: 'Could not load the front desk summary.',
+        })}
+      </Alert>
+    );
+  }
   if (!date || !summaryQ.data) return null;
   const s = summaryQ.data;
 

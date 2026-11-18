@@ -320,8 +320,9 @@ describe('TapeChartScreen', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('alert').textContent,
-      ).toMatch(/Property unreachable — board cannot load\. This is not an empty day\./),
+      ).toMatch(/Property unreachable\./),
     );
+    expect(screen.getByRole('heading', { name: 'Room Plan' })).toBeTruthy();
     expect(screen.queryByText('No rooms yet — create rooms in Inventory.')).toBeNull();
   });
 

@@ -3,7 +3,6 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   addCalendarDays,
-  ClassifiedError,
   shouldRetry,
   retryDelay,
 } from '@hospai/client-core';
@@ -30,6 +29,7 @@ import {
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { bookHref } from '../status/book-href.js';
@@ -178,21 +178,12 @@ export function TapeChartScreen() {
 
   const activeError = view === 'available' ? availableQ.error : tapeQ.error;
   const activeIsError = view === 'available' ? availableQ.isError : tapeQ.isError;
-  if (activeIsError && activeError) {
-    const c = asClassified(activeError);
-    if (c.class === 'fail_closed' || activeError instanceof ClassifiedError) {
-      return (
-        <Alert data-testid="tape-fail-closed">
-          Property unreachable — board cannot load. This is not an empty day.
-        </Alert>
-      );
-    }
-    if (c.class === 'unauthorized') {
-      window.location.assign('/sign-in');
-      return null;
-    }
-    return <Alert>Failed to load board</Alert>;
+  if (activeIsError && activeError && asClassified(activeError).class === 'unauthorized') {
+    window.location.assign('/sign-in');
+    return null;
   }
+  const loadError =
+    activeIsError && activeError ? asClassified(activeError) : null;
 
   const rooms = tapeQ.data?.rooms ?? [];
   const blocks = tapeQ.data?.blocks ?? [];
@@ -203,7 +194,13 @@ export function TapeChartScreen() {
   const today = timeZone ? propertyLocalToday(timeZone) : null;
 
   let body: ReactNode;
-  if (from == null || to == null || (view === 'tape' ? tapeQ.isLoading : availableQ.isLoading)) {
+  if (loadError) {
+    body = (
+      <Alert data-testid="tape-fail-closed">
+        {classifiedUserMessage(loadError, { fallback: 'Failed to load board.' })}
+      </Alert>
+    );
+  } else if (from == null || to == null || (view === 'tape' ? tapeQ.isLoading : availableQ.isLoading)) {
     body = <Skeleton label="Loading the room plan" lines={5} />;
   } else if (view === 'available') {
     const free = availableQ.data?.rooms ?? [];

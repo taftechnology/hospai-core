@@ -8,14 +8,29 @@ export type QueuedCommandEntry = {
 
 export function createQueuedCommandLog(): {
   entries: () => readonly QueuedCommandEntry[];
+  subscribe: (listener: () => void) => () => void;
   recordFromProvisionalBody: (
     body: unknown,
     context?: { reservationId?: string },
   ) => void;
 } {
   const items: QueuedCommandEntry[] = [];
+  let snapshot: readonly QueuedCommandEntry[] = items;
+  const listeners = new Set<() => void>();
+
+  function emit() {
+    snapshot = items.slice();
+    for (const listener of listeners) listener();
+  }
+
   return {
-    entries: () => items,
+    entries: () => snapshot,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     recordFromProvisionalBody: (body: unknown, context?: { reservationId?: string }) => {
       if (body === null || typeof body !== 'object') return;
       const r = body as Record<string, unknown>;
@@ -29,6 +44,7 @@ export function createQueuedCommandLog(): {
         entry.reservationId = context.reservationId;
       }
       items.push(entry);
+      emit();
     },
   };
 }

@@ -457,7 +457,7 @@ export function NightAuditScreen() {
           </CardContent>
         </Card>
       ) : null}
-      {statusQuery.isError && !status ? (
+      {statusQuery.isError ? (
         <Alert data-testid="night-audit-status-error">
           {classifiedUserMessage(asClassified(statusQuery.error), {
             fallback: 'Could not load night audit status.',
@@ -605,6 +605,15 @@ export function NightAuditScreen() {
                   </div>
                 )}
               </CardContent>
+              {reportQuery.isError ? (
+                <CardContent>
+                  <Alert data-testid="night-audit-report-error">
+                    {classifiedUserMessage(asClassified(reportQuery.error), {
+                      fallback: 'Could not load this report.',
+                    })}
+                  </Alert>
+                </CardContent>
+              ) : null}
               {reportQuery.data ? (
                 <CardContent flush>
                   <div className="night-audit__report-table">

@@ -245,3 +245,21 @@ it('T24: create failure uses classified copy not JSON.stringify', async () => {
   expect(screen.getByTestId('city-ledger-message').textContent).not.toMatch(/\{/);
   expect(screen.getByTestId('city-ledger-message').textContent).toMatch(/Forbidden/i);
 });
+
+it('a list read error is classified and is not called unreachable', async () => {
+  cleanup();
+  getMe.mockResolvedValue(ownerMe);
+  fetchCityLedgerAccounts.mockRejectedValue(
+    new ClassifiedError({
+      class: 'read_stale',
+      status: 503,
+      body: {},
+      retryAfterMs: 0,
+    }),
+  );
+  renderCityLedger();
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toMatch(/Data is stale/);
+  expect(alert.textContent).not.toMatch(/unreachable/i);
+  expect(screen.getByRole('heading', { name: 'City ledger' })).toBeTruthy();
+});

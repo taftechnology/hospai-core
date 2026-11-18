@@ -19,7 +19,7 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
-import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
+import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { isStayGuarantee, stayGuaranteeText } from './tender-label.js';
@@ -290,6 +290,7 @@ export function CheckInScreen() {
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
   const res = reservationQ.data;
+  const regCardLabels = useRegCardLabels(res);
   const configKeys = Array.isArray(domainConfigQ.data?.keys)
     ? (domainConfigQ.data.keys as ConfigKey[])
     : undefined;
@@ -506,7 +507,8 @@ export function CheckInScreen() {
         reservation={res}
         displayName={displayName}
         roomLabel={selectedCode ?? null}
-        roomTypeLabel={roomTypeLabel}
+        roomTypeLabel={regCardLabels.roomTypeLabel ?? roomTypeLabel ?? null}
+        ratePlanLabel={regCardLabels.ratePlanLabel ?? null}
       />
     </>
   );

@@ -45,9 +45,31 @@ describe('RegistrationCard', () => {
         reservation={baseReservation}
         displayName="Ada Lovelace"
         roomLabel="101"
+        roomTypeLabel="King Room"
+        ratePlanLabel="Best Available Rate"
       />,
     );
-    expect(screen.getByText(/Room 101/)).toBeTruthy();
+    const field = (label: string) =>
+      screen.getByText(label, { selector: '.ui-stat-field__label' }).parentElement?.textContent;
+    expect(field('Room')).toBe('Room101');
+    expect(field('Room type')).toBe('Room typeKing Room');
+    expect(field('Rate plan')).toBe('Rate planBest Available Rate');
+    expect(field('Nights')).toBe('Nights2');
+    expect(field('Guests')).toBe('Guests2 adults');
+  });
+
+  it('R2.4: unassigned room and missing plan read as words, never ids', () => {
+    render(
+      <RegistrationCard
+        propertyName="Harbor Inn"
+        reservation={{ ...baseReservation, roomId: null }}
+        displayName="Ada Lovelace"
+      />,
+    );
+    const card = screen.getByTestId('reg-card');
+    expect(card.textContent).toContain('Not assigned');
+    expect(card.textContent).not.toMatch(/rt_1|room_uuid/);
+    expect(screen.getByTestId('reg-card-signature').textContent).toMatch(/Guest signature/);
   });
 
   it('T11: print stylesheet hides non-reg-card content', () => {

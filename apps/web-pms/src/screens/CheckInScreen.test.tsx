@@ -12,6 +12,7 @@ const getProperty = vi.fn();
 const updateFrontOffice = vi.fn();
 const listRooms = vi.fn();
 const listRoomTypes = vi.fn();
+const listRatePlans = vi.fn();
 const listOperationalConfig = vi.fn();
 const listDomainConfig = vi.fn();
 const getFolioPayments = vi.fn();
@@ -36,6 +37,7 @@ vi.mock('../client.js', () => ({
     updateFrontOffice: (...args: unknown[]) => updateFrontOffice(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
     listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
+    listRatePlans: (...args: unknown[]) => listRatePlans(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
@@ -101,6 +103,10 @@ function renderCheckIn() {
 
 describe('CheckInScreen', () => {
   beforeEach(() => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [{ ratePlanId: 'rp_bar', code: 'BAR', name: 'Best Available Rate' }],
+    });
     vi.clearAllMocks();
     getReservation.mockResolvedValue({
       reservationId: 'res_1',
@@ -206,6 +212,7 @@ describe('CheckInScreen', () => {
       roomId: 'rm_12',
       adults: 2,
       children: 1,
+      ratePlanId: 'rp_bar',
       createdAt: 1,
       updatedAt: 1,
     });
@@ -214,7 +221,7 @@ describe('CheckInScreen', () => {
       expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(false),
     );
     const card = screen.getByTestId('reg-card');
-    expect(card.textContent).toMatch(/Confirmation #/);
+    expect(card.textContent).toMatch(/Confirmation/);
     expect(card.textContent).toMatch(/o_arr_04/);
     expect(card.textContent).not.toMatch(/res_/);
     expect(card.textContent).toMatch(/King Room/);
@@ -222,8 +229,11 @@ describe('CheckInScreen', () => {
     expect(card.textContent).toMatch(/Ada Lovelace/);
     expect(card.textContent).toMatch(/11\/08\/2026/);
     expect(card.textContent).toMatch(/12\/08\/2026/);
-    expect(card.textContent).toMatch(/Adults 2/);
-    expect(card.textContent).toMatch(/Children 1/);
+    expect(card.textContent).toMatch(/2 adults · 1 child/);
+    expect(card.textContent).toMatch(/Nights1/);
+    await waitFor(() => expect(card.textContent).toMatch(/Best Available Rate/));
+    // Room code, never the room UUID.
+    expect(card.textContent).not.toMatch(/rm_12/);
     expect(card.textContent).not.toMatch(/balanceMinor/);
     fireEvent.click(screen.getByTestId('print-reg-card'));
     expect(print).toHaveBeenCalled();

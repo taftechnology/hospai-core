@@ -1210,6 +1210,40 @@ details.side-panel summary {
   font-weight: 600;
 }
 
+/* R2.4: registration card layout (screen-hidden; printed alone). */
+.reg-card {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.reg-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-block-end: 1px solid var(--line);
+  padding-block-end: var(--space-2);
+}
+
+.reg-card__property {
+  margin: 0;
+  font-weight: 600;
+}
+
+.reg-card__signature {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-6);
+  margin-block-start: var(--space-6);
+}
+
+.reg-card__signature span {
+  border-block-start: 1px solid var(--line);
+  padding-block-start: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 @media screen {
   .reg-card {
     position: absolute;

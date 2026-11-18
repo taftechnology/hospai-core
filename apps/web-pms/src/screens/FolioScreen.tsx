@@ -56,7 +56,7 @@ import { GuestNameLink } from './guest-row.js';
 import { usePostableProducts } from './product-picker.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
-import { PrintRegCardControl, RegistrationCard } from './registration-card.js';
+import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 
 function folioBackTarget(status: string | undefined): { to: string; label: string } {
   if (status === 'checked_in') return { to: '/in-house', label: 'In house' };
@@ -1156,6 +1156,7 @@ export function FolioScreen() {
     },
   });
 
+  const regCardLabels = useRegCardLabels(reservationQ.data);
   const roomCode = (() => {
     const roomId = reservationQ.data?.roomId;
     if (!roomId) return undefined;
@@ -1926,6 +1927,8 @@ export function FolioScreen() {
             reservation={reservationQ.data}
             displayName={guestState?.kind === 'resolved' ? guestState.displayName : null}
             roomLabel={roomCode ?? null}
+            roomTypeLabel={regCardLabels.roomTypeLabel ?? null}
+            ratePlanLabel={regCardLabels.ratePlanLabel ?? null}
           />
 
           {windows.length > 0 ? (

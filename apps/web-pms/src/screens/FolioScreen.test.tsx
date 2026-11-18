@@ -8,6 +8,8 @@ const addFolioLine = vi.fn();
 const getFolio = vi.fn();
 const getReservation = vi.fn();
 const getFolioPayments = vi.fn();
+const listRoomTypes = vi.fn();
+const listRatePlans = vi.fn();
 const getOpenShift = vi.fn();
 const getMe = vi.fn();
 const authorizePayment = vi.fn();
@@ -74,6 +76,8 @@ vi.mock('../client.js', () => ({
     };
   },
   api: {
+    listRoomTypes: (...args: unknown[]) => listRoomTypes(...args),
+    listRatePlans: (...args: unknown[]) => listRatePlans(...args),
     getMe: (...args: unknown[]) => getMe(...args),
     getProperty: (...args: unknown[]) => getProperty(...args),
     getFolio: (...args: unknown[]) => getFolio(...args),
@@ -255,6 +259,14 @@ const miscLine = {
 
 describe('FolioScreen wiring', () => {
   beforeEach(() => {
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [{ roomTypeId: 'rt', code: 'KNG', name: 'King Room' }],
+    });
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [{ ratePlanId: 'rp_bar', code: 'BAR', name: 'Best Available Rate' }],
+    });
     vi.clearAllMocks();
     queuedStore.entries = [];
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
@@ -1483,6 +1495,7 @@ describe('FolioScreen wiring', () => {
       ...liveReservation,
       adults: 2,
       children: 1,
+      ratePlanId: 'rp_bar',
     });
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     postGuestsBatch.mockResolvedValue({
@@ -1501,8 +1514,13 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
     expect(card.textContent).toMatch(/08\/08\/2026/);
     expect(card.textContent).toMatch(/10\/08\/2026/);
-    expect(card.textContent).toMatch(/Adults 2/);
-    expect(card.textContent).toMatch(/Children 1/);
+    expect(card.textContent).toMatch(/2 adults · 1 child/);
+    // R2.4: the folio card names the room type and rate plan (it used to print "unavailable").
+    await waitFor(() => expect(card.textContent).toMatch(/King Room/));
+    await waitFor(() => expect(card.textContent).toMatch(/Best Available Rate/));
+    expect(card.textContent).not.toMatch(/unavailable/i);
+    expect(card.textContent).toMatch(/Not assigned/);
+    expect(screen.getByTestId('reg-card-signature').textContent).toMatch(/Guest signature/);
     expect(card.textContent).not.toMatch(/424242/);
     expect(card.textContent).not.toMatch(/balanceMinor/);
     fireEvent.click(screen.getByTestId('print-reg-card'));

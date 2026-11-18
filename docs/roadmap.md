@@ -403,8 +403,9 @@ Do after R0.11 at minimum (audit UI). Can run in parallel with Track 1 slices th
   - Interaction parity: tenders as table, quote as money, room picker by code. Do not rebuild as a second billing app. Stay on ui-kit.
   - **As-built:** Checked live: the Folio tenders are a `DataTable` (Method / Amount / Status / Actions), Book shows the quote as money (“Quote total ₹4,200.00”), and Check-in, Assign room and Move room pick rooms by code. Left over and fixed: the tenders Status column printed the wire enum (`captured`, `unknown`); `tenderStatusLabel` now says Authorized, Paid, Partly refunded, Refunded, Voided, Declined, Pending or Unconfirmed. Unit tests cover the labels and the brand / last-4 method text.
 
-- [ ] **R2.6 Role-based nav (not impersonation)**
+- [x] **R2.6 Role-based nav (not impersonation)** — shipped 2026-11-18
   - Prototype `App.tsx` has a 4-role switcher and a housekeeping-only fallback. **Lock:** live RBAC + `PermissionRoute` already; send a HK-only actor to Housekeeping as home. **Do not** add role impersonation or a fake four-role toggle.
+  - **As-built:** Home follows live permissions, not a role name: `/` renders `HomeRedirect`, which waits for `/me` and sends an actor who can read reservations to the Dashboard (unchanged), one who cannot but can read housekeeping to Housekeeping, and maintenance-only to Maintenance; unknown authority falls open to the Dashboard. `PermissionRoute` with no explicit fallback now sends a denied desk actor to Arrivals as before and anyone else to their own home, so a housekeeping-only member is never bounced to a page that fails again. No role switcher, no impersonation; the sidebar already hides links by permission. No built-in role is housekeeping-only today — this serves per-member grants.
 
 When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prototype screen on live data and it looks like HospAI, not a lab.
 

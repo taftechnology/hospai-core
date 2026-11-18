@@ -9,6 +9,7 @@ import {
 } from 'react-router';
 import { Skeleton } from '@hospai/ui-kit';
 import { PermissionRoute } from './auth/PermissionRoute.js';
+import { HomeRedirect } from './auth/HomeRedirect.js';
 import { createQueryClient } from './query-client.js';
 import { BookingScreen } from './screens/BookingScreen.js';
 import { BoardScreen } from './screens/BoardScreen.js';
@@ -63,7 +64,8 @@ export const router = createBrowserRouter(
             element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}
             errorElement={<RouteErrorBoundary />}
           >
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            {/* R2.6: home follows live permissions (housekeeping-only → Housekeeping). */}
+            <Route index element={<HomeRedirect />} />
             <Route path="dashboard" element={<DashboardScreen />} />
             {/* R1.14: the Dashboard is the report until R4.14 ships the named operational set. */}
             <Route path="reports" element={<Navigate to="/dashboard" replace />} />

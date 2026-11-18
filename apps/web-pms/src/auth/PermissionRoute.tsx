@@ -7,11 +7,15 @@ import {
   type PropertyMe,
 } from './me.js';
 import { setPermissionDenyFlash } from '../shell/PermissionDenyFlash.js';
+import { deniedFallbackFor } from './home-path.js';
 import { api, asClassified, tenant } from '../client.js';
 
 export type PermissionRouteProps = {
   permission: PropertyScopedPermission;
-  /** Redirect target when live authority lacks permission. Default `/arrivals`. */
+  /**
+   * Redirect target when live authority lacks permission. Default: `/arrivals` for the desk,
+   * the actor's own home otherwise (R2.6 — a housekeeping-only member goes to Housekeeping).
+   */
   fallback?: string;
 };
 
@@ -19,10 +23,7 @@ export type PermissionRouteProps = {
  * Shared permission gate for property-scoped routes. Renders nested routes via
  * `<Outlet/>` on pass — never mounts a screen directly.
  */
-export function PermissionRoute({
-  permission,
-  fallback = '/arrivals',
-}: PermissionRouteProps) {
+export function PermissionRoute({ permission, fallback }: PermissionRouteProps) {
   const propertyId = tenant.propertyId;
   const meQuery = useQuery({
     queryKey: ['me', propertyId],
@@ -48,7 +49,7 @@ export function PermissionRoute({
   if (shell.authority.kind === 'live') {
     if (!hasPropertyPermission(shell.authority.me, permission)) {
       setPermissionDenyFlash();
-      return <Navigate to={fallback} replace />;
+      return <Navigate to={fallback ?? deniedFallbackFor(shell.authority.me)} replace />;
     }
     return <Outlet />;
   }

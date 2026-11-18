@@ -16,7 +16,7 @@ import {
 } from '../src/module-outbox-dispatch.js';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
+import { ensurePlatformSchema, resetPlatformSchemaGate, seedSubscription, setKillSwitch } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers';
 import { seedBarRatesForHorizon, TEST_OWNER_ACTOR } from './fixtures';
 import { createGuest, orgStub as testOrgStub, provisionedPropertyStub } from './guest-helpers';
@@ -585,6 +585,7 @@ describe('maintenance (Part D)', () => {
       const owner = 'user_mnt_owner_other';
       const { orgId, p } = await provisionHotel(owner);
       const otherPropertyId = `prop_mnt_b_${crypto.randomUUID()}`;
+      await seedSubscription(env, orgId, 'group');
       expect(
         (
           await call('POST', `/v1/orgs/${orgId}/properties`, owner, {

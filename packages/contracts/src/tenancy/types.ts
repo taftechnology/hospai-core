@@ -46,5 +46,7 @@ export type ProvisionPropertyResult =
         | 'invalid_currency'
         | 'invalid_tenant_id'
         | 'tenant_not_active'
+        | 'limit_exceeded'
         | string;
+      featureKey?: 'pms.properties.limit';
     };

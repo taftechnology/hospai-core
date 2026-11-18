@@ -750,6 +750,9 @@ async function handlePostOrgProperties(ctx: V1DispatchContext): Promise<Response
     if (result.error === 'tenant_not_active') {
       return json({ error: 'tenant_not_active' }, 409);
     }
+    if (result.error === 'limit_exceeded') {
+      return json({ error: LIMIT_EXCEEDED, featureKey: 'pms.properties.limit' }, 422);
+    }
     if (
       result.error === 'invalid_timezone' ||
       result.error === 'invalid_currency' ||

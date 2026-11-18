@@ -10,6 +10,7 @@ import type { OrgDO } from '../src/org-do.js';
 import {
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 
@@ -257,6 +258,7 @@ describe('membership HTTP families', () => {
     // Owner trying to… wait, owner can grant admin. Escalation: use admin calling org route → 403.
     // Property: admin grant admin → 422 role_escalation
     await org.ensureMember('user_admin_11', 'admin');
+    await seedSubscription(env, orgId, 'group');
     const { propertyId } = await (async () => {
       const propertyId = `prop_memh_${crypto.randomUUID()}`;
       expect((await postProperty(orgId, propertyId, owner)).status).toBe(201);

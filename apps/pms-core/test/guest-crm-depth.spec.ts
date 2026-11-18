@@ -11,7 +11,7 @@ import {
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
+import { ensurePlatformSchema, resetPlatformSchemaGate, seedSubscription, setKillSwitch } from '../src/registry.js';
 import { idemFor, provisionedOrg, TEST_OWNER_ACTOR } from './fixtures.js';
 import { createGuest } from './guest-helpers.js';
 
@@ -76,6 +76,7 @@ async function provisionTwoHotels(actor: string) {
   const propertyB = `prop_crm_b_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, 'Two CRM Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  await seedSubscription(env, orgId, 'group');
   expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
   expect((await postRoomType(propertyA, actor)).status).toBe(201);
   expect((await postRoomType(propertyB, actor)).status).toBe(201);

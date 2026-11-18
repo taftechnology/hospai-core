@@ -16,10 +16,21 @@ export const ENTITLEMENT_DO_V1_STATEMENTS = [ENTITLEMENT_METER_COUNTER_SQL, ENTI
 
 export const ENTITLEMENT_DO_V1_SQL = ENTITLEMENT_DO_V1_STATEMENTS.join(';\n\n') + ';\n';
 
+/** Standing (not monthly) counters. Property ceiling lives here, not in meter_counter. */
+export const ENTITLEMENT_STANDING_COUNTER_SQL = `CREATE TABLE IF NOT EXISTS standing_counter (
+  counter_key  TEXT PRIMARY KEY,
+  value        INTEGER NOT NULL
+)`;
+
 export const ORG_ENTITLEMENT_MIGRATIONS = [
   {
     version: 1,
     name: 'entitlement_meters',
     statements: ENTITLEMENT_DO_V1_STATEMENTS,
+  },
+  {
+    version: 2,
+    name: 'standing_counter',
+    statements: [ENTITLEMENT_STANDING_COUNTER_SQL],
   },
 ] as const;

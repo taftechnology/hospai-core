@@ -26,9 +26,17 @@ describe('require', () => {
     expect(() => require({ ...base, features: {} }, 'pms.core')).toThrow(EntitlementRequiredError);
   });
 
+  it('passes when a unit limit is unlimited', () => {
+    expect(() =>
+      require({ ...base, features: { 'pms.core': true, 'pms.units.limit': 'unlimited' } }, 'pms.units.limit'),
+    ).not.toThrow();
+  });
+
   it('parses feature values', () => {
     expect(parseFeatureValue('BOOLEAN', 'true')).toBe(true);
     expect(parseFeatureValue('LIMIT', '20')).toBe(20);
+    expect(parseFeatureValue('LIMIT', 'unlimited')).toBe('unlimited');
+    expect(parseFeatureValue('CONFIG', 'required')).toBe('required');
   });
 });
 

@@ -17,6 +17,7 @@ import {
   cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 
@@ -407,6 +408,7 @@ describe('guest settings', () => {
     const propertyB = `prop_gs_b_${crypto.randomUUID()}`;
     expect((await postOrg(orgId, 'Two Hotel Org', actor)).status).toBe(201);
     expect((await postProperty(orgId, propertyA, actor, 'Hotel A')).status).toBe(201);
+    await seedSubscription(env, orgId, 'group');
     expect((await postProperty(orgId, propertyB, actor, 'Hotel B')).status).toBe(201);
     expect(
       (

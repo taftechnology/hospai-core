@@ -237,16 +237,246 @@ export const PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS: string[] = [
 export const PLATFORM_PENDING_COMMAND_OPEN_SQL =
   PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * D1 seed feature keys — ARCHITECTURE.md §6.7 table order.
+ * Kept equal to @hospai/contracts FEATURE_KEYS via check:entitlements.
+ */
+export const PLATFORM_SEED_FEATURE_KEYS = [
+  'pms.core',
+  'pms.properties.limit',
+  'pms.units.limit',
+  'pms.multi_property',
+  'pms.housekeeping',
+  'payments.enabled',
+  'booking_engine.enabled',
+  'booking_engine.custom_domain',
+  'channel_manager.enabled',
+  'channel_manager.connections.limit',
+  'agentic_distribution.enabled',
+  'revenue_mgmt.enabled',
+  'ai_ops.enabled',
+  'ai_ops.messages.limit',
+  'mcp.enabled',
+  'mcp.clients.limit',
+  'pos.enabled',
+  'banquet.enabled',
+  'api.public_access',
+  'sso.saml',
+  'compliance.fiscalization',
+  'accounting_export.enabled',
+] as const;
+
+type CatalogFeatureKey = (typeof PLATFORM_SEED_FEATURE_KEYS)[number];
+type CatalogPlan = 'starter' | 'growth' | 'group';
+
+const FEATURE_CATALOG_META: Record<
+  CatalogFeatureKey,
+  { name: string; type: 'BOOLEAN' | 'LIMIT' | 'CONFIG'; moduleId: string }
+> = {
+  'pms.core': { name: 'PMS Core', type: 'BOOLEAN', moduleId: 'pms' },
+  'pms.properties.limit': { name: 'Property limit', type: 'LIMIT', moduleId: 'pms' },
+  'pms.units.limit': { name: 'Unit limit', type: 'LIMIT', moduleId: 'pms' },
+  'pms.multi_property': { name: 'Multi-property', type: 'BOOLEAN', moduleId: 'pms' },
+  'pms.housekeeping': { name: 'Housekeeping', type: 'BOOLEAN', moduleId: 'pms' },
+  'payments.enabled': { name: 'Payments', type: 'CONFIG', moduleId: 'payments' },
+  'booking_engine.enabled': { name: 'Booking engine', type: 'BOOLEAN', moduleId: 'booking_engine' },
+  'booking_engine.custom_domain': {
+    name: 'Booking engine custom domain',
+    type: 'BOOLEAN',
+    moduleId: 'booking_engine',
+  },
+  'channel_manager.enabled': { name: 'Channel manager', type: 'BOOLEAN', moduleId: 'channel_manager' },
+  'channel_manager.connections.limit': {
+    name: 'Channel connections limit',
+    type: 'LIMIT',
+    moduleId: 'channel_manager',
+  },
+  'agentic_distribution.enabled': {
+    name: 'Agentic distribution',
+    type: 'BOOLEAN',
+    moduleId: 'agentic_distribution',
+  },
+  'revenue_mgmt.enabled': { name: 'Revenue management', type: 'BOOLEAN', moduleId: 'revenue_mgmt' },
+  'ai_ops.enabled': { name: 'AI operations', type: 'BOOLEAN', moduleId: 'ai_ops' },
+  'ai_ops.messages.limit': { name: 'AI operations message limit', type: 'LIMIT', moduleId: 'ai_ops' },
+  'mcp.enabled': { name: 'MCP', type: 'BOOLEAN', moduleId: 'mcp' },
+  'mcp.clients.limit': { name: 'MCP clients limit', type: 'LIMIT', moduleId: 'mcp' },
+  'pos.enabled': { name: 'Point of sale', type: 'BOOLEAN', moduleId: 'pos' },
+  'banquet.enabled': { name: 'Banquet', type: 'BOOLEAN', moduleId: 'banquet' },
+  'api.public_access': { name: 'Public API access', type: 'BOOLEAN', moduleId: 'api' },
+  'sso.saml': { name: 'SAML SSO', type: 'BOOLEAN', moduleId: 'sso' },
+  'compliance.fiscalization': { name: 'Fiscalization', type: 'BOOLEAN', moduleId: 'compliance' },
+  'accounting_export.enabled': { name: 'Accounting export', type: 'BOOLEAN', moduleId: 'accounting_export' },
+};
+
+/** null = no plan row (absent = not granted). */
+const PLAN_FEATURE_VALUES: Record<CatalogFeatureKey, Record<CatalogPlan, string | null>> = {
+  'pms.core': { starter: 'true', growth: 'true', group: 'true' },
+  'pms.properties.limit': { starter: '1', growth: '1', group: '10' },
+  'pms.units.limit': { starter: '40', growth: '400', group: 'unlimited' },
+  'pms.multi_property': { starter: null, growth: null, group: 'true' },
+  'pms.housekeeping': { starter: 'true', growth: 'true', group: 'true' },
+  'payments.enabled': { starter: 'required', growth: 'enabled', group: 'enabled' },
+  'booking_engine.enabled': { starter: 'true', growth: 'true', group: 'true' },
+  'booking_engine.custom_domain': { starter: null, growth: 'true', group: 'true' },
+  'channel_manager.enabled': { starter: 'true', growth: 'true', group: 'true' },
+  'channel_manager.connections.limit': { starter: '3', growth: '15', group: 'unlimited' },
+  'agentic_distribution.enabled': { starter: 'true', growth: 'true', group: 'true' },
+  'revenue_mgmt.enabled': { starter: null, growth: null, group: null },
+  'ai_ops.enabled': { starter: null, growth: null, group: null },
+  'ai_ops.messages.limit': { starter: null, growth: null, group: null },
+  'mcp.enabled': { starter: 'true', growth: 'true', group: 'true' },
+  'mcp.clients.limit': { starter: '1', growth: '5', group: 'unlimited' },
+  'pos.enabled': { starter: null, growth: null, group: null },
+  'banquet.enabled': { starter: null, growth: null, group: null },
+  'api.public_access': { starter: null, growth: 'true', group: 'true' },
+  'sso.saml': { starter: null, growth: null, group: 'true' },
+  'compliance.fiscalization': { starter: 'true', growth: 'true', group: 'true' },
+  'accounting_export.enabled': { starter: 'true', growth: 'true', group: 'true' },
+};
+
+const ADDON_CATALOG: ReadonlyArray<{
+  code: string;
+  name: string;
+  featureKey: CatalogFeatureKey;
+  kind: 'grant' | 'increment' | 'metered';
+  amount: number | null;
+}> = [
+  {
+    code: 'properties_plus_1',
+    name: 'Extra property',
+    featureKey: 'pms.properties.limit',
+    kind: 'increment',
+    amount: 1,
+  },
+  {
+    code: 'channel_connections_plus_1',
+    name: 'Extra channel connection',
+    featureKey: 'channel_manager.connections.limit',
+    kind: 'increment',
+    amount: 1,
+  },
+  {
+    code: 'mcp_clients_plus_1',
+    name: 'Extra MCP client',
+    featureKey: 'mcp.clients.limit',
+    kind: 'increment',
+    amount: 1,
+  },
+  {
+    code: 'booking_engine_custom_domain',
+    name: 'Booking engine custom domain',
+    featureKey: 'booking_engine.custom_domain',
+    kind: 'grant',
+    amount: null,
+  },
+  {
+    code: 'revenue_mgmt',
+    name: 'Revenue management',
+    featureKey: 'revenue_mgmt.enabled',
+    kind: 'grant',
+    amount: null,
+  },
+  { code: 'ai_ops', name: 'AI operations', featureKey: 'ai_ops.enabled', kind: 'grant', amount: null },
+  { code: 'pos', name: 'Point of sale', featureKey: 'pos.enabled', kind: 'grant', amount: null },
+  { code: 'banquet', name: 'Banquet', featureKey: 'banquet.enabled', kind: 'grant', amount: null },
+  { code: 'sso_saml', name: 'SAML SSO', featureKey: 'sso.saml', kind: 'grant', amount: null },
+  {
+    code: 'ai_ops_messages',
+    name: 'AI operations messages',
+    featureKey: 'ai_ops.messages.limit',
+    kind: 'metered',
+    amount: null,
+  },
+];
+
+function sqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * §6.7 catalog. Applied after the Phase 0 seed so INSERT OR IGNORE cannot
+ * leave Starter at 20 units or Growth at 100. Idempotent on re-apply.
+ */
+export const PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS addon (
+  code         TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  feature_key  TEXT NOT NULL REFERENCES feature(key),
+  kind         TEXT NOT NULL CHECK (kind IN ('grant', 'increment', 'metered')),
+  amount       INTEGER NULL
+)`,
+
+  `CREATE TABLE IF NOT EXISTS subscription_addon (
+  org_id      TEXT NOT NULL REFERENCES org(org_id),
+  addon_code  TEXT NOT NULL REFERENCES addon(code),
+  quantity    INTEGER NOT NULL CHECK (quantity >= 1),
+  PRIMARY KEY (org_id, addon_code)
+)`,
+
+  `CREATE TRIGGER IF NOT EXISTS subscription_addon_insert_bumps_version
+AFTER INSERT ON subscription_addon
+BEGIN
+  UPDATE subscription
+  SET entitlement_version = entitlement_version + 1
+  WHERE org_id = NEW.org_id;
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS subscription_addon_update_bumps_version
+AFTER UPDATE ON subscription_addon
+BEGIN
+  UPDATE subscription
+  SET entitlement_version = entitlement_version + 1
+  WHERE org_id = NEW.org_id;
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS subscription_addon_delete_bumps_version
+AFTER DELETE ON subscription_addon
+BEGIN
+  UPDATE subscription
+  SET entitlement_version = entitlement_version + 1
+  WHERE org_id = OLD.org_id;
+END`,
+
+  ...PLATFORM_SEED_FEATURE_KEYS.map((key) => {
+    const meta = FEATURE_CATALOG_META[key];
+    return `INSERT OR IGNORE INTO feature (key, name, type, module_id) VALUES (${sqlLiteral(key)}, ${sqlLiteral(meta.name)}, ${sqlLiteral(meta.type)}, ${sqlLiteral(meta.moduleId)})`;
+  }),
+
+  `INSERT OR IGNORE INTO plan (code, name, tier, base_price, billing_interval) VALUES ('group', 'Group', 3, 0, 'month')`,
+
+  ...PLATFORM_SEED_FEATURE_KEYS.flatMap((key) => {
+    const plans = PLAN_FEATURE_VALUES[key];
+    return (['starter', 'growth', 'group'] as const).flatMap((plan) => {
+      const value = plans[plan];
+      if (value === null) return [];
+      return [
+        `INSERT OR IGNORE INTO plan_feature (plan_code, feature_key, value) VALUES (${sqlLiteral(plan)}, ${sqlLiteral(key)}, ${sqlLiteral(value)})`,
+      ];
+    });
+  }),
+
+  // Phase 0 seed inserted 20 / 100 with INSERT OR IGNORE. Force the §6.7 caps.
+  `UPDATE plan_feature SET value = '40' WHERE plan_code = 'starter' AND feature_key = 'pms.units.limit'`,
+  `UPDATE plan_feature SET value = '400' WHERE plan_code = 'growth' AND feature_key = 'pms.units.limit'`,
+
+  ...ADDON_CATALOG.map((addon) => {
+    const amount = addon.amount === null ? 'NULL' : String(addon.amount);
+    return `INSERT OR IGNORE INTO addon (code, name, feature_key, kind, amount) VALUES (${sqlLiteral(addon.code)}, ${sqlLiteral(addon.name)}, ${sqlLiteral(addon.featureKey)}, ${sqlLiteral(addon.kind)}, ${amount})`;
+  }),
+];
+
+export const PLATFORM_ENTITLEMENT_CATALOG_SQL =
+  PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
   ...PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
   ...PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS,
+  ...PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS,
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
-
-/** D1 seed feature keys — kept in sync with @hospai/contracts FEATURE_KEYS via check:entitlements. */
-export const PLATFORM_SEED_FEATURE_KEYS = ['pms.core', 'pms.units.limit'] as const;
 
 /** Canonical SQL file body (statements already include IF NOT EXISTS for idempotent apply). */
 export const PLATFORM_REGISTRY_SQL = PLATFORM_REGISTRY_STATEMENTS.join(';\n\n') + ';\n';

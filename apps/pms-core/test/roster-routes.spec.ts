@@ -9,6 +9,7 @@ import { resolvePropertyFromRegistry } from '../src/provision.js';
 import {
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 
@@ -54,6 +55,7 @@ async function provisionTwoHotels(actor: string) {
   const propertyB = `prop_roster_b_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, 'Two Roster Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  await seedSubscription(env, orgId, 'group');
   expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
   return { orgId, propertyA, propertyB, actor };
 }

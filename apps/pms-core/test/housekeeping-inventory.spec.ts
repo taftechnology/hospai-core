@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate } from '../src/registry.js';
+import { ensurePlatformSchema, resetPlatformSchemaGate, seedSubscription } from '../src/registry.js';
 
 async function postOrg(orgId: string, actor: string) {
   return worker.fetch(
@@ -44,6 +44,7 @@ async function provisionTwoHotels(actor: string) {
   const propertyB = `prop_hki_b_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  await seedSubscription(env, orgId, 'group');
   expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
   return { orgId, propertyA, propertyB, actor };
 }

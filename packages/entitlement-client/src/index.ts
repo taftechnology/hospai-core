@@ -55,7 +55,10 @@ function killKvKey(featureKey: FeatureKey): string {
 
 export function parseFeatureValue(type: string, raw: string): FeatureValue {
   if (type === 'BOOLEAN') return raw === 'true';
-  if (type === 'LIMIT') return Number(raw);
+  if (type === 'LIMIT') {
+    if (raw === 'unlimited') return 'unlimited';
+    return Number(raw);
+  }
   return raw;
 }
 
@@ -66,6 +69,7 @@ export function require(snapshot: EntitlementSnapshot, featureKey: FeatureKey): 
     throw new EntitlementRequiredError(featureKey);
   }
   if (featureKey === 'pms.units.limit') {
+    if (val === 'unlimited') return;
     if (typeof val === 'number' && val > 0) return;
     throw new EntitlementRequiredError(featureKey);
   }

@@ -13,7 +13,7 @@ import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
+import { ensurePlatformSchema, resetPlatformSchemaGate, seedSubscription, setKillSwitch } from '../src/registry.js';
 import { idemForCommand } from './fixtures.js';
 
 async function postOrg(orgId: string, name: string, actor: string) {
@@ -59,6 +59,7 @@ async function provisionTwoHotels(actor: string) {
   const propertyB = `prop_ops_b_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, 'Two Ops Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyA, actor, 'Hotel Alpha')).status).toBe(201);
+  await seedSubscription(env, orgId, 'group');
   expect((await postProperty(orgId, propertyB, actor, 'Hotel Bravo')).status).toBe(201);
   const org = resolveOrgStub(env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
   return { orgId, propertyA, propertyB, actor, org };

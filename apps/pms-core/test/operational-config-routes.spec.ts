@@ -15,6 +15,7 @@ import {
   cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 
@@ -300,6 +301,7 @@ describe('operational config HTTP routes', () => {
     const propertyB = `prop_opcfg_b_${crypto.randomUUID()}`;
     expect((await postOrg(orgId, 'Two Prop Org', owner)).status).toBe(201);
     expect((await postProperty(orgId, propertyA, owner, 'Hotel A')).status).toBe(201);
+    await seedSubscription(env, orgId, 'group');
     expect((await postProperty(orgId, propertyB, owner, 'Hotel B')).status).toBe(201);
 
     expect(

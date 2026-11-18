@@ -4,11 +4,13 @@ import { currencyCode, InvalidMoneyError } from '@hospai/money';
 import {
   InvalidTimeZoneError,
   locationHintFromTimeZone,
+  resolveOrgEntitlementStub,
   resolveOrgStub,
   resolvePropertyStub,
 } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
+import type { OrgEntitlementDO } from './org-entitlement-do.js';
 import type { PropertyDO } from './property-do.js';
 import { getOrg, getProperty, insertProperty, upsertOrg, assertTenantActive } from './registry.js';
 
@@ -68,13 +70,29 @@ export async function provisionProperty(
   }
 
   await upsertOrg(env, input.orgId, input.orgName ?? input.orgId);
-  const property = await insertProperty(env, {
-    propertyId: input.propertyId,
-    orgId: input.orgId,
-    name: input.name,
-    jurisdiction: input.jurisdiction,
-    timeZone: input.timeZone,
-  });
+
+  const entitlement = resolveOrgEntitlementStub(
+    env.ORG_ENTITLEMENT_DO,
+    input.orgId,
+  ) as DurableObjectStub<OrgEntitlementDO>;
+  const slot = await entitlement.reservePropertySlot(input.orgId);
+  if (!slot.ok) {
+    return { ok: false, error: 'limit_exceeded', featureKey: 'pms.properties.limit' };
+  }
+
+  let property: PropertyRecord;
+  try {
+    property = await insertProperty(env, {
+      propertyId: input.propertyId,
+      orgId: input.orgId,
+      name: input.name,
+      jurisdiction: input.jurisdiction,
+      timeZone: input.timeZone,
+    });
+  } catch (e) {
+    await entitlement.releasePropertySlot(input.orgId);
+    throw e;
+  }
 
   await syncOrgAndPropertyDo(env, property, locationHint, input.actorUserId, ledgerCurrency);
   return { ok: true, property, locationHint };

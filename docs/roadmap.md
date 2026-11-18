@@ -451,12 +451,13 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 - [ ] **R3.9 Degraded SPA watermarks (gap-fill only)**
   - `StaleWatermark` + exception workbench already ship. Walk remaining screens: every `READ_STALE` / `QUEUE_PROVISIONAL` / `FAIL_CLOSED` path the clerk can hit shows a watermark or Alert. Do not add a second banner system.
 
-- [ ] **R3.10 Entitlement catalog amendment (packaging v1)**
+- [x] **R3.10 Entitlement catalog amendment (packaging v1)**
   - **Why now:** every Track 4 add-on is gated on a key that does not exist. `FEATURE_KEYS` holds **two** keys (`pms.core`, `pms.units.limit`); **R4.2** and **R4.3** both name keys outside it, so both are Blocked until this lands.
   - **Locked:** implement the authorised target table in [`ARCHITECTURE.md` §6.7](../ARCHITECTURE.md#67-package-composition) exactly. Extend `FEATURE_KEYS` (`packages/contracts/src/entitlements.ts`) and `PLATFORM_SEED_FEATURE_KEYS` (`packages/do-runtime/src/platform-migrations.ts`); seed three plans — **Starter / Growth / Group** — plus the add-ons. `pnpm check:entitlements` stays green and `FeatureKey` must not collapse to `| string`. There is **no Enterprise plan**; do not seed one.
   - **Also locked:** `pms.properties.limit` is a **`hard`** limit at the OrgEntitlementDO counter (§6.6) — it *is* the ten-property ceiling, and a stale snapshot must never let an eleventh property provision. `payments.enabled` on Starter is `required`, not a boolean grant: a Starter tenant without payments enrolment is a provisioning failure, not a silent free tier.
   - **Scope out:** billing, Stripe, plan self-serve, add-on purchase UI (all **R5.6**). Keys, plans and seed only.
   - **Blocks:** R4.2, R4.3, R4.6.
+  - **Done (2026-11-18):** [spec](superpowers/specs/2026-11-18-entitlement-catalog-design.md). `FEATURE_KEYS` holds the 22 §6.7 keys in table order; Starter / Growth / Group seeded cell for cell (∞ stored as `'unlimited'`), no Enterprise; add-on catalogue (`addon`) and per-org `subscription_addon` read by the resolver, whose changes bump `entitlement_version` (nothing sells add-ons until R5.6). D1 migration `0006` moves existing unit caps 20/100 → 40/400. `pms.properties.limit` is enforced hard: `provisionProperty` reserves a slot in the org's OrgEntitlementDO (standing counter, fresh D1 limit, checked and incremented in one transaction) and gets `422 limit_exceeded` at the cap. `payments.enabled` is `'required'` on Starter and `'enabled'` above it; **enforcing payments enrolment is R4.7** (no enrolment record exists before live acquiring). Eleven specs that build two hotels in one org now seed Group.
 
 ---
 

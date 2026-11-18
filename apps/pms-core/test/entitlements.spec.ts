@@ -84,7 +84,7 @@ describe('entitlements + kill-switch', () => {
     const orgId = `org-growth-${crypto.randomUUID()}`;
     await seedSubscription(env, orgId, 'growth');
     const snap = await loadSnapshot(env, orgId);
-    expect(snap.features['pms.units.limit']).toBe(100);
+    expect(snap.features['pms.units.limit']).toBe(400);
     expect(snap.features['pms.core']).toBe(true);
   });
 
@@ -126,7 +126,7 @@ describe('entitlements + kill-switch', () => {
     await seedSubscription(env, orgId, 'starter');
     const starterSnap = await loadSnapshot(env, orgId);
     expect(starterSnap.version).toBe(1);
-    expect(starterSnap.features['pms.units.limit']).toBe(20);
+    expect(starterSnap.features['pms.units.limit']).toBe(40);
 
     const del = await tryDeleteSubscription(env, orgId);
     expect(del.ok).toBe(false);
@@ -142,10 +142,10 @@ describe('entitlements + kill-switch', () => {
     await seedSubscription(env, orgId, 'growth');
     const growthSnap = await loadSnapshot(env, orgId);
     expect(growthSnap.version).toBeGreaterThan(starterSnap.version);
-    expect(growthSnap.features['pms.units.limit']).toBe(100);
+    expect(growthSnap.features['pms.units.limit']).toBe(400);
 
     const cachedStarter = await loadSnapshot(env, orgId, { version: starterSnap.version });
-    expect(cachedStarter.features['pms.units.limit']).toBe(20);
+    expect(cachedStarter.features['pms.units.limit']).toBe(40);
     expect(cachedStarter.version).toBe(1);
   });
 });

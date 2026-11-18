@@ -78,6 +78,16 @@ for (const key of PLATFORM_SEED_FEATURE_KEYS) {
   }
 }
 
+if (
+  PLATFORM_SEED_FEATURE_KEYS.length !== FEATURE_KEYS.length ||
+  PLATFORM_SEED_FEATURE_KEYS.some((key, i) => key !== FEATURE_KEYS[i])
+) {
+  console.error(
+    `PLATFORM_SEED_FEATURE_KEYS must equal FEATURE_KEYS in order (seed ${PLATFORM_SEED_FEATURE_KEYS.length}, catalog ${FEATURE_KEYS.length})`,
+  );
+  failed = true;
+}
+
 // Guard against union-with-string drift in entitlements.ts source
 const entitlementsSrc = readFileSync(join(root, 'packages/contracts/src/entitlements.ts'), 'utf8');
 if (/\|\s*string/.test(entitlementsSrc.match(/type FeatureKey[^;]+;/)?.[0] ?? '')) {

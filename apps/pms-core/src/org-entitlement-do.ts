@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
+  FEATURE_KEYS,
   LIMIT_EXCEEDED,
   type EntitlementSnapshot,
   type FeatureKey,
@@ -14,6 +15,29 @@ type PlanFeatureRow = {
   value: string;
   type: string;
 };
+
+type AddonRow = {
+  feature_key: string;
+  kind: string;
+  amount: number | null;
+  quantity: number;
+  type: string;
+};
+
+const FEATURE_KEY_SET: ReadonlySet<string> = new Set(FEATURE_KEYS);
+const UNLIMITED_LIMIT = Number.MAX_SAFE_INTEGER;
+const PROPERTY_SLOT_KEY = 'pms.properties.limit';
+
+function isFeatureKey(key: string): key is FeatureKey {
+  return FEATURE_KEY_SET.has(key);
+}
+
+function limitFromParsed(val: FeatureValue): number {
+  if (val === 'unlimited') return UNLIMITED_LIMIT;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+}
 
 export class OrgEntitlementDO extends DurableObject<PmsEnv> {
   private schemaVersionRpcFailureForTest = false;
@@ -108,19 +132,57 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
     const period = currentPeriod();
 
     for (const row of results ?? []) {
+      if (!isFeatureKey(row.feature_key)) continue;
+      const key = row.feature_key;
       const val = parseFeatureValue(row.type, row.value);
-      if (row.feature_key === 'pms.core' || row.feature_key === 'pms.units.limit') {
-        features[row.feature_key] = val as FeatureValue;
-      }
+      features[key] = val;
       if (row.type === 'LIMIT') {
-        const usedRows = this.ctx.storage.sql
-          .exec(`SELECT value FROM meter_counter WHERE meter_key = ? AND period = ?`, row.feature_key, period)
-          .toArray() as Array<{ value: number }>;
-        const used = Number(usedRows[0]?.value ?? 0);
-        limits[row.feature_key] = {
-          limit: typeof val === 'number' ? val : Number(val),
-          used,
+        limits[key] = {
+          limit: limitFromParsed(val),
+          used: this.meterUsed(key, period),
           behavior: 'hard',
+        };
+      }
+    }
+
+    const { results: addonRows } = await this.env.PLATFORM_DB.prepare(
+      `SELECT a.feature_key AS feature_key, a.kind AS kind, a.amount AS amount,
+              sa.quantity AS quantity, f.type AS type
+       FROM subscription_addon sa
+       JOIN addon a ON a.code = sa.addon_code
+       JOIN feature f ON f.key = a.feature_key
+       WHERE sa.org_id = ?`,
+    )
+      .bind(orgId)
+      .all<AddonRow>();
+
+    for (const row of addonRows ?? []) {
+      if (!isFeatureKey(row.feature_key)) continue;
+      const key = row.feature_key;
+      if (row.kind === 'grant') {
+        features[key] = true;
+        continue;
+      }
+      if (row.kind === 'increment') {
+        const current = features[key];
+        const currentLimit = limits[key]?.limit;
+        if (current === 'unlimited' || currentLimit === UNLIMITED_LIMIT) continue;
+        const base = typeof current === 'number' ? current : 0;
+        const next = base + Number(row.amount ?? 0) * Number(row.quantity);
+        features[key] = next;
+        limits[key] = {
+          limit: next,
+          used: limits[key]?.used ?? this.meterUsed(key, period),
+          behavior: 'hard',
+        };
+        continue;
+      }
+      if (row.kind === 'metered') {
+        features[key] = 'unlimited';
+        limits[key] = {
+          limit: UNLIMITED_LIMIT,
+          used: this.meterUsed(key, period),
+          behavior: 'soft',
         };
       }
     }
@@ -183,6 +245,72 @@ export class OrgEntitlementDO extends DurableObject<PmsEnv> {
       if (e instanceof LimitExceededError) return { ok: false, error: LIMIT_EXCEEDED };
       throw e;
     }
+  }
+
+  /**
+   * Hard property ceiling. Reads the limit from a fresh D1 resolve (not KV),
+   * then checks and increments the standing counter in one transaction.
+   * The counter is initialised from the org's D1 property count on first use.
+   */
+  async reservePropertySlot(
+    orgId: string,
+  ): Promise<{ ok: true } | { ok: false; error: typeof LIMIT_EXCEEDED; featureKey: 'pms.properties.limit' }> {
+    const snap = await this.resolveEntitlements(orgId);
+    const limit = snap.limits[PROPERTY_SLOT_KEY]?.limit ?? 0;
+    const propertyCount = await this.countOrgProperties(orgId);
+    try {
+      this.ctx.storage.transactionSync(() => {
+        const rows = this.ctx.storage.sql
+          .exec(`SELECT value FROM standing_counter WHERE counter_key = ?`, PROPERTY_SLOT_KEY)
+          .toArray() as Array<{ value: number }>;
+        const current = rows.length === 0 ? propertyCount : Number(rows[0]?.value ?? 0);
+        if (current >= limit) throw new LimitExceededError();
+        const next = current + 1;
+        if (rows.length === 0) {
+          this.ctx.storage.sql.exec(
+            `INSERT INTO standing_counter (counter_key, value) VALUES (?, ?)`,
+            PROPERTY_SLOT_KEY,
+            next,
+          );
+        } else {
+          this.ctx.storage.sql.exec(
+            `UPDATE standing_counter SET value = ? WHERE counter_key = ?`,
+            next,
+            PROPERTY_SLOT_KEY,
+          );
+        }
+      });
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof LimitExceededError) {
+        return { ok: false, error: LIMIT_EXCEEDED, featureKey: 'pms.properties.limit' };
+      }
+      throw e;
+    }
+  }
+
+  /** Undo a reservation when the registry insert that followed it fails. */
+  async releasePropertySlot(_orgId: string): Promise<void> {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `UPDATE standing_counter SET value = value - 1 WHERE counter_key = ? AND value > 0`,
+        PROPERTY_SLOT_KEY,
+      );
+    });
+  }
+
+  private meterUsed(meterKey: string, period: string): number {
+    const usedRows = this.ctx.storage.sql
+      .exec(`SELECT value FROM meter_counter WHERE meter_key = ? AND period = ?`, meterKey, period)
+      .toArray() as Array<{ value: number }>;
+    return Number(usedRows[0]?.value ?? 0);
+  }
+
+  private async countOrgProperties(orgId: string): Promise<number> {
+    const row = await this.env.PLATFORM_DB.prepare(`SELECT COUNT(*) AS n FROM property WHERE org_id = ?`)
+      .bind(orgId)
+      .first<{ n: number }>();
+    return Number(row?.n ?? 0);
   }
 }
 

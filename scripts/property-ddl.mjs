@@ -102,6 +102,7 @@ if (process.argv.includes('--self-test')) {
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
   let PLATFORM_PURGE_SQL;
   let PLATFORM_PENDING_COMMAND_OPEN_SQL;
+  let PLATFORM_ENTITLEMENT_CATALOG_SQL;
   try {
     ({
       FREEZE_GATE_SQL,
@@ -160,6 +161,7 @@ if (process.argv.includes('--self-test')) {
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
       PLATFORM_PURGE_SQL,
       PLATFORM_PENDING_COMMAND_OPEN_SQL,
+      PLATFORM_ENTITLEMENT_CATALOG_SQL,
     } = await import(modPath));
   } catch (e) {
     console.error(
@@ -705,6 +707,16 @@ const targets = [
 
 `,
     sql: PLATFORM_PENDING_COMMAND_OPEN_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0006_entitlement_catalog.sql'),
+    header: `-- Platform D1 entitlement catalog (§6.7) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Updates the Phase 0 unit caps (20/100) to 40/400. Idempotent on re-apply.
+
+`,
+    sql: PLATFORM_ENTITLEMENT_CATALOG_SQL,
   },
 ];
 

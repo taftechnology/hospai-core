@@ -14,6 +14,7 @@ import {
   cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 import { seedBarRatesForHorizon } from './fixtures.js';
@@ -92,6 +93,7 @@ async function provisionTwoHotels(actor: string) {
   const propertyB = `prop_guests_b_${crypto.randomUUID()}`;
   expect((await postOrg(orgId, 'Two Hotel Org', actor)).status).toBe(201);
   expect((await postProperty(orgId, propertyA, actor)).status).toBe(201);
+  await seedSubscription(env, orgId, 'group');
   expect((await postProperty(orgId, propertyB, actor)).status).toBe(201);
 
   const roomTypeResA = await postRoomType(propertyA, actor);

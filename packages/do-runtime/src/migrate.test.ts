@@ -22,6 +22,7 @@ import {
   PLATFORM_REGISTRY_SQL,
   PLATFORM_REGISTRY_STATEMENTS,
   PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
+  PLATFORM_ENTITLEMENT_CATALOG_SQL,
   PROPERTY_SCHEMA_HEAD,
   RESERVATION_SQL,
   RESERVATION_V5_SQL,
@@ -672,6 +673,18 @@ describe('freeze DDL single source', () => {
     expect(body).toBe(PLATFORM_REGISTRY_SQL.trim());
   });
 
+  it('migrations/d1-platform/0006_entitlement_catalog.sql matches PLATFORM_ENTITLEMENT_CATALOG_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/d1-platform/0006_entitlement_catalog.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(PLATFORM_ENTITLEMENT_CATALOG_SQL.trim());
+  });
+
   it('platform registry statements include jurisdiction immutability trigger', () => {
     expect(PLATFORM_REGISTRY_STATEMENTS.some((s) => s.includes('property_jurisdiction_immutable'))).toBe(
       true,
@@ -713,7 +726,7 @@ describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(41);
     expect(ORG_SCHEMA_HEAD).toBe(11);
-    expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
+    expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
 
   it('property schema head is 19 after night-audit e2e', () => {

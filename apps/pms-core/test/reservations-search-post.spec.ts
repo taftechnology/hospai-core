@@ -10,6 +10,7 @@ import {
   cancelSubscription,
   ensurePlatformSchema,
   resetPlatformSchemaGate,
+  seedSubscription,
   setKillSwitch,
 } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers.js';
@@ -339,6 +340,7 @@ describe('post_reservation_search', () => {
     const propertyB = `prop_b_${crypto.randomUUID()}`;
     expect((await postOrg(orgId, 'Iso Org', actor)).status).toBe(201);
     expect((await postProperty(orgId, propertyA, actor, 'Hotel A')).status).toBe(201);
+    await seedSubscription(env, orgId, 'group');
     expect((await postProperty(orgId, propertyB, actor, 'Hotel B')).status).toBe(201);
     const a = await addKingType(propertyA, actor);
     const b = await addKingType(propertyB, actor);

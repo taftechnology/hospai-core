@@ -1,5 +1,28 @@
-/** Closed Phase 0 feature keys — extend here + D1 seed + check:entitlements. */
-export const FEATURE_KEYS = ['pms.core', 'pms.units.limit'] as const;
+/** Closed feature keys — ARCHITECTURE.md §6.7 table order. Extend here + D1 seed + check:entitlements. */
+export const FEATURE_KEYS = [
+  'pms.core',
+  'pms.properties.limit',
+  'pms.units.limit',
+  'pms.multi_property',
+  'pms.housekeeping',
+  'payments.enabled',
+  'booking_engine.enabled',
+  'booking_engine.custom_domain',
+  'channel_manager.enabled',
+  'channel_manager.connections.limit',
+  'agentic_distribution.enabled',
+  'revenue_mgmt.enabled',
+  'ai_ops.enabled',
+  'ai_ops.messages.limit',
+  'mcp.enabled',
+  'mcp.clients.limit',
+  'pos.enabled',
+  'banquet.enabled',
+  'api.public_access',
+  'sso.saml',
+  'compliance.fiscalization',
+  'accounting_export.enabled',
+] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export type FeatureValue = boolean | number | string;
@@ -16,7 +39,7 @@ export const ENTITLEMENT_REQUIRED = 'entitlement_required' as const;
 export const ENTITLEMENT_UNAVAILABLE = 'entitlement_unavailable' as const;
 export const LIMIT_EXCEEDED = 'limit_exceeded' as const;
 
-export type PlanCode = 'starter' | 'growth';
+export type PlanCode = 'starter' | 'growth' | 'group';
 
 /** FAIL_CLOSED catalog commands exempt from the entitlement field — each entry must carry a reason. */
 export type EntitlementFailClosedOptOut = {

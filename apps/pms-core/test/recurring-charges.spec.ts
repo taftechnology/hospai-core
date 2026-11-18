@@ -4,7 +4,7 @@ import { ROLE_GRANTS } from '@hospai/contracts';
 import { computeTax } from '@hospai/money';
 import worker from '../src/index.js';
 import { resolvePropertyFromRegistry } from '../src/provision.js';
-import { ensurePlatformSchema, resetPlatformSchemaGate, setKillSwitch } from '../src/registry.js';
+import { ensurePlatformSchema, resetPlatformSchemaGate, seedSubscription, setKillSwitch } from '../src/registry.js';
 import { addCalendarDays } from './date-helpers.js';
 import { idemFor, seedBarRatesForHorizon } from './fixtures.js';
 import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
@@ -398,6 +398,7 @@ describe('recurring charges (R3.2)', () => {
     await book(hotel, reservationId, 2);
 
     const propertyB = `prop_rc_b_${crypto.randomUUID()}`;
+    await seedSubscription(env, hotel.orgId, 'group');
     expect(
       (
         await call('POST', `/v1/orgs/${hotel.orgId}/properties`, owner, {

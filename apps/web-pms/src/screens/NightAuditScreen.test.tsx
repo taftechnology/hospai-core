@@ -943,6 +943,9 @@ describe('NightAuditScreen', () => {
     }).format(new Date());
     getNightAudit.mockResolvedValue(statusPayload({ businessDate: today, timelineDate: today }));
     renderScreen();
-    expect(await screen.findByText('The day is still open and the counts will change.')).toBeTruthy();
+    const notice = await screen.findByText('The day is still open and the counts will change.');
+    const alert = notice.closest('[role="alert"]');
+    expect(alert).toBeTruthy();
+    expect(alert!.className).toMatch(/ui-alert--informational/);
   });
 });

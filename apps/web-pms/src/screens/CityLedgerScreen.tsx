@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   Dialog,
+  EmptyState,
   DataTable,
   FieldGroup,
   DataTableBody,
@@ -341,7 +342,7 @@ export function CityLedgerScreen() {
 
             <h2>Open entries</h2>
             {detail.entries.length === 0 ? (
-              <p className="muted">No entries yet.</p>
+              <EmptyState kind="empty" title="No entries yet." />
             ) : (
               <DataTable>
                 <DataTableHead>

@@ -688,8 +688,18 @@ describe('SettingsScreen', () => {
           commandId: 'reservations.check_in',
           entityType: 'reservation',
           entityId: 'res_a',
-          beforeJson: { status: 'confirmed' },
-          afterJson: { status: 'checked_in' },
+          beforeJson: {
+            status: 'confirmed',
+            roomId: null,
+            guest: { name: 'Ada' },
+            flag: true,
+          },
+          afterJson: {
+            status: 'checked_in',
+            note: 'walk-in',
+            guest: { name: 'Bea' },
+            count: 0,
+          },
           shiftId: null,
           reservationId: 'res_a',
           createdAt: 1_700_000_000_000,
@@ -714,10 +724,28 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('Housekeeping · complete task')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Folio' })).toHaveProperty('pathname', '/folio/res_a');
     fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]!);
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.getByRole('dialog').textContent).toContain('"confirmed"');
-    expect(screen.getByRole('dialog').textContent).toContain('"checked_in"');
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.querySelector('pre')).toBeNull();
+    const table = within(dialog).getByTestId('audit-detail-table');
+    const body = table.querySelector('tbody');
+    expect(body).toBeTruthy();
+    const cells = [...body!.querySelectorAll('tr')].map((row) =>
+      [...row.querySelectorAll('td')].map((cell) => cell.textContent),
+    );
+    expect(cells).toEqual([
+      ['count', '—', '0'],
+      ['flag', 'true', '—'],
+      ['guest', '{"name":"Ada"}', '{"name":"Bea"}'],
+      ['note', '—', 'walk-in'],
+      ['roomId', '—', '—'],
+      ['status', 'confirmed', 'checked_in'],
+    ]);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[1]!);
+    const emptyDialog = await screen.findByRole('dialog');
+    expect(emptyDialog.querySelector('pre')).toBeNull();
+    expect(within(emptyDialog).getByText('No field details recorded.').closest('[data-kind="empty"]')).toBeTruthy();
+    expect(within(emptyDialog).queryByTestId('audit-detail-table')).toBeNull();
   });
 
   it('logs: load more raises limit', async () => {

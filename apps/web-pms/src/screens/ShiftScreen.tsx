@@ -9,6 +9,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  EmptyState,
   Field,
   Input,
   PageHeader,
@@ -221,7 +222,22 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
   }
 
   const shift = q.data?.shift;
-  if (!shift) return <p className="muted">Shift not found</p>;
+  if (!shift) {
+    return (
+      <div className="ui-page-stack">
+        <PageHeader title="Shift receipt" />
+        <EmptyState
+          kind="empty"
+          title="Shift not found."
+          action={
+            <Link className="ui-link-btn" to="/arrivals">
+              Back to board
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
 
   const sev =
     shift.status === 'OPEN'

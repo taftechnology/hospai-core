@@ -688,7 +688,9 @@ function ChecksStage(props: {
       </CardHeader>
       <CardContent>
         <p>Closing date {date(status.businessDate)}</p>
-        {dayStillOpen ? <p>The day is still open and the counts will change.</p> : null}
+        {dayStillOpen ? (
+          <Alert intent="informational">The day is still open and the counts will change.</Alert>
+        ) : null}
         <div className="ui-row">
           <Button type="button" onClick={props.onRefresh}>
             Refresh

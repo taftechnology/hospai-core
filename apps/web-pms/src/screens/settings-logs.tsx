@@ -74,6 +74,66 @@ function shortEntityId(id: string): string {
   return `${id.slice(0, 8)}…`;
 }
 
+function auditRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function auditCell(record: Record<string, unknown> | null, key: string): string {
+  if (!record || !Object.hasOwn(record, key)) return '—';
+  const value = record[key];
+  if (value == null) return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+/** Union of before/after keys. Null when neither side recorded any fields. */
+function auditDetailRows(
+  beforeJson: unknown,
+  afterJson: unknown,
+): Array<{ field: string; before: string; after: string }> | null {
+  const before = auditRecord(beforeJson);
+  const after = auditRecord(afterJson);
+  const fields = [...new Set([...(before ? Object.keys(before) : []), ...(after ? Object.keys(after) : [])])].sort();
+  if (fields.length === 0) return null;
+  return fields.map((field) => ({
+    field,
+    before: auditCell(before, field),
+    after: auditCell(after, field),
+  }));
+}
+
+function AuditDetail({
+  detail,
+}: {
+  detail: { beforeJson: unknown; afterJson: unknown };
+}) {
+  const rows = auditDetailRows(detail.beforeJson, detail.afterJson);
+  if (!rows) {
+    return <EmptyState kind="empty" title="No field details recorded." />;
+  }
+  return (
+    <DataTable data-testid="audit-detail-table">
+      <DataTableHead>
+        <DataTableRow>
+          <DataTableHeaderCell>Field</DataTableHeaderCell>
+          <DataTableHeaderCell>Before</DataTableHeaderCell>
+          <DataTableHeaderCell>After</DataTableHeaderCell>
+        </DataTableRow>
+      </DataTableHead>
+      <DataTableBody>
+        {rows.map((row) => (
+          <DataTableRow key={row.field}>
+            <DataTableCell>{row.field}</DataTableCell>
+            <DataTableCell>{row.before}</DataTableCell>
+            <DataTableCell>{row.after}</DataTableCell>
+          </DataTableRow>
+        ))}
+      </DataTableBody>
+    </DataTable>
+  );
+}
+
 export function SettingsLogsTab() {
   const propertyId = tenant.propertyId;
   const { dateTime } = useFormat();
@@ -312,16 +372,7 @@ export function SettingsLogsTab() {
         }
       >
         {detailRow ? (
-          <div className="ui-stack">
-            <div>
-              <p className="muted">Before</p>
-              <pre>{JSON.stringify(detailRow.beforeJson, null, 2)}</pre>
-            </div>
-            <div>
-              <p className="muted">After</p>
-              <pre>{JSON.stringify(detailRow.afterJson, null, 2)}</pre>
-            </div>
-          </div>
+          <AuditDetail detail={detailRow} />
         ) : null}
       </Dialog>
     </>

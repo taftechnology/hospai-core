@@ -165,6 +165,8 @@ describe('CityLedgerScreen', () => {
     await waitFor(() =>
       expect(screen.getByTestId('city-ledger-open-balance').textContent).toBe('150.00'),
     );
+    const empty = screen.getByText('No entries yet.');
+    expect(empty.closest('[data-kind="empty"]')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('city-ledger-payment-open'));
     expect(await screen.findByTestId('city-ledger-payment')).toBeTruthy();

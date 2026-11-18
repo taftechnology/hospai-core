@@ -260,6 +260,15 @@ describe('ShiftScreen', () => {
     expect(document.body.textContent).not.toMatch(/client_error/);
   });
 
+  it('a missing shift is an EmptyState on the receipt page', async () => {
+    getShiftById.mockResolvedValue({ ok: true, shift: null });
+    renderAt('/shift/shift_gone');
+    expect(await screen.findByRole('heading', { name: 'Shift receipt' })).toBeTruthy();
+    const title = screen.getByText('Shift not found.');
+    expect(title.closest('[data-kind="empty"]')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Back to board' }).getAttribute('href')).toBe('/arrivals');
+  });
+
   it('load shift error uses classifiedUserMessage without class token', async () => {
     getShiftById.mockRejectedValue(
       new ClassifiedError({

@@ -323,6 +323,26 @@ describe('BoardScreen R1.3 leftovers', () => {
     expect(screen.getByTestId('board-message')).toHaveTextContent('Charge posted');
   });
 
+  it('product load failure is an attention alert and still offers charge codes', async () => {
+    listProducts.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    fireEvent.click(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Post charge' }));
+    const dialog = await screen.findByRole('dialog', { name: /Post charge/ });
+    const notice = await within(dialog).findByText('Products unavailable — posting by charge code.');
+    const alert = notice.closest('[role="alert"]');
+    expect(alert).toBeTruthy();
+    expect(alert!.className).toMatch(/ui-alert--attention/);
+    expect(await within(dialog).findByLabelText('Charge code')).toBeTruthy();
+  });
+
   it('excludes every do-runtime system charge code from incidentals', () => {
     const src = readFileSync(
       join(

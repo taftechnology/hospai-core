@@ -599,6 +599,37 @@ describe('FolioScreen wiring', () => {
     expect(addFolioLine).not.toHaveBeenCalled();
   });
 
+  it('lines and payments failures render Alerts without a class token', async () => {
+    getFolio.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockRejectedValue(
+      new ClassifiedError({
+        class: 'server_error',
+        status: 500,
+        body: {},
+        retryAfterMs: null,
+      }),
+    );
+    renderFolio();
+    const lines = await screen.findByText('Could not load folio lines.');
+    const payments = await screen.findByText('Could not load payments.');
+    const linesAlert = lines.closest('[role="alert"]');
+    const paymentsAlert = payments.closest('[role="alert"]');
+    expect(linesAlert).toBeTruthy();
+    expect(paymentsAlert).toBeTruthy();
+    expect(linesAlert!.className).not.toMatch(/\bmuted\b/);
+    expect(paymentsAlert!.className).not.toMatch(/\bmuted\b/);
+    expect(linesAlert!.textContent).not.toMatch(/server_error/);
+    expect(paymentsAlert!.textContent).not.toMatch(/server_error/);
+  });
+
   it('charge submit stays disabled while charge amount is empty', async () => {
     getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
     getReservation.mockResolvedValue(liveReservation);

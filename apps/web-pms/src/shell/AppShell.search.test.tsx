@@ -276,9 +276,8 @@ describe('AppShell reservation search', () => {
     renderShell();
     await waitFor(() => expect(screen.getByTestId('reservation-search')).toBeTruthy());
     await typeQuery('Ada');
-    await waitFor(() =>
-      expect(screen.getByText('Search unavailable — property unreachable.')).toBeTruthy(),
-    );
+    const copy = await screen.findByText('Search unavailable — property unreachable.');
+    expect(copy.closest('[role="alert"]')).toBeTruthy();
   });
 
   it('a null name reads Guest unavailable', async () => {

@@ -1371,7 +1371,11 @@ export function FolioScreen() {
         </CardHeader>
         <CardContent flush>
           {folioQ.isError ? (
-            <p className="muted">Lines unavailable</p>
+            <Alert>
+              {classifiedUserMessage(asClassified(folioQ.error), {
+                fallback: 'Could not load folio lines.',
+              })}
+            </Alert>
           ) : (
             <div className="ui-table-scroll">
               <DataTable data-testid="folio-lines">
@@ -1639,7 +1643,11 @@ export function FolioScreen() {
         </CardHeader>
         <CardContent>
           {paymentsQ.isError ? (
-            <p className="muted">Payments unavailable</p>
+            <Alert>
+              {classifiedUserMessage(asClassified(paymentsQ.error), {
+                fallback: 'Could not load payments.',
+              })}
+            </Alert>
           ) : tenderPayments.length === 0 ? (
             <p className="muted">No tenders</p>
           ) : (

@@ -451,7 +451,7 @@ export function PostChargeDialog({
       ) : (
         <>
           {products.query.isError ? (
-            <p className="muted">Products unavailable — posting by charge code.</p>
+            <Alert intent="attention">Products unavailable — posting by charge code.</Alert>
           ) : null}
           <Field
             label="Charge code"

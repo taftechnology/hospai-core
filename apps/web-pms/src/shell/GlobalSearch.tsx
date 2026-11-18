@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router';
-import { Input, Popover, Skeleton } from '@hospai/ui-kit';
+import { Alert, Input, Popover, Skeleton } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -174,8 +174,10 @@ export function GlobalSearch() {
       >
         <div className="global-search-panel">
           {pending ? <Skeleton label="Searching stays" lines={3} /> : null}
-          {failClosed ? <p>Search unavailable — property unreachable.</p> : null}
-          {otherError ? <p>{classifiedUserMessage(asClassified(searchQ.error), {})}</p> : null}
+          {failClosed ? <Alert>Search unavailable — property unreachable.</Alert> : null}
+          {otherError ? (
+            <Alert>{classifiedUserMessage(asClassified(searchQ.error), {})}</Alert>
+          ) : null}
           {empty ? (
             <p>
               No stay matches “{trimmed}”. Try a full name, room number or booking ID.

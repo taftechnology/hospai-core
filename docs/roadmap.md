@@ -413,8 +413,9 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 ## Track 3 — Config honesty + leftovers named in architecture
 
-- [ ] **R3.1 Config register vs Settings UI**
+- [x] **R3.1 Config register vs Settings UI**
   - Every visible Settings control maps to a register key that pms-core **reads**. Hide the rest. `EXCLUDED_PROTOTYPE_KEYS` stay excluded or get a spec to include them.
+  - **Done (2026-11-18):** 36 visible keys checked; four had no pms-core reader and are hidden — `pms.money.payment_alloc`, `pms.money.currencies_list` (not the FX allowlist), `pms.folio.breakfast_rule` and `pms.folio.configs`. The register entries stay; they come back only with a reader. `apps/web-pms/src/settings-keys-read.test.ts` fails if a Settings `configKey` has no reader in pms-core, its modules or do-runtime.
   - **Prototype / register:** `EXPECTED_PROTOTYPE_KEYS` length **97** (`packages/contracts/src/register.test.ts`). Do not confuse with `COMMAND_CATALOG` length **89**. **Do not** re-derive classification; extend `packages/contracts/src/config/register.ts`.
 
 - [ ] **R3.2 Recurring / fixed charges (named leftover — still Phase 1-adjacent)**

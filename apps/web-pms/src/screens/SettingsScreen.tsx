@@ -29,7 +29,6 @@ import {
   Textarea,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
-import { CURRENCIES } from '../config/currencies.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { useFormat } from '../shell/PropertyFormat.js';
@@ -247,109 +246,6 @@ function DomainSelect(props: {
         }
       />
       <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
-    </div>
-  );
-}
-
-function DomainCurrencies(props: {
-  label: string;
-  configKey: string;
-  initial: unknown;
-  reason: string;
-  hint?: string;
-  propertyId: string;
-  onSaved: () => void;
-}) {
-  const initialList = useMemo(
-    () =>
-      Array.isArray(props.initial)
-        ? props.initial.filter((v): v is string => typeof v === 'string')
-        : [],
-    [props.initial],
-  );
-  const initialKey = useMemo(() => [...new Set(initialList)].sort().join(','), [initialList]);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialList));
-  useEffect(() => {
-    setSelected(new Set(initialList));
-  }, [initialKey]);
-  const initialSet = useMemo(() => new Set(initialList), [initialKey]);
-  const dirty =
-    selected.size !== initialSet.size || [...selected].some((c) => !initialSet.has(c));
-  const save = useMutation({
-    mutationFn: () =>
-      api.putDomainConfig(props.propertyId, {
-        key: props.configKey,
-        value: CURRENCIES.filter((c) => selected.has(c.code)).map((c) => c.code),
-        reason: props.reason,
-      }),
-    onSuccess: () => {
-      props.onSaved();
-      setStatus('saved');
-    },
-    onError: () => setStatus('error'),
-  });
-  const [status, setStatus] = useAutoSave({
-    dirty,
-    reason: props.reason,
-    save: () => save.mutate(),
-  });
-  const [open, setOpen] = useState(false);
-  const selectedCodes = CURRENCIES.filter((c) => selected.has(c.code)).map((c) => c.code);
-  return (
-    <div className="ui-stack">
-      <Field
-        label={props.label}
-        hint={props.hint}
-        control={
-          <Button
-            type="button"
-            intent="default"
-            aria-label="Select currencies…"
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            onClick={() => setOpen(true)}
-          >
-            {selectedCodes.length === 0
-              ? 'Select currencies…'
-              : `Currencies: ${selectedCodes.join(', ')}`}
-          </Button>
-        }
-      />
-      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
-      {open ? (
-        <Dialog
-          open
-          wide
-          title={props.label}
-          onClose={() => setOpen(false)}
-          footer={
-            <Button type="button" intent="primary" onClick={() => setOpen(false)}>
-              Done
-            </Button>
-          }
-        >
-          <p className="muted">{selectedCodes.length} selected</p>
-          <div className="settings-currencies__grid">
-            {CURRENCIES.map((c) => (
-              <label key={c.code} className="settings-currencies__item">
-                <Checkbox
-                  checked={selected.has(c.code)}
-                  onChange={(e) =>
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      if (e.target.checked) next.add(c.code);
-                      else next.delete(c.code);
-                      return next;
-                    })
-                  }
-                />
-                <span translate="no">{c.code}</span>
-                <span className="muted">{c.name}</span>
-              </label>
-            ))}
-          </div>
-        </Dialog>
-      ) : null}
     </div>
   );
 }
@@ -761,19 +657,6 @@ export function SettingsScreen({
                   hint="Ledger currency is set at provision and cannot change here."
                   {...common}
                 />
-                <DomainBool
-                  label="Payment alloc"
-                  configKey="pms.money.payment_alloc"
-                  initial={lookup(keys, 'pms.money.payment_alloc')}
-                  {...common}
-                />
-<DomainCurrencies
-                  label="Currencies list"
-                  configKey="pms.money.currencies_list"
-                  initial={lookup(keys, 'pms.money.currencies_list')}
-                  hint="Not the FX allowlist — foreign tenders use FX rates on the folio."
-                  {...common}
-                />
               </div>
             </CardContent>
           </Card>
@@ -784,13 +667,6 @@ export function SettingsScreen({
             </CardHeader>
             <CardContent>
               <div className="settings-property__grid">
-                <DomainText
-                  label="Breakfast rule"
-                  configKey="pms.folio.breakfast_rule"
-                  initial={lookup(keys, 'pms.folio.breakfast_rule')}
-                  hint="Display only — night audit does not auto-post from this."
-                  {...common}
-                />
                 <DomainBool
                   label="Close window on check-out"
                   configKey="pms.folio.close_window_on_check_out"
@@ -801,13 +677,6 @@ export function SettingsScreen({
                   label="Auto capture on check-out"
                   configKey="pms.folio.auto_capture_on_check_out"
                   initial={lookup(keys, 'pms.folio.auto_capture_on_check_out')}
-                  {...common}
-                />
-                <DomainText
-                  label="Folio configs"
-                  configKey="pms.folio.configs"
-                  initial={lookup(keys, 'pms.folio.configs')}
-                  json
                   {...common}
                 />
               </div>
@@ -882,7 +751,7 @@ export function SettingsScreen({
 
           <Card>
             <CardHeader>
-              <CardTitle>Ops (unread)</CardTitle>
+              <CardTitle>Foreign currency</CardTitle>
             </CardHeader>
             <CardContent>
               <SectionLabel>FX Rates</SectionLabel>

@@ -129,7 +129,9 @@ describe('SettingsScreen', () => {
         domain('pms.ops.auto_assign_rooms', true),
         domain('pms.money.currency_code', 'USD'),
         domain('pms.money.currencies_list', []),
+        domain('pms.money.payment_alloc', true),
         domain('pms.folio.breakfast_rule', 'EXCLUDED FROM ROOM/BED PRICE'),
+        domain('pms.folio.configs', {}),
         domain('pms.time.time_zone', 'UTC'),
         domain('pms.payments.auth_hold_hours', 72),
       ],
@@ -259,33 +261,14 @@ describe('SettingsScreen', () => {
     });
   });
 
-  it('currencies_list is not the FX allowlist', async () => {
+  it('R3.1: hides keys pms-core never reads, even when the server returns them', async () => {
     renderSettings('/settings/property');
-    expect(await screen.findByText(/Not the FX allowlist/)).toBeTruthy();
-  });
-
-  it('currencies list opens in a popup and saves the selection as an array', async () => {
-    renderSettings('/settings/property');
-    fireEvent.click(await screen.findByRole('button', { name: 'Select currencies…' }));
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByText('EUR'));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
-      target: { value: 'ops:accept-eur' },
-    });
-    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 4000 });
-    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
-      key: 'pms.money.currencies_list',
-      value: ['EUR'],
-    });
-  }, 15000);
-
-  it('breakfast_rule is display-only for night audit', async () => {
-    renderSettings('/settings/property');
-    expect(
-      await screen.findByText('Display only — night audit does not auto-post from this.'),
-    ).toBeTruthy();
+    await screen.findByLabelText('Auto extend');
+    for (const label of ['Payment alloc', 'Currencies list', 'Breakfast rule', 'Folio configs']) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+    expect(screen.queryByRole('button', { name: 'Select currencies…' })).toBeNull();
+    expect(screen.queryByText(/Ops \(unread\)/)).toBeNull();
   });
 
   it('FX panel links to in-house and has no editor', async () => {

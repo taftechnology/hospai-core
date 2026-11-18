@@ -2094,30 +2094,6 @@ details.side-panel summary {
   font-size: 0.85rem;
 }
 
-.settings-currencies__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: var(--space-2);
-  margin-block: var(--space-2);
-}
-
-.settings-currencies__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.settings-currencies__item .muted {
-  font-size: 0.8rem;
-}
-
-.settings-currencies__grid {
-  overflow: auto;
-  margin: 0;
-}
-
 .app-two-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));

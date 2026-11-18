@@ -73,6 +73,7 @@ import {
   ROOM_NOT_ASSIGNABLE,
   ROOM_REQUIRED,
   ROOM_NOT_READY,
+  ROOM_MOVE_REASON_REQUIRED,
   BALANCE_DUE,
   FOLIO_BALANCE_DUE,
   INVOICE_ALREADY_EXISTS,
@@ -897,6 +898,13 @@ class RoomNotReadyError extends Error {
   constructor() {
     super(ROOM_NOT_READY);
     this.name = 'RoomNotReadyError';
+  }
+}
+
+class RoomMoveReasonRequiredError extends Error {
+  constructor() {
+    super(ROOM_MOVE_REASON_REQUIRED);
+    this.name = 'RoomMoveReasonRequiredError';
   }
 }
 
@@ -7675,9 +7683,66 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /**
+   * An overstaying guest (in house, booked departure before the business date) still holds the
+   * room, at least until the day after the business date. Overlap checks end such a stay there
+   * instead of at its past departure. A guest due out today keeps their booked departure, so the
+   * room can still be pre-assigned for tonight. Null when the business date is unset.
+   */
+  private overstayHoldSync(): { businessDate: string; heldThrough: string } | null {
+    const businessDate = this.readBusinessDateSync();
+    return businessDate
+      ? { businessDate, heldThrough: enumerateFromDate(businessDate, 2)[1]! }
+      : null;
+  }
+
+  /** Another in-house guest is in this room right now, whatever their booked dates say. */
+  private assertRoomVacantNowSync(roomId: string, reservationId: string): void {
+    const occupied = this.ctx.storage.sql
+      .exec(
+        `SELECT reservation_id FROM reservation
+          WHERE room_id = ?
+            AND reservation_id != ?
+            AND status = 'checked_in'
+          LIMIT 1`,
+        roomId,
+        reservationId,
+      )
+      .toArray();
+    if (occupied.length > 0) throw new RoomAlreadyAssignedError();
+  }
+
+  /**
+   * Checkout and in-house move: a vacated room becomes dirty unless it is out of order.
+   */
+  private markRoomDirtySync(roomId: string, propertyId: string, now: number): void {
+    const roomRows = this.ctx.storage.sql
+      .exec(`SELECT status FROM room WHERE room_id = ?`, roomId)
+      .toArray() as Array<{ status: string }>;
+    const fromStatus = roomRows[0]?.status ?? 'clean';
+    if (fromStatus !== 'out_of_order') {
+      this.ctx.storage.sql.exec(
+        `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
+        now,
+        roomId,
+      );
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'room.status_changed',
+        payload: {
+          propertyId,
+          roomId,
+          fromStatus,
+          toStatus: 'dirty',
+        },
+      });
+    }
+  }
+
+  /**
    * Assign a physical room to a reservation. Implements `reservations.assign_room`.
-   * Fingerprint allowlist: `{ reservationId, roomId }`.
-   * FAIL_CLOSED — no provisional parameter. Overlap uses half-open [arrival, departure).
+   * Fingerprint is `{ reservationId, roomId }` plus `reason` only when the caller sent it.
+   * FAIL_CLOSED — no provisional parameter. Overlap uses half-open [from, to).
+   * Pending and confirmed use the whole stay. A checked-in move passes the remaining window.
    */
   private assertRoomAssignableSync(
     roomId: string,
@@ -7687,7 +7752,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       arrivalDate: string;
       departureDate: string;
     },
+    window?: { from: string; to: string },
   ): { room_type_id: string; status: string } {
+    const from = window?.from ?? reservation.arrivalDate;
+    const to = window?.to ?? reservation.departureDate;
     const roomRows = this.ctx.storage.sql
       .exec(`SELECT room_type_id, status, archived_at FROM room WHERE room_id = ?`, roomId)
       .toArray() as Array<{ room_type_id: string; status: string; archived_at: number | null }>;
@@ -7695,6 +7763,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!room || room.archived_at != null) throw new RoomNotFoundError();
     if (room.status === 'out_of_order') throw new RoomOutOfOrderError();
     if (room.room_type_id !== reservation.allocatedRoomTypeId) throw new RoomTypeMismatchError();
+    const hold = this.overstayHoldSync();
     const conflict = this.ctx.storage.sql
       .exec(
         `SELECT reservation_id FROM reservation
@@ -7702,12 +7771,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
            AND reservation_id != ?
            AND status IN ('pending', 'confirmed', 'checked_in')
            AND arrival_date < ?
-           AND departure_date > ?
+           AND (CASE WHEN status = 'checked_in' AND ? IS NOT NULL AND departure_date < ?
+                     THEN ? ELSE departure_date END) > ?
          LIMIT 1`,
         roomId,
         reservation.reservationId,
-        reservation.departureDate,
-        reservation.arrivalDate,
+        to,
+        hold?.businessDate ?? null,
+        hold?.businessDate ?? null,
+        hold?.heldThrough ?? null,
+        from,
       )
       .toArray();
     if (conflict.length > 0) throw new RoomAlreadyAssignedError();
@@ -7719,8 +7792,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             AND end_date > ?
           LIMIT 1`,
         roomId,
-        reservation.departureDate,
-        reservation.arrivalDate,
+        to,
+        from,
       )
       .toArray();
     if (oooHit.length > 0) throw new RoomOutOfOrderError();
@@ -7729,7 +7802,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryAssignRoom(
     actor: ActorContext,
-    input: { reservationId: string; roomId: string },
+    input: { reservationId: string; roomId: string; reason?: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; reservationId: string; roomId: string }
@@ -7737,6 +7810,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
     | { ok: false; error: typeof ROOM_NOT_ASSIGNABLE }
+    | { ok: false; error: typeof ROOM_NOT_READY }
+    | { ok: false; error: typeof ROOM_MOVE_REASON_REQUIRED }
     | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED }
@@ -7788,14 +7863,47 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             throw new RoomNotAssignableError();
           }
 
+          const isMove = reservation.status === 'checked_in';
+          let moveReason = '';
+          let moveWindow: { from: string; to: string } | undefined;
+          if (isMove) {
+            moveReason = (input.reason ?? '').trim();
+            if (!moveReason) throw new RoomMoveReasonRequiredError();
+            if (reservation.room_id != null && reservation.room_id === input.roomId) {
+              throw new RoomAlreadyAssignedError();
+            }
+            const businessDate = this.readBusinessDateSync();
+            if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+            const from =
+              reservation.arrival_date > businessDate ? reservation.arrival_date : businessDate;
+            const to =
+              reservation.departure_date > from
+                ? reservation.departure_date
+                : enumerateFromDate(from, 2)[1]!;
+            moveWindow = { from, to };
+          }
+
           const allocatedRoomTypeId =
             reservation.allocated_room_type_id || reservation.room_type_id;
-          this.assertRoomAssignableSync(input.roomId, {
-            reservationId: input.reservationId,
-            allocatedRoomTypeId,
-            arrivalDate: reservation.arrival_date,
-            departureDate: reservation.departure_date,
-          });
+          const room = this.assertRoomAssignableSync(
+            input.roomId,
+            {
+              reservationId: input.reservationId,
+              allocatedRoomTypeId,
+              arrivalDate: reservation.arrival_date,
+              departureDate: reservation.departure_date,
+            },
+            moveWindow,
+          );
+
+          if (isMove) {
+            this.assertRoomVacantNowSync(input.roomId, input.reservationId);
+            const requireInspection =
+              this.readConfigValueSync('pms.housekeeping.require_inspection') === true;
+            const ready =
+              room.status === 'inspected' || (room.status === 'clean' && !requireInspection);
+            if (!ready) throw new RoomNotReadyError();
+          }
 
           const now = Date.now();
           const previousRoomId = reservation.room_id;
@@ -7805,6 +7913,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             now,
             input.reservationId,
           );
+
+          if (isMove && previousRoomId) {
+            this.markRoomDirtySync(previousRoomId, propertyId, now);
+          }
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -7823,7 +7935,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             entityType: 'reservation',
             entityId: input.reservationId,
             beforeJson: { roomId: previousRoomId },
-            afterJson: { roomId: input.roomId },
+            afterJson: isMove
+              ? { roomId: input.roomId, reason: moveReason, move: true }
+              : { roomId: input.roomId },
             reservationId: input.reservationId,
           });
 
@@ -7840,6 +7954,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof RoomTypeMismatchError) return { ok: false, error: ROOM_TYPE_MISMATCH };
       if (e instanceof RoomAlreadyAssignedError) return { ok: false, error: ROOM_ALREADY_ASSIGNED };
       if (e instanceof RoomNotAssignableError) return { ok: false, error: ROOM_NOT_ASSIGNABLE };
+      if (e instanceof RoomNotReadyError) return { ok: false, error: ROOM_NOT_READY };
+      if (e instanceof RoomMoveReasonRequiredError) {
+        return { ok: false, error: ROOM_MOVE_REASON_REQUIRED };
+      }
       if (e instanceof RoomOutOfOrderError) return { ok: false, error: ROOM_OUT_OF_ORDER };
       const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
@@ -10137,6 +10255,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           if (!resolvedRoomId) throw new RoomRequiredError();
+          // A room assigned days ago may now hold an overstaying guest; never check in on top of one.
+          this.assertRoomVacantNowSync(resolvedRoomId, input.reservationId);
 
           if (resolvedRoomId !== reservation.room_id) {
             const allocatedRoomTypeId =
@@ -10486,27 +10606,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           );
 
           if (reservation.room_id) {
-            const roomRows = this.ctx.storage.sql
-              .exec(`SELECT status FROM room WHERE room_id = ?`, reservation.room_id)
-              .toArray() as Array<{ status: string }>;
-            const fromStatus = roomRows[0]?.status ?? 'clean';
-            if (fromStatus !== 'out_of_order') {
-              this.ctx.storage.sql.exec(
-                `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
-                now,
-                reservation.room_id,
-              );
-              this.appendPropertyOutbox({
-                eventId: crypto.randomUUID(),
-                eventType: 'room.status_changed',
-                payload: {
-                  propertyId,
-                  roomId: reservation.room_id,
-                  fromStatus,
-                  toStatus: 'dirty',
-                },
-              });
-            }
+            this.markRoomDirtySync(reservation.room_id, propertyId, now);
           }
 
           this.appendPropertyOutbox({
@@ -11766,6 +11866,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }> {
     this.assertRpcAvailable();
     const typeId = q.roomTypeId ?? null;
+    const hold = this.overstayHoldSync();
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT room_id, room_type_id, code, status, floor
@@ -11778,7 +11879,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
              WHERE room_id IS NOT NULL
                AND status IN ('pending', 'confirmed', 'checked_in')
                AND arrival_date < ?
-               AND departure_date > ?
+               AND (CASE WHEN status = 'checked_in' AND ? IS NOT NULL AND departure_date < ?
+                         THEN ? ELSE departure_date END) > ?
            )
            AND room_id NOT IN (
              SELECT room_id FROM room_ooo
@@ -11788,6 +11890,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         typeId,
         typeId,
         q.toDate,
+        hold?.businessDate ?? null,
+        hold?.businessDate ?? null,
+        hold?.heldThrough ?? null,
         q.fromDate,
         q.toDate,
         q.fromDate,

@@ -150,7 +150,7 @@ Cross-checked against live SPA/routes, ARCHITECTURE.md §7.1/§7.8/§11/§14/§1
 | Booking wizard remainder | **R1.4**. Already ships adults, Inquiry/Hold/Confirm, promo, guest search. Remainder: consume booking Settings keys or hide (R0.11); add-ons via **R1.5**; source/segment via **R1.6**; FAIL_CLOSED disable. |
 | Billing & Guarantee / PAN modal | **R1.20** = consume `require_prepayment` + existing **simulate** `folio.authorize` (payments-simulate + card-last4 specs). No new PAN fields. No `held` inventory. |
 | Open Reservation / walk-in | **R1.3** → `/book` with today. Tape spec allows navigate; not a new assign POST. |
-| In-house room move | **R1.19** via existing `reservations.assign_room` on `checked_in`. |
+| In-house room move | **R1.19** shipped 2026-11-17 via existing `reservations.assign_room` on `checked_in`. |
 | Post incidental from the board | **R1.3** Dialog → `folio.add_item` (charge codes until R1.5). |
 | Special requests | Front-office comment (already on Check-in/Folio). Do **not** add extra guest_refs. |
 | Damage deposit SPA | **R1.15** / FolioScreen: authorize `purpose=DAMAGE`; void = release; `DAMAGE` line + capture = forfeit. |
@@ -356,12 +356,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Locked:** deep-link / embed the Inventory screens (types, rooms, floors, OOO, amenities). **Do not** build a second editor. Spaces / split-inventory tabs stay hidden until Track 4.
   - **As-built:** `/settings/accommodations` (a tab after Property) links out and edits nothing: Room types → `/inventory`, Rooms and floors → `/inventory/rooms` (floor is a field on each room), Out of order → `/housekeeping` (the board sets and releases OOO ranges). Each link shows only with the destination's permissions (`inventory:write`; OOO also needs `housekeeping:read`); otherwise the row says which access is missing. Amenities have no screen or data model yet, so there is no amenities row; spaces and split inventory stay hidden (Track 4). No route, command or migration. Fixed on the way: Settings counted the prefilled property name as an unsaved change, so leaving any Settings tab (Users → Staff, these links) asked "Leave without saving?" with nothing edited; it now compares against the stored name.
 
-- [ ] **R1.19 In-house room move**
+- [x] **R1.19 In-house room move** — shipped 2026-11-17
   - **Depends:** R0.6. Type change on an in-house stay is **R4.24**: `reservations.modify` refuses `checked_in`.
   - **Prototype:** Front Desk `showMoveModal` (target room + reason).
   - **Live:** `assignRoom` is used on Check-in only.
   - **Locked:** POST existing `reservations.assign_room` for a `checked_in` stay to another **clean, vacant, same-type** room with a required reason (front-office comment or audit details). Invalidate `['board']`. Different type = **R4.24** (Track P). Not a $0 reservation. Not drag-on-tape.
   - **Tests:** old room free, new room occupied; dirty/OOO/occupied target rejected.
+  - **As-built:** An in-house move is the existing `reservations.assign_room` (`post_reservation_assign_room`) on a `checked_in` stay. No new command, route, or migration. (1) Trimmed `reason` is required (`room_move_reason_required`, 422). Pending and confirmed still assign without one, and `reason` joins the fingerprint only when the body sends it. (2) The target equal to the current room is `room_already_assigned`. (3) Overlap and `room_ooo` use the remaining window `from = max(arrival, business date)`, `to = departure`, or the next day when the guest is overstaying. Pending and confirmed still use the whole stay. (4) Any other `checked_in` guest in the target room blocks the move, including an overstay whose departure is already past. (5) The target must be `inspected`, or `clean` when `pms.housekeeping.require_inspection` is not true (`room_not_ready`). No dirty override. (6) Same type only (`room_type_mismatch`). A type change stays R4.24. (7) The previous room is marked dirty the same way checkout does, unless it is out of order. (8) `availability_day` is unchanged. (9) The move audit is `{ roomId, reason, move: true }`. `reservation.room_assigned` is unchanged and carries no reason. The In-house board has Move room: a required reason, clean or inspected candidates, current room excluded. A reason longer than 500 characters is `400 invalid_body`. Fixed on the way: an overstaying guest (in house, booked departure before the business date) was invisible to every room-overlap check, so free-room lists, assignment and check-in could put a second guest in an occupied room. Overlap checks (`listAvailableRooms`, `assertRoomAssignableSync`) now end such a stay no earlier than the day after the business date, and check-in refuses a room another in-house guest is still in (`room_already_assigned`), including a room pre-assigned days earlier. A guest due out today keeps their booked departure, so the room can still be pre-assigned for tonight.
 
 - [ ] **R1.20 Guarantee + check-in auth workflow (no PAN)**
   - **Depends:** R1.4.
@@ -922,7 +923,7 @@ Start only when Track 5 is `[x]`.
 | Settings Tickets | `TicketsSettings.tsx` | missing | **R1.9** maintenance module; concierge **R5.2** |
 | Settings Email | `Settings.tsx` email | missing / session stub | **R5.2** |
 | Guarantee / pre-auth | Booking + Front Desk card modal | simulate authorize + last4 | **R1.20** (no PAN) |
-| In-house room move | Front Desk move modal | check-in assign only | **R1.19** |
+| In-house room move | Front Desk move modal | In-house board Move room | **R1.19** shipped |
 | Products | `ProductsSettings.tsx` | charge codes | R1.5 **module** |
 | Booking engine | `BookingEngine*.tsx` | missing | R4.2 (ARI_KV already ships) |
 | Distribution / channels | `ChannelManager.tsx` | missing | R4.3 connector to a third-party channel manager (needs R4.5) |

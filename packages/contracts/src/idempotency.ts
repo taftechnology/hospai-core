@@ -72,6 +72,7 @@ export const HOLD_EXPIRED = 'hold_expired' as const;
 export const INQUIRY_EXPIRED = 'inquiry_expired' as const;
 export const ROOM_REQUIRED = 'room_required' as const;
 export const ROOM_NOT_READY = 'room_not_ready' as const;
+export const ROOM_MOVE_REASON_REQUIRED = 'room_move_reason_required' as const;
 export const ROOM_OUT_OF_ORDER = 'room_out_of_order' as const;
 export const BALANCE_DUE = 'balance_due' as const;
 export const OCCUPANCY_EXCEEDED = 'occupancy_exceeded' as const;

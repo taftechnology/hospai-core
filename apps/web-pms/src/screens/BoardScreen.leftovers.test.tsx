@@ -20,6 +20,7 @@ const assignRoom = vi.fn();
 const addFolioLine = vi.fn();
 const listChargeCodes = vi.fn();
 const listProducts = vi.fn();
+const listRoomTypes = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -40,6 +41,7 @@ vi.mock('../client.js', () => ({
     addFolioLine: (...a: unknown[]) => addFolioLine(...a),
     listChargeCodes: (...a: unknown[]) => listChargeCodes(...a),
     listProducts: (...a: unknown[]) => listProducts(...a),
+    listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
   },
 }));
 
@@ -172,6 +174,10 @@ describe('BoardScreen R1.3 leftovers', () => {
       ],
     });
     listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
+    listRoomTypes.mockResolvedValue({
+      ok: true,
+      roomTypes: [{ roomTypeId: 'rt_king', code: 'KNG', name: 'King' }],
+    });
   });
 
   afterEach(() => cleanup());
@@ -330,6 +336,167 @@ describe('BoardScreen R1.3 leftovers', () => {
     const system = [...block![1]!.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]!);
     expect(system.length).toBeGreaterThan(0);
     for (const c of system) expect(NON_INCIDENTAL_CODES.has(c)).toBe(true);
+  });
+
+  it('offers Move room only on an in-house checked-in guest who has a room', async () => {
+    renderBoard('arrivals');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Move room' })).toBeNull();
+    cleanup();
+
+    getInHouse.mockResolvedValue({
+      ok: true,
+      items: [
+        inHouseGuest,
+        {
+          reservationId: 'res_loose',
+          guestRef: 'g_loose',
+          roomTypeId: 'rt_king',
+          status: 'checked_in' as const,
+          arrivalDate: '2026-10-27',
+          departureDate: '2026-10-30',
+          roomId: null,
+        },
+        {
+          reservationId: 'res_hold',
+          guestRef: 'g_hold',
+          roomTypeId: 'rt_king',
+          status: 'confirmed' as const,
+          arrivalDate: '2026-10-28',
+          departureDate: '2026-10-30',
+          roomId: 'rm_103',
+        },
+      ],
+      nextCursor: null,
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: {
+        g_ih: { kind: 'resolved', displayName: 'Meera Iyer' },
+        g_loose: { kind: 'resolved', displayName: 'No Room' },
+        g_hold: { kind: 'resolved', displayName: 'Still Due' },
+      },
+    });
+    renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    expect(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Move room' })).toBeInTheDocument();
+    expect(within(rowFor('No Room')).queryByRole('button', { name: 'Move room' })).toBeNull();
+    expect(within(rowFor('Still Due')).queryByRole('button', { name: 'Move room' })).toBeNull();
+  });
+
+  it('moves an in-house guest to a clean or inspected room and records the reason', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-10-28',
+      toDate: '2026-10-30',
+      asOf: 1,
+      rooms: [
+        { roomId: 'rm_102', roomTypeId: 'rt_king', code: '102', status: 'clean', floor: '1' },
+        { roomId: 'rm_103', roomTypeId: 'rt_king', code: '103', status: 'clean', floor: '1' },
+        { roomId: 'rm_104', roomTypeId: 'rt_king', code: '104', status: 'dirty', floor: '1' },
+        { roomId: 'rm_105', roomTypeId: 'rt_king', code: '105', status: 'inspected', floor: '1' },
+        { roomId: 'rm_106', roomTypeId: 'rt_king', code: '106', status: 'out_of_order', floor: '1' },
+      ],
+    });
+    const { invalidateSpy } = renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    fireEvent.click(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Move room' }));
+    const dialog = await screen.findByRole('dialog', { name: /Move room/ });
+    await waitFor(() =>
+      expect(getAvailableRooms).toHaveBeenCalledWith('prop_demo', {
+        fromDate: '2026-10-28',
+        toDate: '2026-10-30',
+        roomTypeId: 'rt_king',
+      }),
+    );
+    const select = await within(dialog).findByLabelText('Room');
+    expect(within(select).getByRole('option', { name: '103 · Clean' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: '105 · Inspected' })).toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: /102/ })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /Dirty/ })).toBeNull();
+    expect(within(select).queryByRole('option', { name: /Out of order/ })).toBeNull();
+    const move = within(dialog).getByRole('button', { name: 'Move' });
+    expect(move).toBeDisabled();
+    fireEvent.change(select, { target: { value: 'rm_105' } });
+    expect(move).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: '   ' } });
+    expect(move).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'Pipe burst' } });
+    expect(move).toBeEnabled();
+    fireEvent.click(move);
+    await waitFor(() => expect(assignRoom).toHaveBeenCalledTimes(1));
+    expect(assignRoom.mock.calls[0]).toEqual([
+      'prop_demo',
+      'res_ih',
+      'rm_105',
+      'move:res_ih:rm_102:rm_105:Pipe burst',
+      { reason: 'Pipe burst' },
+    ]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['front-desk-tape', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['front-desk-free', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['front-desk-available', 'prop_demo'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['front-desk-summary', 'prop_demo'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['rooms', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['housekeeping-priorities', 'prop_demo'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['reservation', 'prop_demo', 'res_ih'],
+    });
+    expect(screen.getByTestId('board-message')).toHaveTextContent(
+      'Moved Meera Iyer from 102 to 105. Room 102 is now dirty.',
+    );
+  });
+
+  it('asks for a room through the night after an overstay departure', async () => {
+    getInHouse.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          ...inHouseGuest,
+          arrivalDate: '2026-10-26',
+          departureDate: '2026-10-28',
+        },
+      ],
+      nextCursor: null,
+    });
+    renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    fireEvent.click(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Move room' }));
+    await screen.findByRole('dialog', { name: /Move room/ });
+    await waitFor(() =>
+      expect(getAvailableRooms).toHaveBeenCalledWith('prop_demo', {
+        fromDate: '2026-10-28',
+        toDate: '2026-10-29',
+        roomTypeId: 'rt_king',
+      }),
+    );
+  });
+
+  it('says when no clean vacant room of the type remains', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-10-28',
+      toDate: '2026-10-30',
+      asOf: 1,
+      rooms: [
+        { roomId: 'rm_102', roomTypeId: 'rt_king', code: '102', status: 'inspected', floor: '1' },
+        { roomId: 'rm_104', roomTypeId: 'rt_king', code: '104', status: 'dirty', floor: '1' },
+      ],
+    });
+    renderBoard('in-house', '');
+    await waitFor(() => expect(screen.getByText('Meera Iyer')).toBeInTheDocument());
+    fireEvent.click(within(rowFor('Meera Iyer')).getByRole('button', { name: 'Move room' }));
+    const dialog = await screen.findByRole('dialog', { name: /Move room/ });
+    expect(
+      await within(dialog).findByText('No clean, vacant King room for the rest of the stay.'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Move' })).toBeDisabled();
   });
 
   it('keeps Post disabled for a zero or malformed amount', async () => {

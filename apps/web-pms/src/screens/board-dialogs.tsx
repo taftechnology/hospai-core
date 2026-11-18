@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { FrontDeskItem, PropertyFormat } from '@hospai/client-core';
+import { addCalendarDays, type FrontDeskItem, type PropertyFormat } from '@hospai/client-core';
 import {
   Alert,
   Button,
@@ -14,7 +14,8 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
-import { useFormat } from '../shell/PropertyFormat.js';
+import { propertyLocalToday } from '../status/property-local-today.js';
+import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { usePostableProducts } from './product-picker.js';
 import { FormDialog } from '../shell/FormDialog.js';
 
@@ -155,6 +156,168 @@ export function AssignRoomDialog({
             }}
           >
             Assign
+          </Button>
+        </>
+      }
+    >
+      {body}
+      {error ? <Alert>{error}</Alert> : null}
+    </FormDialog>
+  );
+}
+
+/**
+ * Move a checked-in guest to another same-type room (R1.19) through
+ * `reservations.assign_room`. Candidates are clean or inspected and vacant
+ * for the rest of the stay; the current room is excluded. A reason is required.
+ */
+export function MoveRoomDialog({
+  row,
+  guestName,
+  onClose,
+  onDone,
+}: {
+  row: FrontDeskItem;
+  guestName: string;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const { fmt } = useFormat();
+  const timeZone = usePropertyTimeZone();
+  const propertyId = tenant.propertyId;
+  const roomTypeId = typeof row.roomTypeId === 'string' ? row.roomTypeId : undefined;
+  const arrival = row.arrivalDate ?? '';
+  const departure = row.departureDate ?? '';
+  const today = timeZone ? propertyLocalToday(timeZone) : '';
+  const fromDate = arrival && today ? (arrival > today ? arrival : today) : '';
+  const toDate = fromDate
+    ? departure > fromDate
+      ? departure
+      : addCalendarDays(fromDate, 1)
+    : '';
+  const fromRoom = typeof row.roomId === 'string' ? row.roomId : '';
+  const [roomId, setRoomId] = useState('');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const freeQ = useQuery({
+    queryKey: ['front-desk-available', propertyId, fromDate, toDate, roomTypeId ?? null],
+    queryFn: () =>
+      api.getAvailableRooms(propertyId, {
+        fromDate,
+        toDate,
+        ...(roomTypeId ? { roomTypeId } : {}),
+      }),
+    enabled: fromDate.length > 0 && toDate.length > 0,
+    retry: false,
+  });
+  const roomsQ = useQuery({
+    queryKey: ['rooms', propertyId],
+    queryFn: () => api.listRooms(propertyId),
+    retry: false,
+  });
+  const typesQ = useQuery({
+    queryKey: ['room-types', propertyId, 'active'],
+    queryFn: () => api.listRoomTypes(propertyId, { status: 'active' }),
+    enabled: Boolean(roomTypeId),
+    retry: false,
+  });
+  const rooms = (freeQ.data?.rooms ?? []).filter(
+    (r) => r.roomId !== fromRoom && (r.status === 'clean' || r.status === 'inspected'),
+  );
+  const chosen = roomId || rooms[0]?.roomId || '';
+  const reasonTrimmed = reason.trim();
+  const typeName =
+    typesQ.data?.roomTypes.find((t) => t.roomTypeId === roomTypeId)?.name ?? 'this type';
+  const oldCode =
+    roomsQ.data?.rooms.find((r) => r.roomId === fromRoom)?.code ?? (fromRoom || 'the current room');
+
+  const move = useMutation({
+    mutationFn: () =>
+      api.assignRoom(
+        propertyId,
+        row.reservationId,
+        chosen,
+        `move:${row.reservationId}:${fromRoom}:${chosen}:${reasonTrimmed}`,
+        { reason: reasonTrimmed },
+      ),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-available', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['front-desk-summary', propertyId] });
+      // Housekeeping reads room status from ['rooms'] and queues the now-dirty old room in its priorities.
+      void queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+      void queryClient.invalidateQueries({ queryKey: ['housekeeping-priorities', propertyId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['reservation', propertyId, row.reservationId],
+      });
+      const code = rooms.find((r) => r.roomId === chosen)?.code ?? chosen;
+      onDone(
+        isQueued(result)
+          ? 'Request queued — will apply when the property is reachable.'
+          : `Moved ${guestName} from ${oldCode} to ${code}. Room ${oldCode} is now dirty.`,
+      );
+    },
+    onError: (err) => setError(failureCopy(err, 'Could not move the room.', fmt)),
+  });
+
+  let body;
+  if (freeQ.isError) {
+    body = <Alert>{failureCopy(freeQ.error, 'Could not load free rooms.', fmt)}</Alert>;
+  } else if (!freeQ.isSuccess) {
+    body = <Skeleton label="Loading free rooms" />;
+  } else if (rooms.length === 0) {
+    body = (
+      <EmptyState
+        kind="empty"
+        title={`No clean, vacant ${typeName} room for the rest of the stay.`}
+      />
+    );
+  } else {
+    body = (
+      <>
+        <Field
+          label="Room"
+          control={
+            <NativeSelect value={chosen} onChange={(e) => setRoomId(e.target.value)}>
+              {rooms.map((r) => (
+                <option key={r.roomId} value={r.roomId}>
+                  {r.code} · {roomStatusWord(r.status)}
+                </option>
+              ))}
+            </NativeSelect>
+          }
+        />
+        <Field
+          label="Reason"
+          control={<Input value={reason} onChange={(e) => setReason(e.target.value)} />}
+        />
+      </>
+    );
+  }
+
+  return (
+    <FormDialog
+      title={`Move room — ${guestName}`}
+      onClose={onClose}
+      actions={
+        <>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            intent="primary"
+            disabled={!chosen || reasonTrimmed.length === 0 || move.isPending}
+            onClick={() => {
+              setError(null);
+              move.mutate();
+            }}
+          >
+            Move
           </Button>
         </>
       }

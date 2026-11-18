@@ -47,7 +47,7 @@ import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { GuestNameLink, guestLabel } from './guest-row.js';
 import { BoardSummary } from './board-summary.js';
-import { AssignRoomDialog, PostChargeDialog } from './board-dialogs.js';
+import { AssignRoomDialog, MoveRoomDialog, PostChargeDialog } from './board-dialogs.js';
 import { bookHref } from '../status/book-href.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
@@ -109,6 +109,7 @@ function BoardTable({
   timeZone,
   roomsById,
   onAssign,
+  onMove,
   onPostCharge,
 }: {
   mode: BoardMode;
@@ -117,6 +118,7 @@ function BoardTable({
   timeZone: string | null;
   roomsById: Map<string, string>;
   onAssign?: RowAction;
+  onMove?: RowAction;
   onPostCharge?: RowAction;
 }) {
   const { date } = useFormat();
@@ -231,6 +233,11 @@ function BoardTable({
                   </RowActions>
                 ) : (
                   <RowActions>
+                    {mode === 'in-house' && onMove && status === 'checked_in' && row.roomId ? (
+                      <Button type="button" size="sm" onClick={() => onMove(row)}>
+                        Move room
+                      </Button>
+                    ) : null}
                     {onPostCharge && status === 'checked_in' ? (
                       <Button type="button" size="sm" onClick={() => onPostCharge(row)}>
                         Post charge
@@ -368,6 +375,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
   const [createdBanner, setCreatedBanner] = useState<string | null>(null);
   const vipOnly = params.get('vip') === '1';
   const [assignFor, setAssignFor] = useState<FrontDeskItem | null>(null);
+  const [moveFor, setMoveFor] = useState<FrontDeskItem | null>(null);
   const [chargeFor, setChargeFor] = useState<FrontDeskItem | null>(null);
   const [boardMessage, setBoardMessage] = useState<string | null>(null);
 
@@ -612,6 +620,7 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           states={states}
           timeZone={timeZone}
           roomsById={roomsById}
+          onMove={setMoveFor}
           onPostCharge={setChargeFor}
         />
       </SectionCard>
@@ -692,6 +701,17 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
           onClose={() => setAssignFor(null)}
           onDone={(message) => {
             setAssignFor(null);
+            setBoardMessage(message);
+          }}
+        />
+      ) : null}
+      {moveFor ? (
+        <MoveRoomDialog
+          row={moveFor}
+          guestName={nameOf(moveFor)}
+          onClose={() => setMoveFor(null)}
+          onDone={(message) => {
+            setMoveFor(null);
             setBoardMessage(message);
           }}
         />

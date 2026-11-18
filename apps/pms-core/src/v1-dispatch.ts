@@ -3854,17 +3854,32 @@ async function handlePostReservationAssignRoom(ctx: V1DispatchContext): Promise<
   const reservationId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-    const bodyParsed = await parseJsonBody<{ roomId: string; idempotencyKey: string }>(ctx.request);
+    const bodyParsed = await parseJsonBody<{
+    roomId: string;
+    idempotencyKey: string;
+    reason?: unknown;
+  }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.roomId || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
   }
+  let reason: string | undefined;
+  if (body.reason !== undefined) {
+    if (typeof body.reason !== 'string' || body.reason.length > 500) {
+      return json({ error: 'invalid_body' }, 400);
+    }
+    reason = body.reason;
+  }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const commandPayload = { reservationId, roomId: body.roomId };
+  const commandPayload = {
+    reservationId,
+    roomId: body.roomId,
+    ...(reason !== undefined ? { reason } : {}),
+  };
   const fingerprint = await commandFingerprint('reservations.assign_room', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };

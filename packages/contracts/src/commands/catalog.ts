@@ -166,6 +166,8 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     events: ['reservation.room_assigned'],
     entitlement: 'pms.core',
     permission: 'reservations:write',
+    notes:
+      'In-house move on a checked_in stay requires a reason and a clean or inspected same-type vacant room for the remaining nights, and marks the previous room dirty; pending and confirmed assignment is unchanged.',
   },
   {
     id: 'reservations.modify',

@@ -133,6 +133,7 @@ import {
   ROOM_ALREADY_ASSIGNED,
   ROOM_CODE_EXISTS,
   ROOM_COUNT_EXCEEDED,
+  ROOM_MOVE_REASON_REQUIRED,
   ROOM_NOT_ASSIGNABLE,
   ROOM_NOT_READY,
   ROOM_OUT_OF_ORDER,
@@ -308,6 +309,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case HOLD_EXPIRED:
     case INQUIRY_EXPIRED:
     case ROOM_REQUIRED:
+    case ROOM_MOVE_REASON_REQUIRED:
     case ROOM_NOT_READY:
     case ROOM_OUT_OF_ORDER:
     case OOO_VIA_RANGE:

@@ -63,6 +63,8 @@ describe('domain code messages', () => {
     ['balance_due', {}, /Guest balance is due — settle on the folio before checkout/],
     ['folio_balance_due', { balanceMinor: 100 }, /before generating the invoice/],
     ['room_already_assigned', {}, /already assigned — pick another room/],
+    ['room_move_reason_required', {}, /Give a reason for the room move/],
+    ['room_not_ready', {}, /not ready yet — pick a clean or inspected room/],
     ['room_out_of_order', {}, /out of order — pick another room/],
     ['room_type_mismatch', {}, /does not match the booked room type/],
     ['hold_expired', {}, /hold has expired/],

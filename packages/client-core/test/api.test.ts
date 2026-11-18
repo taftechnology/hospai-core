@@ -83,6 +83,37 @@ describe('createClient degraded writes', () => {
     expect(queued.entries()).toHaveLength(0);
   });
 
+  it('assignRoom sends reason only when provided', async () => {
+    const bodies: unknown[] = [];
+    const client = createClient({
+      transport: mockTransport((_path, init) => {
+        bodies.push(JSON.parse(String(init?.body ?? '{}')));
+        return new Response(JSON.stringify({ ok: true, reservationId: 'res_1', roomId: 'room_1' }), {
+          status: 200,
+        });
+      }),
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({
+          orgId: 'o',
+          version: 1,
+          features: {},
+          limits: {},
+          computedAt: new Date(0).toISOString(),
+        }),
+      }),
+      keyStore: new Map(),
+    });
+    await client.assignRoom('p', 'res_1', 'room_1', 'op-plain');
+    await client.assignRoom('p', 'res_1', 'room_2', 'op-move', { reason: 'Pipe burst' });
+    expect(bodies[0]).toEqual({
+      roomId: 'room_1',
+      idempotencyKey: expect.any(String),
+    });
+    expect(bodies[0]).not.toHaveProperty('reason');
+    expect(bodies[1]).toMatchObject({ roomId: 'room_2', reason: 'Pipe burst' });
+  });
+
   it('batch fail_closed returns wholesale name_pending without throwing', async () => {
     const client = createClient({
       transport: mockTransport(() =>

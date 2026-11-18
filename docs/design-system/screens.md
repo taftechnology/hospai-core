@@ -9,7 +9,7 @@ Every route that ships today and every surface on the roadmap, with the template
 | `/dashboard` | TemplateDashboard | QuickAction, Metrics, Card, StatField, EmptyState |
 | `/board` | TemplateRoomPlan | CountStrip, DateRange, TapeLegend, TapeChart, StayBar, Popover |
 | `/board` Available tab | TemplateDirectory | Tabs, DataTable, RoomStatus |
-| `/arrivals`, `/departures`, `/in-house` | TemplateDirectory | Tabs, DataTable, StatusBadge, RowActions, Dialog, RoomPicker |
+| `/arrivals`, `/departures`, `/in-house` | TemplateDirectory | Tabs, DataTable, StatusBadge, RowActions, Dialog (Assign room, Move room, Post charge), RoomPicker |
 | `/reservations` | TemplateDirectory | Toolbar, DataTable, Pagination |
 | `/reservations/:id` | TemplateRecord | PageHeader, Card, StatusBadge, StatField, Dialog, Alert |
 | `/book` | TemplateForm | SearchPick, ChoiceGroup, FieldGroup, MoneySummary |

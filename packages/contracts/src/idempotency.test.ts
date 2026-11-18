@@ -75,6 +75,7 @@ import {
   INQUIRY_EXPIRED,
   ROOM_REQUIRED,
   ROOM_NOT_READY,
+  ROOM_MOVE_REASON_REQUIRED,
   ROOM_OUT_OF_ORDER,
   BALANCE_DUE,
   OCCUPANCY_EXCEEDED,
@@ -234,6 +235,7 @@ describe('fingerprintPayload', () => {
     expect(INQUIRY_EXPIRED).toBe('inquiry_expired');
     expect(ROOM_REQUIRED).toBe('room_required');
     expect(ROOM_NOT_READY).toBe('room_not_ready');
+    expect(ROOM_MOVE_REASON_REQUIRED).toBe('room_move_reason_required');
     expect(ROOM_OUT_OF_ORDER).toBe('room_out_of_order');
     expect(BALANCE_DUE).toBe('balance_due');
     expect(OCCUPANCY_EXCEEDED).toBe('occupancy_exceeded');
@@ -300,7 +302,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(184);
+    expect(count).toBe(185);
   });
 });
 

@@ -736,14 +736,25 @@ export function createClient(opts: {
       opts.entitlements.set(snap);
       return snap;
     },
-    async assignRoom(propertyId: string, reservationId: string, roomId: string, opId: string) {
+    async assignRoom(
+      propertyId: string,
+      reservationId: string,
+      roomId: string,
+      opId: string,
+      extra?: { reason?: string },
+    ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const reason = extra?.reason;
       return getJson(
         `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/assign-room`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ roomId, idempotencyKey }),
+          body: JSON.stringify({
+            roomId,
+            idempotencyKey,
+            ...(reason !== undefined ? { reason } : {}),
+          }),
         },
       );
     },

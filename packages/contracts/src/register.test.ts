@@ -330,7 +330,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(77);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -886,10 +886,32 @@ describe('command catalog', () => {
       permission: 'org:manage',
       commandId: 'config.put_guest_settings',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(170);
+    expect(V1_HTTP_ROUTE_AUDIT[170]?.id).toBe('get_reservation_recurring_charges');
+    expect(V1_HTTP_ROUTE_AUDIT[170]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[170] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[171]?.id).toBe('post_reservation_recurring_charges');
+    expect(V1_HTTP_ROUTE_AUDIT[171]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:post',
+      commandId: 'folio.schedule_recurring_charge',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[172]?.id).toBe('post_reservation_recurring_charge_cancel');
+    expect(V1_HTTP_ROUTE_AUDIT[172]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:post',
+      commandId: 'folio.cancel_recurring_charge',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(173);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(75);
-    expect(COMMAND_CATALOG).toHaveLength(105);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(77);
+    expect(COMMAND_CATALOG).toHaveLength(107);
     const putGuestSettings = COMMAND_CATALOG.find((c) => c.id === 'config.put_guest_settings');
     expect(putGuestSettings?.lane).toBe('INTERACTIVE');
     expect(putGuestSettings?.degraded).toBe('FAIL_CLOSED');

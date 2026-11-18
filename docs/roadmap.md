@@ -418,8 +418,9 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
   - **Done (2026-11-18):** 36 visible keys checked; four had no pms-core reader and are hidden — `pms.money.payment_alloc`, `pms.money.currencies_list` (not the FX allowlist), `pms.folio.breakfast_rule` and `pms.folio.configs`. The register entries stay; they come back only with a reader. `apps/web-pms/src/settings-keys-read.test.ts` fails if a Settings `configKey` has no reader in pms-core, its modules or do-runtime.
   - **Prototype / register:** `EXPECTED_PROTOTYPE_KEYS` length **97** (`packages/contracts/src/register.test.ts`). Do not confuse with `COMMAND_CATALOG` length **89**. **Do not** re-derive classification; extend `packages/contracts/src/config/register.ts`.
 
-- [ ] **R3.2 Recurring / fixed charges (named leftover — still Phase 1-adjacent)**
+- [x] **R3.2 Recurring / fixed charges (named leftover — still Phase 1-adjacent)**
   - Architecture deferred this. **When** you take it: schedule table, post inside existing `POST_ROOM_CHARGES` (no 9th step unless pin updates), snapshot `amountMinor`, honour `no_post`. Until then keep **unchecked** only if product pulls it forward; default is **after Track 1**.
+  - **Done (2026-11-18):** [spec](superpowers/specs/2026-11-18-recurring-charges-design.md). A stay carries up to 20 nightly product schedules (`recurring_charge`, PropertyDO migration 41) with the product's code, name and price snapshotted. `POST_ROOM_CHARGES` posts each covered night on the guest window with tax, `source = 'RECURRING'` (so two schedules on one charge code both post), deterministic line ids, `no_post` and the room-charge population honoured, and a per-row exception for an archived charge code. Folio screen: Recurring charges card (add, cancel with confirm). Only the `NIGHTLY` pattern; arrival, departure, weekends and chosen dates are R4.13. Pins: catalog 107, routes 173 (last `post_reservation_recurring_charge_cancel`), `PROPERTY_SCHEMA_HEAD` 41.
 
 - [ ] **R3.3 Rate-plan inclusions**
   - Deferred with R3.2. Do not add a JSON column nobody posts.

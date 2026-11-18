@@ -322,4 +322,65 @@ describe('folio API', () => {
       expect((e as ClassifiedError).classified.class).toBe('forbidden');
     }
   });
+
+  it('listRecurringCharges GETs the stay path and returns charges', async () => {
+    let path = '';
+    const { client } = clientWith(async (seen) => {
+      path = seen;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          charges: [{ recurringChargeId: 'rc_1', description: 'Breakfast', status: 'active' }],
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await client.listRecurringCharges('p', 'res_1');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/recurring-charges');
+    expect(result.charges).toHaveLength(1);
+    expect(result.charges[0]?.recurringChargeId).toBe('rc_1');
+  });
+
+  it('scheduleRecurringCharge posts JSON idempotencyKey and the snapshot body', async () => {
+    let body = '';
+    let path = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 201 });
+    });
+    await client.scheduleRecurringCharge(
+      'p',
+      'res_1',
+      {
+        recurringChargeId: 'rc_1',
+        productId: 'prod_breakfast',
+        quantity: 2,
+        startDate: '2026-11-10',
+        endDate: null,
+      },
+      'op-recurring',
+    );
+    expect(path).toBe('/v1/properties/p/reservations/res_1/recurring-charges');
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    expect(parsed.idempotencyKey).toEqual(expect.any(String));
+    expect(parsed.recurringChargeId).toBe('rc_1');
+    expect(parsed.productId).toBe('prod_breakfast');
+    expect(parsed.quantity).toBe(2);
+    expect(parsed.startDate).toBe('2026-11-10');
+    expect(parsed.endDate).toBeNull();
+  });
+
+  it('cancelRecurringCharge posts JSON idempotencyKey on /cancel', async () => {
+    let body = '';
+    let path = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.cancelRecurringCharge('p', 'res_1', 'rc_1', 'op-cancel-recurring');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/recurring-charges/rc_1/cancel');
+    expect(JSON.parse(body).idempotencyKey).toEqual(expect.any(String));
+  });
 });

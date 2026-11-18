@@ -31,4 +31,5 @@ export {
   MAX_PRODUCT_CATEGORIES,
   MAX_PRODUCT_ITEMS,
   PRODUCT_ID_RE,
+  chargeCodeStanding,
 } from './domain/validation.js';

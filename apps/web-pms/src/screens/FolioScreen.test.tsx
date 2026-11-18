@@ -37,6 +37,9 @@ const postFxAdjustment = vi.fn();
 const listRooms = vi.fn();
 const listChargeCodes = vi.fn();
 const listProducts = vi.fn();
+const listRecurringCharges = vi.fn();
+const scheduleRecurringCharge = vi.fn();
+const cancelRecurringCharge = vi.fn();
 const openFolioWindowMock = vi.fn();
 const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
@@ -111,6 +114,9 @@ vi.mock('../client.js', () => ({
     listRooms: (...args: unknown[]) => listRooms(...args),
     listChargeCodes: (...args: unknown[]) => listChargeCodes(...args),
     listProducts: (...args: unknown[]) => listProducts(...args),
+    listRecurringCharges: (...args: unknown[]) => listRecurringCharges(...args),
+    scheduleRecurringCharge: (...args: unknown[]) => scheduleRecurringCharge(...args),
+    cancelRecurringCharge: (...args: unknown[]) => cancelRecurringCharge(...args),
     generateInvoice: (...args: unknown[]) => generateInvoice(...args),
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
@@ -268,11 +274,22 @@ describe('FolioScreen wiring', () => {
       plans: [{ ratePlanId: 'rp_bar', code: 'BAR', name: 'Best Available Rate' }],
     });
     vi.clearAllMocks();
+    businessDateMock('2026-08-12');
     queuedStore.entries = [];
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
     listChargeCodes.mockResolvedValue({
       ok: true,
       codes: [{ code: 'MISC', name: 'Misc', status: 'active', taxGroup: null }],
+    });
+    listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
+    listRecurringCharges.mockResolvedValue({ ok: true, charges: [] });
+    scheduleRecurringCharge.mockResolvedValue({
+      classified: { class: 'live', status: 201, body: { ok: true }, retryAfterMs: null },
+      body: { ok: true },
+    });
+    cancelRecurringCharge.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: { ok: true }, retryAfterMs: null },
+      body: { ok: true },
     });
     getOpenShift.mockResolvedValue({ ok: true, shift: { shiftId: 's1' } });
     // Default: authority unknown → fail open (split not permission-gated)
@@ -2350,5 +2367,141 @@ describe('FolioScreen wiring', () => {
       { amountMinor: 5000 },
       'damage-forfeit:pay_dmg:5000:capture',
     );
+  });
+
+  it('R3.2: recurring card adds the exact body and cancel confirms first', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    businessDateMock('2026-08-08');
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_fb', name: 'Food', sortOrder: 0, status: 'active' }],
+      items: [
+        {
+          productId: 'prod_breakfast',
+          categoryId: 'cat_fb',
+          sku: null,
+          name: 'Breakfast',
+          chargeCode: 'FB',
+          defaultAmountMinor: 1500,
+          status: 'active',
+          taxGroup: null,
+          postable: true,
+        },
+      ],
+    });
+    listRecurringCharges.mockResolvedValue({
+      ok: true,
+      charges: [
+        {
+          recurringChargeId: 'rc_breakfast',
+          reservationId: 'res_1',
+          pattern: 'NIGHTLY',
+          productId: 'prod_breakfast',
+          chargeCode: 'FB',
+          description: 'Breakfast',
+          unitAmountMinor: 1500,
+          quantity: 2,
+          startDate: '2026-08-08',
+          endDate: null,
+          status: 'active',
+          createdAt: 1,
+          createdBy: 'user_owner',
+          cancelledAt: null,
+          cancelledBy: null,
+        },
+      ],
+    });
+
+    const { invalidateSpy } = renderFolio();
+    expect(await screen.findByTestId('recurring-charges-card')).toBeTruthy();
+    expect(await screen.findByText('Breakfast')).toBeTruthy();
+    expect(screen.getByText('Active')).toBeTruthy();
+    expect(await screen.findByRole('option', { name: 'Breakfast' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('recurring-product'), { target: { value: 'prod_breakfast' } });
+    fireEvent.change(screen.getByLabelText('recurring-quantity'), { target: { value: '2' } });
+    fireEvent.click(screen.getByTestId('recurring-add'));
+
+    await waitFor(() => expect(scheduleRecurringCharge).toHaveBeenCalled());
+    expect(scheduleRecurringCharge).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      {
+        recurringChargeId: expect.stringMatching(/^rc_[0-9a-f-]+$/),
+        productId: 'prod_breakfast',
+        quantity: 2,
+        startDate: '2026-08-08',
+        endDate: null,
+      },
+      expect.stringMatching(/^recurring-add:rc_/),
+    );
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => JSON.stringify(call[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['recurring-charges', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['folio', 'prop_demo', 'res_1'] }));
+    });
+
+    expect(cancelRecurringCharge).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('recurring-cancel-rc_breakfast'));
+    expect(cancelRecurringCharge).not.toHaveBeenCalled();
+    expect(screen.getByText('Cancel recurring charge?')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() =>
+      expect(cancelRecurringCharge).toHaveBeenCalledWith(
+        'prop_demo',
+        'res_1',
+        'rc_breakfast',
+        'recurring-cancel:rc_breakfast',
+      ),
+    );
+  });
+
+  it('R3.2: recurring card is hidden without folio:read and read-only after checkout', async () => {
+    getMe.mockResolvedValue({
+      ...ownerMe,
+      permissions: ['reservations:read'],
+    });
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    const view = renderFolio();
+    await waitFor(() => expect(screen.queryByTestId('recurring-charges-card')).toBeNull());
+    view.client.clear();
+    cleanup();
+
+    getMe.mockResolvedValue(ownerMe);
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    listRecurringCharges.mockResolvedValue({
+      ok: true,
+      charges: [
+        {
+          recurringChargeId: 'rc_breakfast',
+          reservationId: 'res_1',
+          pattern: 'NIGHTLY',
+          productId: 'prod_breakfast',
+          chargeCode: 'FB',
+          description: 'Breakfast',
+          unitAmountMinor: 1500,
+          quantity: 1,
+          startDate: '2026-08-08',
+          endDate: null,
+          status: 'active',
+          createdAt: 1,
+          createdBy: 'user_owner',
+          cancelledAt: null,
+          cancelledBy: null,
+        },
+      ],
+    });
+    renderFolio();
+    expect(await screen.findByText('Breakfast')).toBeTruthy();
+    expect(screen.queryByTestId('recurring-add')).toBeNull();
+    expect(screen.queryByTestId('recurring-cancel-rc_breakfast')).toBeNull();
+    businessDateMock('2026-08-12');
   });
 });

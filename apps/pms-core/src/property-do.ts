@@ -175,6 +175,13 @@ import {
   INTERNAL_ERROR,
   DOMAIN_ERROR,
   LIMIT_EXCEEDED,
+  PRODUCT_NOT_FOUND,
+  PRODUCT_NOT_POSTABLE,
+  RESERVATION_NOT_ACTIVE,
+  RECURRING_CHARGE_DATES_INVALID,
+  RECURRING_CHARGE_EXISTS,
+  validateTenantId,
+  InvalidTenantIdError,
   RATES_BULK_UPDATE_MAX,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
@@ -234,8 +241,10 @@ import {
   type UpdateInventoryItemInput,
 } from '@hospai/pms-housekeeping';
 import {
+  chargeCodeStanding,
   createProductCategory,
   createProductItem,
+  PRODUCT_ID_RE,
   readProducts,
   updateProductCategory,
   updateProductItem,
@@ -1422,6 +1431,14 @@ export function affectedFromPayload(commandType: string, payload: unknown): Affe
           guestRef: null,
           folioLineId: optionalString(rec.folioLineId),
         };
+      case 'folio.schedule_recurring_charge':
+      case 'folio.cancel_recurring_charge':
+        return {
+          reservationId: optionalString(rec.reservationId),
+          roomId: null,
+          guestRef: null,
+          folioLineId: null,
+        };
       case 'rooms.update_status':
         return {
           reservationId: null,
@@ -1621,6 +1638,9 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 }
 
 /** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
+/** Folio line source for night-audit posts of a stay's recurring charge (R3.2). */
+const RECURRING_LINE_SOURCE = 'RECURRING';
+
 const PROPERTY_PURGE_INVENTORY_TABLES = [
   'alarm_schedule',
   'audit_log',
@@ -1655,6 +1675,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'promo',
   'rate_day',
   'rate_plan',
+  'recurring_charge',
   'reservation',
   'reservation_rate_night',
   'restriction_day',
@@ -1704,6 +1725,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM promo) +
       (SELECT COUNT(*) FROM rate_day) +
       (SELECT COUNT(*) FROM rate_plan) +
+      (SELECT COUNT(*) FROM recurring_charge) +
       (SELECT COUNT(*) FROM reservation) +
       (SELECT COUNT(*) FROM reservation_rate_night) +
       (SELECT COUNT(*) FROM restriction_day) +
@@ -16469,7 +16491,424 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
   }
 
-  private postRoomChargesSync(businessDate: string): { postedCount: number; failedCount: number } {
+  private recordNightAuditRecurringExceptionSync(
+    reservationId: string,
+    businessDate: string,
+    recurringChargeId: string,
+    reason: 'recurring_charge_code_inactive',
+  ): void {
+    this.appendAuditLogSync({
+      actor: 'system:night_audit',
+      commandId: 'night_audit.run',
+      entityType: 'reservation',
+      entityId: reservationId,
+      reservationId,
+      afterJson: {
+        step: 'POST_ROOM_CHARGES',
+        reason,
+        businessDate,
+        recurringChargeId,
+      },
+    });
+  }
+
+  private isRecurringCalendarDate(value: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const y = Number(value.slice(0, 4));
+    const m = Number(value.slice(5, 7));
+    const d = Number(value.slice(8, 10));
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+  }
+
+  private shiftRecurringDate(iso: string, days: number): string {
+    const y = Number(iso.slice(0, 4));
+    const m = Number(iso.slice(5, 7));
+    const d = Number(iso.slice(8, 10));
+    const dt = new Date(Date.UTC(y, m - 1, d + days));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  private mapRecurringChargeRow(row: {
+    recurring_charge_id: string;
+    reservation_id: string;
+    pattern: string;
+    product_id: string;
+    charge_code: string;
+    description: string;
+    unit_amount_minor: number;
+    quantity: number;
+    start_date: string;
+    end_date: string | null;
+    status: string;
+    created_at: number;
+    created_by: string;
+    cancelled_at: number | null;
+    cancelled_by: string | null;
+  }): {
+    recurringChargeId: string;
+    reservationId: string;
+    pattern: 'NIGHTLY';
+    productId: string;
+    chargeCode: string;
+    description: string;
+    unitAmountMinor: number;
+    quantity: number;
+    startDate: string;
+    endDate: string | null;
+    status: 'active' | 'cancelled';
+    createdAt: number;
+    createdBy: string;
+    cancelledAt: number | null;
+    cancelledBy: string | null;
+  } {
+    return {
+      recurringChargeId: row.recurring_charge_id,
+      reservationId: row.reservation_id,
+      pattern: 'NIGHTLY',
+      productId: row.product_id,
+      chargeCode: row.charge_code,
+      description: row.description,
+      unitAmountMinor: row.unit_amount_minor,
+      quantity: row.quantity,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      status: row.status === 'cancelled' ? 'cancelled' : 'active',
+      createdAt: row.created_at,
+      createdBy: row.created_by,
+      cancelledAt: row.cancelled_at,
+      cancelledBy: row.cancelled_by,
+    };
+  }
+
+  private loadRecurringChargeSync(recurringChargeId: string) {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT * FROM recurring_charge WHERE recurring_charge_id = ?`, recurringChargeId)
+      .toArray() as Array<{
+      recurring_charge_id: string;
+      reservation_id: string;
+      pattern: string;
+      product_id: string;
+      charge_code: string;
+      description: string;
+      unit_amount_minor: number;
+      quantity: number;
+      start_date: string;
+      end_date: string | null;
+      status: string;
+      created_at: number;
+      created_by: string;
+      cancelled_at: number | null;
+      cancelled_by: string | null;
+    }>;
+    return rows[0] ?? null;
+  }
+
+  /** `get_reservation_recurring_charges`. */
+  async listRecurringCharges(reservationId: string): Promise<
+    | {
+        ok: true;
+        charges: Array<ReturnType<PropertyDO['mapRecurringChargeRow']>>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const stay = this.ctx.storage.sql
+      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ reservation_id: string }>;
+    if (!stay[0]) return { ok: false, error: NOT_FOUND };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT * FROM recurring_charge WHERE reservation_id = ? ORDER BY start_date, recurring_charge_id`,
+        reservationId,
+      )
+      .toArray() as Array<NonNullable<ReturnType<PropertyDO['loadRecurringChargeSync']>>>;
+    return { ok: true, charges: rows.map((row) => this.mapRecurringChargeRow(row)) };
+  }
+
+  /** Implements catalog `folio.schedule_recurring_charge`. */
+  async tryScheduleRecurringCharge(
+    actor: ActorContext,
+    input: {
+      recurringChargeId: string;
+      reservationId: string;
+      productId: string;
+      quantity: number;
+      startDate: string;
+      endDate: string | null;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; charge: ReturnType<PropertyDO['mapRecurringChargeRow']> }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof RESERVATION_NOT_ACTIVE }
+    | { ok: false; error: typeof RECURRING_CHARGE_DATES_INVALID }
+    | { ok: false; error: typeof RECURRING_CHARGE_EXISTS }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND }
+    | { ok: false; error: typeof PRODUCT_NOT_POSTABLE }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => this.scheduleRecurringChargeSync(actor, input), actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  private scheduleRecurringChargeSync(
+    actor: ActorContext,
+    input: {
+      recurringChargeId: string;
+      reservationId: string;
+      productId: string;
+      quantity: number;
+      startDate: string;
+      endDate: string | null;
+    },
+  ):
+    | { ok: true; charge: ReturnType<PropertyDO['mapRecurringChargeRow']> }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof RESERVATION_NOT_ACTIVE }
+    | { ok: false; error: typeof RECURRING_CHARGE_DATES_INVALID }
+    | { ok: false; error: typeof RECURRING_CHARGE_EXISTS }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND }
+    | { ok: false; error: typeof PRODUCT_NOT_POSTABLE }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET } {
+    try {
+      validateTenantId(input.recurringChargeId);
+    } catch (e) {
+      if (e instanceof InvalidTenantIdError) return { ok: false, error: VALIDATION_ERROR };
+      throw e;
+    }
+    if (typeof input.productId !== 'string' || !PRODUCT_ID_RE.test(input.productId)) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 99) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    if (
+      !this.isRecurringCalendarDate(input.startDate) ||
+      (input.endDate != null && !this.isRecurringCalendarDate(input.endDate))
+    ) {
+      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+    }
+
+    if (this.loadRecurringChargeSync(input.recurringChargeId)) {
+      return { ok: false, error: RECURRING_CHARGE_EXISTS };
+    }
+
+    const stays = this.ctx.storage.sql
+      .exec(
+        `SELECT status, arrival_date, departure_date FROM reservation WHERE reservation_id = ?`,
+        input.reservationId,
+      )
+      .toArray() as Array<{ status: string; arrival_date: string; departure_date: string }>;
+    const stay = stays[0];
+    if (!stay) return { ok: false, error: NOT_FOUND };
+    if (stay.status !== 'confirmed' && stay.status !== 'checked_in') {
+      return { ok: false, error: RESERVATION_NOT_ACTIVE };
+    }
+
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const earliest = stay.arrival_date > businessDate ? stay.arrival_date : businessDate;
+    const lastNight = this.shiftRecurringDate(stay.departure_date, -1);
+    if (input.startDate < earliest || input.startDate > lastNight) {
+      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+    }
+    if (input.endDate != null && (input.endDate < input.startDate || input.endDate > lastNight)) {
+      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+    }
+
+    const active = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS n FROM recurring_charge WHERE reservation_id = ? AND status = 'active'`,
+        input.reservationId,
+      )
+      .toArray() as Array<{ n: number }>;
+    if (Number(active[0]?.n ?? 0) >= 20) return { ok: false, error: LIMIT_EXCEEDED };
+
+    const products = this.ctx.storage.sql
+      .exec(
+        `SELECT product_id, category_id, name, charge_code, default_amount_minor, status
+         FROM products_item WHERE product_id = ?`,
+        input.productId,
+      )
+      .toArray() as Array<{
+      product_id: string;
+      category_id: string;
+      name: string;
+      charge_code: string;
+      default_amount_minor: number;
+      status: string;
+    }>;
+    const product = products[0];
+    if (!product) return { ok: false, error: PRODUCT_NOT_FOUND };
+    const categories = this.ctx.storage.sql
+      .exec(`SELECT status FROM products_category WHERE category_id = ?`, product.category_id)
+      .toArray() as Array<{ status: string }>;
+    const standing = chargeCodeStanding(
+      this.ctx.storage.sql,
+      product.charge_code,
+      SYSTEM_CHARGE_CODES,
+    );
+    const postable =
+      product.status === 'active' &&
+      categories[0]?.status === 'active' &&
+      standing.postable &&
+      product.default_amount_minor > 0;
+    if (!postable) return { ok: false, error: PRODUCT_NOT_POSTABLE };
+
+    const now = Date.now();
+    const createdBy = this.auditActorSync(actor);
+    this.ctx.storage.sql.exec(
+      `INSERT INTO recurring_charge (
+         recurring_charge_id, reservation_id, pattern, product_id, charge_code, description,
+         unit_amount_minor, quantity, start_date, end_date, status,
+         created_at, created_by, cancelled_at, cancelled_by
+       ) VALUES (?, ?, 'NIGHTLY', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL)`,
+      input.recurringChargeId,
+      input.reservationId,
+      product.product_id,
+      product.charge_code,
+      product.name,
+      product.default_amount_minor,
+      input.quantity,
+      input.startDate,
+      input.endDate,
+      now,
+      createdBy,
+    );
+    const stored = this.loadRecurringChargeSync(input.recurringChargeId);
+    if (!stored) throw new Error(INTERNAL_ERROR);
+    const charge = this.mapRecurringChargeRow(stored);
+    this.appendAuditLogSync({
+      actor: createdBy,
+      commandId: 'folio.schedule_recurring_charge',
+      entityType: 'recurring_charge',
+      entityId: input.recurringChargeId,
+      beforeJson: null,
+      afterJson: charge,
+      reservationId: input.reservationId,
+    });
+    return { ok: true, charge };
+  }
+
+  /** Implements catalog `folio.cancel_recurring_charge`. */
+  async tryCancelRecurringCharge(
+    actor: ActorContext,
+    input: { recurringChargeId: string; reservationId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; charge: ReturnType<PropertyDO['mapRecurringChargeRow']> }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => this.cancelRecurringChargeSync(actor, input), actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  private cancelRecurringChargeSync(
+    actor: ActorContext,
+    input: { recurringChargeId: string; reservationId: string },
+  ):
+    | { ok: true; charge: ReturnType<PropertyDO['mapRecurringChargeRow']> }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof NOT_FOUND } {
+    try {
+      validateTenantId(input.recurringChargeId);
+    } catch (e) {
+      if (e instanceof InvalidTenantIdError) return { ok: false, error: VALIDATION_ERROR };
+      throw e;
+    }
+    const row = this.loadRecurringChargeSync(input.recurringChargeId);
+    if (!row || row.reservation_id !== input.reservationId) return { ok: false, error: NOT_FOUND };
+    if (row.status === 'cancelled') return { ok: true, charge: this.mapRecurringChargeRow(row) };
+
+    const now = Date.now();
+    const cancelledBy = this.auditActorSync(actor);
+    this.ctx.storage.sql.exec(
+      `UPDATE recurring_charge
+       SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?
+       WHERE recurring_charge_id = ?`,
+      now,
+      cancelledBy,
+      input.recurringChargeId,
+    );
+    const stored = this.loadRecurringChargeSync(input.recurringChargeId);
+    if (!stored) throw new Error(INTERNAL_ERROR);
+    const charge = this.mapRecurringChargeRow(stored);
+    this.appendAuditLogSync({
+      actor: cancelledBy,
+      commandId: 'folio.cancel_recurring_charge',
+      entityType: 'recurring_charge',
+      entityId: input.recurringChargeId,
+      beforeJson: { status: 'active' },
+      afterJson: charge,
+      reservationId: input.reservationId,
+    });
+    return { ok: true, charge };
+  }
+
+  private postRoomChargesSync(businessDate: string): {
+    postedCount: number;
+    failedCount: number;
+    recurringPostedCount: number;
+  } {
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
     if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
 
@@ -16557,7 +16996,96 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }
     }
 
-    return { postedCount, failedCount };
+    const reservationStatusSql =
+      autoNoShow === false
+        ? `r.status = 'checked_in'`
+        : `r.status IN ('confirmed', 'checked_in')`;
+    const schedules = this.ctx.storage.sql
+      .exec(
+        `SELECT rc.recurring_charge_id, rc.reservation_id, rc.charge_code,
+                rc.unit_amount_minor, rc.quantity
+         FROM recurring_charge rc
+         INNER JOIN reservation r ON r.reservation_id = rc.reservation_id
+         WHERE rc.status = 'active'
+           AND ${reservationStatusSql}
+           AND COALESCE(r.no_post, 0) = 0
+           AND r.arrival_date <= ? AND r.departure_date > ?
+           AND rc.start_date <= ?
+           AND (rc.end_date IS NULL OR rc.end_date >= ?)
+         ORDER BY rc.reservation_id, rc.recurring_charge_id`,
+        businessDate,
+        businessDate,
+        businessDate,
+        businessDate,
+      )
+      .toArray() as Array<{
+      recurring_charge_id: string;
+      reservation_id: string;
+      charge_code: string;
+      unit_amount_minor: number;
+      quantity: number;
+    }>;
+
+    let recurringPostedCount = 0;
+    for (const schedule of schedules) {
+      const folioLineId = `${schedule.reservation_id}:recurring:${schedule.recurring_charge_id}:${businessDate}`;
+      try {
+        const already = this.ctx.storage.sql
+          .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, folioLineId)
+          .toArray() as Array<{ folio_line_id: string }>;
+        if (already[0]) continue;
+
+        this.assertChargeCodeSync(schedule.charge_code, { requireActive: true });
+        const amountMinor = schedule.unit_amount_minor * schedule.quantity;
+        this.ensureGuestFolioWindowSync(schedule.reservation_id);
+        const folioWindowId = this.readGuestFolioWindowIdSync(schedule.reservation_id);
+        const fxRateAt = Date.now();
+        const posted: PostedLineAmount = {
+          amountMinor,
+          txnCurrency: ledgerCurrency,
+          ledgerAmountMinor: amountMinor,
+          fxRate: '1',
+          fxRateAt,
+        };
+        this.insertFolioLineSync({
+          folioLineId,
+          folioWindowId,
+          reservationId: schedule.reservation_id,
+          chargeCode: schedule.charge_code,
+          posted,
+          // Own source: `folio_line_audit_uniq` allows one NIGHT_AUDIT line per stay, night and
+          // charge code (the room night). Two schedules may share a charge code (breakfast and
+          // dinner on one F&B code); the deterministic line id already posts each once a night.
+          source: RECURRING_LINE_SOURCE,
+          businessDate,
+        });
+        this.stampTaxForChargeSync({
+          parentLineId: folioLineId,
+          parentAmountMinor: amountMinor,
+          parentSource: RECURRING_LINE_SOURCE,
+          chargeCode: schedule.charge_code,
+          reservationId: schedule.reservation_id,
+          folioWindowId,
+          postingDate: businessDate,
+          posted,
+        });
+        recurringPostedCount += 1;
+      } catch (e) {
+        if (e instanceof ChargeCodeNotFoundError) {
+          this.recordNightAuditRecurringExceptionSync(
+            schedule.reservation_id,
+            businessDate,
+            schedule.recurring_charge_id,
+            'recurring_charge_code_inactive',
+          );
+          failedCount += 1;
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    return { postedCount, failedCount, recurringPostedCount };
   }
 
   async addFolioLine(

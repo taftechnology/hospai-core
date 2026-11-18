@@ -3564,6 +3564,134 @@ async function handleGetFolio(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetReservationRecurringCharges(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listRecurringCharges(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostReservationRecurringCharges(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.recurringChargeId !== 'string' ||
+    typeof body.productId !== 'string' ||
+    typeof body.quantity !== 'number' ||
+    typeof body.startDate !== 'string' ||
+    typeof body.idempotencyKey !== 'string' ||
+    (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== 'string')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    recurringChargeId: body.recurringChargeId,
+    reservationId,
+    productId: body.productId,
+    quantity: body.quantity,
+    startDate: body.startDate,
+    endDate: typeof body.endDate === 'string' ? body.endDate : null,
+  };
+  const fingerprint = await commandFingerprint('folio.schedule_recurring_charge', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryScheduleRecurringCharge']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.schedule_recurring_charge',
+      routeId: 'post_reservation_recurring_charges',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryScheduleRecurringCharge(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === NOT_FOUND || result.error === 'not_member') {
+        return json({ error: 'not_found' }, 404);
+      }
+      return null;
+    },
+  });
+}
+
+async function handlePostReservationRecurringChargeCancel(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  const recurringChargeId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{ idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body?.idempotencyKey !== 'string') return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { recurringChargeId, reservationId };
+  const fingerprint = await commandFingerprint('folio.cancel_recurring_charge', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryCancelRecurringCharge']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.cancel_recurring_charge',
+      routeId: 'post_reservation_recurring_charge_cancel',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCancelRecurringCharge(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === NOT_FOUND || result.error === 'not_member') {
+        return json({ error: 'not_found' }, 404);
+      }
+      return null;
+    },
+  });
+}
+
 async function handlePostRooms(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -9614,6 +9742,35 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'org:manage',
     commandId: 'config.put_guest_settings',
     handler: handlePutOrgGuestSettings,
+  },
+  {
+    id: 'get_reservation_recurring_charges',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/recurring-charges$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationRecurringCharges,
+  },
+  {
+    id: 'post_reservation_recurring_charges',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/recurring-charges$/,
+    permission: 'folio:post',
+    commandId: 'folio.schedule_recurring_charge',
+    entitlement: 'pms.core',
+    handler: handlePostReservationRecurringCharges,
+  },
+  {
+    id: 'post_reservation_recurring_charge_cancel',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/recurring-charges\/([^/]+)\/cancel$/,
+    permission: 'folio:post',
+    commandId: 'folio.cancel_recurring_charge',
+    entitlement: 'pms.core',
+    handler: handlePostReservationRecurringChargeCancel,
   },
 ];
 

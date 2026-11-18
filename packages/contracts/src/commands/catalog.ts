@@ -1171,6 +1171,30 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes:
       'R1.17: org-wide pms.guests.settings in OrgDO operational_config (property_id *). Audited in operational_config_audit. JSON idempotencyKey.',
   },
+  {
+    id: 'folio.schedule_recurring_charge',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+    notes:
+      'R3.2: snapshot a postable product onto a stay as a NIGHTLY schedule. JSON idempotencyKey. Posts inside POST_ROOM_CHARGES.',
+  },
+  {
+    id: 'folio.cancel_recurring_charge',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+    notes:
+      'R3.2: cancel a recurring schedule. Nights already posted stay on the folio. JSON idempotencyKey. Already-cancelled returns the stored row.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

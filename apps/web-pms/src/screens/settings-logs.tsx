@@ -36,6 +36,8 @@ const COMMAND_LABELS: Record<string, string> = {
   'reservations.no_show': 'No-show',
   'reservations.update_status': 'Booking status changed',
   'folio.add_item': 'Folio line posted',
+  'folio.schedule_recurring_charge': 'Recurring charge added',
+  'folio.cancel_recurring_charge': 'Recurring charge cancelled',
   'folio.authorize': 'Card authorised',
   'folio.capture': 'Card captured',
   'folio.void': 'Authorisation voided',

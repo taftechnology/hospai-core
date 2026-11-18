@@ -59,6 +59,7 @@ import {
   HOUSEKEEPING_INVENTORY_V38_SQL,
   MAINTENANCE_V39_SQL,
   NIGHT_AUDIT_CHECKS_V40_SQL,
+  RECURRING_CHARGES_V41_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -259,16 +260,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 40', () => {
+  it('applies property migrations through version 41', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(40);
+    expect(v1).toBe(41);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(40);
-    expect(sql.schemaVersion).toHaveLength(40);
+    expect(v2).toBe(41);
+    expect(sql.schemaVersion).toHaveLength(41);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -710,7 +711,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(40);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(41);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(1);
   });
@@ -1133,5 +1134,24 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(NIGHT_AUDIT_CHECKS_V40_SQL.trim());
+  });
+
+  it('property schema head is 41 after recurring charges', () => {
+    const v41 = PROPERTY_MIGRATIONS.find((m) => m.version === 41);
+    expect(v41?.name).toBe('recurring_charges');
+    expect(v41?.statements[0]).toContain('recurring_charge');
+    expect(v41?.statements.some((s) => s.includes('recurring_charge_reservation'))).toBe(true);
+  });
+
+  it('migrations/do-property/0041_recurring_charges.sql matches RECURRING_CHARGES_V41_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0041_recurring_charges.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(RECURRING_CHARGES_V41_SQL.trim());
   });
 });

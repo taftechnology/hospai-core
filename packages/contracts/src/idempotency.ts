@@ -178,6 +178,12 @@ export const PRODUCT_SKU_TAKEN = 'sku_taken' as const;
 export const PRODUCT_INVALID_AMOUNT = 'invalid_amount' as const;
 export const PRODUCT_CATEGORY_NOT_FOUND = 'category_not_found' as const;
 export const PRODUCT_NOT_FOUND = 'product_not_found' as const;
+export const PRODUCT_NOT_POSTABLE = 'product_not_postable' as const;
+
+/** Recurring stay charges (R3.2) */
+export const RESERVATION_NOT_ACTIVE = 'reservation_not_active' as const;
+export const RECURRING_CHARGE_DATES_INVALID = 'recurring_charge_dates_invalid' as const;
+export const RECURRING_CHARGE_EXISTS = 'recurring_charge_exists' as const;
 
 /** Housekeeping inventory wire codes (R1.9 B) */
 export const INVENTORY_ITEM_NOT_FOUND = 'inventory_item_not_found' as const;

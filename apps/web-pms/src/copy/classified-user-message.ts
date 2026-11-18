@@ -122,6 +122,12 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
   category_not_found: () => 'That category is missing or archived — pick an active category.',
   product_not_found: () => 'That product no longer exists — refresh the list.',
+  product_not_postable: () =>
+    'That product cannot be scheduled — it is archived, or its category or charge code is not postable.',
+  reservation_not_active: () => 'Recurring charges can be added only on a confirmed or in-house stay.',
+  recurring_charge_dates_invalid: () =>
+    'Those nights are outside the stay. Start on or after today and arrival, and end on or before the last night.',
+  recurring_charge_exists: () => 'A recurring charge with that id already exists.',
   inventory_item_not_found: () => 'That inventory item no longer exists — refresh the list.',
   inventory_item_exists: () => 'An item with that name or id already exists.',
   inventory_item_archived: () => 'Archived items cannot be adjusted — unarchive or pick another item.',

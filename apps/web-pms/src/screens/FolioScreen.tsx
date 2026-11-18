@@ -7,6 +7,7 @@ import {
   type FolioPaymentRow,
   type FolioReadState,
   type FolioTransferResult,
+  type RecurringCharge,
 } from '@hospai/client-core';
 import {
   Alert,
@@ -24,10 +25,12 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  EmptyState,
   Field,
   Input,
   NativeSelect,
   PageHeader,
+  VisuallyHidden,
   Skeleton,
   StatField,
   Total,
@@ -162,6 +165,287 @@ type LedgerRow = {
   chargeMinor: number;
   paymentMinor: number;
 };
+
+function defaultRecurringFrom(arrival: string | undefined, businessDate: string | null): string {
+  if (arrival && businessDate) return arrival > businessDate ? arrival : businessDate;
+  return arrival ?? businessDate ?? '';
+}
+
+function RecurringChargesCard(props: {
+  propertyId: string;
+  reservationId: string;
+  arrivalDate: string | undefined;
+  businessDate: string | null;
+  status: string | null;
+  canRead: boolean;
+  canPost: boolean;
+}) {
+  const { propertyId, reservationId, arrivalDate, businessDate, status, canRead, canPost } = props;
+  const { money, date } = useFormat();
+  const queryClient = useQueryClient();
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const setMessage = (text: string | null) => setNotice(text === null ? null : { text, ok: false });
+  const setSuccess = (text: string) => setNotice({ text, ok: true });
+  const [productId, setProductId] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [fromDate, setFromDate] = useState('');
+  const [untilMode, setUntilMode] = useState<'departure' | 'date'>('departure');
+  const [untilDate, setUntilDate] = useState('');
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+  const canAdd = canPost && (status === 'confirmed' || status === 'checked_in');
+  const products = usePostableProducts(canRead && canAdd);
+  const recurringQ = useQuery({
+    queryKey: ['recurring-charges', propertyId, reservationId],
+    queryFn: () => api.listRecurringCharges(propertyId, reservationId),
+    enabled: canRead && Boolean(reservationId),
+  });
+
+  const fromValue = fromDate || defaultRecurringFrom(arrivalDate, businessDate);
+  const charges = recurringQ.data?.charges ?? [];
+
+  function invalidateRecurring() {
+    void queryClient.invalidateQueries({
+      queryKey: ['recurring-charges', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+  }
+
+  const schedule = useFolioActionMutation({
+    fallback: 'Could not add the recurring charge.',
+    setMessage,
+    mutationFn: (input: {
+      recurringChargeId: string;
+      productId: string;
+      quantity: number;
+      startDate: string;
+      endDate: string | null;
+    }) =>
+      api.scheduleRecurringCharge(
+        propertyId,
+        reservationId,
+        input,
+        `recurring-add:${input.recurringChargeId}`,
+      ),
+    onSuccess: () => {
+      setSuccess('Recurring charge added.');
+      setQuantity('1');
+      setUntilMode('departure');
+      setUntilDate('');
+      invalidateRecurring();
+    },
+  });
+
+  const cancel = useFolioActionMutation({
+    fallback: 'Could not cancel the recurring charge.',
+    setMessage,
+    mutationFn: (recurringChargeId: string) =>
+      api.cancelRecurringCharge(
+        propertyId,
+        reservationId,
+        recurringChargeId,
+        `recurring-cancel:${recurringChargeId}`,
+      ),
+    onSuccess: () => {
+      setSuccess('Recurring charge cancelled. Nights already posted stay on the folio.');
+      invalidateRecurring();
+    },
+  });
+
+  if (!canRead) return null;
+
+  function nightsLabel(charge: RecurringCharge): string {
+    if (charge.endDate) return `${date(charge.startDate)} – ${date(charge.endDate)}`;
+    return `${date(charge.startDate)} – departure`;
+  }
+
+  return (
+    <Card data-testid="recurring-charges-card">
+      <CardHeader>
+        <CardTitle>Recurring charges</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="ui-stack">
+          {notice ? (
+            <Alert intent={notice.ok ? 'settled' : 'exception'} data-testid="recurring-message">
+              {notice.text}
+            </Alert>
+          ) : null}
+          {recurringQ.isError ? (
+            <Alert>
+              {classifiedUserMessage(asClassified(recurringQ.error), {
+                fallback: 'Could not load recurring charges.',
+              })}
+            </Alert>
+          ) : null}
+          {recurringQ.isSuccess && charges.length === 0 ? (
+            <EmptyState
+              title="No recurring charges"
+              description="Nothing is scheduled to post each night of this stay."
+            />
+          ) : null}
+          {charges.length > 0 ? (
+            <DataTable data-testid="recurring-charges-table">
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Product</DataTableHeaderCell>
+                  <DataTableHeaderCell>Per night</DataTableHeaderCell>
+                  <DataTableHeaderCell>Nights</DataTableHeaderCell>
+                  <DataTableHeaderCell>Status</DataTableHeaderCell>
+                  <DataTableHeaderCell>
+                    <VisuallyHidden>Actions</VisuallyHidden>
+                  </DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {charges.map((charge) => (
+                  <DataTableRow key={charge.recurringChargeId}>
+                    <DataTableCell>{charge.description}</DataTableCell>
+                    <DataTableCell>
+                      {money(charge.unitAmountMinor)} × {charge.quantity}
+                    </DataTableCell>
+                    <DataTableCell>{nightsLabel(charge)}</DataTableCell>
+                    <DataTableCell>{charge.status === 'active' ? 'Active' : 'Cancelled'}</DataTableCell>
+                    <DataTableCell>
+                      {canAdd && charge.status === 'active' ? (
+                        <Button
+                          type="button"
+                          intent="destructive"
+                          data-testid={`recurring-cancel-${charge.recurringChargeId}`}
+                          onClick={() => setPendingCancelId(charge.recurringChargeId)}
+                        >
+                          Cancel
+                        </Button>
+                      ) : null}
+                    </DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
+          ) : null}
+          {canAdd ? (
+            <div className="ui-stack">
+              <div className="ui-row">
+                <Field
+                  size="xs"
+                  label="Product"
+                  control={
+                    <NativeSelect
+                      aria-label="recurring-product"
+                      data-testid="recurring-product"
+                      value={productId}
+                      onChange={(e) => setProductId(e.target.value)}
+                    >
+                      <option value="">Choose a product</option>
+                      {products.groups.flatMap((group) =>
+                        group.items.map((item) => (
+                          <option key={item.productId} value={item.productId}>
+                            {item.name}
+                          </option>
+                        )),
+                      )}
+                    </NativeSelect>
+                  }
+                />
+                <Field
+                  size="xs"
+                  label="Quantity"
+                  control={
+                    <Input
+                      aria-label="recurring-quantity"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                    />
+                  }
+                />
+                <Field
+                  size="xs"
+                  label="From"
+                  control={
+                    <Input
+                      type="date"
+                      aria-label="recurring-from"
+                      value={fromValue}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  }
+                />
+                <Field
+                  size="xs"
+                  label="Until"
+                  control={
+                    <NativeSelect
+                      aria-label="recurring-until"
+                      data-testid="recurring-until"
+                      value={untilMode}
+                      onChange={(e) => setUntilMode(e.target.value === 'date' ? 'date' : 'departure')}
+                    >
+                      <option value="departure">Until departure</option>
+                      <option value="date">Until a date</option>
+                    </NativeSelect>
+                  }
+                />
+                {untilMode === 'date' ? (
+                  <Field
+                    size="xs"
+                    label="Until date"
+                    control={
+                      <Input
+                        type="date"
+                        aria-label="recurring-until-date"
+                        value={untilDate}
+                        onChange={(e) => setUntilDate(e.target.value)}
+                      />
+                    }
+                  />
+                ) : null}
+                <Button
+                  type="button"
+                  data-testid="recurring-add"
+                  disabled={schedule.isPending || productId === ''}
+                  onClick={() => {
+                    const qty = Number(quantity);
+                    if (!Number.isInteger(qty) || qty < 1 || qty > 99) {
+                      setMessage('Quantity must be a whole number from 1 to 99.');
+                      return;
+                    }
+                    if (untilMode === 'date' && untilDate === '') {
+                      setMessage('Choose the last night, or leave it until departure.');
+                      return;
+                    }
+                    const recurringChargeId = `rc_${crypto.randomUUID()}`;
+                    schedule.mutate({
+                      recurringChargeId,
+                      productId,
+                      quantity: qty,
+                      startDate: fromValue,
+                      endDate: untilMode === 'date' ? untilDate : null,
+                    });
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
+      {pendingCancelId ? (
+        <ConfirmDialog
+          title="Cancel recurring charge?"
+          description="Nights already posted stay on the folio. Later nights will not post."
+          confirmLabel="Cancel charge"
+          intent="destructive"
+          onCancel={() => setPendingCancelId(null)}
+          onConfirm={() => {
+            const id = pendingCancelId;
+            setPendingCancelId(null);
+            cancel.mutate(id);
+          }}
+        />
+      ) : null}
+    </Card>
+  );
+}
 
 export function FolioScreen() {
   const { reservationId = '' } = useParams();
@@ -1514,6 +1798,20 @@ export function FolioScreen() {
             ) : null}
           </CardContent>
         </Card>
+
+        <RecurringChargesCard
+          propertyId={propertyId}
+          reservationId={reservationId}
+          arrivalDate={reservationQ.data?.arrivalDate}
+          businessDate={businessDate}
+          status={reservationQ.data?.status ?? null}
+          canRead={
+            meShell.kind !== 'authority' ||
+            meShell.authority.kind !== 'live' ||
+            hasPropertyPermission(meShell.authority.me, 'folio:read')
+          }
+          canPost={!postDenied}
+        />
 
         <Card>
           <CardHeader>

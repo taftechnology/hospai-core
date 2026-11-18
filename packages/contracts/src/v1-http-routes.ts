@@ -1037,6 +1037,27 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'org:manage',
     commandId: 'config.put_guest_settings',
   },
+  {
+    id: 'get_reservation_recurring_charges',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_reservation_recurring_charges',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.schedule_recurring_charge',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_reservation_recurring_charge_cancel',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.cancel_recurring_charge',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

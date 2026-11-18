@@ -104,6 +104,25 @@ export type ProductsList = {
   items: ProductItemRead[];
 };
 
+/** `get_reservation_recurring_charges` (R3.2). Amounts are the schedule snapshot. */
+export type RecurringCharge = {
+  recurringChargeId: string;
+  reservationId: string;
+  pattern: 'NIGHTLY';
+  productId: string;
+  chargeCode: string;
+  description: string;
+  unitAmountMinor: number;
+  quantity: number;
+  startDate: string;
+  endDate: string | null;
+  status: 'active' | 'cancelled';
+  createdAt: number;
+  createdBy: string;
+  cancelledAt: number | null;
+  cancelledBy: string | null;
+};
+
 export type FolioWindowSummary = {
   folioWindowId: string;
   kind: string;
@@ -835,6 +854,63 @@ export function createClient(opts: {
             amountMinor: input.amountMinor,
             idempotencyKey,
           }),
+        },
+        { reservationId },
+      );
+    },
+    async listRecurringCharges(
+      propertyId: string,
+      reservationId: string,
+    ): Promise<{ ok: true; charges: RecurringCharge[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/recurring-charges`,
+      );
+      const r = body as { ok?: true; charges?: RecurringCharge[] };
+      return { ok: true, charges: Array.isArray(r.charges) ? r.charges : [] };
+    },
+    async scheduleRecurringCharge(
+      propertyId: string,
+      reservationId: string,
+      input: {
+        recurringChargeId: string;
+        productId: string;
+        quantity: number;
+        startDate: string;
+        endDate: string | null;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/recurring-charges`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            recurringChargeId: input.recurringChargeId,
+            productId: input.productId,
+            quantity: input.quantity,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
+    async cancelRecurringCharge(
+      propertyId: string,
+      reservationId: string,
+      recurringChargeId: string,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/recurring-charges/${enc(recurringChargeId)}/cancel`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
         },
         { reservationId },
       );

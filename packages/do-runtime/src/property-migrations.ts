@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 40. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 41. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1295,6 +1295,30 @@ export const NIGHT_AUDIT_CHECKS_V40_STATEMENTS = [
 ] as const;
 export const NIGHT_AUDIT_CHECKS_V40_SQL = NIGHT_AUDIT_CHECKS_V40_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v41 — per-stay nightly product schedules (R3.2). Snapshot only; no guest PII. */
+export const RECURRING_CHARGES_V41_STATEMENTS = [
+  `CREATE TABLE recurring_charge (
+  recurring_charge_id TEXT PRIMARY KEY,
+  reservation_id      TEXT NOT NULL,
+  pattern             TEXT NOT NULL CHECK (pattern IN ('NIGHTLY')),
+  product_id          TEXT NOT NULL,
+  charge_code         TEXT NOT NULL,
+  description         TEXT NOT NULL,
+  unit_amount_minor   INTEGER NOT NULL CHECK (unit_amount_minor > 0),
+  quantity            INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 99),
+  start_date          TEXT NOT NULL,
+  end_date            TEXT NULL,
+  status              TEXT NOT NULL CHECK (status IN ('active', 'cancelled')),
+  created_at          INTEGER NOT NULL,
+  created_by          TEXT NOT NULL,
+  cancelled_at        INTEGER NULL,
+  cancelled_by        TEXT NULL
+)`,
+  `CREATE INDEX recurring_charge_reservation ON recurring_charge (reservation_id)`,
+  `CREATE INDEX recurring_charge_status_start ON recurring_charge (status, start_date)`,
+] as const;
+export const RECURRING_CHARGES_V41_SQL = RECURRING_CHARGES_V41_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1495,5 +1519,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 40,
     name: 'night_audit_checks',
     statements: NIGHT_AUDIT_CHECKS_V40_STATEMENTS,
+  },
+  {
+    version: 41,
+    name: 'recurring_charges',
+    statements: RECURRING_CHARGES_V41_STATEMENTS,
   },
 ] as const;

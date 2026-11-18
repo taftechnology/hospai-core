@@ -277,7 +277,7 @@ export function CityLedgerScreen() {
         <PageHeader
           title="City ledger"
           subtitle={detail?.name}
-          back={<Link to="/city-ledger">← City ledger</Link>}
+          back={<Link to="/city-ledger">City ledger</Link>}
           actions={
             detail ? <Badge rung={statusRung(detail.status)}>{badgeStatusWord(detail.status)}</Badge> : undefined
           }

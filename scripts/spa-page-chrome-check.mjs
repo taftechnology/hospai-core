@@ -20,6 +20,8 @@ const EXCLUDE = new Set(['HousekeepingScreen.tsx']);
 const PAGE_HEADER_RE = /<PageHeader[\s>]/;
 const CARD_RE = /<Card[\s>]/;
 const MODE_REPLACE_RE = /mode\.replace\('-',\s*' '\)/;
+/** R2.2 / audit I: PageHeader back links are plain words ("Guests"), never an arrow glyph. */
+const BACK_ARROW_RE = /back=\{\s*<Link\b[^>]*>\s*[←⬅]/;
 
 /** Opening <Link …> for a view tab must include ui-tab before > */
 function linkOpenerHasUiTab(opener) {
@@ -62,6 +64,7 @@ export function checkScreenFile(filePath, src) {
   if (!PAGE_HEADER_RE.test(src)) errors.push(`${rel}: missing PageHeader`);
   if (!CARD_RE.test(src)) errors.push(`${rel}: missing Card`);
   if (MODE_REPLACE_RE.test(src)) errors.push(`${rel}: mode.replace title`);
+  if (BACK_ARROW_RE.test(src)) errors.push(`${rel}: PageHeader back link starts with an arrow`);
   if (rel.endsWith('TapeChartScreen.tsx')) {
     errors.push(...checkTapeViewTabs(src).map((e) => `${rel}: ${e}`));
   }
@@ -131,6 +134,16 @@ function selfTest() {
   const badScreen = 'export function X() { return <div><Card /></div>; }';
   if (checkScreenFile('apps/web-pms/src/screens/XScreen.tsx', badScreen).length === 0) {
     fail('missing PageHeader fixture should FAIL');
+  }
+  const arrowBack =
+    'export function X() { return <div><PageHeader title="T" back={<Link to="/guests">← Guests</Link>} /><Card /></div>; }';
+  if (checkScreenFile('apps/web-pms/src/screens/XScreen.tsx', arrowBack).length === 0) {
+    fail('arrow back-link fixture should FAIL');
+  }
+  const wordBack =
+    'export function X() { return <div><PageHeader title="T" back={<Link to="/guests">Guests</Link>} /><Card /></div>; }';
+  if (checkScreenFile('apps/web-pms/src/screens/XScreen.tsx', wordBack).length !== 0) {
+    fail('word back-link fixture should PASS');
   }
   const goodScreen =
     'export function X() { return <div><PageHeader title="T" /><Card /></div>; }';

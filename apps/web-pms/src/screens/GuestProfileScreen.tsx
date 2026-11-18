@@ -281,7 +281,7 @@ export function GuestProfileScreen() {
     <div className="guest-profile" data-testid="guest-profile">
       {unsavedGuard}
       <PageHeader
-        back={<Link to="/guests">← Guests</Link>}
+        back={<Link to="/guests">Guests</Link>}
         title={pageTitle}
         subtitle={
           highlightedStay

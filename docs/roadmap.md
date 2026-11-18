@@ -387,8 +387,9 @@ Do after R0.11 at minimum (audit UI). Can run in parallel with Track 1 slices th
   - Gate: `check:spa-page-chrome`, `check:web-pms-me-gating`. Roster nav `roster:read` (audit U16).
   - **As-built:** Primary order is Dashboard, Room Plan, Front Desk, Reservations, New Booking, Housekeeping, Maintenance (module, kept beside Housekeeping), Guests, Rates, Folios, Night Audit, Settings. Quiet: Inventory, Staff, Roster, Exceptions, City ledger, Shift. City ledger moved to the quiet group; Shift is a new quiet link to `/shift` gated on `folio:read` (the open-shift and receipt reads), with a wallet icon; the AppShell strip still opens and closes shifts. Roster stays on `roster:read`. The nav registry test pins the order, the quiet set, Night Audit as primary and the Shift gate. No route, command or migration.
 
-- [ ] **R2.2 Screen titles and hotel name**
+- [x] **R2.2 Screen titles and hotel name** — shipped 2026-11-18
   - Arrivals / Departures / In house titles (audit I5). Drop “The Meridian Seattle”. One h1.
+  - **As-built:** A browser pass over 29 routes (every nav screen, its sub-tabs, stay card, folio, check-in, guest profile, 404) found exactly one `h1` on each, board titles matching the route (Arrivals / Departures / In house), live `property.name` in subtitles and no hardcoded hotel name — R0.11 had done most of it. The folio back link already follows the stay (In house vs Arrivals). Left over and fixed: the City ledger account and Guest profile back links still started with “←”; they now read “City ledger” and “Guests”. `check:spa-page-chrome` now fails any `PageHeader` back link that starts with an arrow (with self-test fixtures).
 
 - [ ] **R2.3 Dialog / EmptyState / Alert sweep**
   - Remaining `window.confirm`, JSON `<pre>`, bare `<p>` status (audit I3/I7/I8/Q18). One Dialog.

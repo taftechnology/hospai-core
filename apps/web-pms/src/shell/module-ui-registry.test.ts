@@ -15,13 +15,14 @@ describe('module UI nav merge', () => {
       'guests',
       'rates',
       'folios',
-      'city-ledger',
       'night-audit',
       'settings',
       'inventory',
       'staff',
       'roster',
       'exceptions',
+      'city-ledger',
+      'shift',
     ]);
     expect(ALL_NAV.map((e) => e.id)).not.toContain('in-house');
     expect(ALL_NAV.map((e) => e.id)).not.toContain('departures');
@@ -36,9 +37,17 @@ describe('module UI nav merge', () => {
     expect(ALL_NAV.find((e) => e.id === 'book')?.label).toBe('New Booking');
     expect(ALL_NAV.find((e) => e.id === 'night-audit')?.label).toBe('Night Audit');
 
-    for (const id of ['inventory', 'staff', 'roster', 'exceptions'] as const) {
+    for (const id of ['inventory', 'staff', 'roster', 'exceptions', 'city-ledger', 'shift'] as const) {
       expect(ALL_NAV.find((e) => e.id === id)?.tone).toBe('quiet');
     }
     expect(ALL_NAV.find((e) => e.id === 'housekeeping')?.tone).not.toBe('quiet');
+    // R2.1: Night Audit stays a primary link; Shift is gated like its reads; roster on read.
+    expect(ALL_NAV.find((e) => e.id === 'night-audit')?.tone).not.toBe('quiet');
+    expect(ALL_NAV.find((e) => e.id === 'shift')).toMatchObject({
+      label: 'Shift',
+      path: '/shift',
+      permission: 'folio:read',
+    });
+    expect(ALL_NAV.find((e) => e.id === 'roster')?.permission).toBe('roster:read');
   });
 });

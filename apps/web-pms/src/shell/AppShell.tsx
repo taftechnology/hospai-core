@@ -28,6 +28,7 @@ import {
   RosterIcon,
   SettingsIcon,
   UserIcon,
+  WalletIcon,
   WarningIcon,
   WrenchIcon,
 } from './icons.js';
@@ -60,6 +61,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   staff: UserIcon,
   roster: RosterIcon,
   exceptions: WarningIcon,
+  shift: WalletIcon,
 };
 
 function roleLabel(role: PropertyMe['role']): string {

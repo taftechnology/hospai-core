@@ -379,12 +379,13 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
 
 Do after R0.11 at minimum (audit UI). Can run in parallel with Track 1 slices that do not share screens.
 
-- [ ] **R2.1 Nav IA**
+- [x] **R2.1 Nav IA** — shipped 2026-11-18
   - Sidebar order matches prototype **roles we keep:** Dashboard, Room Plan, Front Desk, Reservations, New Booking, Housekeeping, Guests, Rates, Folios, Night Audit, Settings. Quiet: Inventory, Staff, Roster, Exceptions, City ledger, Shift.
   - **Today:** `nav.ts` has no Shift item (`ShiftStrip` links to `/shift` from AppShell). City ledger is in the list but not `tone: 'quiet'`. This slice adds both — not a later surprise.
   - **Night Audit stays in the sidebar.** The prototype only CTAs it from Dashboard; live already has a nav item — keep it.
   - **Out:** Whistle button, booking-engine simulation chrome, role-swap, property-switcher (until **R4.4**).
   - Gate: `check:spa-page-chrome`, `check:web-pms-me-gating`. Roster nav `roster:read` (audit U16).
+  - **As-built:** Primary order is Dashboard, Room Plan, Front Desk, Reservations, New Booking, Housekeeping, Maintenance (module, kept beside Housekeeping), Guests, Rates, Folios, Night Audit, Settings. Quiet: Inventory, Staff, Roster, Exceptions, City ledger, Shift. City ledger moved to the quiet group; Shift is a new quiet link to `/shift` gated on `folio:read` (the open-shift and receipt reads), with a wallet icon; the AppShell strip still opens and closes shifts. Roster stays on `roster:read`. The nav registry test pins the order, the quiet set, Night Audit as primary and the Shift gate. No route, command or migration.
 
 - [ ] **R2.2 Screen titles and hotel name**
   - Arrivals / Departures / In house titles (audit I5). Drop “The Meridian Seattle”. One h1.

@@ -40,6 +40,7 @@ import { MaintenanceSettings } from './settings-maintenance.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
 import { SettingsUsersTab } from './settings-users.js';
+import { SettingsAccommodationsTab } from './settings-accommodations.js';
 import { SettingsFinanceTab } from './settings-finance.js';
 import { SettingsGuests } from './settings-guests.js';
 import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
@@ -402,7 +403,8 @@ export function SettingsScreen({
     | 'users'
     | 'system'
     | 'logs'
-    | 'guests';
+    | 'guests'
+    | 'accommodations';
 }) {
   const propertyId = tenant.propertyId;
   const { date } = useFormat();
@@ -428,9 +430,6 @@ export function SettingsScreen({
   const [routingChargeCode, setRoutingChargeCode] = useState('');
   const [routingDestKind, setRoutingDestKind] = useState<'COMPANY' | 'MASTER'>('COMPANY');
 
-  const dirty = Boolean(reason || propName || chargeCode || taxName);
-  const unsavedGuard = useUnsavedChanges(dirty);
-
   const onSaved = async () => {
     await queryClient.invalidateQueries({ queryKey: ['domain-config', propertyId] });
   };
@@ -445,6 +444,11 @@ export function SettingsScreen({
     queryFn: () => api.getProperty(propertyId),
     retry: false,
   });
+  // The name field is prefilled with the stored name, so it is only dirty once it differs.
+  // (Counting any non-empty name made every Settings tab ask "Leave without saving?".)
+  const storedPropName = propertyQ.data?.property?.name ?? '';
+  const dirty = Boolean(reason || propName !== storedPropName || chargeCode || taxName);
+  const unsavedGuard = useUnsavedChanges(dirty);
   const meQ = useQuery({
     queryKey: ['me', propertyId],
     queryFn: () => api.getMe(propertyId),
@@ -609,6 +613,7 @@ export function SettingsScreen({
       {unsavedGuard}
       <Tabs label="Settings">
         <Link className="ui-tab" to="/settings/property" aria-current={activeTab === 'property' ? 'page' : undefined}>Property</Link>
+        <Link className="ui-tab" to="/settings/accommodations" aria-current={activeTab === 'accommodations' ? 'page' : undefined}>Accommodations</Link>
         <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
         <Link className="ui-tab" to="/settings/products" aria-current={activeTab === 'products' ? 'page' : undefined}>Products</Link>
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
@@ -1084,6 +1089,7 @@ export function SettingsScreen({
       {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'users' ? <SettingsUsersTab /> : null}
+      {activeTab === 'accommodations' ? <SettingsAccommodationsTab /> : null}
       {activeTab === 'guests' ? (
         meShell.kind === 'authority' && meShell.authority.kind === 'pending' ? (
           <Skeleton label="Loading settings" lines={3} />

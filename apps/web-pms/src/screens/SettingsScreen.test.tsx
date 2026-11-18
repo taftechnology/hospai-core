@@ -205,6 +205,22 @@ describe('SettingsScreen', () => {
     ).toBeTruthy();
   });
 
+  it('a loaded property name is not an unsaved change; editing it is', async () => {
+    const leaving = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    renderSettings('/settings/property');
+    const name = (await screen.findByDisplayValue('Demo Inn')) as HTMLInputElement;
+    // Prefilled from the stored name: nothing to lose, so no leave warning on any tab.
+    expect(leaving()).toBe(false);
+    fireEvent.change(name, { target: { value: 'Demo Inn Annex' } });
+    await waitFor(() => expect(leaving()).toBe(true));
+    fireEvent.change(name, { target: { value: 'Demo Inn' } });
+    await waitFor(() => expect(leaving()).toBe(false));
+  });
+
   it('property tab does not show auto_assign_rooms control', async () => {
     renderSettings('/settings/property');
     await screen.findByTestId('settings-screen');

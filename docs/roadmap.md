@@ -146,7 +146,7 @@ Cross-checked against live SPA/routes, ARCHITECTURE.md §7.1/§7.8/§11/§14/§1
 | Roster skills / shifts / capacity | **R1.9** on `/roster` (roster leftover 7). |
 | Settings → Tickets concierge | **R5.2** Whistle tasks. |
 | Settings → Guests | **R1.17** shipped 2026-11-17. Four create-time profile rules. |
-| Settings → Accommodations | **R1.18** = Inventory deep-link. |
+| Settings → Accommodations | **R1.18** shipped 2026-11-17: links to Inventory and Housekeeping. |
 | Booking wizard remainder | **R1.4**. Already ships adults, Inquiry/Hold/Confirm, promo, guest search. Remainder: consume booking Settings keys or hide (R0.11); add-ons via **R1.5**; source/segment via **R1.6**; FAIL_CLOSED disable. |
 | Billing & Guarantee / PAN modal | **R1.20** = consume `require_prepayment` + existing **simulate** `folio.authorize` (payments-simulate + card-last4 specs). No new PAN fields. No `held` inventory. |
 | Open Reservation / walk-in | **R1.3** → `/book` with today. Tape spec allows navigate; not a new assign POST. |
@@ -351,9 +351,10 @@ Each slice is one vertical. Prototype path is relative to `hospai-pms-prototype/
   - **Out:** a second guest book; decrypt-on-list.
   - **As-built:** Settings → Guests (`/settings/guests`, nav only with `org:manage`) shows four controls — require email, require phone, match on email, match on phone — in “Required on new profiles” and “Duplicate check at this property”. OrgDO `tryCreateGuest` reads all four, and only on new guest profiles; PATCH is unchanged. Duplicate match is property-scoped (blind index → live guest → `guest_property` for the URL property; email before phone). Hidden, with the slice that owns them: require ID at check-in (R4.15), stay preferences and passport/ID match (R4.15), default country and language (no owner yet), auto-suggest merge / allow explicit duplicates / share profiles across properties (no owner yet), VIP and loyalty thresholds (not scheduled). Routes `get_org_guest_settings` and `put_org_guest_settings`; command `config.put_guest_settings` (INTERACTIVE, `pms.core`, kill-switch on). Pins: catalog **105**, audit **170**, last id `put_org_guest_settings`. Spec: [Settings → Guests](superpowers/specs/2026-11-17-settings-guests-design.md).
 
-- [ ] **R1.18 Settings → Accommodations**
+- [x] **R1.18 Settings → Accommodations** — shipped 2026-11-17
   - **Prototype:** Property subtab `accommodations`.
   - **Locked:** deep-link / embed the Inventory screens (types, rooms, floors, OOO, amenities). **Do not** build a second editor. Spaces / split-inventory tabs stay hidden until Track 4.
+  - **As-built:** `/settings/accommodations` (a tab after Property) links out and edits nothing: Room types → `/inventory`, Rooms and floors → `/inventory/rooms` (floor is a field on each room), Out of order → `/housekeeping` (the board sets and releases OOO ranges). Each link shows only with the destination's permissions (`inventory:write`; OOO also needs `housekeeping:read`); otherwise the row says which access is missing. Amenities have no screen or data model yet, so there is no amenities row; spaces and split inventory stay hidden (Track 4). No route, command or migration. Fixed on the way: Settings counted the prefilled property name as an unsaved change, so leaving any Settings tab (Users → Staff, these links) asked "Leave without saving?" with nothing edited; it now compares against the stored name.
 
 - [ ] **R1.19 In-house room move**
   - **Depends:** R0.6. Type change on an in-house stay is **R4.24**: `reservations.modify` refuses `checked_in`.

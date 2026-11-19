@@ -31,7 +31,6 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
-import { useFormat } from '../shell/PropertyFormat.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
@@ -44,20 +43,10 @@ import { SettingsFinanceTab } from './settings-finance.js';
 import { SettingsGuests } from './settings-guests.js';
 import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
 import { SettingsLogsTab } from './settings-logs.js';
+import { SettingsTaxTab } from './settings-tax.js';
+import { SYSTEM_CHARGE_CODES } from './system-charge-codes.js';
 import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
 import { hasOrgPermission, hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
-
-const SYSTEM_CHARGE_CODES = new Set([
-  'ROOM',
-  'PAYMENT',
-  'CANCEL',
-  'NO_SHOW',
-  'DISCOUNT',
-  'DAMAGE',
-  'FX_GAIN',
-  'FX_LOSS',
-  'CHARGEBACK_FEE',
-]);
 
 type DomainKey = { key: string; value: unknown };
 
@@ -68,18 +57,6 @@ type RoutingRuleRow = {
   destWindowKind: string;
   status: string;
 };
-type TaxRow = {
-  taxRuleId: string;
-  ruleKey: string;
-  name: string;
-  ruleType: string;
-  rate: string;
-  taxGroup: string;
-  outputChargeCode: string;
-  validFrom: string;
-  validTo: string | null;
-};
-
 function lookup(keys: DomainKey[], key: string): unknown {
   return keys.find((k) => k.key === key)?.value;
 }
@@ -303,7 +280,6 @@ export function SettingsScreen({
     | 'accommodations';
 }) {
   const propertyId = tenant.propertyId;
-  const { date } = useFormat();
   const queryClient = useQueryClient();
   const activeTab = tab ?? 'property';
   const [reason, setReason] = useState('');
@@ -314,15 +290,6 @@ export function SettingsScreen({
 
   const [chargeCode, setChargeCode] = useState('');
   const [chargeName, setChargeName] = useState('');
-  const [taxName, setTaxName] = useState('');
-  const [taxKey, setTaxKey] = useState('');
-  const [taxType, setTaxType] = useState('PERCENTAGE');
-  const [taxRate, setTaxRate] = useState('');
-  const [taxGroup, setTaxGroup] = useState('');
-  const [taxOutput, setTaxOutput] = useState('');
-  const [taxFrom, setTaxFrom] = useState('');
-  const [superRate, setSuperRate] = useState('');
-  const [superFrom, setSuperFrom] = useState('');
   const [routingChargeCode, setRoutingChargeCode] = useState('');
   const [routingDestKind, setRoutingDestKind] = useState<'COMPANY' | 'MASTER'>('COMPANY');
 
@@ -343,7 +310,7 @@ export function SettingsScreen({
   // The name field is prefilled with the stored name, so it is only dirty once it differs.
   // (Counting any non-empty name made every Settings tab ask "Leave without saving?".)
   const storedPropName = propertyQ.data?.property?.name ?? '';
-  const dirty = Boolean(reason || propName !== storedPropName || chargeCode || taxName);
+  const dirty = Boolean(reason || propName !== storedPropName || chargeCode);
   const unsavedGuard = useUnsavedChanges(dirty);
   const meQ = useQuery({
     queryKey: ['me', propertyId],
@@ -376,13 +343,6 @@ export function SettingsScreen({
     enabled: activeTab === 'charges',
     retry: false,
   });
-  const taxQ = useQuery({
-    queryKey: ['tax-rules', propertyId],
-    queryFn: () => api.listTaxRules(propertyId),
-    enabled: activeTab === 'tax',
-    retry: false,
-  });
-
   const keys = (configQ.data?.keys ?? []) as DomainKey[];
   const charges = (chargesQ.data?.codes ?? []) as ChargeRow[];
   const activeChargeCodes = useMemo(
@@ -390,8 +350,6 @@ export function SettingsScreen({
     [charges],
   );
   const routingRules = (routingRulesQ.data?.rules ?? []) as RoutingRuleRow[];
-  const rules = (taxQ.data?.rules ?? []) as TaxRow[];
-
   useEffect(() => {
     const n = propertyQ.data?.property?.name;
     if (typeof n === 'string') setPropName(n);
@@ -444,27 +402,6 @@ export function SettingsScreen({
     onSuccess: async () => {
       setMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['folio-routing-rules', propertyId] });
-    },
-  });
-
-  const createTax = useMutation({
-    mutationFn: () =>
-      api.createTaxRule(propertyId, {
-        taxRuleId: crypto.randomUUID(),
-        ruleKey: taxKey,
-        name: taxName,
-        ruleType: taxType,
-        rate: taxRate,
-        taxGroup,
-        outputChargeCode: taxOutput,
-        validFrom: taxFrom,
-      }),
-    onSuccess: async () => {
-      setTaxName('');
-      setTaxKey('');
-      setTaxRate('');
-      setMessage('Saved.');
-      await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
     },
   });
 
@@ -1007,198 +944,8 @@ export function SettingsScreen({
         )
       ) : null}
       {activeTab === 'logs' ? <SettingsLogsTab /> : null}
-      {activeTab === 'tax' ? (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Tax Rule</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form
-                className="ui-stack"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createTax.mutate();
-                }}
-              >
-                <FieldGroup inline>
-                <Field
-                  label="Name"
-                  control={
-                    <Input
-                      placeholder="City tax"
-                      value={taxName}
-                      onChange={(e) => setTaxName(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Field
-                  label="Rule key"
-                  control={
-                    <Input
-                      placeholder="city_tax"
-                      value={taxKey}
-                      onChange={(e) => setTaxKey(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Field
-                  label="Rule type"
-                  control={
-                    <NativeSelect value={taxType} onChange={(e) => setTaxType(e.target.value)}>
-                      <option value="PERCENTAGE">PERCENTAGE</option>
-                      <option value="PER_PERSON_PER_NIGHT">PER_PERSON_PER_NIGHT</option>
-                      <option value="FLAT">FLAT</option>
-                    </NativeSelect>
-                  }
-                />
-                <Field
-                  label="Rate"
-                  control={
-                    <Input
-                      placeholder="0.1000"
-                      value={taxRate}
-                      onChange={(e) => setTaxRate(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Field
-                  label="Tax group"
-                  control={
-                    <Input
-                      placeholder="ROOM"
-                      value={taxGroup}
-                      onChange={(e) => setTaxGroup(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Field
-                  label="Output charge code"
-                  control={
-                    <Input
-                      placeholder="TAX"
-                      value={taxOutput}
-                      onChange={(e) => setTaxOutput(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Field
-                  label="Valid from"
-                  control={
-                    <Input
-                      type="date"
-                      value={taxFrom}
-                      onChange={(e) => setTaxFrom(e.target.value)}
-                      autoComplete="off"
-                    />
-                  }
-                />
-                <Button type="submit" intent="primary">
-                  {createTax.isPending ? 'Saving…' : 'Create Tax Rule'}
-                </Button>
-                </FieldGroup>
-              </form>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Tax rules</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="muted">
-                Superseding closes this rule and opens a new one. Posted tax lines stay.
-              </p>
-            </CardContent>
-            <CardContent flush>
-                <DataTable>
-            <DataTableHead>
-              <DataTableRow>
-                <DataTableHeaderCell>Name</DataTableHeaderCell>
-                <DataTableHeaderCell>Key</DataTableHeaderCell>
-                <DataTableHeaderCell>Type</DataTableHeaderCell>
-                <DataTableHeaderCell>Rate</DataTableHeaderCell>
-                <DataTableHeaderCell>Group</DataTableHeaderCell>
-                <DataTableHeaderCell>Output</DataTableHeaderCell>
-                <DataTableHeaderCell>Valid</DataTableHeaderCell>
-                <DataTableHeaderCell />
-              </DataTableRow>
-            </DataTableHead>
-            <DataTableBody>
-              {rules.map((r) => (
-                <DataTableRow key={r.taxRuleId}>
-                  <DataTableCell>{r.name}</DataTableCell>
-                  <DataTableCell>
-                    <span translate="no">{r.ruleKey}</span>
-                  </DataTableCell>
-                  <DataTableCell>{r.ruleType}</DataTableCell>
-                  <DataTableCell>{r.rate}</DataTableCell>
-                  <DataTableCell>{r.taxGroup}</DataTableCell>
-                  <DataTableCell>
-                    <span translate="no">{r.outputChargeCode}</span>
-                  </DataTableCell>
-                  <DataTableCell>
-                    {date(r.validFrom)}
-                    {r.validTo ? ` – ${date(r.validTo)}` : ' – open'}
-                  </DataTableCell>
-                  <DataTableCell>
-                    {r.validTo ? null : (
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          await api.supersedeTaxRule(propertyId, r.taxRuleId, {
-                            rate: superRate,
-                            validFrom: superFrom,
-                            name: r.name,
-                            ruleType: r.ruleType,
-                            taxGroup: r.taxGroup,
-                            outputChargeCode: r.outputChargeCode,
-                            ruleKey: r.ruleKey,
-                          });
-                          setMessage('Saved.');
-                          await queryClient.invalidateQueries({ queryKey: ['tax-rules', propertyId] });
-                        }}
-                      >
-                        <Field
-                          label="New rate"
-                          control={
-                            <Input
-                              placeholder="0.1000"
-                              value={superRate}
-                              onChange={(e) => setSuperRate(e.target.value)}
-                              autoComplete="off"
-                            />
-                          }
-                        />
-                        <Field
-                          label="New valid from"
-                          control={
-                            <Input
-                              type="date"
-                              value={superFrom}
-                              onChange={(e) => setSuperFrom(e.target.value)}
-                              autoComplete="off"
-                            />
-                          }
-                        />
-                        <Button type="submit">
-                          Supersede
-                        </Button>
-                      </form>
-                    )}
-                  </DataTableCell>
-                </DataTableRow>
-              ))}
-            </DataTableBody>
-                </DataTable>
-            </CardContent>
-          </Card>
-        </>
-      ) : null}
+      {activeTab === 'tax' ? <SettingsTaxTab propertyId={propertyId} /> : null}
+
 
       {archiveCode ? (
         <ConfirmDialog

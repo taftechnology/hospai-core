@@ -330,7 +330,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(77);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(79);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -908,10 +908,30 @@ describe('command catalog', () => {
       commandId: 'folio.cancel_recurring_charge',
       entitlement: 'pms.core',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(173);
+    expect(V1_HTTP_ROUTE_AUDIT[173]?.id).toBe('get_tax_declarations');
+    expect(V1_HTTP_ROUTE_AUDIT[173]).toMatchObject({
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[173] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[174]?.id).toBe('post_tax_declarations');
+    expect(V1_HTTP_ROUTE_AUDIT[174]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      commandId: 'folio.set_tax_declaration',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[175]?.id).toBe('put_tax_rule_end');
+    expect(V1_HTTP_ROUTE_AUDIT[175]).toMatchObject({
+      scope: 'property',
+      permission: 'settings:configure',
+      commandId: 'folio.end_tax_rule',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(176);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(77);
-    expect(COMMAND_CATALOG).toHaveLength(107);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(79);
+    expect(COMMAND_CATALOG).toHaveLength(109);
     const putGuestSettings = COMMAND_CATALOG.find((c) => c.id === 'config.put_guest_settings');
     expect(putGuestSettings?.lane).toBe('INTERACTIVE');
     expect(putGuestSettings?.degraded).toBe('FAIL_CLOSED');
@@ -1420,7 +1440,7 @@ describe('command catalog', () => {
   });
 
   it('tax rule commands are FAIL_CLOSED with settings:configure and tax_rule.changed', () => {
-    for (const id of ['folio.create_tax_rule', 'folio.supersede_tax_rule'] as const) {
+    for (const id of ['folio.create_tax_rule', 'folio.supersede_tax_rule', 'folio.end_tax_rule'] as const) {
       const c = COMMAND_CATALOG.find((x) => x.id === id);
       expect(c?.entitlement).toBe('pms.core');
       expect(c?.permission).toBe('settings:configure');
@@ -1462,6 +1482,7 @@ describe('DOMAIN keys vs eslint prefixes', () => {
       'pms.invoice.footer',
       'pms.invoice.show_taxfee',
       'pms.invoice.series',
+      'pms.tax',
     ];
     for (const e of domainConfigKeys()) {
       expect(

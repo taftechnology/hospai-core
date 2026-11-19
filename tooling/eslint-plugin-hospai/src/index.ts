@@ -65,6 +65,7 @@ export const DOMAIN_KEY_PREFIXES = [
   'pms.invoice.footer',
   'pms.invoice.show_taxfee',
   'pms.invoice.series',
+  'pms.tax',
 ] as const;
 
 function stringLooksLikeDomainKey(value: string): boolean {

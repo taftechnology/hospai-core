@@ -1674,10 +1674,11 @@ than retrofitting India afterwards.
    never once for the stay.
 5. **One levy may split into components.** `CGST` + `SGST` is a single taxable event reported as
    two lines, not two taxes; the folio must foot either way.
-6. **Inclusive versus exclusive is a jurisdiction property, not a display preference.** Australia
-   requires inclusive pricing in the booking engine *and* on the folio. Canada is tax-exclusive,
-   so nothing in the launch market exercises this — keep a tax-inclusive jurisdiction fixture in
-   the engine's tests until an inclusive market ships.
+6. **Inclusive versus exclusive is set per tax rule by the hotel**, not fixed by country
+   (amended 2026-11-18, roadmap R3.6). Australia requires inclusive pricing in the booking engine
+   *and* on the folio; other hotels quote one tax inside the price and another on top. A country
+   preset may suggest the mode; the hotel decides. Keep a tax-inclusive fixture in the engine's
+   tests until an inclusive market ships.
 7. **A fiscal-document hook on the invoice engine** — null for Canada and Australia, carrying
    IRN and QR for India. Adding it later means reissuing invoices.
 

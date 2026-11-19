@@ -210,6 +210,8 @@ export const TAX_RULE_KEY_EXISTS = 'tax_rule_key_exists' as const;
 export const TAX_RULE_KEY_OVERLAP = 'tax_rule_key_overlap' as const;
 export const TAX_RULE_TYPE_UNSUPPORTED = 'tax_rule_type_unsupported' as const;
 export const TAX_OUTPUT_CODE_TAXABLE = 'tax_output_code_taxable' as const;
+export const TAX_INCLUSIVE_COMPOUND_UNSUPPORTED = 'tax_inclusive_compound_unsupported' as const;
+export const TAX_INCLUSIVE_SLAB_CONFLICT = 'tax_inclusive_slab_conflict' as const;
 
 /** Shift / cashiering wire codes */
 export const SHIFT_NOT_FOUND = 'shift_not_found' as const;

@@ -38,6 +38,8 @@ vi.mock('../client.js', () => ({
     putFolioRoutingRule: (...a: unknown[]) => putFolioRoutingRule(...a),
     archiveFolioRoutingRule: (...a: unknown[]) => archiveFolioRoutingRule(...a),
     listTaxRules: (...a: unknown[]) => listTaxRules(...a),
+    listTaxDeclarations: () => Promise.resolve({ ok: true, declarations: [] }),
+    setTaxDeclaration: () => Promise.resolve({ classified: { class: 'live' }, body: { ok: true } }),
     createTaxRule: (...a: unknown[]) => createTaxRule(...a),
     supersedeTaxRule: (...a: unknown[]) => supersedeTaxRule(...a),
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
@@ -296,25 +298,24 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('button', { name: 'Archive MISC' })).toBeTruthy();
   });
 
-  it('tax create sends rate as a string; open rule offers Supersede', async () => {
+  it('tax create sends rate as a string; open rule offers a dated change', async () => {
     renderSettings('/settings/tax');
     expect(
       await screen.findByText(
-        'Superseding closes this rule and opens a new one. Posted tax lines stay.',
+        'Charges already posted keep their tax. A change applies to charges posted on or after its start date.',
       ),
     ).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Supersede' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Change from a date' })).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'City tax' } });
-    fireEvent.change(screen.getByLabelText('Rule key'), { target: { value: 'city' } });
-    fireEvent.change(screen.getByLabelText('Rate'), { target: { value: '0.0500' } });
-    fireEvent.change(screen.getByLabelText('Tax group'), { target: { value: 'ROOM' } });
-    fireEvent.change(screen.getByLabelText('Output charge code'), { target: { value: 'TAX' } });
-    fireEvent.change(screen.getByLabelText('Valid from'), { target: { value: '2026-08-13' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create Tax Rule' }));
+    fireEvent.change(screen.getByLabelText('Rate (%)'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('Product group'), { target: { value: 'ROOM' } });
+    fireEvent.change(screen.getByLabelText('Tax line code'), { target: { value: 'MISC' } });
+    fireEvent.change(screen.getByLabelText('Starts on'), { target: { value: '2026-08-13' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(createTaxRule).toHaveBeenCalled());
     const body = (createTaxRule.mock.calls[0] as [string, Record<string, unknown>])[1];
     expect(typeof body.rate).toBe('string');
-    expect(body.rate).toBe('0.0500');
+    expect(body.rate).toBe('0.05');
   });
 
   it('13: routing rules add and archive mutate list', async () => {

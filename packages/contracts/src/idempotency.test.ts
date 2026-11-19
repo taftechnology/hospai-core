@@ -67,6 +67,8 @@ import {
   TAX_RULE_KEY_OVERLAP,
   TAX_RULE_TYPE_UNSUPPORTED,
   TAX_OUTPUT_CODE_TAXABLE,
+  TAX_INCLUSIVE_COMPOUND_UNSUPPORTED,
+  TAX_INCLUSIVE_SLAB_CONFLICT,
   PENDING_CENSUS_REQUIRED,
   NIGHT_AUDIT_CHECKS_FAILED,
   PENDING_COMMANDS_UNDRAINED,
@@ -222,6 +224,8 @@ describe('fingerprintPayload', () => {
     expect(TAX_RULE_KEY_OVERLAP).toBe('tax_rule_key_overlap');
     expect(TAX_RULE_TYPE_UNSUPPORTED).toBe('tax_rule_type_unsupported');
     expect(TAX_OUTPUT_CODE_TAXABLE).toBe('tax_output_code_taxable');
+    expect(TAX_INCLUSIVE_COMPOUND_UNSUPPORTED).toBe('tax_inclusive_compound_unsupported');
+    expect(TAX_INCLUSIVE_SLAB_CONFLICT).toBe('tax_inclusive_slab_conflict');
   });
 
   it('night-audit PRE_CHECK wire codes', () => {
@@ -304,7 +308,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(190);
+    expect(count).toBe(192);
   });
 });
 

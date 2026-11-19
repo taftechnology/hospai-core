@@ -32,6 +32,7 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { TaxInclusionNote } from './tax-inclusion-note.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
@@ -1135,6 +1136,7 @@ export function BookingScreen() {
               )
             }
           />
+          <TaxInclusionNote propertyId={tenant.propertyId} />
         </CardContent>
         <CardFooter>
           <div className="ui-row book-actions">

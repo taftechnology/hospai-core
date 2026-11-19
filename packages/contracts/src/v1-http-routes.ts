@@ -1058,6 +1058,25 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'folio.cancel_recurring_charge',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_tax_declarations',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_tax_declarations',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.set_tax_declaration',
+  },
+  {
+    id: 'put_tax_rule_end',
+    scope: 'property',
+    permission: 'settings:configure',
+    commandId: 'folio.end_tax_rule',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

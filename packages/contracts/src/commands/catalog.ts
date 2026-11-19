@@ -441,6 +441,16 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'settings:configure',
   },
   {
+    id: 'folio.end_tax_rule',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['tax_rule.changed'],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+  },
+  {
     id: 'folio.open_shift',
     prototypeAction: null,
     lane: 'INTERACTIVE',
@@ -1194,6 +1204,17 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'folio:post',
     notes:
       'R3.2: cancel a recurring schedule. Nights already posted stay on the folio. JSON idempotencyKey. Already-cancelled returns the stored row.',
+  },
+  {
+    id: 'folio.set_tax_declaration',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['tax_declaration.changed'],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+    notes: 'R3.6: dated property declaration. Closes the open version for the key. JSON idempotencyKey.',
   },
 ];
 

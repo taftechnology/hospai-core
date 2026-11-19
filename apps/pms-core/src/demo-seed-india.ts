@@ -185,44 +185,63 @@ async function seedTaxAndChargeCodes(ctx: SeedCtx, validFrom: string) {
     fnb = refreshed.find((c) => c.code === 'FNB');
   }
 
-  await ensureTaxPair(ctx, validFrom, 'ROOM', 'demo_in_cgst_room', 'demo_in_sgst_room', 'CGST 2.5%', 'SGST 2.5%');
+  await ensureGstRule(ctx, validFrom, 'ROOM', 'demo_in_gst_room', 'GST', [
+    {
+      upToMinor: 750_000,
+      components: [
+        { outputChargeCode: 'CGST', rate: '0.025' },
+        { outputChargeCode: 'SGST', rate: '0.025' },
+      ],
+    },
+    {
+      upToMinor: null,
+      components: [
+        { outputChargeCode: 'CGST', rate: '0.09' },
+        { outputChargeCode: 'SGST', rate: '0.09' },
+      ],
+    },
+  ]);
 
   if (fnb?.taxGroup !== 'FNB') throw new Error('demo_seed_charge_code:FNB:tax_group_missing');
-  await ensureTaxPair(ctx, validFrom, 'FNB', 'demo_in_cgst_fnb', 'demo_in_sgst_fnb', 'FNB CGST 2.5%', 'FNB SGST 2.5%');
+  await ensureGstRule(ctx, validFrom, 'FNB', 'demo_in_gst_fnb', 'F&B GST', [
+    {
+      upToMinor: null,
+      components: [
+        { outputChargeCode: 'CGST', rate: '0.025' },
+        { outputChargeCode: 'SGST', rate: '0.025' },
+      ],
+    },
+  ]);
 }
 
-async function ensureTaxPair(
+async function ensureGstRule(
   ctx: SeedCtx,
   validFrom: string,
   taxGroup: string,
-  cgstKey: string,
-  sgstKey: string,
-  cgstName: string,
-  sgstName: string,
+  ruleKey: string,
+  name: string,
+  bands: Array<{ upToMinor: number | null; components: Array<{ outputChargeCode: string; rate: string }> }>,
 ) {
   const rules = await ctx.stub.listTaxRules({ taxGroup, effectiveDate: ctx.today });
   const keys = new Set(rules.map((r) => r.ruleKey));
-  for (const [ruleKey, name, output] of [
-    [cgstKey, cgstName, 'CGST'],
-    [sgstKey, sgstName, 'SGST'],
-  ] as const) {
-    if (keys.has(ruleKey)) continue;
-    const taxInput = {
-      taxRuleId: ruleKey,
-      ruleKey,
-      name,
-      ruleType: 'PERCENTAGE',
-      rate: '0.025',
-      taxGroup,
-      outputChargeCode: output,
-      validFrom,
-    };
-    const created = await ctx.stub.tryCreateTaxRule(ctx.actor, taxInput, await idem('tax-in', ruleKey, taxInput));
-    if (!created.ok && created.error !== 'tax_rule_key_exists') {
-      throw new Error(`demo_seed_tax:${ruleKey}:${created.error}`);
-    }
-    if (created.ok) markMutated(ctx);
+  if (keys.has(ruleKey)) return;
+  const legacy = taxGroup === 'ROOM' ? 'demo_in_cgst_room' : 'demo_in_cgst_fnb';
+  if (keys.has(legacy)) return;
+  const taxInput = {
+    taxRuleId: ruleKey,
+    ruleKey,
+    name,
+    ruleType: 'PERCENTAGE',
+    taxGroup,
+    validFrom,
+    priceMode: 'EXCLUSIVE',
+    bands,
+  };
+  const created = await ctx.stub.tryCreateTaxRule(ctx.actor, taxInput, await idem('tax-in', ruleKey, taxInput));
+  if (!created.ok && created.error !== 'tax_rule_key_exists') {
+    throw new Error(`demo_seed_tax:${ruleKey}:${created.error}`);
   }
+  if (created.ok) markMutated(ctx);
 }
 
 async function seedGuests(ctx: SeedCtx) {
@@ -465,9 +484,8 @@ async function payGuestBalance(ctx: SeedCtx, stay: IndiaStaySpec, mode: NonNulla
 
 async function payAdvanceOneNight(ctx: SeedCtx, stay: IndiaStaySpec & { arrivalDate: string; departureDate: string }) {
   const nightRate = INDIA_RATE_AMOUNTS[stay.roomTypeId];
-  const cgst = computeTax(nightRate, '0.025');
-  const sgst = computeTax(nightRate, '0.025');
-  const total = nightRate + cgst + sgst;
+  const slab = nightRate <= 750_000 ? '0.025' : '0.09';
+  const total = nightRate + computeTax(nightRate, slab) + computeTax(nightRate, slab);
   const paymentId = `pay_in_adv_${stay.reservationId}`;
   const listed = await ctx.stub.listPaymentsForReservation(stay.reservationId);
   if (listed.ok && listed.payments.some((p) => p.paymentId === paymentId)) return;

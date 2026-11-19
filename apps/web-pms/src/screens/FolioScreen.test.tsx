@@ -742,6 +742,42 @@ describe('FolioScreen wiring', () => {
     });
   });
 
+  it('a split levy shows each part with its own tax code', async () => {
+    const line = (folioLineId: string, chargeCode: string, amount: number, extra: Record<string, unknown> = {}) => ({
+      folioLineId,
+      chargeCode,
+      amountMinor: amount,
+      ledgerAmountMinor: amount,
+      txnCurrency: 'USD',
+      source: null,
+      businessDate: null,
+      splitOf: null,
+      createdAt: 1,
+      paymentId: null,
+      taxOf: null,
+      taxRuleId: null,
+      ...extra,
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 1050,
+      lines: [
+        line('c', 'MISC', 1000),
+        line('c:tax:gst:1', 'CGST', 25, { source: 'TAX', taxOf: 'c', taxRuleId: 'gst', taxComponent: '1', createdAt: 2 }),
+        line('c:tax:gst:2', 'SGST', 25, { source: 'TAX', taxOf: 'c', taxRuleId: 'gst', taxComponent: '2', createdAt: 2 }),
+      ],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => {
+      expect(screen.getByText('CGST')).toBeTruthy();
+      expect(screen.getByText('SGST')).toBeTruthy();
+    });
+  });
+
   it('403 on add-charge renders server-supplied permission and invalidates me', async () => {
     getFolio.mockResolvedValue({
       ok: true,

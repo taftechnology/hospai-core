@@ -61,6 +61,7 @@ import {
   MAINTENANCE_V39_SQL,
   NIGHT_AUDIT_CHECKS_V40_SQL,
   RECURRING_CHARGES_V41_SQL,
+  TAX_ENGINE_V42_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -256,21 +257,26 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('DROP TABLE roster_kind')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE roster_kind_v11 RENAME TO roster_kind')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE roster_property ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE tax_rule ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_component')) return { toArray: () => [] };
+    if (q.startsWith('DROP INDEX folio_line_tax_uniq')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO tax_rule_band')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO tax_rule_component')) return { toArray: () => [] };
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 41', () => {
+  it('applies property migrations through version 42', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(41);
+    expect(v1).toBe(42);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(41);
-    expect(sql.schemaVersion).toHaveLength(41);
+    expect(v2).toBe(42);
+    expect(sql.schemaVersion).toHaveLength(42);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -724,7 +730,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(41);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(42);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
@@ -1147,6 +1153,26 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(NIGHT_AUDIT_CHECKS_V40_SQL.trim());
+  });
+
+  it('property schema head is 42 after the tax engine', () => {
+    const v42 = PROPERTY_MIGRATIONS.find((m) => m.version === 42);
+    expect(v42?.name).toBe('tax_engine');
+    expect(v42?.statements.some((s) => s.includes('tax_rule_band'))).toBe(true);
+    expect(v42?.statements.some((s) => s.includes('DROP INDEX folio_line_tax_uniq'))).toBe(true);
+    expect(v42?.statements.some((s) => s.includes('tax_declaration'))).toBe(true);
+  });
+
+  it('migrations/do-property/0042_tax_engine.sql matches TAX_ENGINE_V42_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0042_tax_engine.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(TAX_ENGINE_V42_SQL.trim());
   });
 
   it('property schema head is 41 after recurring charges', () => {

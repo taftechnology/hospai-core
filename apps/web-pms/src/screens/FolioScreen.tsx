@@ -47,6 +47,7 @@ import {
 } from '../auth/me.js';
 import { api, asClassified, queuedCommands, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { TaxInclusionNote } from './tax-inclusion-note.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { FormDialog } from '../shell/FormDialog.js';
@@ -138,7 +139,9 @@ type InvoiceSnapshot = {
   invoiceNumber?: string;
   invoiceDate?: string;
   lines?: InvoiceSnapshotLine[];
-  taxSummary?: Array<{ label?: string; amountMinor?: number; taxRuleId?: string }>;
+  taxSummary?: Array<{ label?: string; amountMinor?: number; taxRuleId?: string; taxComponent?: string }>;
+  taxLocation?: { country?: string; region?: string | null; locality?: string | null };
+  taxRegistrations?: Array<{ label?: string; number?: string }>;
   totals?: {
     chargesMinor?: number;
     taxMinor?: number;
@@ -1520,7 +1523,8 @@ export function FolioScreen() {
           key: t.line.folioLineId,
           sortKey,
           date: rowDate,
-          code: 'TAX',
+          // The tax line's own code (CGST, SGST, TAX…) so a split levy shows each part.
+          code: t.line.chargeCode,
           description: `Tax · ${parentDesc}`,
           chargeMinor: t.line.ledgerAmountMinor > 0 ? t.line.ledgerAmountMinor : 0,
           paymentMinor: 0,
@@ -1641,6 +1645,7 @@ export function FolioScreen() {
           </>
         }
       />
+      <TaxInclusionNote propertyId={tenant.propertyId} />
 
       {folioQ.isError ? (
         <Alert data-testid="folio-unread">
@@ -2177,6 +2182,22 @@ export function FolioScreen() {
           ) : (
             <p className="muted">No lines</p>
           )}
+          {invoiceSnapshot?.taxLocation?.country ? (
+            <p>
+              {[invoiceSnapshot.taxLocation.locality, invoiceSnapshot.taxLocation.region, invoiceSnapshot.taxLocation.country]
+                .filter(Boolean)
+                .join(', ')}
+            </p>
+          ) : null}
+          {invoiceSnapshot?.taxRegistrations && invoiceSnapshot.taxRegistrations.length > 0 ? (
+            <ul className="ui-list">
+              {invoiceSnapshot.taxRegistrations.map((reg) => (
+                <li key={`${reg.label ?? ''}:${reg.number ?? ''}`}>
+                  {reg.label} {reg.number}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {showInvoiceTax && invoiceSnapshot?.taxSummary && invoiceSnapshot.taxSummary.length > 0 ? (
             <ul className="ui-list">
               {invoiceSnapshot.taxSummary.map((t, i) => (

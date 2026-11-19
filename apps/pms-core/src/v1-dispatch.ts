@@ -223,6 +223,7 @@ import {
   lookupUserIdByEmail,
 } from './clerk-lookup.js';
 import { isDevActorAllowed, type PmsEnv } from './env.js';
+import { TAX_BAND_CAP, TAX_COMPONENT_CAP, normalizeTaxRuleWrite } from './tax-model.js';
 import {
   degradedFailClosedOrgReadResponse,
   degradedFailClosedReadResponse,
@@ -5452,52 +5453,102 @@ async function handlePostFolioRoutingRuleArchive(ctx: V1DispatchContext): Promis
   });
 }
 
+type TaxRuleHttpBody = {
+  taxRuleId?: string;
+  ruleKey?: string;
+  name?: string;
+  ruleType?: string;
+  rate?: string;
+  taxGroup?: string;
+  outputChargeCode?: string;
+  validFrom?: string;
+  validTo?: string | null;
+  idempotencyKey?: string;
+  priceMode?: string;
+  sequence?: number;
+  base?: string;
+  conditionKey?: string | null;
+  conditionValue?: string | null;
+  rebandsOnDiscount?: boolean;
+  bands?: Array<{
+    upToMinor?: number | null;
+    components?: Array<{ outputChargeCode?: string; rate?: string }>;
+  }>;
+};
+
+function taxRuleBodyOverCap(body: TaxRuleHttpBody): boolean {
+  if (!Array.isArray(body.bands)) return false;
+  if (body.bands.length > TAX_BAND_CAP) return true;
+  return body.bands.some(
+    (band) => Array.isArray(band?.components) && band.components.length > TAX_COMPONENT_CAP,
+  );
+}
+
+function taxRuleCommandPayload(
+  body: TaxRuleHttpBody,
+  ruleKey: string,
+):
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; status: 400 | 422; error: string } {
+  if (!body.taxRuleId || !body.name || !body.ruleType || !body.taxGroup || !body.validFrom) {
+    return { ok: false, status: 400, error: 'invalid_body' };
+  }
+  if (taxRuleBodyOverCap(body)) return { ok: false, status: 422, error: LIMIT_EXCEEDED };
+  const normalized = normalizeTaxRuleWrite({
+    ruleType: body.ruleType,
+    rate: body.rate,
+    outputChargeCode: body.outputChargeCode,
+    priceMode: body.priceMode,
+    sequence: body.sequence,
+    base: body.base,
+    conditionKey: body.conditionKey,
+    conditionValue: body.conditionValue,
+    rebandsOnDiscount: body.rebandsOnDiscount,
+    bands: body.bands,
+  });
+  if (!normalized.ok) return { ok: false, status: 422, error: normalized.error };
+  const write = normalized.write;
+  return {
+    ok: true,
+    payload: {
+      taxRuleId: body.taxRuleId,
+      ruleKey,
+      name: body.name,
+      ruleType: body.ruleType,
+      taxGroup: body.taxGroup,
+      validFrom: body.validFrom,
+      validTo: body.validTo ?? null,
+      priceMode: write.priceMode,
+      sequence: write.sequence,
+      base: write.base,
+      conditionKey: write.conditionKey,
+      conditionValue: write.conditionValue,
+      rebandsOnDiscount: write.rebandsOnDiscount,
+      bands: write.bands,
+      rate: write.rate,
+      outputChargeCode: write.outputChargeCode,
+    },
+  };
+}
+
 async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
 
-    const bodyParsed = await parseJsonBody<{
-    taxRuleId: string;
-    ruleKey: string;
-    name: string;
-    ruleType: string;
-    rate: string;
-    taxGroup: string;
-    outputChargeCode: string;
-    validFrom: string;
-    validTo?: string | null;
-    idempotencyKey: string;
-  }>(ctx.request);
+  const bodyParsed = await parseJsonBody<TaxRuleHttpBody>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
-  if (
-    !body?.taxRuleId ||
-    !body.ruleKey ||
-    !body.name ||
-    !body.ruleType ||
-    !body.rate ||
-    !body.taxGroup ||
-    !body.outputChargeCode ||
-    !body.validFrom ||
-    !body.idempotencyKey
-  ) {
-    return json({ error: 'invalid_body' }, 400);
+  if (!body?.idempotencyKey || !body.ruleKey) return json({ error: 'invalid_body' }, 400);
+  const built = taxRuleCommandPayload(body, body.ruleKey);
+  if (!built.ok) {
+    return built.status === 422
+      ? json({ ok: false, error: built.error }, 422)
+      : json({ error: built.error }, 400);
   }
+  const commandPayload = built.payload;
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
-
-  const commandPayload = {
-    taxRuleId: body.taxRuleId,
-    ruleKey: body.ruleKey,
-    name: body.name,
-    ruleType: body.ruleType,
-    rate: body.rate,
-    taxGroup: body.taxGroup,
-    outputChargeCode: body.outputChargeCode,
-    validFrom: body.validFrom,
-    validTo: body.validTo ?? null,
-  };
   const fingerprint = await commandFingerprint('folio.create_tax_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -5510,7 +5561,12 @@ async function handlePostTaxRules(ctx: V1DispatchContext): Promise<Response> {
       requestFingerprint: fingerprint,
       commandPayload,
     }),
-    invoke: () => resolvedCtx.resolved.stub.tryCreateTaxRule(actor, commandPayload, idem),
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryCreateTaxRule(
+        actor,
+        commandPayload as Parameters<PropertyDO['tryCreateTaxRule']>[1],
+        idem,
+      ),
   });
 
   return finishPropertyDoInvoke({
@@ -5529,46 +5585,20 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
   const ruleKey = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-    const bodyParsed = await parseJsonBody<{
-    taxRuleId: string;
-    name: string;
-    ruleType: string;
-    rate: string;
-    taxGroup: string;
-    outputChargeCode: string;
-    validFrom: string;
-    validTo?: string | null;
-    idempotencyKey: string;
-  }>(ctx.request);
+  const bodyParsed = await parseJsonBody<TaxRuleHttpBody>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
-  if (
-    !body?.taxRuleId ||
-    !body.name ||
-    !body.ruleType ||
-    !body.rate ||
-    !body.taxGroup ||
-    !body.outputChargeCode ||
-    !body.validFrom ||
-    !body.idempotencyKey
-  ) {
-    return json({ error: 'invalid_body' }, 400);
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const built = taxRuleCommandPayload(body, ruleKey);
+  if (!built.ok) {
+    return built.status === 422
+      ? json({ ok: false, error: built.error }, 422)
+      : json({ error: built.error }, 400);
   }
+  const commandPayload = built.payload;
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
-
-  const commandPayload = {
-    ruleKey,
-    taxRuleId: body.taxRuleId,
-    name: body.name,
-    ruleType: body.ruleType,
-    rate: body.rate,
-    taxGroup: body.taxGroup,
-    outputChargeCode: body.outputChargeCode,
-    validFrom: body.validFrom,
-    validTo: body.validTo ?? null,
-  };
   const fingerprint = await commandFingerprint('folio.supersede_tax_rule', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -5581,7 +5611,51 @@ async function handlePutTaxRuleSupersede(ctx: V1DispatchContext): Promise<Respon
       requestFingerprint: fingerprint,
       commandPayload,
     }),
-    invoke: () => resolvedCtx.resolved.stub.trySupersedeTaxRule(actor, commandPayload, idem),
+    invoke: () =>
+      resolvedCtx.resolved.stub.trySupersedeTaxRule(
+        actor,
+        commandPayload as Parameters<PropertyDO['trySupersedeTaxRule']>[1],
+        idem,
+      ),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: (result) => {
+    if (result.error === 'not_member' || result.error === TAX_RULE_NOT_FOUND) return json({ error: 'not_found' }, 404);
+    return null;
+    },
+  });
+}
+
+async function handlePutTaxRuleEnd(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const ruleKey = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{ validTo?: string; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.idempotencyKey || typeof body.validTo !== 'string') return json({ error: 'invalid_body' }, 400);
+  const commandPayload = { ruleKey, validTo: body.validTo };
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const fingerprint = await commandFingerprint('folio.end_tax_rule', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryEndTaxRule']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.end_tax_rule',
+      routeId: 'put_tax_rule_end',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryEndTaxRule(actor, commandPayload, idem),
   });
 
   return finishPropertyDoInvoke({
@@ -5615,6 +5689,67 @@ async function handleGetTaxRules(ctx: V1DispatchContext): Promise<Response> {
     }
     throw e;
   }
+}
+
+async function handleGetTaxDeclarations(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const declarations = await resolvedCtx.resolved.stub.listTaxDeclarations();
+    return json({ ok: true, declarations }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostTaxDeclarations(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{
+    declarationId?: string;
+    declarationKey?: string;
+    value?: string;
+    validFrom?: string;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.declarationId || !body.declarationKey || !body.value || !body.validFrom || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = {
+    declarationId: body.declarationId,
+    declarationKey: body.declarationKey,
+    value: body.value,
+    validFrom: body.validFrom,
+  };
+  const fingerprint = await commandFingerprint('folio.set_tax_declaration', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetTaxDeclaration']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.set_tax_declaration',
+      routeId: 'post_tax_declarations',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySetTaxDeclaration(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
 }
 
 async function handlePostShifts(ctx: V1DispatchContext): Promise<Response> {
@@ -9774,6 +9909,33 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'folio.cancel_recurring_charge',
     entitlement: 'pms.core',
     handler: handlePostReservationRecurringChargeCancel,
+  },
+  {
+    id: 'get_tax_declarations',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/tax-declarations$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetTaxDeclarations,
+  },
+  {
+    id: 'post_tax_declarations',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/tax-declarations$/,
+    permission: 'settings:configure',
+    commandId: 'folio.set_tax_declaration',
+    handler: handlePostTaxDeclarations,
+  },
+  {
+    id: 'put_tax_rule_end',
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/tax-rules\/([^/]+)\/end$/,
+    permission: 'settings:configure',
+    commandId: 'folio.end_tax_rule',
+    handler: handlePutTaxRuleEnd,
   },
 ];
 

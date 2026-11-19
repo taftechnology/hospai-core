@@ -538,6 +538,34 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     default: '',
     secretDestination: 'r2',
   }),
+
+  entry({
+    key: 'pms.tax.location',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: z.object({
+      country: z.string().regex(/^[A-Z]{2}$|^$/),
+      region: z.string().max(80).nullable(),
+      locality: z.string().max(80).nullable(),
+    }),
+    default: { country: '', region: null, locality: null },
+    consumersExempt: true,
+  }),
+  entry({
+    key: 'pms.tax.registrations',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: z
+      .array(
+        z.object({
+          label: z.string().min(1).max(32).regex(/^[A-Za-z0-9][A-Za-z0-9 ./-]*$/),
+          number: z.string().min(1).max(32).regex(/^[A-Za-z0-9][A-Za-z0-9 ./-]*$/),
+        }),
+      )
+      .max(4),
+    default: [],
+    consumersExempt: true,
+  }),
 ];
 
 /** Prototype keys that map into booking_engine.settings bag fields treated as SECRET analytics. */

@@ -152,6 +152,7 @@ export async function handleDomainEvent(
     case 'config.operational_changed':
     case 'folio.routing_rule_changed':
     case 'tax_rule.changed':
+    case 'tax_declaration.changed':
     case 'shift.changed':
     case 'room.created':
     case 'room.updated':

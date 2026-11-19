@@ -39,6 +39,34 @@ describe('foldFolioLines', () => {
     expect(fold.roots[0]!.taxes.map((t) => t.line.folioLineId)).toEqual(['t1']);
   });
 
+  it('nests both components of one tax rule under the charge', () => {
+    const lines = [
+      line({ folioLineId: 'c1', ledgerAmountMinor: 10000, createdAt: 1 }),
+      line({
+        folioLineId: 'c1:tax:gst:1',
+        ledgerAmountMinor: 250,
+        createdAt: 2,
+        source: 'TAX',
+        chargeCode: 'CGST',
+        taxOf: 'c1',
+        taxRuleId: 'gst',
+      }),
+      line({
+        folioLineId: 'c1:tax:gst:2',
+        ledgerAmountMinor: 250,
+        createdAt: 3,
+        source: 'TAX',
+        chargeCode: 'SGST',
+        taxOf: 'c1',
+        taxRuleId: 'gst',
+      }),
+    ];
+    const fold = foldFolioLines(lines);
+    expect(fold.roots).toHaveLength(1);
+    expect(fold.roots[0]!.taxes.map((tax) => tax.line.chargeCode)).toEqual(['CGST', 'SGST']);
+    expect(fold.liveTotalMinor).toBe(10500);
+  });
+
   it('8-line taxed split: liveTotal 11000, one-level, no reversals', () => {
     const lines = [
       line({ folioLineId: '1', ledgerAmountMinor: 10000, createdAt: 1 }),

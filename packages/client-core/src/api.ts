@@ -2857,9 +2857,32 @@ export function createClient(opts: {
         },
       );
     },
-    async listTaxRules(propertyId: string) {
-      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/tax-rules`);
+    async listTaxRules(propertyId: string, query?: { taxGroup?: string; effectiveDate?: string }) {
+      const params = new URLSearchParams();
+      if (query?.taxGroup) params.set('taxGroup', query.taxGroup);
+      if (query?.effectiveDate) params.set('effectiveDate', query.effectiveDate);
+      const queryString = params.toString();
+      const suffix = queryString.length > 0 ? `?${queryString}` : '';
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/tax-rules${suffix}`);
       return body as { ok: true; rules: unknown[] };
+    },
+    async listTaxDeclarations(propertyId: string) {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/tax-declarations`);
+      return body as { ok: true; declarations: unknown[] };
+    },
+    async setTaxDeclaration(
+      propertyId: string,
+      input: { declarationId: string; declarationKey: string; value: string; validFrom: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `tax-declaration:${input.declarationId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/tax-declarations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
     },
     async createTaxRule(
       propertyId: string,
@@ -2868,11 +2891,21 @@ export function createClient(opts: {
         ruleKey: string;
         name: string;
         ruleType: string;
-        rate: string;
+        rate?: string;
         taxGroup: string;
-        outputChargeCode: string;
+        outputChargeCode?: string;
         validFrom: string;
         validTo?: string | null;
+        priceMode?: string;
+        sequence?: number;
+        base?: string;
+        conditionKey?: string | null;
+        conditionValue?: string | null;
+        rebandsOnDiscount?: boolean;
+        bands?: Array<{
+          upToMinor: number | null;
+          components: Array<{ outputChargeCode: string; rate: string }>;
+        }>;
       },
     ) {
       const idempotencyKey = stableKeyForOperation(
@@ -2898,6 +2931,17 @@ export function createClient(opts: {
           body: JSON.stringify({ ...input, idempotencyKey }),
         },
       );
+    },
+    async endTaxRule(propertyId: string, ruleKey: string, input: { validTo: string }) {
+      const idempotencyKey = stableKeyForOperation(
+        `tax-rule:end:${ruleKey}:${input.validTo}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/tax-rules/${enc(ruleKey)}/end`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ validTo: input.validTo, idempotencyKey }),
+      });
     },
   };
 }

@@ -56,11 +56,13 @@ describe('multi-currency folio v24 real sqlite', () => {
     const folioAfter = db
       .prepare(`SELECT * FROM folio_line ORDER BY folio_line_id`)
       .all() as Array<Record<string, unknown>>;
+    const withComponent: Array<Record<string, unknown>> = folioBefore.map((row) => ({ ...row, tax_component: '' }));
     expect(folioAfter).toHaveLength(folioBefore.length);
-    expect(folioAfter).toEqual(folioBefore);
+    expect(folioAfter).toEqual(withComponent);
     expect(folioAfter.find((r) => r.folio_line_id === 'fl2')).toEqual(
-      folioBefore.find((r) => r.folio_line_id === 'fl2'),
+      withComponent.find((r) => r.folio_line_id === 'fl2'),
     );
+    expect(folioAfter.every((row) => row.tax_component === '')).toBe(true);
 
     const pay1 = db
       .prepare(

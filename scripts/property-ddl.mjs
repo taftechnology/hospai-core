@@ -86,6 +86,7 @@ if (process.argv.includes('--self-test')) {
   let HOUSEKEEPING_INVENTORY_V38_SQL;
   let MAINTENANCE_V39_SQL;
   let RECURRING_CHARGES_V41_SQL;
+  let TAX_ENGINE_V42_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -145,6 +146,7 @@ if (process.argv.includes('--self-test')) {
       HOUSEKEEPING_INVENTORY_V38_SQL,
       MAINTENANCE_V39_SQL,
       RECURRING_CHARGES_V41_SQL,
+      TAX_ENGINE_V42_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -556,6 +558,15 @@ const doPropertyTargets = [
 
 `,
     sql: RECURRING_CHARGES_V41_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0042_tax_engine.sql'),
+    header: `-- PropertyDO configurable tax engine — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: TAX_ENGINE_V42_SQL,
   },
 ];
 

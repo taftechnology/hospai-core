@@ -2257,6 +2257,46 @@ details.side-panel summary {
   inline-size: 100%;
 }
 
+.tax-location-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tax-location-fields > .ui-field-group--inline {
+  align-items: flex-start;
+}
+
+.tax-location-fields > .muted {
+  margin: 0;
+}
+
+.tax-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--selected) 28%, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.tax-band__heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.tax-band__hint {
+  margin: 0;
+}
+
+.tax-band__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .rates-matrix__bulk-actions .ui-input {
   inline-size: 100%;
 }

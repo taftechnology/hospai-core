@@ -320,3 +320,261 @@ export function allocate(
   return parts;
 }
 
+export type TaxPriceMode = 'EXCLUSIVE' | 'INCLUSIVE';
+export type TaxBase = 'NET' | 'NET_PLUS_PRIOR';
+
+export type TaxComponentSpec = {
+  componentNo: number;
+  rate: string;
+};
+
+export type TaxBandSpec = {
+  /** Inclusive upper bound in ledger minor units. Null means no limit. */
+  upToMinor: number | null;
+  components: TaxComponentSpec[];
+};
+
+export type TaxRuleSpec = {
+  taxRuleId: string;
+  ruleKey: string;
+  priceMode: TaxPriceMode;
+  sequence: number;
+  base: TaxBase;
+  bands: TaxBandSpec[];
+};
+
+export type ResolvedTaxLine = {
+  taxRuleId: string;
+  componentNo: number;
+  rate: string;
+  amountMinor: number;
+};
+
+export type ResolveTaxesInput = {
+  /** Charge amount in ledger minor units, before inclusive back-out. */
+  grossLedgerMinor: number;
+  /** Charge amount in transaction currency. Same as ledger when there is no FX. */
+  grossTxnMinor: number;
+  rules: TaxRuleSpec[];
+  /**
+   * When set, band choice uses this amount (R3.3 meal-plan join).
+   * Tax is still computed on the charge net. Omitted: band choice uses the net.
+   */
+  bandBaseMinor?: number;
+};
+
+export type ResolveTaxesResult = {
+  netLedgerMinor: number;
+  netTxnMinor: number;
+  lines: ResolvedTaxLine[];
+};
+
+type RateParts = { num: bigint; den: bigint };
+
+function gcdBig(a: bigint, b: bigint): bigint {
+  let x = a < 0n ? -a : a;
+  let y = b < 0n ? -b : b;
+  while (y !== 0n) {
+    const t = y;
+    y = x % y;
+    x = t;
+  }
+  return x === 0n ? 1n : x;
+}
+
+function addRate(a: RateParts, b: RateParts): RateParts {
+  return { num: a.num * b.den + b.num * a.den, den: a.den * b.den };
+}
+
+function sumRates(rates: string[]): RateParts {
+  let acc: RateParts = { num: 0n, den: 1n };
+  for (const rate of rates) acc = addRate(acc, parseTaxRate(rate));
+  return acc;
+}
+
+function backOutNet(grossMinor: number, rate: RateParts): number {
+  if (rate.num === 0n) return grossMinor;
+  const net = Number(roundHalfAwayFromZero(BigInt(grossMinor) * rate.den, rate.den + rate.num));
+  if (!Number.isSafeInteger(net)) throw new InvalidMoneyError('tax amount overflow');
+  return net;
+}
+
+function bandContains(amount: number, index: number, bands: TaxBandSpec[]): boolean {
+  const prev = index === 0 ? null : bands[index - 1]!.upToMinor;
+  const upper = bands[index]!.upToMinor;
+  if (prev != null && amount <= prev) return false;
+  if (upper != null && amount > upper) return false;
+  return true;
+}
+
+function chooseBand(bands: TaxBandSpec[], amount: number): TaxBandSpec {
+  for (let i = 0; i < bands.length; i++) {
+    if (bandContains(amount, i, bands)) return bands[i]!;
+  }
+  return bands[bands.length - 1]!;
+}
+
+function rateWeights(rates: string[]): number[] {
+  const parsed = rates.map((rate) => parseTaxRate(rate));
+  let den = 1n;
+  for (const part of parsed) {
+    const g = gcdBig(den, part.den);
+    den = (den / g) * part.den;
+  }
+  return parsed.map((part) => {
+    const weight = part.num * (den / part.den);
+    const asNumber = Number(weight);
+    if (!Number.isSafeInteger(asNumber) || asNumber <= 0) {
+      throw new InvalidMoneyError('tax amount overflow');
+    }
+    return asNumber;
+  });
+}
+
+function splitByRate(totalMinor: number, rates: string[]): number[] {
+  if (totalMinor === 0) return rates.map(() => 0);
+  const weights = rateWeights(rates);
+  const sign = totalMinor < 0 ? -1 : 1;
+  const parts = allocate(Math.abs(totalMinor), weights);
+  return parts.map((part) => sign * part);
+}
+
+function netTxnShare(grossTxnMinor: number, netLedgerMinor: number, taxLedgerMinor: number): number {
+  if (taxLedgerMinor === 0) return grossTxnMinor;
+  if (netLedgerMinor === 0) return 0;
+  if (grossTxnMinor === 0) return 0;
+  const sign = grossTxnMinor < 0 ? -1 : 1;
+  const parts = allocate(Math.abs(grossTxnMinor), [Math.abs(netLedgerMinor), Math.abs(taxLedgerMinor)]);
+  const net = sign * parts[0]!;
+  if (!Number.isSafeInteger(net)) throw new InvalidMoneyError('tax amount overflow');
+  return net;
+}
+
+function sortRules(rules: TaxRuleSpec[]): TaxRuleSpec[] {
+  return [...rules].sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    if (a.ruleKey < b.ruleKey) return -1;
+    if (a.ruleKey > b.ruleKey) return 1;
+    return 0;
+  });
+}
+
+/**
+ * Pure tax resolution. Exclusive flat one-component rules match `computeTax` on the
+ * gross amount and leave that amount as the net. Inclusive rules back out so
+ * net + tax = gross exactly, then split the tax with `allocate`.
+ */
+export function resolveTaxes(input: ResolveTaxesInput): ResolveTaxesResult {
+  if (!Number.isInteger(input.grossLedgerMinor) || !Number.isInteger(input.grossTxnMinor)) {
+    throw new InvalidMoneyError('baseMinor must be an integer');
+  }
+  const rules = sortRules(input.rules);
+  const inclusive = rules.filter((rule) => rule.priceMode === 'INCLUSIVE');
+  const exclusive = rules.filter((rule) => rule.priceMode === 'EXCLUSIVE');
+  const slabCount = inclusive.filter((rule) => rule.bands.length > 1).length;
+  if (slabCount > 1) throw new InvalidMoneyError('tax_inclusive_slab_conflict');
+
+  const bandOverride = input.bandBaseMinor;
+  if (bandOverride !== undefined && !Number.isInteger(bandOverride)) {
+    throw new InvalidMoneyError('baseMinor must be an integer');
+  }
+
+  let netLedger = input.grossLedgerMinor;
+  const lines: ResolvedTaxLine[] = [];
+
+  if (inclusive.length > 0) {
+    const fixed = inclusive.filter((rule) => rule.bands.length === 1);
+    const slab = inclusive.find((rule) => rule.bands.length > 1) ?? null;
+    const fixedRate = sumRates(
+      fixed.flatMap((rule) => rule.bands[0]!.components.map((component) => component.rate)),
+    );
+    let chosenSlab = slab?.bands[0] ?? null;
+    if (slab) {
+      if (bandOverride !== undefined) {
+        chosenSlab = chooseBand(slab.bands, bandOverride);
+      } else {
+        let picked: TaxBandSpec | null = null;
+        for (let i = 0; i < slab.bands.length; i++) {
+          const band = slab.bands[i]!;
+          const total = addRate(fixedRate, sumRates(band.components.map((component) => component.rate)));
+          const net = backOutNet(input.grossLedgerMinor, total);
+          if (bandContains(net, i, slab.bands)) {
+            picked = band;
+            break;
+          }
+        }
+        if (!picked) {
+          const highest = slab.bands[slab.bands.length - 1]!;
+          const high = addRate(fixedRate, sumRates(highest.components.map((component) => component.rate)));
+          const netHigh = backOutNet(input.grossLedgerMinor, high);
+          picked =
+            slab.bands.find((band) => band.upToMinor == null || band.upToMinor >= netHigh) ?? highest;
+        }
+        chosenSlab = picked;
+      }
+    }
+
+    const chosen: Array<{ taxRuleId: string; componentNo: number; rate: string }> = [];
+    for (const rule of inclusive) {
+      const band = rule.bands.length > 1 ? chosenSlab! : rule.bands[0]!;
+      for (const component of [...band.components].sort((a, b) => a.componentNo - b.componentNo)) {
+        chosen.push({
+          taxRuleId: rule.taxRuleId,
+          componentNo: component.componentNo,
+          rate: component.rate,
+        });
+      }
+    }
+    const totalRate = sumRates(chosen.map((component) => component.rate));
+    netLedger = backOutNet(input.grossLedgerMinor, totalRate);
+    const taxTotal = input.grossLedgerMinor - netLedger;
+    const positive = chosen.filter((component) => parseTaxRate(component.rate).num > 0n);
+    const shares =
+      positive.length === 0 || taxTotal === 0
+        ? []
+        : splitByRate(
+            taxTotal,
+            positive.map((component) => component.rate),
+          );
+    positive.forEach((component, index) => {
+      const amount = shares[index] ?? 0;
+      if (amount === 0) return;
+      lines.push({
+        taxRuleId: component.taxRuleId,
+        componentNo: component.componentNo,
+        rate: component.rate,
+        amountMinor: amount,
+      });
+    });
+  }
+
+  // NET_PLUS_PRIOR adds only exclusive tax from rules with a LOWER sequence (spec §2.1).
+  const exclusiveBySequence: Array<{ sequence: number; amountMinor: number }> = [];
+  for (const rule of exclusive) {
+    const bandAmount = bandOverride !== undefined ? bandOverride : netLedger;
+    const band = chooseBand(rule.bands, bandAmount);
+    const prior = exclusiveBySequence
+      .filter((entry) => entry.sequence < rule.sequence)
+      .reduce((sum, entry) => sum + entry.amountMinor, 0);
+    const base = rule.base === 'NET_PLUS_PRIOR' ? netLedger + prior : netLedger;
+    for (const component of [...band.components].sort((a, b) => a.componentNo - b.componentNo)) {
+      const amount = computeTax(base, component.rate);
+      exclusiveBySequence.push({ sequence: rule.sequence, amountMinor: amount });
+      if (amount === 0) continue;
+      lines.push({
+        taxRuleId: rule.taxRuleId,
+        componentNo: component.componentNo,
+        rate: component.rate,
+        amountMinor: amount,
+      });
+    }
+  }
+
+  const inclusiveTax = input.grossLedgerMinor - netLedger;
+  return {
+    netLedgerMinor: netLedger,
+    netTxnMinor: netTxnShare(input.grossTxnMinor, netLedger, inclusiveTax),
+    lines,
+  };
+}
+

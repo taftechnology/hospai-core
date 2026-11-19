@@ -31,6 +31,7 @@ vi.mock('../client.js', () => ({
     getOpenShift: async () => ({ ok: true, shift: null }),
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
+    listEventConsumerExceptions: async () => ({ ok: true, count: 0, exceptions: [] }),
     getProvisionalExceptions: async () => ({ items: [] }),
   },
   queuedCommands: (() => {

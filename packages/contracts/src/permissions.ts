@@ -16,7 +16,8 @@ export type SystemActor = {
     | 'queue_replay'
     | 'provision'
     | 'purge'
-    | 'auth_hold_lapse';
+    | 'auth_hold_lapse'
+    | 'event_consumer';
 };
 
 export type ActorContext = UserActor | SystemActor;

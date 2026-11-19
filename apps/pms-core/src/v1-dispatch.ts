@@ -125,7 +125,6 @@ import {
   type Permission,
   type IdempotencyKey,
   ALREADY_MEMBER,
-  ALREADY_RESOLVED,
   BULK_NOT_ADMITTED,
   BUSINESS_DATE_CLOSED,
   CONFIG_CLASS_NOT_DOMAIN,
@@ -239,6 +238,7 @@ import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
 import { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
 import { NIGHT_AUDIT_STEPS, type NightAuditStep, type PropertyDO } from './property-do.js';
+import { consumerRegistry } from './event-consumers.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import { countPendingOpen } from './night-audit-census.js';
 import {
@@ -7772,6 +7772,123 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   return json({ status: result.status, error: result.error, halted: result.halted }, 200);
 }
 
+async function handleGetEventConsumerExceptions(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const statusRaw = ctx.url.searchParams.get('status') ?? 'open';
+  if (statusRaw !== 'open' && statusRaw !== 'all') return json({ error: 'invalid_query' }, 400);
+  const limitRaw = ctx.url.searchParams.get('limit');
+  let limit = 50;
+  if (limitRaw !== null && limitRaw !== '') {
+    const n = Number(limitRaw);
+    if (!Number.isInteger(n) || n < 1) return json({ error: 'invalid_query' }, 400);
+    if (n > 100) return json({ error: LIMIT_EXCEEDED }, 422);
+    limit = n;
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const result = await resolvedCtx.resolved.stub.listEventConsumerExceptions({
+      status: statusRaw,
+      limit,
+    });
+    if (!result.ok) return commandFailureResponse(result.error, 'property:read');
+    const labels = new Map(consumerRegistry().map((c) => [c.consumer, c.label]));
+    return json(
+      {
+        ok: true,
+        count: result.count,
+        exceptions: result.exceptions.map((row) => ({
+          ...row,
+          consumerLabel: labels.get(row.consumerId) ?? row.consumerId,
+        })),
+      },
+      200,
+    );
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostEventConsumerExceptionRetry(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{ idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { exceptionId };
+  const fingerprint = await commandFingerprint('events.retry_consumer_exception', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryRetryEventConsumerException']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'events.retry_consumer_exception',
+      routeId: 'post_event_consumer_exception_retry',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryRetryEventConsumerException(actor, commandPayload, {
+        key: body.idempotencyKey!,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return commandFailureResponse(result.error, 'night_audit:run');
+  return json({ ok: true }, 200);
+}
+
+async function handlePostEventConsumerExceptionDismiss(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const exceptionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{ idempotencyKey?: string; reason?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (reason.length < 1 || reason.length > 500) {
+    return json({ error: VALIDATION_ERROR }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { exceptionId, reason };
+  const fingerprint = await commandFingerprint('events.dismiss_consumer_exception', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryDismissEventConsumerException']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'events.dismiss_consumer_exception',
+      routeId: 'post_event_consumer_exception_dismiss',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryDismissEventConsumerException(actor, commandPayload, {
+        key: body.idempotencyKey!,
+        fingerprint,
+      }),
+  });
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (!result.ok) return commandFailureResponse(result.error, 'night_audit:run');
+  return json({ ok: true }, 200);
+}
+
 async function handlePostProvisionalExceptionResolve(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const exceptionId = decodeURIComponent(ctx.match[2]!);
@@ -9959,6 +10076,34 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'settings:configure',
     commandId: 'folio.end_tax_rule',
     handler: handlePutTaxRuleEnd,
+  },
+  {
+    id: 'get_event_consumer_exceptions',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/event-consumer-exceptions$/,
+    permission: 'property:read',
+    handler: handleGetEventConsumerExceptions,
+  },
+  {
+    id: 'post_event_consumer_exception_retry',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/event-consumer-exceptions\/([^/]+)\/retry$/,
+    permission: 'night_audit:run',
+    commandId: 'events.retry_consumer_exception',
+    entitlement: 'pms.core',
+    handler: handlePostEventConsumerExceptionRetry,
+  },
+  {
+    id: 'post_event_consumer_exception_dismiss',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/event-consumer-exceptions\/([^/]+)\/dismiss$/,
+    permission: 'night_audit:run',
+    commandId: 'events.dismiss_consumer_exception',
+    entitlement: 'pms.core',
+    handler: handlePostEventConsumerExceptionDismiss,
   },
 ];
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getMe = vi.fn();
 const getProvisionalExceptionCount = vi.fn();
+const listEventConsumerExceptions = vi.fn();
 const getProvisionalExceptions = vi.fn();
 const resolveProvisionalException = vi.fn();
 
@@ -13,6 +14,7 @@ vi.mock('../client.js', () => ({
   api: {
     getMe: (...a: unknown[]) => getMe(...a),
     getProvisionalExceptionCount: (...a: unknown[]) => getProvisionalExceptionCount(...a),
+    listEventConsumerExceptions: (...a: unknown[]) => listEventConsumerExceptions(...a),
     getProvisionalExceptions: (...a: unknown[]) => getProvisionalExceptions(...a),
     resolveProvisionalException: (...a: unknown[]) => resolveProvisionalException(...a),
   },
@@ -60,6 +62,7 @@ describe('ExceptionsPanel badge-as-link', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getProvisionalExceptionCount.mockResolvedValue({ propertyId: 'prop_demo', exceptionCount: 1 });
+    listEventConsumerExceptions.mockResolvedValue({ ok: true, count: 0, exceptions: [] });
     getProvisionalExceptions.mockResolvedValue({
       exceptions: [{ exceptionId: 'exc_1', businessDate: '2026-03-01' }],
     });

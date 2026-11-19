@@ -5,6 +5,7 @@
 export const CLASS_DENYLIST = [
   'AlarmScheduler',
   'ClassifiedError',
+  'ConsumerPermanentError',
   'CurrencyMismatchError',
   'EntitlementDoCache',
   'EntitlementRequiredError',

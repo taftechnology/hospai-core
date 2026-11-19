@@ -330,7 +330,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(79);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(81);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -928,10 +928,13 @@ describe('command catalog', () => {
       permission: 'settings:configure',
       commandId: 'folio.end_tax_rule',
     });
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(176);
+    expect(V1_HTTP_ROUTE_AUDIT[176]?.id).toBe('get_event_consumer_exceptions');
+    expect(V1_HTTP_ROUTE_AUDIT[177]?.id).toBe('post_event_consumer_exception_retry');
+    expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(179);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(79);
-    expect(COMMAND_CATALOG).toHaveLength(109);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(81);
+    expect(COMMAND_CATALOG).toHaveLength(111);
     const putGuestSettings = COMMAND_CATALOG.find((c) => c.id === 'config.put_guest_settings');
     expect(putGuestSettings?.lane).toBe('INTERACTIVE');
     expect(putGuestSettings?.degraded).toBe('FAIL_CLOSED');

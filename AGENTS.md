@@ -128,6 +128,8 @@ When adding or changing any path that accepts a `propertyId` / `orgId` in the **
 
 Typed domain errors only in `catch`; unexpected throws → `INTERNAL_ERROR`, never map everything to `forbidden`.
 
+**Queue consumers** (R4.5, [spec](docs/superpowers/specs/2026-11-19-outbox-consumers-design.md)): a new consumer of outbox events is a `consumes` entry with a handler in the consumer registry, never another branch in `index.ts` `queue()`. It is idempotent per event (a DO write passes `consumerIdempotencyKey` to `runIdempotent`; KV seen keys are advisory), reads current state rather than trusting event order, finishes inside the handler timeout, and is gated by its entitlement unless it carries `gateExempt: 'legal_duty'`. `subscribes` stays the in-transaction path; do not move a queue consumer into it to dodge the gate.
+
 **DO transport / degraded mode:** extend the allowlist against real Cloudflare strings; keep the test sentinel behind `HOSPAI_UNSAFE_LOCAL`. Missing R2/bindings must **not** retry forever — terminal fail or DLQ.
 
 **SQL:** bind user data. Identifiers are module constants or `^[A-Za-z_][A-Za-z0-9_]*$`. No string-built SQL from request input.
@@ -217,13 +219,13 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R1.10 (night audit checks, 2026-10-31) — update this table when you bump them:
+After roadmap R4.5 (outbox consumers, 2026-11-19) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **109** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **176** routes, last id **`put_tax_rule_end`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **43** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **111** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **179** routes, last id **`post_event_consumer_exception_dismiss`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `PROPERTY_SCHEMA_HEAD` | **44** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 

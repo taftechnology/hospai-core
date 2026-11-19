@@ -253,6 +253,8 @@ Until v3 lands, **`guest.*` events are orphaned** — called out explicitly; not
 
 ## Consumer (proof handler)
 
+R4.5 replaced this proof consumer with the consumer registry. See [outbox consumers](2026-11-19-outbox-consumers-design.md).
+
 Phase 0 consumer lives on the same Worker:
 
 ```ts

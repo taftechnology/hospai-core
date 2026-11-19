@@ -12,14 +12,20 @@ export function ExceptionsPanel() {
     queryFn: () => api.getProvisionalExceptionCount(propertyId),
     retry: false,
   });
+  const eventQ = useQuery({
+    queryKey: ['event-consumer-exception-count', propertyId],
+    queryFn: () => api.listEventConsumerExceptions(propertyId, { status: 'open', limit: 1 }),
+    retry: false,
+  });
 
-  const count = countQ.data?.exceptionCount ?? 0;
+  const count = (countQ.data?.exceptionCount ?? 0) + (eventQ.data?.count ?? 0);
   const badgeSev = exceptionBadgeSeverity(count);
   const failClosed =
-    countQ.isError && asClassified(countQ.error).class === 'fail_closed';
+    (countQ.isError && asClassified(countQ.error).class === 'fail_closed') ||
+    (eventQ.isError && asClassified(eventQ.error).class === 'fail_closed');
 
   // Nothing to act on: the sidebar's Exceptions link stays, the footer row goes.
-  if (count === 0 && !countQ.isError) return null;
+  if (count === 0 && !countQ.isError && !eventQ.isError) return null;
 
   return (
     <details

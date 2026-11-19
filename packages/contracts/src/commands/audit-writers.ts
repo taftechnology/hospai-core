@@ -68,6 +68,8 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'provisional.retry_exception',
   'provisional.assign_exception',
   'provisional.add_exception_note',
+  'events.retry_consumer_exception',
+  'events.dismiss_consumer_exception',
   'products.create_category',
   'products.update_category',
   'products.create_item',

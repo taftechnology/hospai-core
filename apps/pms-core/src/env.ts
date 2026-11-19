@@ -1,3 +1,4 @@
+import type { DomainEventMessage } from '@hospai/contracts';
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
 import { applySecurityHeaders } from './security-headers.js';
@@ -32,6 +33,21 @@ export type PurgeWorkflowParams =
       retentionMs?: number;
     };
 
+/** One consumer's retry. The events queue message stays the original envelope. */
+export type EventRetryMessage = {
+  consumerId: string;
+  event: DomainEventMessage;
+  /** Tries already made. The retry batch runs try number `attempt + 1`. */
+  attempt: number;
+  firstFailedAt: number;
+  /**
+   * Failure that caused this delivery. Set on every send.
+   * Absent only when a hand-off `msg.retry()` preserved an older body.
+   */
+  lastErrorCode?: string;
+  lastErrorDetail?: string;
+};
+
 export type PmsEnv = {
   PROPERTY_DO: DurableObjectNamespace<PropertyDO>;
   ORG_DO: DurableObjectNamespace<OrgDO>;
@@ -41,6 +57,8 @@ export type PmsEnv = {
   EVENTS_QUEUE: Queue<import('@hospai/contracts').DomainEventMessage>;
   /** Tier-1 degraded mode — provisional command replay queue. */
   PENDING_COMMANDS_QUEUE: Queue<import('@hospai/contracts').PendingCommandMessage>;
+  /** Per-consumer retry. One failure does not re-run the consumers that already succeeded. */
+  EVENT_RETRY_QUEUE: Queue<EventRetryMessage>;
   /** Advisory consumer dedupe — side-effect handlers must also use DO idempotency. */
   EVENT_DEDUPE_KV: KVNamespace;
   NIGHT_AUDIT_WORKFLOW: Workflow<NightAuditWorkflowParams>;

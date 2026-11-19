@@ -1,7 +1,8 @@
-import type { DomainEventMessage, PendingCommandMessage } from '@hospai/contracts';
-import { logError, logInfo, logWarn, type ObservabilityContext } from '@hospai/observability';
+import type { PendingCommandMessage } from '@hospai/contracts';
+import { logError, logInfo, type ObservabilityContext } from '@hospai/observability';
 import {
   assertEnvSafeForRequest,
+  type EventRetryMessage,
   type PmsEnv,
 } from './env.js';
 import { OrgEntitlementDO } from './org-entitlement-do.js';
@@ -12,14 +13,12 @@ import { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
 import { PurgeWorkflow } from './purge-workflow.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 import {
-  DEDUPE_TTL_SEC,
-  handleAvailabilityChanged,
-  handleDomainEvent,
-  logEventConsumed,
-  logEventDedupeSkip,
-} from './event-consumer.js';
+  canonicalQueueName,
+  handleEventRetryBatch,
+  handleEventRetryDlqBatch,
+  handleEventsBatch,
+} from './event-consumers.js';
 import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
-import { archiveBySource, hasEventLogR2 } from './event-log.js';
 import { handleV1 } from './v1-handler.js';
 import { applySecurityHeaders } from './security-headers.js';
 
@@ -147,62 +146,19 @@ export default {
   },
 
   async queue(batch: MessageBatch<unknown>, env: PmsEnv): Promise<void> {
-    if (batch.queue === 'hospai-pending-commands') {
+    const queueName = canonicalQueueName(batch.queue);
+    if (queueName === 'hospai-pending-commands') {
       await handlePendingCommandsBatch(batch as MessageBatch<PendingCommandMessage>, env);
       return;
     }
-
-    const eventBatch = batch as MessageBatch<DomainEventMessage>;
-    const survivors: (typeof eventBatch.messages)[number][] = [];
-    for (const msg of eventBatch.messages) {
-      const body = msg.body;
-      if (await env.EVENT_DEDUPE_KV.get(`seen:${body.eventId}`)) {
-        logEventDedupeSkip(body);
-        msg.ack();
-        continue;
-      }
-      survivors.push(msg);
-    }
-
-    if (survivors.length === 0) return;
-
-    if (!hasEventLogR2(env) || !env.EVENT_LOG_R2) {
-      logWarn({ moduleId: 'pms.events' }, {
-        msg: 'event_log.r2_unbound',
-        survivorCount: survivors.length,
-      });
-      for (const msg of survivors) {
-        msg.ack();
-      }
+    if (queueName === 'hospai-event-retries') {
+      await handleEventRetryBatch(batch as MessageBatch<EventRetryMessage>, env);
       return;
     }
-
-    const { ok } = await archiveBySource(
-      env.EVENT_LOG_R2,
-      survivors.map((m) => m.body),
-    );
-    const okIds = new Set(ok.map((m) => m.eventId));
-    for (const msg of survivors) {
-      if (!okIds.has(msg.body.eventId)) {
-        msg.retry();
-      }
+    if (queueName === 'hospai-event-retries-dlq') {
+      await handleEventRetryDlqBatch(batch as MessageBatch<EventRetryMessage>, env);
+      return;
     }
-
-    for (const msg of survivors) {
-      if (!okIds.has(msg.body.eventId)) continue;
-      const body = msg.body;
-      try {
-        if (body.eventType === 'availability.changed') {
-          await handleAvailabilityChanged(env, body);
-        }
-        await handleDomainEvent(body, env);
-      } catch {
-        msg.retry();
-        continue;
-      }
-      logEventConsumed(body);
-      await env.EVENT_DEDUPE_KV.put(`seen:${body.eventId}`, '1', { expirationTtl: DEDUPE_TTL_SEC });
-      msg.ack();
-    }
+    await handleEventsBatch(batch as MessageBatch<import('@hospai/contracts').DomainEventMessage>, env);
   },
 };

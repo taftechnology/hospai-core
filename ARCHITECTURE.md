@@ -1830,6 +1830,11 @@ uniqueness key. This is the invariant to defend; the state machine is an optimiz
 - Consumers are **idempotent by `event_id`**. Set `max_concurrency` on consumers writing back
   to DOs to prevent stampeding a single property.
 - Events carry PII by reference only (§4.8).
+- Queue consumers declare `consumes` (a registry in pms-core). `subscribes` stays the
+  in-transaction path. See [outbox consumers](docs/superpowers/specs/2026-11-19-outbox-consumers-design.md).
+- A failing consumer retries on `hospai-event-retries`. Other consumers of the same event are not re-run.
+- Each consumer is gated (tenant, entitlement, kill-switch) unless `gateExempt: legal_duty`.
+- Dead letters land on the property exceptions workbench (`event_consumer_exception`), not only a queue.
 
 ---
 

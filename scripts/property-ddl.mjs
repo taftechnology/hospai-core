@@ -88,6 +88,7 @@ if (process.argv.includes('--self-test')) {
   let RECURRING_CHARGES_V41_SQL;
   let TAX_ENGINE_V42_SQL;
   let RATE_PLAN_INCLUSIONS_V43_SQL;
+  let EVENT_CONSUMER_EXCEPTION_V44_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -149,6 +150,7 @@ if (process.argv.includes('--self-test')) {
       RECURRING_CHARGES_V41_SQL,
       TAX_ENGINE_V42_SQL,
       RATE_PLAN_INCLUSIONS_V43_SQL,
+      EVENT_CONSUMER_EXCEPTION_V44_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -578,6 +580,15 @@ const doPropertyTargets = [
 
 `,
     sql: RATE_PLAN_INCLUSIONS_V43_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0044_event_consumer_exception.sql'),
+    header: `-- PropertyDO event-consumer exceptions — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: EVENT_CONSUMER_EXCEPTION_V44_SQL,
   },
 ];
 

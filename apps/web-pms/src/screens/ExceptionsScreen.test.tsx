@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,9 @@ const addProvisionalExceptionNote = vi.fn();
 const postGuestsBatch = vi.fn();
 const listPropertyMembers = vi.fn();
 const getProperty = vi.fn();
+const listEventConsumerExceptions = vi.fn();
+const retryEventConsumerException = vi.fn();
+const dismissEventConsumerException = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -28,6 +31,9 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...a: unknown[]) => postGuestsBatch(...a),
     listPropertyMembers: (...a: unknown[]) => listPropertyMembers(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
+    listEventConsumerExceptions: (...a: unknown[]) => listEventConsumerExceptions(...a),
+    retryEventConsumerException: (...a: unknown[]) => retryEventConsumerException(...a),
+    dismissEventConsumerException: (...a: unknown[]) => dismissEventConsumerException(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -115,6 +121,9 @@ describe('ExceptionsScreen', () => {
     resolveProvisionalException.mockResolvedValue({ ok: true });
     assignProvisionalException.mockResolvedValue({ ok: true });
     addProvisionalExceptionNote.mockResolvedValue({ ok: true });
+    listEventConsumerExceptions.mockResolvedValue({ ok: true, count: 0, exceptions: [] });
+    retryEventConsumerException.mockResolvedValue({ ok: true });
+    dismissEventConsumerException.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => cleanup());
@@ -199,5 +208,152 @@ describe('ExceptionsScreen', () => {
     renderScreen();
     expect((await screen.findByRole('alert')).textContent).toMatch(/Data is stale/);
     expect(screen.queryByText(/No exceptions match/)).toBeNull();
+  });
+
+  it('event delivery is empty, errors, and filters as three states', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    renderScreen();
+    expect(await screen.findByText('No event delivery failures.')).toBeTruthy();
+
+    cleanup();
+    listEventConsumerExceptions.mockRejectedValue(
+      new ClassifiedError({ class: 'server_error', status: 500, body: {}, retryAfterMs: null }),
+    );
+    renderScreen();
+    expect(await screen.findByText('Could not load event delivery failures.')).toBeTruthy();
+
+    cleanup();
+    listEventConsumerExceptions.mockImplementation(async (_id: string, query?: { status?: string }) => {
+      if (query?.status === 'all') return { ok: true, count: 0, exceptions: [] };
+      return { ok: true, count: 0, exceptions: [] };
+    });
+    renderScreen();
+    await screen.findByText('No event delivery failures.');
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'all' } });
+    expect(await screen.findByText('No event delivery failures match this filter.')).toBeTruthy();
+  });
+
+  it('retry and dismiss invalidate the event delivery list and require a reason', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    listEventConsumerExceptions.mockResolvedValue({
+      ok: true,
+      count: 1,
+      exceptions: [
+        {
+          exceptionId: 'ece_1',
+          consumerId: 'pms.ari_projection',
+          consumerLabel: 'ARI projection',
+          eventType: 'availability.changed',
+          attempts: 2,
+          firstFailedAt: Date.UTC(2026, 2, 1, 12),
+          lastFailedAt: Date.UTC(2026, 2, 2, 12),
+          errorCode: 'timeout',
+          errorDetail: 'slow',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+    });
+    renderScreen();
+    const section = await screen.findByTestId('event-delivery');
+    const view = within(section);
+    await waitFor(() => expect(view.getByRole('button', { name: /^retry$/i })).toBeTruthy());
+    const callsBefore = listEventConsumerExceptions.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /^retry$/i }));
+    });
+    await waitFor(() => expect(retryEventConsumerException).toHaveBeenCalledTimes(1));
+    const success = await screen.findByText('The event was re-sent.');
+    expect(success.className).toContain('ui-alert--settled');
+    const firstKey = retryEventConsumerException.mock.calls[0]?.[2] as string;
+    expect(firstKey).toMatch(/^event:retry:prop_demo:ece_1:/);
+    await waitFor(() =>
+      expect((view.getByRole('button', { name: /^retry$/i }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /^retry$/i }));
+    });
+    await waitFor(() => expect(retryEventConsumerException).toHaveBeenCalledTimes(2));
+    const secondKey = retryEventConsumerException.mock.calls[1]?.[2] as string;
+    expect(secondKey).toMatch(/^event:retry:prop_demo:ece_1:/);
+    expect(secondKey).not.toBe(firstKey);
+    await waitFor(() => expect(listEventConsumerExceptions.mock.calls.length).toBeGreaterThan(callsBefore));
+
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /^dismiss$/i }));
+    });
+    const dialog = await screen.findByRole('dialog');
+    const confirm = within(dialog).getByRole('button', { name: /^dismiss$/i });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'not our event' } });
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    await waitFor(() => expect(dismissEventConsumerException).toHaveBeenCalled());
+  });
+
+  it('a failed event retry shows an exception alert', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    listEventConsumerExceptions.mockResolvedValue({
+      ok: true,
+      count: 1,
+      exceptions: [
+        {
+          exceptionId: 'ece_1',
+          consumerId: 'pms.ari_projection',
+          consumerLabel: 'ARI projection',
+          eventType: 'availability.changed',
+          attempts: 2,
+          firstFailedAt: Date.UTC(2026, 2, 1, 12),
+          lastFailedAt: Date.UTC(2026, 2, 2, 12),
+          errorCode: 'timeout',
+          errorDetail: 'slow',
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+    });
+    retryEventConsumerException.mockRejectedValue(
+      new ClassifiedError({ class: 'server_error', status: 500, body: {}, retryAfterMs: null }),
+    );
+    renderScreen();
+    const section = await screen.findByTestId('event-delivery');
+    const view = within(section);
+    await waitFor(() => expect(view.getByRole('button', { name: /^retry$/i })).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /^retry$/i }));
+    });
+    const failure = await view.findByText('Could not retry this event.');
+    expect(failure.className).toContain('ui-alert--exception');
+  });
+
+  it('disables event delivery actions without night_audit:run', async () => {
+    getMe.mockResolvedValue(staffMe);
+    listEventConsumerExceptions.mockResolvedValue({
+      ok: true,
+      count: 1,
+      exceptions: [
+        {
+          exceptionId: 'ece_1',
+          consumerId: 'pms.ari_projection',
+          consumerLabel: 'ARI projection',
+          eventType: 'availability.changed',
+          attempts: 1,
+          firstFailedAt: Date.UTC(2026, 2, 1),
+          lastFailedAt: Date.UTC(2026, 2, 1),
+          errorCode: 'handler_error',
+          errorDetail: null,
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+    });
+    renderScreen();
+    const section = await screen.findByTestId('event-delivery');
+    expect(within(section).getByText(/Night audit permission is required/)).toBeTruthy();
+    await waitFor(() => expect(within(section).getByRole('button', { name: /^retry$/i })).toBeTruthy());
+    expect((within(section).getByRole('button', { name: /^retry$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(section).getByRole('button', { name: /^dismiss$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

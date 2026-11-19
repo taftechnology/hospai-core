@@ -63,11 +63,17 @@ async function enqueueGuestPurge(env: PmsEnv, payload: Record<string, unknown>):
   });
 }
 
-/** Phase 0 proof consumer — contract assertions; `guest.erased` enqueues PurgeWorkflow. */
-export async function handleDomainEvent(
-  message: DomainEventMessage,
-  env: PmsEnv,
-): Promise<void> {
+/** Start guest erasure. Moved out of the contract switch onto `pms.guest_purge`. */
+export async function startGuestPurge(env: PmsEnv, message: DomainEventMessage): Promise<void> {
+  const payload = assertRecord(message.payload, message.eventType);
+  await enqueueGuestPurge(env, payload);
+}
+
+/**
+ * Contract assertions only. No side effects.
+ * `handleDomainEvent` remains as the name existing specs call.
+ */
+export async function assertEventContract(message: DomainEventMessage): Promise<void> {
   const payload = assertRecord(message.payload, message.eventType);
 
   switch (message.eventType) {
@@ -91,7 +97,6 @@ export async function handleDomainEvent(
       assertStringField(payload, 'guestRef', message.eventType);
       assertStringField(payload, 'piiKeyId', message.eventType);
       assertNoPlaintextGuestName(payload, message.eventType);
-      await enqueueGuestPurge(env, payload);
       break;
     }
     case 'reservation.created': {
@@ -196,9 +201,38 @@ export async function handleDomainEvent(
       // Shape pinned in producer tests; presence + deliverability is sufficient for Phase 0.
       // Every COMMAND_CATALOG `events[]` entry must appear here — see events-queue catalog allowlist test.
       break;
+    case 'event_consumer.retry_requested': {
+      assertStringField(payload, 'propertyId', message.eventType);
+      assertStringField(payload, 'exceptionId', message.eventType);
+      assertStringField(payload, 'consumerId', message.eventType);
+      const inner = payload.event;
+      if (inner === null || typeof inner !== 'object' || Array.isArray(inner)) {
+        throw new Error(`${message.eventType}: missing event`);
+      }
+      const innerRec = inner as Record<string, unknown>;
+      if (typeof innerRec.eventId !== 'string' || typeof innerRec.eventType !== 'string') {
+        throw new Error(`${message.eventType}: missing event`);
+      }
+      break;
+    }
+    case 'event_consumer.exception_dismissed': {
+      assertStringField(payload, 'propertyId', message.eventType);
+      assertStringField(payload, 'exceptionId', message.eventType);
+      assertStringField(payload, 'consumerId', message.eventType);
+      break;
+    }
     default:
       throw new Error(`unknown event type: ${message.eventType}`);
   }
+}
+
+/** @deprecated name kept for specs. Contract only — purge start is `startGuestPurge`. */
+export async function handleDomainEvent(
+  message: DomainEventMessage,
+  env: PmsEnv,
+): Promise<void> {
+  void env;
+  await assertEventContract(message);
 }
 
 export function logEventConsumed(body: DomainEventMessage): void {

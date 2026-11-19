@@ -139,6 +139,8 @@ export {
   TAX_ENGINE_V42_STATEMENTS,
   RATE_PLAN_INCLUSIONS_V43_SQL,
   RATE_PLAN_INCLUSIONS_V43_STATEMENTS,
+  EVENT_CONSUMER_EXCEPTION_V44_SQL,
+  EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS,
   RATE_DAY_SQL,
   RATE_DAY_STATEMENTS,
   TYPE_WIDE_RATE_PLAN,
@@ -228,6 +230,7 @@ export {
 
 export {
   IdempotencyKeyReused,
+  consumerIdempotencyKey,
   readIdempotentCacheSync,
   runIdempotent,
   scopeIdempotencyKey,

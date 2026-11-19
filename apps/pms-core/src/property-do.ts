@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
+  type DomainEventMessage,
   financialYearLabel,
   formatInvoiceNumber,
   invoiceNumberProblem,
@@ -298,6 +299,7 @@ import {
   readIdempotentCacheSync,
   scopeIdempotencyKey,
   IdempotencyKeyReused,
+  consumerIdempotencyKey,
   TYPE_WIDE_RATE_PLAN,
   DEFAULT_RATE_PLAN_ID,
   SYSTEM_CHARGE_CODES,
@@ -1409,6 +1411,8 @@ export const PROVISIONAL_RESOLVE_EXCEPTION_COMMAND = 'provisional.resolve_except
 export const PROVISIONAL_RETRY_EXCEPTION_COMMAND = 'provisional.retry_exception' as const;
 export const PROVISIONAL_ASSIGN_EXCEPTION_COMMAND = 'provisional.assign_exception' as const;
 export const PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND = 'provisional.add_exception_note' as const;
+export const RETRY_EVENT_CONSUMER_EXCEPTION_COMMAND = 'events.retry_consumer_exception' as const;
+export const DISMISS_EVENT_CONSUMER_EXCEPTION_COMMAND = 'events.dismiss_consumer_exception' as const;
 
 export type AffectedRefs = {
   reservationId: string | null;
@@ -1707,6 +1711,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'charge_code',
   'city_ledger_account',
   'city_ledger_entry',
+  'event_consumer_exception',
   'folio_routing_rule',
   'folio_line',
   'folio_window',
@@ -1762,6 +1767,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM charge_code) +
       (SELECT COUNT(*) FROM city_ledger_account) +
       (SELECT COUNT(*) FROM city_ledger_entry) +
+      (SELECT COUNT(*) FROM event_consumer_exception) +
       (SELECT COUNT(*) FROM folio_routing_rule) +
       (SELECT COUNT(*) FROM folio_line) +
       (SELECT COUNT(*) FROM folio_window) +
@@ -5184,6 +5190,338 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }
     }
     return { ok: true };
+  }
+
+  async recordConsumerException(input: {
+    consumerId: string;
+    event: DomainEventMessage;
+    errorCode: string;
+    errorDetail: string | null;
+    attempts: number;
+    firstFailedAt: number;
+  }): Promise<{ ok: true; exceptionId: string; attempts: number }> {
+    this.assertRpcAvailable();
+    const detail =
+      input.errorDetail === null ? null : input.errorDetail.slice(0, 500);
+    const attempts = input.attempts > 0 ? input.attempts : 1;
+    const now = Date.now();
+    const eventBody = JSON.stringify(input.event);
+    return this.ctx.storage.transactionSync(() => {
+      const exceptionId = crypto.randomUUID();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO event_consumer_exception (
+           exception_id, consumer_id, event_id, event_type, event_body,
+           error_code, error_detail, attempts, first_failed_at, last_failed_at,
+           resolved_at, resolved_by, resolution, dismiss_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
+         ON CONFLICT(consumer_id, event_id) DO UPDATE SET
+           event_type = excluded.event_type,
+           event_body = excluded.event_body,
+           error_code = excluded.error_code,
+           error_detail = excluded.error_detail,
+           attempts = event_consumer_exception.attempts + excluded.attempts,
+           last_failed_at = excluded.last_failed_at,
+           resolved_at = NULL,
+           resolved_by = NULL,
+           resolution = NULL,
+           dismiss_reason = NULL`,
+        exceptionId,
+        input.consumerId,
+        input.event.eventId,
+        input.event.eventType,
+        eventBody,
+        input.errorCode,
+        detail,
+        attempts,
+        input.firstFailedAt,
+        now,
+      );
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT exception_id, attempts FROM event_consumer_exception
+           WHERE consumer_id = ? AND event_id = ?`,
+          input.consumerId,
+          input.event.eventId,
+        )
+        .toArray() as Array<{ exception_id: string; attempts: number }>;
+      const row = rows[0];
+      if (!row) throw new Error('event_consumer_exception_missing');
+      return { ok: true as const, exceptionId: row.exception_id, attempts: row.attempts };
+    });
+  }
+
+  async listEventConsumerExceptions(input: {
+    status?: 'open' | 'all';
+    limit?: number;
+  }): Promise<
+    | {
+        ok: true;
+        count: number;
+        exceptions: Array<{
+          exceptionId: string;
+          consumerId: string;
+          eventType: string;
+          errorCode: string;
+          errorDetail: string | null;
+          attempts: number;
+          firstFailedAt: number;
+          lastFailedAt: number;
+          resolvedAt: number | null;
+          resolution: string | null;
+        }>;
+      }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+  > {
+    this.assertRpcAvailable();
+    const limit = input.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+    const open = (input.status ?? 'open') === 'open';
+    const countSql = open
+      ? `SELECT COUNT(*) AS n FROM event_consumer_exception WHERE resolved_at IS NULL`
+      : `SELECT COUNT(*) AS n FROM event_consumer_exception`;
+    const listSql = open
+      ? `SELECT exception_id, consumer_id, event_type, error_code, error_detail, attempts,
+                first_failed_at, last_failed_at, resolved_at, resolution
+         FROM event_consumer_exception
+         WHERE resolved_at IS NULL
+         ORDER BY last_failed_at DESC, exception_id DESC
+         LIMIT ?`
+      : `SELECT exception_id, consumer_id, event_type, error_code, error_detail, attempts,
+                first_failed_at, last_failed_at, resolved_at, resolution
+         FROM event_consumer_exception
+         ORDER BY last_failed_at DESC, exception_id DESC
+         LIMIT ?`;
+    const countRows = this.ctx.storage.sql.exec(countSql).toArray() as Array<{ n: number }>;
+    const rows = this.ctx.storage.sql.exec(listSql, limit).toArray() as Array<{
+      exception_id: string;
+      consumer_id: string;
+      event_type: string;
+      error_code: string;
+      error_detail: string | null;
+      attempts: number;
+      first_failed_at: number;
+      last_failed_at: number;
+      resolved_at: number | null;
+      resolution: string | null;
+    }>;
+    return {
+      ok: true,
+      count: Number(countRows[0]?.n ?? 0),
+      exceptions: rows.map((row) => ({
+        exceptionId: row.exception_id,
+        consumerId: row.consumer_id,
+        eventType: row.event_type,
+        errorCode: row.error_code,
+        errorDetail: row.error_detail,
+        attempts: row.attempts,
+        firstFailedAt: row.first_failed_at,
+        lastFailedAt: row.last_failed_at,
+        resolvedAt: row.resolved_at,
+        resolution: row.resolution,
+      })),
+    };
+  }
+
+  private loadEventConsumerExceptionRow(exceptionId: string): {
+    exception_id: string;
+    consumer_id: string;
+    event_id: string;
+    event_body: string;
+    resolved_at: number | null;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT exception_id, consumer_id, event_id, event_body, resolved_at
+         FROM event_consumer_exception WHERE exception_id = ?`,
+        exceptionId,
+      )
+      .toArray() as Array<{
+      exception_id: string;
+      consumer_id: string;
+      event_id: string;
+      event_body: string;
+      resolved_at: number | null;
+    }>;
+    return rows[0] ?? null;
+  }
+
+  async tryRetryEventConsumerException(
+    actor: ActorContext,
+    input: { exceptionId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ALREADY_RESOLVED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadEventConsumerExceptionRow(input.exceptionId);
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+          if (row.resolved_at != null) return { ok: false as const, error: ALREADY_RESOLVED };
+          const event = JSON.parse(row.event_body) as DomainEventMessage;
+          const now = Date.now();
+          const resolvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+          this.ctx.storage.sql.exec(
+            `UPDATE event_consumer_exception
+             SET resolved_at = ?, resolved_by = ?, resolution = 'retried', dismiss_reason = NULL
+             WHERE exception_id = ?`,
+            now,
+            resolvedBy,
+            input.exceptionId,
+          );
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: RETRY_EVENT_CONSUMER_EXCEPTION_COMMAND,
+            entityType: 'event_consumer_exception',
+            entityId: input.exceptionId,
+            beforeJson: { resolvedAt: null },
+            afterJson: { resolution: 'retried', resolvedAt: now, resolvedBy },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'event_consumer.retry_requested',
+            payload: {
+              propertyId,
+              exceptionId: input.exceptionId,
+              consumerId: row.consumer_id,
+              event,
+            },
+          });
+          return { ok: true as const };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryDismissEventConsumerException(
+    actor: ActorContext,
+    input: { exceptionId: string; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof ALREADY_RESOLVED }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const reason = input.reason.trim();
+    if (reason.length < 1 || reason.length > 500) return { ok: false, error: VALIDATION_ERROR };
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'night_audit:run');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const row = this.loadEventConsumerExceptionRow(input.exceptionId);
+          if (!row) return { ok: false as const, error: NOT_FOUND };
+          if (row.resolved_at != null) return { ok: false as const, error: ALREADY_RESOLVED };
+          const now = Date.now();
+          const resolvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+          this.ctx.storage.sql.exec(
+            `UPDATE event_consumer_exception
+             SET resolved_at = ?, resolved_by = ?, resolution = 'dismissed', dismiss_reason = ?
+             WHERE exception_id = ?`,
+            now,
+            resolvedBy,
+            reason,
+            input.exceptionId,
+          );
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: DISMISS_EVENT_CONSUMER_EXCEPTION_COMMAND,
+            entityType: 'event_consumer_exception',
+            entityId: input.exceptionId,
+            beforeJson: { resolvedAt: null },
+            afterJson: { resolution: 'dismissed', resolvedAt: now, resolvedBy, reason },
+          });
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'event_consumer.exception_dismissed',
+            payload: {
+              propertyId,
+              exceptionId: input.exceptionId,
+              consumerId: row.consumer_id,
+            },
+          });
+          return { ok: true as const };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Test helper: one idempotent audit row per (consumer, event). Local only. */
+  async applyConsumerIdempotentForTest(
+    consumerId: string,
+    eventId: string,
+    idempotencyKey: string,
+  ): Promise<{ ok: true }> {
+    this.assertUnsafeLocal('applyConsumerIdempotentForTest');
+    this.assertRpcAvailable();
+    const fingerprint = await commandFingerprint(consumerId, { eventId });
+    const actor = { kind: 'system' as const, reason: 'event_consumer' as const };
+    return this.ctx.storage.transactionSync(() =>
+      runIdempotent(
+        this.ctx.storage.sql,
+        { key: idempotencyKey || consumerIdempotencyKey(consumerId, eventId), fingerprint },
+        () => {
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: consumerId,
+            entityType: 'event_consumer',
+            entityId: eventId,
+            afterJson: { eventId },
+          });
+          return { ok: true as const };
+        },
+        actor,
+      ),
+    );
   }
 
   async tryResolveProvisionalException(

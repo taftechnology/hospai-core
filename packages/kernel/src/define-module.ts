@@ -13,6 +13,18 @@ export const ModuleManifestSchema = z.object({
   writes: z.array(z.string()),
   publishes: z.array(z.string()).default([]),
   subscribes: z.array(z.object({ event: z.string(), handler: z.string() })).default([]),
+  consumes: z
+    .array(
+      z.object({
+        consumer: z.string().min(1),
+        label: z.string().min(1),
+        events: z.array(z.string()),
+        handler: z.string().min(1),
+        entitlement: z.string().nullable().optional(),
+        gateExempt: z.literal('legal_duty').optional(),
+      }),
+    )
+    .optional(),
   permissions: z.array(z.string()).default([]),
   meters: z.array(z.string()).default([]),
   lifecycle: z
@@ -25,5 +37,6 @@ export const ModuleManifestSchema = z.object({
 });
 
 export function defineModule(mod: ModuleManifest): ModuleManifest {
-  return ModuleManifestSchema.parse(mod);
+  return ModuleManifestSchema.parse(mod) as ModuleManifest;
 }
+

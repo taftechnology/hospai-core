@@ -1216,6 +1216,30 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'settings:configure',
     notes: 'R3.6: dated property declaration. Closes the open version for the key. JSON idempotencyKey.',
   },
+  {
+    id: 'events.retry_consumer_exception',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['event_consumer.retry_requested'],
+    entitlement: 'pms.core',
+    permission: 'night_audit:run',
+    notes:
+      'R4.5: stamp an event_consumer_exception retried and append event_consumer.retry_requested. The router runs that consumer. JSON idempotencyKey. Kill-switch is the pms.core route switch only.',
+  },
+  {
+    id: 'events.dismiss_consumer_exception',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['event_consumer.exception_dismissed'],
+    entitlement: 'pms.core',
+    permission: 'night_audit:run',
+    notes:
+      'R4.5: dismiss an event_consumer_exception with a reason (1–500). JSON idempotencyKey. Already-resolved is 422 already_resolved.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

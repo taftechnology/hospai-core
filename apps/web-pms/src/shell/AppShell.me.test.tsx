@@ -20,6 +20,7 @@ vi.mock('../client.js', () => ({
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
     openShift: async () => ({ ok: true }),
     getProvisionalExceptionCount: async () => ({ propertyId: 'prop_demo', exceptionCount: 0 }),
+    listEventConsumerExceptions: async () => ({ ok: true, count: 0, exceptions: [] }),
     getProvisionalExceptions: async () => ({ items: [] }),
     searchDesk: async () => ({ classified: { class: 'live' }, body: { ok: true, items: [] } }),
   },

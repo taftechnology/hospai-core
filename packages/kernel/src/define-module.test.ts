@@ -24,4 +24,25 @@ describe('defineModule', () => {
     expect(mod.id).toBe('pms.housekeeping');
     expect(mod.writes).toEqual(['room', 'housekeeping_assignment']);
   });
+
+  it('keeps a consumes declaration', () => {
+    const mod = defineModule({
+      id: 'pms.housekeeping',
+      version: '0.0.1',
+      entitlement: 'pms.core',
+      schema: { prefix: null, tables: ['housekeeping_assignment'] },
+      writes: ['room', 'housekeeping_assignment'],
+      consumes: [
+        {
+          consumer: 'pms.housekeeping.on_room',
+          label: 'Room',
+          events: ['room.status_changed'],
+          handler: 'onRoom',
+          entitlement: 'pms.core',
+        },
+      ],
+    });
+    expect(mod.consumes?.[0]?.consumer).toBe('pms.housekeeping.on_room');
+    expect(mod.consumes?.[0]?.gateExempt).toBeUndefined();
+  });
 });

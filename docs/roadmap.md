@@ -496,8 +496,16 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
 
 ### Slices
 
-- [ ] **R4.5 Outbox consumers + Queue workers**
+- [x] **R4.5 Outbox consumers + Queue workers**
   - ARCHITECTURE Phase 2 mechanism proof. **Locked:** required before or with **R4.3**. No special cases inside PropertyDO. Do not start R4.3 if events have no consumer.
+  - **Done (2026-11-19):** [spec](superpowers/specs/2026-11-19-outbox-consumers-design.md).
+    - Queue consumers are declared with `consumes` on the module manifest (core consumers in pms-core) and run through one registry. `subscribes` stays the in-transaction path.
+    - Each consumer is gated by tenant, entitlement and kill-switch, deduped per consumer, and retried on its own queue, `hospai-event-retries`: six tries with backoff from 30 s to 900 s.
+    - A consumer that still fails becomes a row in a new **Event delivery** section of the exceptions workbench, with Retry (through the outbox) and Dismiss (with a reason).
+    - The ARI projection and the guest-erasure purge start moved onto the registry with no change in behaviour. Guest erasure is exempt from the gate as a legal duty.
+    - Adds 2 commands, 3 routes and PropertyDO migration 44.
+    - **R4.3 adds a manifest entry and a handler, nothing else.**
+    - **Ops:** the staging queues `hospai-event-retries-staging` and `hospai-event-retries-dlq-staging` were created on 2026-11-19. Create the production pair (`hospai-event-retries`, `hospai-event-retries-dlq`) with `wrangler queues create` before the first production deploy.
 
 - [ ] **R4.15 Guest ID documents, preferences + consent**
   - **Depends:** **R1.8** (guest CRM remainder), **R0.5** (per-org HKDF keys — shipped).
@@ -1006,14 +1014,14 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R1.6** (2026-10-28):
+After **R4.5** (2026-11-19):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **95** |
-| `V1_HTTP_ROUTE_AUDIT` | **152** routes, last `put_operational_config` |
-| `PROPERTY_SCHEMA_HEAD` | **36** |
-| `ORG_SCHEMA_HEAD` | **10** |
+| `COMMAND_CATALOG` | length **111** |
+| `V1_HTTP_ROUTE_AUDIT` | **179** routes, last `post_event_consumer_exception_dismiss` |
+| `PROPERTY_SCHEMA_HEAD` | **44** |
+| `ORG_SCHEMA_HEAD` | **11** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 
 After a slice that adds a command/route/migration, **edit this table** in the same PR so the next agent does not use stale heads.

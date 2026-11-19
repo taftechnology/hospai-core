@@ -9,7 +9,7 @@ import {
   type OutboxRow,
 } from '@hospai/do-runtime';
 import worker from '../src/index.js';
-import { handleDomainEvent } from '../src/event-consumer.js';
+import { handleDomainEvent, startGuestPurge } from '../src/event-consumer.js';
 import { replayEventLog } from '../src/event-log.js';
 import type { PmsEnv } from '../src/env.js';
 import type { OrgDO } from '../src/org-do.js';
@@ -365,8 +365,7 @@ describe('handleDomainEvent contract assertions', () => {
     }) as typeof env.PURGE_WORKFLOW.create;
 
     try {
-      await handleDomainEvent(
-        {
+      await startGuestPurge(env, {
           eventId: crypto.randomUUID(),
           eventType: 'guest.erased',
           payload: {
@@ -378,7 +377,6 @@ describe('handleDomainEvent contract assertions', () => {
           source: { do: 'org', id: 'org_enq' },
           createdAt: Date.now(),
         },
-        env,
       );
 
       expect(calls).toEqual([
@@ -414,7 +412,8 @@ describe('handleDomainEvent contract assertions', () => {
 
     try {
       await expect(
-        handleDomainEvent(
+        startGuestPurge(
+          env,
           {
             eventId: crypto.randomUUID(),
             eventType: 'guest.erased',
@@ -427,7 +426,6 @@ describe('handleDomainEvent contract assertions', () => {
             source: { do: 'org', id: 'org_fail' },
             createdAt: Date.now(),
           },
-          env,
         ),
       ).rejects.toThrow('binding_misconfigured');
     } finally {
@@ -451,7 +449,8 @@ describe('handleDomainEvent contract assertions', () => {
 
     try {
       await expect(
-        handleDomainEvent(
+        startGuestPurge(
+          env,
           {
             eventId: crypto.randomUUID(),
             eventType: 'guest.erased',
@@ -464,7 +463,6 @@ describe('handleDomainEvent contract assertions', () => {
             source: { do: 'org', id: 'org_exists' },
             createdAt: Date.now(),
           },
-          env,
         ),
       ).resolves.toBeUndefined();
       expect(createCalls).toBe(0);
@@ -524,7 +522,7 @@ describe('event-log consumer ordering', () => {
     expect(replayed.map((e) => e.eventId)).toEqual([freshId]);
   });
 
-  it('unknown event type is archived then retried (not marked seen)', async () => {
+  it('unknown event type is retried before archive (not marked seen)', async () => {
     const source = { do: 'property' as const, id: `prop_unk_${crypto.randomUUID().slice(0, 8)}` };
     const eventId = crypto.randomUUID();
     const batch = createMessageBatch('hospai-events', [
@@ -553,7 +551,7 @@ describe('event-log consumer ordering', () => {
     expect(result.retryMessages).toEqual([{ msgId: 'msg-unk' }]);
     expect(await env.EVENT_DEDUPE_KV.get(`seen:${eventId}`)).toBeNull();
     const replayed = await replayEventLog(env.EVENT_LOG_R2!, source);
-    expect(replayed.map((e) => e.eventId)).toEqual([eventId]);
+    expect(replayed.map((e) => e.eventId)).not.toContain(eventId);
   });
 
   it('put failure retries only the failed source group', async () => {

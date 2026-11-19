@@ -1077,6 +1077,26 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'settings:configure',
     commandId: 'folio.end_tax_rule',
   },
+  {
+    id: 'get_event_consumer_exceptions',
+    scope: 'property',
+    permission: 'property:read',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_event_consumer_exception_retry',
+    scope: 'property',
+    permission: 'night_audit:run',
+    commandId: 'events.retry_consumer_exception',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_event_consumer_exception_dismiss',
+    scope: 'property',
+    permission: 'night_audit:run',
+    commandId: 'events.dismiss_consumer_exception',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

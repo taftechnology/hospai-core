@@ -12,6 +12,11 @@ export class IdempotencyKeyReused extends Error {
   }
 }
 
+/** Client idempotency key for a consumer's DO write. `runIdempotent` scopes it to the system actor. */
+export function consumerIdempotencyKey(consumerId: string, eventId: string): string {
+  return `consumer:${consumerId}:${eventId}`;
+}
+
 export function scopeIdempotencyKey(actor: ActorContext, clientKey: string): string {
   if (actor.kind === 'user') return `${actor.userId}:${clientKey}`;
   return `system:${clientKey}`;

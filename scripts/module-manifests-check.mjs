@@ -60,6 +60,83 @@ function extractSubscribes(manifestSrc) {
   return out;
 }
 
+function extractBracketArray(src, key) {
+  const start = src.search(new RegExp(`\\b${key}\\b`));
+  if (start < 0) return null;
+  let cursor = start;
+  while (cursor < src.length) {
+    const open = src.indexOf('[', cursor);
+    if (open < 0) return null;
+    let j = open + 1;
+    while (src[j] === ' ' || src[j] === '\n' || src[j] === '\r' || src[j] === '\t') j++;
+    if (src[j] === ']') {
+      cursor = j + 1;
+      continue;
+    }
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '[') depth++;
+      else if (src[i] === ']') {
+        depth--;
+        if (depth === 0) return src.slice(open + 1, i);
+      }
+    }
+    return null;
+  }
+  return null;
+}
+
+function parseConsumerBlocks(body) {
+  if (!body) return [];
+  const out = [];
+  for (const block of body.split(/\}\s*,/)) {
+    const consumer = block.match(/\bconsumer\s*:\s*['"]([^'"]+)['"]/);
+    if (!consumer) continue;
+    const eventsBlock = block.match(/\bevents\s*:\s*\[([^\]]*)\]/);
+    const handler = block.match(/\bhandler\s*:\s*['"]([^'"]+)['"]/);
+    const entitlement = block.match(/\bentitlement\s*:\s*(null|['"][^'"]+['"])/);
+    const gateExempt = block.match(/\bgateExempt\s*:\s*['"]([^'"]+)['"]/);
+    let ent = null;
+    if (entitlement && entitlement[1] !== 'null') ent = entitlement[1].slice(1, -1);
+    out.push({
+      consumer: consumer[1],
+      events: eventsBlock
+        ? [...eventsBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1])
+        : [],
+      handler: handler?.[1] ?? null,
+      entitlement: ent,
+      gateExempt: gateExempt?.[1] ?? null,
+    });
+  }
+  return out;
+}
+
+function extractConsumes(manifestSrc) {
+  return parseConsumerBlocks(extractBracketArray(manifestSrc, 'consumes'));
+}
+
+function extractCoreConsumers(src) {
+  return parseConsumerBlocks(extractBracketArray(src, 'CORE_CONSUMERS'));
+}
+
+function extractHandlerKeys(src) {
+  const obj = src.match(/\bCONSUMER_HANDLERS[^=]*=\s*\{([\s\S]*?)\n\}/);
+  if (!obj) return new Set();
+  return new Set([...obj[1].matchAll(/['"]([^'"]+)['"]\s*:/g)].map((m) => m[1]));
+}
+
+function featureKeySet(src) {
+  const body = extractBracketArray(src, 'FEATURE_KEYS');
+  if (!body) return new Set();
+  return new Set([...body.matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]));
+}
+
+function consumerSuffixOk(moduleId, consumer) {
+  const prefix = `${moduleId}.`;
+  if (!consumer.startsWith(prefix)) return false;
+  return /^[a-z][a-z0-9_]*$/.test(consumer.slice(prefix.length));
+}
+
 function extractPublishes(manifestSrc) {
   const m = manifestSrc.match(/\bpublishes\s*:\s*\[([^\]]*)\]/s);
   if (!m) return [];
@@ -158,7 +235,11 @@ export function checkModuleManifests(opts = {}) {
   const catalogSrc =
     opts.catalogSrc ?? readText(join(root, 'packages/contracts/src/commands/catalog.ts'));
   const catalogEvents = catalogEventTypes(catalogSrc);
+  const entitlementsSrc =
+    opts.entitlementsSrc ?? readText(join(root, 'packages/contracts/src/entitlements.ts'));
+  const features = featureKeySet(entitlementsSrc);
   const allPublishes = new Set();
+  const declaredConsumers = [];
   for (const dir of moduleDirs) {
     const manifestPath = join(dir, 'src/module.manifest.ts');
     const manifestSrc = opts.manifestSrcByDir?.[dir] ?? readText(manifestPath);
@@ -270,6 +351,41 @@ export function checkModuleManifests(opts = {}) {
       }
     }
 
+    for (const row of extractConsumes(manifestSrc)) {
+      declaredConsumers.push({ moduleId: id, ...row, where: 'module' });
+      if (!consumerSuffixOk(id, row.consumer)) {
+        errors.push(
+          `${id}: consumes id ${JSON.stringify(row.consumer)} must be ${id}.<snake_case>`,
+        );
+      }
+      const indexPath = join(dir, 'src/index.ts');
+      const indexSrc = opts.indexSrcByDir?.[dir] ?? (existsSync(indexPath) ? readText(indexPath) : '');
+      const exports = extractIndexExports(indexSrc);
+      if (!row.handler || !exports.has(row.handler)) {
+        errors.push(
+          `${id}: consumes handler ${JSON.stringify(row.handler)} is not exported from src/index.ts`,
+        );
+      }
+      for (const ev of row.events) {
+        if (!allPublishes.has(ev) && !catalogEvents.has(ev)) {
+          errors.push(
+            `${id}: consumes event ${JSON.stringify(ev)} is not published by any module or listed in COMMAND_CATALOG events[]`,
+          );
+        }
+      }
+      if (row.entitlement === null) {
+        if (row.gateExempt !== 'legal_duty') {
+          errors.push(
+            `${id}: consumes ${row.consumer} entitlement null requires gateExempt 'legal_duty'`,
+          );
+        }
+      } else if (!features.has(row.entitlement)) {
+        errors.push(
+          `${id}: consumes ${row.consumer} entitlement ${JSON.stringify(row.entitlement)} is not a FEATURE_KEYS key`,
+        );
+      }
+    }
+
     const subscribes = extractSubscribes(manifestSrc);
     if (subscribes.length > 0) {
       const indexPath = join(dir, 'src/index.ts');
@@ -307,6 +423,50 @@ export function checkModuleManifests(opts = {}) {
           `module, its schema.tables declaration is wrong and should be corrected there.`,
       );
     }
+  }
+
+  const runCore = opts.coreConsumersSrc !== undefined || opts.moduleDirs === undefined;
+  if (runCore) {
+    const coreSrc =
+      opts.coreConsumersSrc ?? readText(join(root, 'apps/pms-core/src/event-consumers.ts'));
+    const handlerKeys = extractHandlerKeys(coreSrc);
+    for (const row of extractCoreConsumers(coreSrc)) {
+      declaredConsumers.push({ moduleId: 'pms', ...row, where: 'core' });
+      if (!consumerSuffixOk('pms', row.consumer)) {
+        errors.push(`pms: consumes id ${JSON.stringify(row.consumer)} must be pms.<snake_case>`);
+      }
+      if (!handlerKeys.has(row.consumer) || !row.handler || !coreSrc.includes(row.handler)) {
+        errors.push(
+          `pms: consumes ${row.consumer} handler ${JSON.stringify(row.handler)} is missing from CONSUMER_HANDLERS`,
+        );
+      }
+      for (const ev of row.events) {
+        if (!allPublishes.has(ev) && !catalogEvents.has(ev)) {
+          errors.push(
+            `pms: consumes event ${JSON.stringify(ev)} is not published by any module or listed in COMMAND_CATALOG events[]`,
+          );
+        }
+      }
+      if (row.entitlement === null) {
+        if (row.gateExempt !== 'legal_duty') {
+          errors.push(
+            `pms: consumes ${row.consumer} entitlement null requires gateExempt 'legal_duty'`,
+          );
+        }
+      } else if (!features.has(row.entitlement)) {
+        errors.push(
+          `pms: consumes ${row.consumer} entitlement ${JSON.stringify(row.entitlement)} is not a FEATURE_KEYS key`,
+        );
+      }
+    }
+  }
+
+  const seenIds = new Set();
+  for (const row of declaredConsumers) {
+    if (seenIds.has(row.consumer)) {
+      errors.push(`consumes id ${JSON.stringify(row.consumer)} is declared more than once`);
+    }
+    seenIds.add(row.consumer);
   }
 
   return errors;
@@ -605,6 +765,71 @@ export default manifest;
   });
   if (!eHandler.some((e) => /missingHandler/.test(e))) {
     console.error('self-test subscribes missing handler export should fail:\n' + eHandler.join('\n'));
+    failed = true;
+  }
+
+  const featureSrc = `export const FEATURE_KEYS = ['pms.core'] as const;`;
+  const catalogOk = `export const COMMAND_CATALOG = [{ events: ['room.changed'] }];`;
+  function consumesCheck(manifest, extra = {}) {
+    return checkModuleManifests({
+      registrySrc: `import bad from '@hospai/pms-bad'; export const MODULE_REGISTRY = [bad];`,
+      moduleDirs: ['/virtual/consume'],
+      manifestSrcByDir: { '/virtual/consume': manifest },
+      catalogSrc: catalogOk,
+      entitlementsSrc: featureSrc,
+      indexSrcByDir: { '/virtual/consume': 'export function onRoom() {}' },
+      pmsCoreSrcByFile: {},
+      ...extra,
+    });
+  }
+  const baseConsume = `
+const manifest = {
+  id: 'pms.bad',
+  writes: ['maintenance_ticket'],
+  schema: { tables: ['maintenance_ticket'] },
+  publishes: ['room.changed'],
+  consumes: [{ consumer: 'pms.bad.on_room', label: 'Room', events: ['room.changed'], handler: 'onRoom', entitlement: 'pms.core' }],
+} as const;
+export default manifest;
+`;
+  const badPrefix = consumesCheck(baseConsume.replace('pms.bad.on_room', 'other.on_room'));
+  if (!badPrefix.some((e) => /snake_case/.test(e))) {
+    console.error('self-test consumes bad prefix should fail:\n' + badPrefix.join('\n'));
+    failed = true;
+  }
+  const unknownEvent = consumesCheck(
+    baseConsume.replace("events: ['room.changed']", "events: ['no.such.event']"),
+  );
+  if (!unknownEvent.some((e) => /no\.such\.event/.test(e))) {
+    console.error('self-test consumes unknown event should fail:\n' + unknownEvent.join('\n'));
+    failed = true;
+  }
+  const missingHandler = consumesCheck(baseConsume.replace('onRoom', 'missingOnRoom'));
+  if (!missingHandler.some((e) => /missingOnRoom/.test(e))) {
+    console.error('self-test consumes missing handler should fail:\n' + missingHandler.join('\n'));
+    failed = true;
+  }
+  const badEnt = consumesCheck(baseConsume.replace("'pms.core'", "'not.a.feature'"));
+  if (!badEnt.some((e) => /not\.a\.feature/.test(e))) {
+    console.error('self-test consumes bad entitlement should fail:\n' + badEnt.join('\n'));
+    failed = true;
+  }
+  const nullEnt = consumesCheck(baseConsume.replace("entitlement: 'pms.core'", 'entitlement: null'));
+  if (!nullEnt.some((e) => /legal_duty/.test(e))) {
+    console.error('self-test consumes null entitlement without gateExempt should fail:\n' + nullEnt.join('\n'));
+    failed = true;
+  }
+  const dup = consumesCheck(baseConsume, {
+    coreConsumersSrc: `
+export const CORE_CONSUMERS = [
+  { consumer: 'pms.bad.on_room', events: ['room.changed'], handler: 'handleRoom', entitlement: 'pms.core' },
+];
+export const CONSUMER_HANDLERS = { 'pms.bad.on_room': handleRoom };
+function handleRoom() {}
+`,
+  });
+  if (!dup.some((e) => /more than once/.test(e))) {
+    console.error('self-test duplicate consumes id should fail:\n' + dup.join('\n'));
     failed = true;
   }
 

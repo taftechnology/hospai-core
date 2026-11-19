@@ -720,6 +720,62 @@ export function createClient(opts: {
       );
       return body as { propertyId: string; exceptionCount: number };
     },
+    async listEventConsumerExceptions(
+      propertyId: string,
+      query?: { status?: 'open' | 'all'; limit?: number },
+    ) {
+      const qs = new URLSearchParams();
+      if (query?.status) qs.set('status', query.status);
+      if (query?.limit !== undefined) qs.set('limit', String(query.limit));
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/event-consumer-exceptions${q ? `?${q}` : ''}`,
+      );
+      return body as {
+        ok: true;
+        count: number;
+        exceptions: Array<{
+          exceptionId: string;
+          consumerId: string;
+          consumerLabel: string;
+          eventType: string;
+          attempts: number;
+          firstFailedAt: number;
+          lastFailedAt: number;
+          errorCode: string;
+          errorDetail: string | null;
+          resolvedAt: number | null;
+          resolution: string | null;
+        }>;
+      };
+    },
+    async retryEventConsumerException(propertyId: string, exceptionId: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/event-consumer-exceptions/${enc(exceptionId)}/retry`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+    },
+    async dismissEventConsumerException(
+      propertyId: string,
+      exceptionId: string,
+      reason: string,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/event-consumer-exceptions/${enc(exceptionId)}/dismiss`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idempotencyKey, reason }),
+        },
+      );
+    },
     async getProvisionalExceptions(
       propertyId: string,
       query?: {

@@ -23,6 +23,7 @@ vi.mock('../client.js', () => {
       getRecentShifts: failClosed,
       openShift: failClosed,
       getProvisionalExceptionCount: failClosed,
+      listEventConsumerExceptions: failClosed,
       getProvisionalExceptions: failClosed,
       getArrivals: failClosed,
       getDepartures: failClosed,

@@ -39,6 +39,7 @@ import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { exceptionBadgeSeverity } from '../status/exception-badge-severity.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
+import { EventDeliverySection } from './EventDeliverySection.js';
 import { GuestNameLink } from './guest-row.js';
 
 const REPLAY_COMMAND_IDS = [
@@ -612,6 +613,7 @@ export function ExceptionsScreen() {
       ) : null}
       </CardContent>
       </Card>
+      <EventDeliverySection />
       {detailId ? (
         <aside className="exceptions-drawer overscroll-contain">
           <SectionLabel>Detail</SectionLabel>

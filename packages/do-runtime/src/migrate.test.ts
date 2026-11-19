@@ -63,6 +63,7 @@ import {
   RECURRING_CHARGES_V41_SQL,
   TAX_ENGINE_V42_SQL,
   RATE_PLAN_INCLUSIONS_V43_SQL,
+  EVENT_CONSUMER_EXCEPTION_V44_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -269,16 +270,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 43', () => {
+  it('applies property migrations through version 44', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(43);
+    expect(v1).toBe(44);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(43);
-    expect(sql.schemaVersion).toHaveLength(43);
+    expect(v2).toBe(44);
+    expect(sql.schemaVersion).toHaveLength(44);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -732,7 +733,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(43);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(44);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
@@ -1183,6 +1184,25 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(RATE_PLAN_INCLUSIONS_V43_SQL.trim());
+  });
+
+  it('property schema head is 44 after event-consumer exceptions', () => {
+    const v44 = PROPERTY_MIGRATIONS.find((m) => m.version === 44);
+    expect(v44?.name).toBe('event_consumer_exception');
+    expect(v44?.statements.some((s) => s.includes('event_consumer_exception'))).toBe(true);
+    expect(v44?.statements.some((s) => s.includes('UNIQUE (consumer_id, event_id)'))).toBe(true);
+  });
+
+  it('migrations/do-property/0044_event_consumer_exception.sql matches EVENT_CONSUMER_EXCEPTION_V44_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0044_event_consumer_exception.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(EVENT_CONSUMER_EXCEPTION_V44_SQL.trim());
   });
 
   it('migrations/do-property/0042_tax_engine.sql matches TAX_ENGINE_V42_SQL', () => {

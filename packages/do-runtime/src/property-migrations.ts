@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 43. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 44. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1397,6 +1397,30 @@ export const RATE_PLAN_INCLUSIONS_V43_STATEMENTS = [
 export const RATE_PLAN_INCLUSIONS_V43_SQL =
   RATE_PLAN_INCLUSIONS_V43_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v44 — per-consumer dead letters (R4.5). No guest PII; the envelope carries refs only. */
+export const EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS = [
+  `CREATE TABLE event_consumer_exception (
+  exception_id    TEXT PRIMARY KEY,
+  consumer_id     TEXT NOT NULL,
+  event_id        TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  event_body      TEXT NOT NULL,
+  error_code      TEXT NOT NULL,
+  error_detail    TEXT,
+  attempts        INTEGER NOT NULL,
+  first_failed_at INTEGER NOT NULL,
+  last_failed_at  INTEGER NOT NULL,
+  resolved_at     INTEGER,
+  resolved_by     TEXT,
+  resolution      TEXT CHECK (resolution IN ('retried', 'dismissed')),
+  dismiss_reason  TEXT,
+  UNIQUE (consumer_id, event_id)
+)`,
+  `CREATE INDEX event_consumer_exception_open_idx ON event_consumer_exception (resolved_at, last_failed_at)`,
+] as const;
+export const EVENT_CONSUMER_EXCEPTION_V44_SQL =
+  EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1612,5 +1636,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 43,
     name: 'rate_plan_inclusions',
     statements: RATE_PLAN_INCLUSIONS_V43_STATEMENTS,
+  },
+  {
+    version: 44,
+    name: 'event_consumer_exception',
+    statements: EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS,
   },
 ] as const;

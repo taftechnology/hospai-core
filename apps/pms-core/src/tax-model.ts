@@ -246,8 +246,12 @@ export function discountTaxLines(input: {
   rules: LoadedTaxRule[];
   sourceTax: Array<{ taxRuleId: string; componentNo: number; ledgerMinor: number }>;
   priorDiscountTax: Array<{ taxRuleId: string; componentNo: number; ledgerMinor: number }>;
+  /** Remaining joined band base. Selects the slab; the line is still taxed on its own remaining net. */
+  bandBaseMinor?: number;
 }): DiscountTaxLine[] {
   if (input.rules.length === 0) return [];
+  const bandBase =
+    input.bandBaseMinor !== undefined ? { bandBaseMinor: input.bandBaseMinor } : {};
   const flatExclusive = input.rules.every(
     (rule) => rule.priceMode === 'EXCLUSIVE' && rule.bands.length === 1,
   );
@@ -256,6 +260,7 @@ export function discountTaxLines(input: {
       grossLedgerMinor: input.discountLedgerMinor,
       grossTxnMinor: input.discountLedgerMinor,
       rules: input.rules.map((rule) => toSpec(rule)),
+      ...bandBase,
     });
     return resolved.lines.map((line) => {
       const rule = input.rules.find((candidate) => candidate.taxRuleId === line.taxRuleId)!;
@@ -281,6 +286,7 @@ export function discountTaxLines(input: {
         grossLedgerMinor: remaining,
         grossTxnMinor: remaining,
         rules: exclusive.map((rule) => toSpec(rule)),
+        ...bandBase,
       });
       for (const line of resolved.lines) {
         const rule = exclusive.find((candidate) => candidate.taxRuleId === line.taxRuleId)!;
@@ -293,7 +299,7 @@ export function discountTaxLines(input: {
       }
     }
     for (const rule of reband.filter((candidate) => candidate.priceMode === 'INCLUSIVE')) {
-      const index = bandIndexForNet(rule, remaining);
+      const index = bandIndexForNet(rule, input.bandBaseMinor ?? remaining);
       const band = rule.bands[index]!;
       for (const component of band.components) {
         const amount = computeTax(remaining, component.rate);

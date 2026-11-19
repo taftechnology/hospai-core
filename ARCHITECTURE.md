@@ -1709,7 +1709,7 @@ market this engine was shaped for: requirements 2–5 and 7 all exist because of
 | **Registration** | GSTIN is per state, so it is a **property** attribute — the same reason jurisdiction is per property below |
 | **Buyer details** | Registered or unregistered buyer; GSTIN, legal and trade name, address, state, PIN and place of supply. Captured on the city-ledger account, on the guest profile and at invoice time, and snapshotted on issue (requirement 9, **R4.22**) |
 | **Classification** | HSN/SAC per line on the tax invoice (requirement 9, **R4.22**). What the invoice must show is for the advisor |
-| **Plans and packages — open** | Whether a meal plan joins the room amount when choosing the slab, and when a room-and-meal stay is a composite supply. BluePMS makes both configurable. The answer may add inputs to requirement 2 and change R4.13's rule that each package line carries its own tax. **Advisor first; decide before R3.6 posts** |
+| **Plans and packages** | Both are hotel options on the plan since R3.3: inclusions may be taxed at the room's tax (one bundle) or each at its own tax, and they may count toward the room's tax band. The advisor confirms the values the hotel enters. |
 
 > As above: slab boundaries, the specified-premises tariff test and the e-invoicing threshold move.
 > The table records shape. Confirm current values with the client's tax advisor before R3.6 posts
@@ -2520,7 +2520,7 @@ text is listed so these are not over-counted. Decisions below are closed by
 | **Global reservation search** (name, res id, confirmation) | Available-rooms search (§16.1). Guest lookup is `READ_STALE` (§4.6). | **KEEP** (shell). [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §7. `reservation_id` is the confirmation. |
 | **Front-office comments** as a per-stay field, distinct from guest notes | `notes` are `QUEUE_PROVISIONAL` (§4.6). | **KEEP** (2026-08-12). SPA editor remainder closed in [prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §6. |
 | **Room-type photos, door-lock flag, maxAdults vs maxOccupancy** | Amenities and floors (§16.1). Property images on R2 (§4.7). | **Occupancy split: done. Photos: DEFER. Keyless: DROP.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
-| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Penalty snapshot: done. Inclusions: DEFER.** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
+| **Rate-plan cancellation policy text and inclusions** | Cancellations with penalty are `FAIL_CLOSED` (§4.6). Rate plans have modifiers (§16.1). | **Penalty snapshot: done. Inclusions: done (R3.3).** [Prototype holes sweep](docs/superpowers/specs/2026-08-13-prototype-holes-sweep-design.md) §1.2. |
 | **Plan-scoped restrictions** (min/max stay, CTA/CTD per rate plan) | §7.2 allows plan-specific rows ("the tightest constraint wins"); Phase 1 writes omit `ratePlanId` (type-wide `'*'`). | **Type-wide stays — not Phase 1** (2026-08-15). Scoped out of the rate-plans, property-setup SPA, derived-plans, booking plan-picker, and promo specs; revisit with the channel-manager phase. |
 
 #### Deliberate differences (not gaps)

@@ -62,6 +62,7 @@ import {
   NIGHT_AUDIT_CHECKS_V40_SQL,
   RECURRING_CHARGES_V41_SQL,
   TAX_ENGINE_V42_SQL,
+  RATE_PLAN_INCLUSIONS_V43_SQL,
   RATE_DAY_SQL,
   ROOM_TYPE_SQL,
   freeAvailability,
@@ -259,6 +260,7 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE roster_property ADD COLUMN')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE tax_rule ADD COLUMN')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_component')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_line ADD COLUMN tax_band_base_minor')) return { toArray: () => [] };
     if (q.startsWith('DROP INDEX folio_line_tax_uniq')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO tax_rule_band')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO tax_rule_component')) return { toArray: () => [] };
@@ -267,16 +269,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 42', () => {
+  it('applies property migrations through version 43', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(42);
+    expect(v1).toBe(43);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(42);
-    expect(sql.schemaVersion).toHaveLength(42);
+    expect(v2).toBe(43);
+    expect(sql.schemaVersion).toHaveLength(43);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -730,7 +732,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(42);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(43);
     expect(ORG_SCHEMA_HEAD).toBe(11);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
@@ -1161,6 +1163,26 @@ describe('schema head constants', () => {
     expect(v42?.statements.some((s) => s.includes('tax_rule_band'))).toBe(true);
     expect(v42?.statements.some((s) => s.includes('DROP INDEX folio_line_tax_uniq'))).toBe(true);
     expect(v42?.statements.some((s) => s.includes('tax_declaration'))).toBe(true);
+  });
+
+  it('property schema head is 43 after rate-plan inclusions', () => {
+    const v43 = PROPERTY_MIGRATIONS.find((m) => m.version === 43);
+    expect(v43?.name).toBe('rate_plan_inclusions');
+    expect(v43?.statements.some((s) => s.includes('rate_plan_inclusion'))).toBe(true);
+    expect(v43?.statements.some((s) => s.includes('reservation_inclusion_night'))).toBe(true);
+    expect(v43?.statements.some((s) => s.includes('tax_band_base_minor'))).toBe(true);
+  });
+
+  it('migrations/do-property/0043_rate_plan_inclusions.sql matches RATE_PLAN_INCLUSIONS_V43_SQL', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = join(here, '../../../migrations/do-property/0043_rate_plan_inclusions.sql');
+    const onDisk = readFileSync(path, 'utf8');
+    const body = onDisk
+      .split('\n')
+      .filter((l) => !l.startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(body).toBe(RATE_PLAN_INCLUSIONS_V43_SQL.trim());
   });
 
   it('migrations/do-property/0042_tax_engine.sql matches TAX_ENGINE_V42_SQL', () => {

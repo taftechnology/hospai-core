@@ -1309,4 +1309,27 @@ describe('BookingScreen', () => {
     expect(alert.textContent).not.toMatch(/posted/i);
     expect(screen.getByTestId('confirm-book')).toBeTruthy();
   });
+
+  it('shows the plan includes line and adds the extra amount to the quote', async () => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        {
+          ...barPlan,
+          inclusions: [
+            { label: 'Breakfast', amountMinor: 35000, basis: 'PER_ADULT', priceMode: 'INCLUDED' },
+            { label: 'Dinner', amountMinor: 60000, basis: 'PER_ADULT', priceMode: 'ADDED' },
+          ],
+        },
+      ],
+    });
+    renderBook();
+    const includes = await screen.findByTestId('plan-includes');
+    expect(includes.textContent).toBe(
+      'Includes: Breakfast (per adult, in the rate) · Dinner (per adult, ₹600.00 added)',
+    );
+    fireEvent.click(await screen.findByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toContain('₹750.00'));
+    expect(screen.getByTestId('quote-added').textContent).toContain('₹600.00');
+  });
 });

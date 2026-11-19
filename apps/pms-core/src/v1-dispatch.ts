@@ -154,6 +154,8 @@ import {
   LIMIT_EXCEEDED,
   NAMED_LIST_MAX_ENTRIES,
   RATES_BULK_UPDATE_MAX,
+  RATE_PLAN_INCLUSION_MAX,
+  type RatePlanInclusionInput,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
   ROSTER_KINDS_MAX,
@@ -4753,11 +4755,17 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     cancelPolicyText?: string | null;
     parentRatePlanId?: string | null;
     deriveBps?: number | null;
+    inclusions?: RatePlanInclusionInput[];
+    inclusionTax?: string;
+    inclusionBandJoin?: boolean;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.ratePlanId || !body.code || !body.name || !body.idempotencyKey) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (Array.isArray(body.inclusions) && body.inclusions.length > RATE_PLAN_INCLUSION_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
@@ -4774,6 +4782,9 @@ async function handlePostRatePlans(ctx: V1DispatchContext): Promise<Response> {
     ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
     ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
     ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
+    ...(body.inclusions !== undefined ? { inclusions: body.inclusions } : {}),
+    ...(body.inclusionTax !== undefined ? { inclusionTax: body.inclusionTax } : {}),
+    ...(body.inclusionBandJoin !== undefined ? { inclusionBandJoin: body.inclusionBandJoin } : {}),
   };
   const fingerprint = await commandFingerprint('rates.create_plan', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -4817,6 +4828,9 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     cancelPolicyText?: string | null;
     parentRatePlanId?: string | null;
     deriveBps?: number | null;
+    inclusions?: RatePlanInclusionInput[];
+    inclusionTax?: string;
+    inclusionBandJoin?: boolean;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -4830,9 +4844,15 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
       body.cancelPenaltyBps === undefined &&
       body.cancelPolicyText === undefined &&
       body.parentRatePlanId === undefined &&
-      body.deriveBps === undefined)
+      body.deriveBps === undefined &&
+      body.inclusions === undefined &&
+      body.inclusionTax === undefined &&
+      body.inclusionBandJoin === undefined)
   ) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  if (Array.isArray(body.inclusions) && body.inclusions.length > RATE_PLAN_INCLUSION_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
@@ -4849,6 +4869,9 @@ async function handlePatchRatePlan(ctx: V1DispatchContext): Promise<Response> {
     ...(body.cancelPolicyText !== undefined ? { cancelPolicyText: body.cancelPolicyText } : {}),
     ...(body.parentRatePlanId !== undefined ? { parentRatePlanId: body.parentRatePlanId } : {}),
     ...(body.deriveBps !== undefined ? { deriveBps: body.deriveBps } : {}),
+    ...(body.inclusions !== undefined ? { inclusions: body.inclusions } : {}),
+    ...(body.inclusionTax !== undefined ? { inclusionTax: body.inclusionTax } : {}),
+    ...(body.inclusionBandJoin !== undefined ? { inclusionBandJoin: body.inclusionBandJoin } : {}),
   };
   const fingerprint = await commandFingerprint('rates.update_plan', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };

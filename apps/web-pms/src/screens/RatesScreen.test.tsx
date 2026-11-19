@@ -17,10 +17,12 @@ const listRestrictionDays = vi.fn();
 const putRestrictionDay = vi.fn();
 const listDomainConfig = vi.fn();
 const createRatePlan = vi.fn();
+const updateRatePlan = vi.fn();
 const archiveRatePlan = vi.fn();
 const listRatePromos = vi.fn();
 const createRatePromo = vi.fn();
 const archiveRatePromo = vi.fn();
+const listProducts = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -34,10 +36,12 @@ vi.mock('../client.js', () => ({
     putRestrictionDay: (...a: unknown[]) => putRestrictionDay(...a),
     listDomainConfig: (...a: unknown[]) => listDomainConfig(...a),
     createRatePlan: (...a: unknown[]) => createRatePlan(...a),
+    updateRatePlan: (...a: unknown[]) => updateRatePlan(...a),
     archiveRatePlan: (...a: unknown[]) => archiveRatePlan(...a),
     listRatePromos: (...a: unknown[]) => listRatePromos(...a),
     createRatePromo: (...a: unknown[]) => createRatePromo(...a),
     archiveRatePromo: (...a: unknown[]) => archiveRatePromo(...a),
+    listProducts: (...a: unknown[]) => listProducts(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -121,10 +125,26 @@ describe('RatesScreen', () => {
     bulkUpdateRates.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     putRestrictionDay.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     createRatePlan.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    updateRatePlan.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     archiveRatePlan.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listRatePromos.mockResolvedValue({ ok: true, promos: [] });
     createRatePromo.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     archiveRatePromo.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_fnb', name: 'Food', status: 'active' }],
+      items: [
+        {
+          productId: 'prod_breakfast',
+          categoryId: 'cat_fnb',
+          name: 'Breakfast',
+          chargeCode: 'FNB',
+          status: 'active',
+          postable: true,
+          defaultAmountMinor: 35000,
+        },
+      ],
+    });
   });
 
   afterEach(() => {
@@ -537,7 +557,263 @@ describe('RatesScreen', () => {
     expect(createRatePlan.mock.calls[0]?.[1]).toMatchObject({
       parentRatePlanId: 'BAR',
       deriveBps: -1500,
+      inclusions: [],
+      inclusionTax: 'SEPARATE',
+      inclusionBandJoin: false,
     });
+  });
+
+  it('sends inclusions and locks band join when tax is at the room rate', async () => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        {
+          ...bar,
+          inclusions: [{ label: 'Breakfast' }, { label: 'Dinner' }],
+        },
+      ],
+    });
+    renderRates('/rates/plans');
+    expect(await screen.findByText('Breakfast, Dinner')).toBeTruthy();
+    const planForm = screen.getByRole('heading', { name: 'Create Rate Plan' }).closest('.ui-card')!.querySelector('form')!;
+    expect(within(planForm).getByText("What's included").className).toContain('ui-section-label');
+    fireEvent.click(within(planForm).getByRole('button', { name: 'Add' }));
+    fireEvent.change(within(planForm).getByLabelText('Product'), { target: { value: 'prod_breakfast' } });
+    fireEvent.change(within(planForm).getByLabelText('Amount'), { target: { value: '350' } });
+    fireEvent.change(within(planForm).getByLabelText('Basis'), { target: { value: 'PER_ADULT' } });
+    fireEvent.change(within(planForm).getByLabelText('Tax on inclusions'), { target: { value: 'ROOM' } });
+    const band = within(planForm).getByRole('checkbox', {
+      name: "Count inclusions toward the room's tax band",
+    });
+    expect(band).toBeChecked();
+    expect(band).toBeDisabled();
+    expect(
+      within(planForm).getByText("Always on when inclusions are taxed at the room's tax."),
+    ).toBeTruthy();
+    fireEvent.change(within(planForm).getByLabelText('Code'), { target: { value: 'CP' } });
+    fireEvent.change(within(planForm).getByLabelText('Name'), { target: { value: 'Room + Breakfast' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Rate Plan' }));
+    await waitFor(() => expect(createRatePlan).toHaveBeenCalled());
+    expect(createRatePlan.mock.calls[0]?.[1]).toMatchObject({
+      inclusions: [
+        {
+          inclusionNo: 1,
+          productId: 'prod_breakfast',
+          amountMinor: 35000,
+          basis: 'PER_ADULT',
+          priceMode: 'INCLUDED',
+        },
+      ],
+      inclusionTax: 'ROOM',
+      inclusionBandJoin: true,
+    });
+  });
+
+  it('edits an existing plan, prefills inclusions, and saves only the changes', async () => {
+    const scrollIntoView = vi.fn();
+    const previousScroll = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        bar,
+        {
+          ratePlanId: 'CP',
+          code: 'CP',
+          name: 'Room + Breakfast',
+          status: 'active',
+          cancelPenaltyType: 'first_night',
+          cancelGraceHours: 24,
+          cancelPenaltyNights: null,
+          cancelPenaltyBps: null,
+          cancelPolicyText: 'Free until 24h',
+          parentRatePlanId: 'BAR',
+          deriveBps: -1500,
+          inclusionTax: 'SEPARATE',
+          inclusionBandJoin: true,
+          inclusions: [
+            {
+              productId: 'prod_breakfast',
+              label: 'Breakfast',
+              amountMinor: 35000,
+              basis: 'PER_ADULT',
+              priceMode: 'INCLUDED',
+            },
+          ],
+        },
+      ],
+    });
+    const client = renderRates('/rates/plans');
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit CP' }));
+    const planForm = screen
+      .getByRole('heading', { name: 'Edit CP' })
+      .closest('.ui-card')!
+      .querySelector('form')!;
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    const code = within(planForm).getByLabelText('Code');
+    expect(code).toHaveFocus();
+    expect(code).toHaveValue('CP');
+    expect(code).not.toHaveAttribute('readonly');
+    expect(within(planForm).getByLabelText('Name')).toHaveValue('Room + Breakfast');
+    expect(within(planForm).getByLabelText('Derived from')).toHaveValue('BAR');
+    expect(within(planForm).getByLabelText('Derive percent')).toHaveValue(-15);
+    expect(within(planForm).getByLabelText('Cancel penalty')).toHaveValue('first_night');
+    expect(within(planForm).getByLabelText('Grace hours')).toHaveValue(24);
+    expect(within(planForm).getByLabelText('Policy')).toHaveValue('Free until 24h');
+    expect(within(planForm).getByLabelText('Product')).toHaveValue('prod_breakfast');
+    expect(within(planForm).getByLabelText('Amount')).toHaveValue('350.00');
+    expect(within(planForm).getByLabelText('Basis')).toHaveValue('PER_ADULT');
+    expect(within(planForm).getByLabelText('Price')).toHaveValue('INCLUDED');
+    expect(within(planForm).getByLabelText('Tax on inclusions')).toHaveValue('SEPARATE');
+    expect(
+      within(planForm).getByRole('checkbox', { name: "Count inclusions toward the room's tax band" }),
+    ).toBeChecked();
+    fireEvent.change(within(planForm).getByLabelText('Name'), { target: { value: 'CP revised' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(updateRatePlan).toHaveBeenCalledTimes(1));
+    expect(updateRatePlan.mock.calls[0]?.[0]).toBe('prop_demo');
+    expect(updateRatePlan.mock.calls[0]?.[1]).toBe('CP');
+    const patch = updateRatePlan.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(patch).toEqual({
+      name: 'CP revised',
+      inclusions: [
+        {
+          inclusionNo: 1,
+          productId: 'prod_breakfast',
+          amountMinor: 35000,
+          basis: 'PER_ADULT',
+          priceMode: 'INCLUDED',
+        },
+      ],
+      inclusionTax: 'SEPARATE',
+      inclusionBandJoin: true,
+    });
+    expect(await screen.findByRole('heading', { name: 'Create Rate Plan' })).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('Saved.');
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['rate-plans', 'prop_demo'] });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = previousScroll;
+    }
+  });
+
+  it('clears inclusions when every row is removed', async () => {
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        {
+          ...bar,
+          inclusionTax: 'SEPARATE',
+          inclusionBandJoin: false,
+          inclusions: [
+            {
+              productId: 'prod_breakfast',
+              label: 'Breakfast',
+              amountMinor: 35000,
+              basis: 'PER_ROOM',
+              priceMode: 'ADDED',
+            },
+          ],
+        },
+      ],
+    });
+    renderRates('/rates/plans');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit BAR' }));
+    const planForm = screen.getByRole('heading', { name: 'Edit BAR' }).closest('.ui-card')!.querySelector('form')!;
+    expect(within(planForm).getByLabelText('Code')).toHaveAttribute('readonly');
+    fireEvent.change(within(planForm).getByLabelText('Code'), { target: { value: 'RACK' } });
+    expect(within(planForm).getByLabelText('Code')).toHaveValue('BAR');
+    fireEvent.click(within(planForm).getByRole('button', { name: 'Remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(updateRatePlan).toHaveBeenCalled());
+    const patch = updateRatePlan.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(patch.inclusions).toEqual([]);
+    expect(patch).not.toHaveProperty('code');
+    expect(updateRatePlan.mock.calls[0]?.[1]).toBe('BAR');
+  });
+
+  it('fills an inclusion amount from the product price', async () => {
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_fnb', name: 'Food', status: 'active' }],
+      items: [
+        {
+          productId: 'prod_breakfast',
+          categoryId: 'cat_fnb',
+          name: 'Breakfast',
+          chargeCode: 'FNB',
+          status: 'active',
+          postable: true,
+          defaultAmountMinor: 35000,
+        },
+        {
+          productId: 'prod_dinner',
+          categoryId: 'cat_fnb',
+          name: 'Dinner',
+          chargeCode: 'FNB',
+          status: 'active',
+          postable: true,
+          defaultAmountMinor: 60000,
+        },
+      ],
+    });
+    renderRates('/rates/plans');
+    const planForm = (await screen.findByRole('heading', { name: 'Create Rate Plan' }))
+      .closest('.ui-card')!
+      .querySelector('form')!;
+    fireEvent.click(within(planForm).getByRole('button', { name: 'Add' }));
+    fireEvent.change(within(planForm).getByLabelText('Product'), { target: { value: 'prod_breakfast' } });
+    expect(within(planForm).getByLabelText('Amount')).toHaveValue('350.00');
+    fireEvent.change(within(planForm).getByLabelText('Product'), { target: { value: 'prod_dinner' } });
+    expect(within(planForm).getByLabelText('Amount')).toHaveValue('600.00');
+    fireEvent.change(within(planForm).getByLabelText('Amount'), { target: { value: '12.50' } });
+    fireEvent.change(within(planForm).getByLabelText('Product'), { target: { value: 'prod_breakfast' } });
+    expect(within(planForm).getByLabelText('Amount')).toHaveValue('12.50');
+  });
+
+  it('cancel returns the plan form to create mode', async () => {
+    renderRates('/rates/plans');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit BAR' }));
+    const planForm = screen.getByRole('heading', { name: 'Edit BAR' }).closest('.ui-card')!.querySelector('form')!;
+    expect(within(planForm).getByLabelText('Code')).toHaveValue('BAR');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const createForm = screen
+      .getByRole('heading', { name: 'Create Rate Plan' })
+      .closest('.ui-card')!
+      .querySelector('form')!;
+    expect(within(createForm).getByLabelText('Code')).toHaveValue('');
+    expect(within(createForm).queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('a queued plan edit shows the queued copy', async () => {
+    updateRatePlan.mockResolvedValue({
+      classified: { class: 'provisional', status: 202, body: {}, retryAfterMs: null },
+      body: {},
+    });
+    renderRates('/rates/plans');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit BAR' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Request queued — will apply when the property is reachable.');
+    expect(alert.className).toContain('ui-alert--attention');
+    expect(screen.getByRole('heading', { name: 'Create Rate Plan' })).toBeTruthy();
+  });
+
+  it('plan edit errors use classified copy', async () => {
+    updateRatePlan.mockRejectedValue(
+      new ClassifiedError({
+        class: 'forbidden',
+        status: 403,
+        body: { error: 'forbidden' },
+        retryAfterMs: null,
+      }),
+    );
+    renderRates('/rates/plans');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit BAR' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Forbidden — insufficient permission.');
+    expect(screen.getByRole('heading', { name: 'Edit BAR' })).toBeTruthy();
   });
 
   it('derived matrix is read-only with exact helper copy', async () => {

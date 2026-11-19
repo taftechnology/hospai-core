@@ -355,7 +355,7 @@ describe('rate plans HTTP routes', () => {
       arrivalDate: '2026-08-10',
       departureDate: '2026-08-11',
     });
-    expect(quote).toEqual({ ok: true, totalMinor: 10000, currency: 'USD' });
+    expect(quote).toEqual({ ok: true, totalMinor: 10000, currency: 'USD', inclusionsMinor: 0 });
   });
 
   it('10: PUT rate-days omitting ratePlanId defaults to BAR', async () => {
@@ -443,7 +443,7 @@ describe('rate plans HTTP routes', () => {
       arrivalDate: '2026-08-10',
       departureDate: '2026-08-11',
     });
-    expect(quote).toEqual({ ok: true, totalMinor: 10000, currency: 'USD' });
+    expect(quote).toEqual({ ok: true, totalMinor: 10000, currency: 'USD', inclusionsMinor: 0 });
   });
 
   it('13: bulk two valid cells', async () => {
@@ -550,7 +550,7 @@ describe('rate plans HTTP routes', () => {
       arrivalDate: '2026-08-10',
       departureDate: '2026-08-11',
     });
-    expect(orphanQuote).toEqual({ ok: true, totalMinor: 9999, currency: 'USD' });
+    expect(orphanQuote).toEqual({ ok: true, totalMinor: 9999, currency: 'USD', inclusionsMinor: 0 });
 
     expect(
       (await postRatePlan(propertyId, actor, { ratePlanId: 'ORPHAN', code: 'ORPH', name: 'Orphan' }))

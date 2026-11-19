@@ -223,7 +223,7 @@ After roadmap R1.10 (night audit checks, 2026-10-31) — update this table when 
 |---|---|---|
 | `COMMAND_CATALOG` length | **109** | `packages/contracts/src/register.test.ts` |
 | `V1_HTTP_ROUTE_AUDIT` | **176** routes, last id **`put_tax_rule_end`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **42** | `packages/do-runtime` migrate tests |
+| `PROPERTY_SCHEMA_HEAD` | **43** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 

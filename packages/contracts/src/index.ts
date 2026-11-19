@@ -12,6 +12,7 @@ export * from './provisional-command.js';
 export * from './availability.js';
 export * from './entitlements.js';
 export * from './request-limits.js';
+export * from './rate-plan-inclusions.js';
 export * from './permissions.js';
 export * from './v1-http-routes.js';
 export * from './reservation-status.js';

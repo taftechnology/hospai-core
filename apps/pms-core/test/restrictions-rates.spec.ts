@@ -108,7 +108,7 @@ describe('PropertyDO restrictions + rates', () => {
         arrivalDate: arrival,
         departureDate: addDays(arrival, 2),
       }),
-    ).toEqual({ ok: true, totalMinor: 22000, currency: 'EUR' });
+    ).toEqual({ ok: true, totalMinor: 22000, currency: 'EUR', inclusionsMinor: 0 });
 
     expect(
       await stub.quoteStay({

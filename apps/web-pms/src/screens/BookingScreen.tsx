@@ -8,6 +8,7 @@ import {
   stayNightsExceedAvailabilityCap,
   type NamedListEntry,
 } from '@hospai/client-core';
+import { addedInclusionsMinor as sumAddedInclusionsMinor } from '@hospai/contracts';
 import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -39,6 +40,7 @@ import { validAmount } from './board-dialogs.js';
 import { usePostableProducts } from './product-picker.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { stayNights } from './stay-workspace.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -341,9 +343,39 @@ export function BookingScreen() {
   const activeSources = activeNamedList(operationalQ.data?.items, 'pms.property.sources');
   const activeSegments = activeNamedList(operationalQ.data?.items, 'pms.property.market_segments');
 
-  type PlanRow = { ratePlanId: string; code: string; name: string };
+  type PlanInclusion = {
+    label: string;
+    amountMinor: number;
+    basis: 'PER_ROOM' | 'PER_ADULT' | 'PER_GUEST';
+    priceMode: 'INCLUDED' | 'ADDED';
+  };
+  type PlanRow = {
+    ratePlanId: string;
+    code: string;
+    name: string;
+    inclusions?: PlanInclusion[];
+  };
   const plans = (plansQ.data?.plans ?? []) as PlanRow[];
   const plansEmpty = plansQ.isSuccess && plans.length === 0;
+  const selectedPlan = plans.find((plan) => plan.ratePlanId === ratePlanId);
+  const nightCount = arrivalDate && departureDate ? stayNights(arrivalDate, departureDate) : 0;
+  const addedInclusionsMinor =
+    stayQuoteMinor == null || !selectedPlan
+      ? 0
+      : sumAddedInclusionsMinor(selectedPlan.inclusions ?? [], nightCount, adults, children);
+  const quoteTotalMinor = stayQuoteMinor == null ? null : stayQuoteMinor + addedInclusionsMinor;
+  const includesText =
+    selectedPlan && (selectedPlan.inclusions ?? []).length > 0
+      ? `Includes: ${(selectedPlan.inclusions ?? [])
+          .map((row) => {
+            const basis =
+              row.basis === 'PER_ROOM' ? 'per room' : row.basis === 'PER_ADULT' ? 'per adult' : 'per guest';
+            const price =
+              row.priceMode === 'INCLUDED' ? 'in the rate' : `${money(row.amountMinor)} added`;
+            return `${row.label} (${basis}, ${price})`;
+          })
+          .join(' · ')}`
+      : null;
 
   useEffect(() => {
     if (!plansQ.isSuccess || ratePlanId) return;
@@ -752,6 +784,11 @@ export function BookingScreen() {
                 />
               </div>
             </div>
+            {includesText ? (
+              <p className="muted" data-testid="plan-includes">
+                {includesText}
+              </p>
+            ) : null}
             {activeSources.length > 0 || activeSegments.length > 0 ? (
               <div className="ui-row">
                 {activeSources.length > 0 ? (
@@ -1129,8 +1166,13 @@ export function BookingScreen() {
           <Total
             label="Quote total"
             value={
-              stayQuoteMinor != null ? (
-                <span data-testid="stay-quote">{money(stayQuoteMinor)}</span>
+              quoteTotalMinor != null ? (
+                <span data-testid="stay-quote">
+                  {money(quoteTotalMinor)}
+                  {addedInclusionsMinor > 0 ? (
+                    <span data-testid="quote-added"> ({money(addedInclusionsMinor)} added)</span>
+                  ) : null}
+                </span>
               ) : (
                 '…'
               )

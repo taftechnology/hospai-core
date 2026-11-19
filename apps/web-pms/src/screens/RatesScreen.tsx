@@ -1,4 +1,4 @@
-import { RATES_BULK_UPDATE_MAX } from '@hospai/contracts';
+import { RATE_PLAN_INCLUSION_MAX, RATES_BULK_UPDATE_MAX } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -23,6 +23,7 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  SectionLabel,
   Textarea,
   Skeleton,
   Tabs,
@@ -31,8 +32,10 @@ import {
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
-import { minorToMajorInput, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseAmountToMinor, parseMajorToMinor } from '../money.js';
+import { usePostableProducts } from './product-picker.js';
 import {
   RATE_AMOUNT_RE,
   buildBulkRateCells,
@@ -65,7 +68,29 @@ type RatePlanRow = {
   cancelPolicyText: string | null;
   parentRatePlanId: string | null;
   deriveBps: number | null;
+  inclusions?: Array<{
+    productId: string;
+    label: string;
+    amountMinor: number;
+    basis: InclusionDraft['basis'];
+    priceMode: InclusionDraft['priceMode'];
+  }>;
+  inclusionTax?: 'SEPARATE' | 'ROOM';
+  inclusionBandJoin?: boolean;
 };
+
+type InclusionDraft = {
+  key: string;
+  productId: string;
+  amount: string;
+  basis: 'PER_ROOM' | 'PER_ADULT' | 'PER_GUEST';
+  priceMode: 'INCLUDED' | 'ADDED';
+};
+
+function includesLabel(plan: RatePlanRow): string {
+  const labels = (plan.inclusions ?? []).map((row) => row.label).filter((label) => label !== '');
+  return labels.length > 0 ? labels.join(', ') : '\u2014';
+}
 
 type RatePromoRow = {
   promoId: string;
@@ -135,6 +160,89 @@ function formatDerivePercent(deriveBps: number): string {
   const rounded = Math.round(pct * 100) / 100;
   const text = Number.isInteger(rounded) ? String(rounded) : String(rounded);
   return rounded > 0 ? `+${text}%` : `${text}%`;
+}
+
+function derivePercentInput(deriveBps: number): string {
+  const pct = deriveBps / 100;
+  const rounded = Math.round(pct * 100) / 100;
+  return String(rounded);
+}
+
+function inclusionPayload(rows: InclusionDraft[]) {
+  return rows.map((row, index) => ({
+    inclusionNo: index + 1,
+    productId: row.productId,
+    amountMinor: parseAmountToMinor(row.amount) ?? 0,
+    basis: row.basis,
+    priceMode: row.priceMode,
+  }));
+}
+
+function inclusionAmountForProduct(
+  amount: string,
+  previousProductId: string,
+  nextProductId: string,
+  byId: ReadonlyMap<string, { defaultAmountMinor: number }>,
+): string {
+  const next = byId.get(nextProductId);
+  if (!next) return amount;
+  const previous = previousProductId === '' ? undefined : byId.get(previousProductId);
+  const previousPrice = previous ? minorToMajorInput(previous.defaultAmountMinor) : '';
+  if (amount.trim() === '' || (previousPrice !== '' && amount === previousPrice)) {
+    return minorToMajorInput(next.defaultAmountMinor);
+  }
+  return amount;
+}
+
+function buildRatePlanUpdatePatch(
+  plan: RatePlanRow,
+  form: {
+    code: string;
+    name: string;
+    derivedFrom: string;
+    derivePercent: string;
+    cancelType: string;
+    graceHours: string;
+    penaltyNights: string;
+    penaltyBps: string;
+    policyText: string;
+    inclusions: InclusionDraft[];
+    inclusionTax: 'SEPARATE' | 'ROOM';
+    inclusionBandJoin: boolean;
+  },
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  if (plan.ratePlanId !== 'BAR' && form.code !== plan.code) patch.code = form.code;
+  if (form.name !== plan.name) patch.name = form.name;
+  if (form.cancelType !== plan.cancelPenaltyType) patch.cancelPenaltyType = form.cancelType;
+  const grace = Number(form.graceHours);
+  if (grace !== plan.cancelGraceHours) patch.cancelGraceHours = grace;
+  const nights = form.cancelType === 'nights' ? Number(form.penaltyNights) : null;
+  if (nights !== plan.cancelPenaltyNights) patch.cancelPenaltyNights = nights;
+  const bps = form.cancelType === 'percent' ? Number(form.penaltyBps) : null;
+  if (bps !== plan.cancelPenaltyBps) patch.cancelPenaltyBps = bps;
+  const policy = form.policyText || null;
+  if (policy !== (plan.cancelPolicyText ?? null)) patch.cancelPolicyText = policy;
+
+  const isDerived = form.derivedFrom !== '';
+  const deriveBps =
+    isDerived && form.derivePercent.trim() !== ''
+      ? Math.round(parseFloat(form.derivePercent) * 100)
+      : null;
+  if (!isDerived) {
+    if (plan.parentRatePlanId != null || plan.deriveBps != null) {
+      patch.parentRatePlanId = null;
+      patch.deriveBps = null;
+    }
+  } else if (deriveBps != null && Number.isFinite(deriveBps)) {
+    if (form.derivedFrom !== plan.parentRatePlanId) patch.parentRatePlanId = form.derivedFrom;
+    if (deriveBps !== plan.deriveBps) patch.deriveBps = deriveBps;
+  }
+
+  patch.inclusions = inclusionPayload(form.inclusions);
+  patch.inclusionTax = form.inclusionTax;
+  patch.inclusionBandJoin = form.inclusionTax === 'ROOM' ? true : form.inclusionBandJoin;
+  return patch;
 }
 
 function derivedPlanBadge(plan: RatePlanRow, plans: RatePlanRow[]): string | null {
@@ -445,6 +553,13 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [penaltyNights, setPenaltyNights] = useState('');
   const [penaltyBps, setPenaltyBps] = useState('');
   const [policyText, setPolicyText] = useState('');
+  const [inclusions, setInclusions] = useState<InclusionDraft[]>([]);
+  const [inclusionTax, setInclusionTax] = useState<'SEPARATE' | 'ROOM'>('SEPARATE');
+  const [inclusionBandJoin, setInclusionBandJoin] = useState(false);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const planEditorRef = useRef<HTMLDivElement>(null);
+  const planCodeRef = useRef<HTMLInputElement>(null);
+  const products = usePostableProducts();
   const [bulkAmount, setBulkAmount] = useState('');
   const [bulkFrom, setBulkFrom] = useState(from);
   const [bulkTo, setBulkTo] = useState(to);
@@ -466,12 +581,13 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const [promoValidFrom, setPromoValidFrom] = useState('');
   const [promoValidTo, setPromoValidTo] = useState('');
   const [promoPlanId, setPromoPlanId] = useState('');
-  const [notice, setNotice] = useState<{ text: string; intent: 'settled' | 'exception' } | null>(
-    null,
-  );
+  const [notice, setNotice] = useState<{
+    text: string;
+    intent: 'settled' | 'attention' | 'exception';
+  } | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flashMessage = (text: string) => {
-    setNotice({ text, intent: 'settled' });
+  const flashMessage = (text: string, intent: 'settled' | 'attention' = 'settled') => {
+    setNotice({ text, intent });
     if (messageTimer.current) clearTimeout(messageTimer.current);
     messageTimer.current = setTimeout(() => setNotice(null), 5000);
   };
@@ -491,6 +607,15 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
     setBulkFrom(from);
     setBulkTo(to);
   }, [from, to]);
+
+  useEffect(() => {
+    if (editingPlanId == null) return;
+    const editor = planEditorRef.current;
+    if (editor && typeof editor.scrollIntoView === 'function') {
+      editor.scrollIntoView({ block: 'start' });
+    }
+    planCodeRef.current?.focus();
+  }, [editingPlanId]);
 
   const unsavedGuard = useUnsavedChanges(Boolean(planCode || planName));
 
@@ -531,6 +656,8 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
 
   const types = (typesQ.data?.roomTypes ?? []) as RoomTypeRow[];
   const plans = (plansQ.data?.plans ?? []) as RatePlanRow[];
+  const editingPlan =
+    editingPlanId == null ? null : (plans.find((p) => p.ratePlanId === editingPlanId) ?? null);
   const promos = (promosQ.data?.promos ?? []) as RatePromoRow[];
   const currency = ledgerCurrency(configQ.data?.keys as Array<{ key: string; value: unknown }>);
   const dayMap = useMemo(() => {
@@ -553,6 +680,48 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
   const selectedPlan = plans.find((p) => p.ratePlanId === plan);
   const isDerivedMatrix = selectedPlan?.parentRatePlanId != null;
 
+  function resetPlanForm() {
+    setEditingPlanId(null);
+    setPlanCode('');
+    setPlanName('');
+    setDerivedFrom('');
+    setDerivePercent('');
+    setCancelType('none');
+    setGraceHours('0');
+    setPenaltyNights('');
+    setPenaltyBps('');
+    setPolicyText('');
+    setInclusions([]);
+    setInclusionTax('SEPARATE');
+    setInclusionBandJoin(false);
+  }
+
+  function startEdit(plan: RatePlanRow) {
+    const derived = plan.parentRatePlanId != null && plan.deriveBps != null;
+    const tax = plan.inclusionTax === 'ROOM' ? 'ROOM' : 'SEPARATE';
+    setEditingPlanId(plan.ratePlanId);
+    setPlanCode(plan.code);
+    setPlanName(plan.name);
+    setDerivedFrom(derived ? plan.parentRatePlanId! : '');
+    setDerivePercent(derived ? derivePercentInput(plan.deriveBps!) : '');
+    setCancelType(plan.cancelPenaltyType);
+    setGraceHours(String(plan.cancelGraceHours));
+    setPenaltyNights(plan.cancelPenaltyNights == null ? '' : String(plan.cancelPenaltyNights));
+    setPenaltyBps(plan.cancelPenaltyBps == null ? '' : String(plan.cancelPenaltyBps));
+    setPolicyText(plan.cancelPolicyText ?? '');
+    setInclusionTax(tax);
+    setInclusionBandJoin(tax === 'ROOM' ? true : Boolean(plan.inclusionBandJoin));
+    setInclusions(
+      (plan.inclusions ?? []).map((row) => ({
+        key: crypto.randomUUID(),
+        productId: row.productId,
+        amount: minorToMajorInput(row.amountMinor),
+        basis: row.basis,
+        priceMode: row.priceMode,
+      })),
+    );
+  }
+
   const createPlan = useMutation({
     mutationFn: () => {
       const isDerived = derivedFrom !== '';
@@ -572,15 +741,34 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
         ...(isDerived && deriveBps != null && Number.isFinite(deriveBps)
           ? { parentRatePlanId: derivedFrom, deriveBps }
           : {}),
+        inclusions: inclusionPayload(inclusions),
+        inclusionTax,
+        inclusionBandJoin: inclusionTax === 'ROOM' ? true : inclusionBandJoin,
       });
     },
     onSuccess: async () => {
-      setPlanCode('');
-      setPlanName('');
-      setDerivedFrom('');
-      setDerivePercent('');
+      resetPlanForm();
       flashMessage('Saved.');
       await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
+    },
+  });
+
+  const updatePlan = useMutation({
+    mutationFn: (input: { ratePlanId: string; patch: Record<string, unknown> }) =>
+      api.updateRatePlan(propertyId, input.ratePlanId, input.patch),
+    onSuccess: async (result) => {
+      resetPlanForm();
+      if (isQueuedResult(result)) {
+        flashMessage(queuedWriteCopy(), 'attention');
+      } else {
+        flashMessage('Saved.');
+      }
+      await queryClient.invalidateQueries({ queryKey: ['rate-plans', propertyId] });
+    },
+    onError: (err) => {
+      showProblem(
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not save the rate plan.' }),
+      );
     },
   });
 
@@ -826,6 +1014,7 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 <DataTableHeaderCell>Code</DataTableHeaderCell>
                 <DataTableHeaderCell>Name</DataTableHeaderCell>
                 <DataTableHeaderCell>Cancel</DataTableHeaderCell>
+                <DataTableHeaderCell>Includes</DataTableHeaderCell>
                 <DataTableHeaderCell />
               </DataTableRow>
             </DataTableHead>
@@ -842,7 +1031,11 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                     ) : null}
                   </DataTableCell>
                   <DataTableCell>{p.cancelPenaltyType}</DataTableCell>
+                  <DataTableCell>{includesLabel(p)}</DataTableCell>
                   <DataTableCell>
+                    <Button type="button" onClick={() => startEdit(p)}>
+                      Edit {p.code}
+                    </Button>
                     {p.ratePlanId === 'BAR' ? null : (
                       <Button type="button" onClick={() => setArchivePlan(p)}>
                         Archive {p.code}
@@ -855,14 +1048,43 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               </DataTable>
           </CardContent>
           </Card>
+          <div ref={planEditorRef}>
           <Card>
             <CardHeader>
-              <CardTitle>Create Rate Plan</CardTitle>
+              <CardTitle>{editingPlan ? `Edit ${editingPlan.code}` : 'Create Rate Plan'}</CardTitle>
             </CardHeader>
             <CardContent>
             <form
             onSubmit={(e) => {
               e.preventDefault();
+              const incomplete = inclusions.some((row) => {
+                const amount = parseAmountToMinor(row.amount);
+                return row.productId === '' || amount == null || amount <= 0;
+              });
+              if (incomplete) {
+                showProblem('Each included item needs a product and an amount.');
+                return;
+              }
+              if (editingPlan) {
+                updatePlan.mutate({
+                  ratePlanId: editingPlan.ratePlanId,
+                  patch: buildRatePlanUpdatePatch(editingPlan, {
+                    code: planCode,
+                    name: planName,
+                    derivedFrom,
+                    derivePercent,
+                    cancelType,
+                    graceHours,
+                    penaltyNights,
+                    penaltyBps,
+                    policyText,
+                    inclusions,
+                    inclusionTax,
+                    inclusionBandJoin,
+                  }),
+                });
+                return;
+              }
               createPlan.mutate();
             }}
           >
@@ -871,9 +1093,14 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
               label="Code"
               control={
                 <Input
+                  ref={planCodeRef}
                   placeholder="BAR"
                   value={planCode}
-                  onChange={(e) => setPlanCode(e.target.value)}
+                  readOnly={editingPlan?.ratePlanId === 'BAR'}
+                  onChange={(e) => {
+                    if (editingPlan?.ratePlanId === 'BAR') return;
+                    setPlanCode(e.target.value);
+                  }}
                   autoComplete="off"
                 />
               }
@@ -900,7 +1127,9 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                   }}
                 >
                   <option value="">Independent</option>
-                  {independentPlans.map((p) => (
+                  {independentPlans
+                    .filter((p) => p.ratePlanId !== editingPlanId)
+                    .map((p) => (
                     <option key={p.ratePlanId} value={p.ratePlanId}>
                       {p.code}
                     </option>
@@ -989,13 +1218,188 @@ export function RatesScreen({ tab }: { tab?: 'plans' | 'matrix' | 'restrictions'
                 />
               }
             />
-            <Button type="submit" intent="primary" disabled={createPlan.isPending}>
-              {createPlan.isPending ? 'Saving…' : 'Create Rate Plan'}
+            <div className="ui-stack">
+              <SectionLabel>What's included</SectionLabel>
+              <p className="muted">
+                Included items are split out of the night's rate; added items are charged on top. Each
+                line follows its own tax rules unless taxed at the room's tax.
+              </p>
+              {inclusions.map((row) => (
+                <div className="ui-row" key={row.key}>
+                  <Field
+                    label="Product"
+                    control={
+                      <NativeSelect
+                        value={row.productId}
+                        onChange={(e) => {
+                          const productId = e.target.value;
+                          setInclusions((current) =>
+                            current.map((item) =>
+                              item.key === row.key
+                                ? {
+                                    ...item,
+                                    productId,
+                                    amount: inclusionAmountForProduct(
+                                      item.amount,
+                                      item.productId,
+                                      productId,
+                                      products.byId,
+                                    ),
+                                  }
+                                : item,
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="">Select a product</option>
+                        {products.groups.map((group) => (
+                          <optgroup key={group.category.categoryId} label={group.category.name}>
+                            {group.items.map((item) => (
+                              <option key={item.productId} value={item.productId}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                  <Field
+                    label="Amount"
+                    control={
+                      <Input
+                        value={row.amount}
+                        onChange={(e) => {
+                          const amount = e.target.value;
+                          setInclusions((current) =>
+                            current.map((item) => (item.key === row.key ? { ...item, amount } : item)),
+                          );
+                        }}
+                        autoComplete="off"
+                      />
+                    }
+                  />
+                  <Field
+                    label="Basis"
+                    control={
+                      <NativeSelect
+                        value={row.basis}
+                        onChange={(e) => {
+                          const basis = e.target.value as InclusionDraft['basis'];
+                          setInclusions((current) =>
+                            current.map((item) => (item.key === row.key ? { ...item, basis } : item)),
+                          );
+                        }}
+                      >
+                        <option value="PER_ROOM">Per room</option>
+                        <option value="PER_ADULT">Per adult</option>
+                        <option value="PER_GUEST">Per guest</option>
+                      </NativeSelect>
+                    }
+                  />
+                  <Field
+                    label="Price"
+                    control={
+                      <NativeSelect
+                        value={row.priceMode}
+                        onChange={(e) => {
+                          const priceMode = e.target.value as InclusionDraft['priceMode'];
+                          setInclusions((current) =>
+                            current.map((item) =>
+                              item.key === row.key ? { ...item, priceMode } : item,
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="INCLUDED">Included in the rate</option>
+                        <option value="ADDED">Added on top</option>
+                      </NativeSelect>
+                    }
+                  />
+                  <Button
+                    type="button"
+                    onClick={() =>
+                      setInclusions((current) => current.filter((item) => item.key !== row.key))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                disabled={inclusions.length >= RATE_PLAN_INCLUSION_MAX}
+                onClick={() =>
+                  setInclusions((current) => [
+                    ...current,
+                    {
+                      key: crypto.randomUUID(),
+                      productId: '',
+                      amount: '',
+                      basis: 'PER_ROOM',
+                      priceMode: 'INCLUDED',
+                    },
+                  ])
+                }
+              >
+                Add
+              </Button>
+              {inclusions.length >= RATE_PLAN_INCLUSION_MAX ? (
+                <p className="muted">A plan can include at most 8 items.</p>
+              ) : null}
+              <Field
+                label="Tax on inclusions"
+                control={
+                  <NativeSelect
+                    value={inclusionTax}
+                    onChange={(e) => {
+                      const next = e.target.value === 'ROOM' ? 'ROOM' : 'SEPARATE';
+                      setInclusionTax(next);
+                      if (next === 'ROOM') setInclusionBandJoin(true);
+                    }}
+                  >
+                    <option value="SEPARATE">Each at its own tax (line by line)</option>
+                    <option value="ROOM">At the room's tax (one bundle)</option>
+                  </NativeSelect>
+                }
+              />
+              <Field
+                label="Count inclusions toward the room's tax band"
+                hint={
+                  inclusionTax === 'ROOM'
+                    ? "Always on when inclusions are taxed at the room's tax."
+                    : undefined
+                }
+                control={
+                  <Checkbox
+                    checked={inclusionTax === 'ROOM' ? true : inclusionBandJoin}
+                    disabled={inclusionTax === 'ROOM'}
+                    onChange={(e) => setInclusionBandJoin(e.target.checked)}
+                  />
+                }
+              />
+            </div>
+            <Button
+              type="submit"
+              intent="primary"
+              disabled={createPlan.isPending || updatePlan.isPending}
+            >
+              {createPlan.isPending || updatePlan.isPending
+                ? 'Saving…'
+                : editingPlan
+                  ? 'Save changes'
+                  : 'Create Rate Plan'}
             </Button>
+            {editingPlanId ? (
+              <Button type="button" onClick={resetPlanForm}>
+                Cancel
+              </Button>
+            ) : null}
             </FieldGroup>
             </form>
             </CardContent>
           </Card>
+          </div>
 
           <Card>
             <CardHeader>

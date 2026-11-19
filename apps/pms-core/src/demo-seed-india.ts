@@ -85,6 +85,7 @@ export async function runIndiaDemoSeed(input: {
   await ctx.stub.ensurePastAvailabilityDays(rateFrom, ctx.today);
   await seedRates(ctx, rateFrom, rateTo);
   await seedTaxAndChargeCodes(ctx, taxValidFrom);
+  await seedContinentalPlan(ctx);
   await seedGuests(ctx);
   await seedOooRoom106(ctx);
   await ensureOrionCityLedger(ctx);
@@ -152,6 +153,58 @@ async function seedRates(ctx: SeedCtx, rateFrom: string, rateTo: string) {
       markMutated(ctx);
     }
   }
+}
+
+async function seedContinentalPlan(ctx: SeedCtx) {
+  const plans = await ctx.stub.listRatePlans();
+  if (plans.some((plan) => plan.code === 'CP')) return;
+  const catalog = await ctx.stub.listProducts('all');
+  let productId = catalog.items.find((item) => item.name === 'Breakfast')?.productId;
+  if (!productId) {
+    const categoryId = 'cat_in_fnb';
+    if (!catalog.categories.some((category) => category.categoryId === categoryId)) {
+      const category = { categoryId, name: 'Food and beverage', sortOrder: 1 };
+      const created = await ctx.stub.tryCreateProductCategory(
+        ctx.actor,
+        category,
+        await idem('cat-in', categoryId, category),
+      );
+      if (!created.ok) throw new Error(`demo_seed_breakfast_category:${created.error}`);
+      markMutated(ctx);
+    }
+    productId = 'prod_in_breakfast';
+    const item = {
+      productId,
+      categoryId,
+      name: 'Breakfast',
+      chargeCode: 'FNB',
+      defaultAmountMinor: 35_000,
+    };
+    const created = await ctx.stub.tryCreateProduct(ctx.actor, item, await idem('prod-in', productId, item));
+    if (!created.ok) throw new Error(`demo_seed_breakfast:${created.error}`);
+    markMutated(ctx);
+  }
+  const plan = {
+    ratePlanId: 'CP',
+    code: 'CP',
+    name: 'Room + Breakfast',
+    parentRatePlanId: DEFAULT_RATE_PLAN_ID,
+    deriveBps: 1000,
+    inclusionTax: 'SEPARATE' as const,
+    inclusionBandJoin: false,
+    inclusions: [
+      {
+        inclusionNo: 1,
+        productId,
+        amountMinor: 35_000,
+        basis: 'PER_ADULT' as const,
+        priceMode: 'INCLUDED' as const,
+      },
+    ],
+  };
+  const created = await ctx.stub.tryCreateRatePlan(ctx.actor, plan, await idem('plan-in', 'CP', plan));
+  if (!created.ok) throw new Error(`demo_seed_cp:${created.error}`);
+  markMutated(ctx);
 }
 
 async function seedTaxAndChargeCodes(ctx: SeedCtx, validFrom: string) {

@@ -17,6 +17,9 @@ import type {
   NightAuditCheckPreviewRow,
   OrgScopedPermission,
   PropertyScopedPermission,
+  RatePlanInclusionInput,
+  RatePlanListItem,
+  InclusionTaxMode,
 } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
@@ -2231,7 +2234,7 @@ export function createClient(opts: {
     },
     async listRatePlans(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-plans`);
-      return body as { ok: true; plans: unknown[] };
+      return body as { ok: true; plans: RatePlanListItem[] };
     },
     async createRatePlan(
       propertyId: string,
@@ -2246,6 +2249,9 @@ export function createClient(opts: {
         cancelPolicyText?: string | null;
         parentRatePlanId?: string | null;
         deriveBps?: number | null;
+        inclusions?: RatePlanInclusionInput[];
+        inclusionTax?: InclusionTaxMode;
+        inclusionBandJoin?: boolean;
       },
     ) {
       const idempotencyKey = stableKeyForOperation(

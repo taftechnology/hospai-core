@@ -353,7 +353,7 @@ describe('derived rate plans', () => {
         arrivalDate: night,
         departureDate: addCalendarDays(night, 1),
       }),
-    ).toEqual({ ok: true, totalMinor: 8500, currency: 'USD' });
+    ).toEqual({ ok: true, totalMinor: 8500, currency: 'USD', inclusionsMinor: 0 });
     const reservationId = `res_${crypto.randomUUID()}`;
     const createRes = {
       reservationId,

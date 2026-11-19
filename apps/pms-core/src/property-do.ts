@@ -185,6 +185,9 @@ import {
   validateTenantId,
   InvalidTenantIdError,
   RATES_BULK_UPDATE_MAX,
+  RATE_PLAN_INCLUSION_MAX,
+  addedInclusionsMinor,
+  inclusionUnits,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
   RESERVATION_SEARCH_GUEST_REF_CAP,
@@ -192,6 +195,12 @@ import {
   configUndeclared,
   isCommandError,
   type CommandError,
+  type InclusionBasis,
+  type InclusionPriceMode,
+  type InclusionTaxMode,
+  type RatePlanInclusion,
+  type RatePlanInclusionInput,
+  type RatePlanListItem,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
   STAFF_EXITED,
@@ -1688,6 +1697,8 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 /** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
 /** Folio line source for night-audit posts of a stay's recurring charge (R3.2). */
 const RECURRING_LINE_SOURCE = 'RECURRING';
+/** Folio line source for a rate-plan inclusion (R3.3). Not NIGHT_AUDIT: that source is unique per code and night. */
+const INCLUSION_LINE_SOURCE = 'INCLUSION';
 
 const PROPERTY_PURGE_INVENTORY_TABLES = [
   'alarm_schedule',
@@ -1723,8 +1734,10 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'promo',
   'rate_day',
   'rate_plan',
+  'rate_plan_inclusion',
   'recurring_charge',
   'reservation',
+  'reservation_inclusion_night',
   'reservation_rate_night',
   'restriction_day',
       'room',
@@ -1776,8 +1789,10 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM promo) +
       (SELECT COUNT(*) FROM rate_day) +
       (SELECT COUNT(*) FROM rate_plan) +
+      (SELECT COUNT(*) FROM rate_plan_inclusion) +
       (SELECT COUNT(*) FROM recurring_charge) +
       (SELECT COUNT(*) FROM reservation) +
+      (SELECT COUNT(*) FROM reservation_inclusion_night) +
       (SELECT COUNT(*) FROM reservation_rate_night) +
       (SELECT COUNT(*) FROM restriction_day) +
       (SELECT COUNT(*) FROM room) +
@@ -2383,6 +2398,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     chargeCode: string;
     postingDate: string;
     posted: PostedLineAmount;
+    /** Resolve rules for this code's product group instead of the line's own code. */
+    taxChargeCode?: string;
+    /** Joined band base. Passed through to `resolveTaxes`; this method writes nothing. */
+    bandBaseMinor?: number;
   }): {
     netLedgerMinor: number;
     netTxnMinor: number;
@@ -2411,8 +2430,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     ) {
       return null;
     }
+    const ruleCode = params.taxChargeCode ?? params.chargeCode;
     const codeRows = this.ctx.storage.sql
-      .exec(`SELECT tax_group FROM charge_code WHERE code = ?`, params.chargeCode)
+      .exec(`SELECT tax_group FROM charge_code WHERE code = ?`, ruleCode)
       .toArray() as Array<{ tax_group: string | null }>;
     const taxGroup = codeRows[0]?.tax_group;
     if (!taxGroup) return null;
@@ -2422,6 +2442,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const resolved = resolveTaxes({
       grossLedgerMinor: params.posted.ledgerAmountMinor,
       grossTxnMinor: params.posted.amountMinor,
+      ...(params.bandBaseMinor !== undefined ? { bandBaseMinor: params.bandBaseMinor } : {}),
       rules: rules.map((rule) => ({
         taxRuleId: rule.taxRuleId,
         ruleKey: rule.ruleKey,
@@ -2529,6 +2550,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         });
       }
     }
+    const bandRows = this.ctx.storage.sql
+      .exec(
+        `SELECT tax_band_base_minor FROM folio_line WHERE folio_line_id = ?`,
+        sourceLineId,
+      )
+      .toArray() as Array<{ tax_band_base_minor: number | null }>;
+    const storedBand = bandRows[0]?.tax_band_base_minor;
+    const remainingBand =
+      storedBand == null
+        ? undefined
+        : storedBand - (Math.abs(priorDiscountLedgerMinor) + Math.abs(discountLedgerMinor));
     const lines = discountTaxLines({
       sourceLedgerMinor,
       discountLedgerMinor,
@@ -2542,6 +2574,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           ledgerMinor: line.ledger_amount_minor,
         })),
       priorDiscountTax,
+      ...(remainingBand !== undefined ? { bandBaseMinor: remainingBand } : {}),
     });
     return lines.map((line) => {
       const rule = rules.find((candidate) => candidate.taxRuleId === line.taxRuleId)!;
@@ -2603,12 +2636,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     businessDate?: string;
     splitOf?: string;
     postingDate: string;
+    taxChargeCode?: string;
+    bandBaseMinor?: number;
+    taxBandBaseMinor?: number | null;
   }): PostedLineAmount {
     const prepared = this.prepareChargeTaxSync({
       parentSource: input.source,
       chargeCode: input.chargeCode,
       postingDate: input.postingDate,
       posted: input.posted,
+      taxChargeCode: input.taxChargeCode,
+      bandBaseMinor: input.bandBaseMinor,
     });
     const posted = prepared ? this.postedAtNet(input.posted, prepared) : input.posted;
     this.insertFolioLineSync({
@@ -2620,6 +2658,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       source: input.source,
       businessDate: input.businessDate,
       splitOf: input.splitOf,
+      taxBandBaseMinor: input.taxBandBaseMinor,
     });
     if (prepared) {
       this.insertPreparedTaxSync({
@@ -3285,6 +3324,53 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       amountMinor: r.amount_minor,
       currency: r.currency,
       ratePlanId: r.rate_plan_id,
+    }));
+  }
+
+  async listReservationInclusionNightsForTest(reservationId: string): Promise<
+    Array<{
+      stayDate: string;
+      inclusionNo: number;
+      productId: string;
+      chargeCode: string;
+      label: string;
+      amountMinor: number;
+      basis: string;
+      priceMode: string;
+      inclusionTax: string;
+      bandJoin: boolean;
+    }>
+  > {
+    this.assertUnsafeLocal('listReservationInclusionNightsForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT stay_date, inclusion_no, product_id, charge_code, label, amount_minor, basis, price_mode, inclusion_tax, band_join
+         FROM reservation_inclusion_night WHERE reservation_id = ? ORDER BY stay_date, inclusion_no`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      stay_date: string;
+      inclusion_no: number;
+      product_id: string;
+      charge_code: string;
+      label: string;
+      amount_minor: number;
+      basis: string;
+      price_mode: string;
+      inclusion_tax: string;
+      band_join: number;
+    }>;
+    return rows.map((r) => ({
+      stayDate: r.stay_date,
+      inclusionNo: r.inclusion_no,
+      productId: r.product_id,
+      chargeCode: r.charge_code,
+      label: r.label,
+      amountMinor: r.amount_minor,
+      basis: r.basis,
+      priceMode: r.price_mode,
+      inclusionTax: r.inclusion_tax,
+      bandJoin: r.band_join === 1,
     }));
   }
 
@@ -8714,6 +8800,218 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  private loadPostableProductSync(productId: string):
+    | {
+        ok: true;
+        product: { product_id: string; name: string; charge_code: string; default_amount_minor: number };
+      }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND | typeof PRODUCT_NOT_POSTABLE } {
+    const products = this.ctx.storage.sql
+      .exec(
+        `SELECT product_id, category_id, name, charge_code, default_amount_minor, status
+         FROM products_item WHERE product_id = ?`,
+        productId,
+      )
+      .toArray() as Array<{
+      product_id: string;
+      category_id: string;
+      name: string;
+      charge_code: string;
+      default_amount_minor: number;
+      status: string;
+    }>;
+    const product = products[0];
+    if (!product) return { ok: false, error: PRODUCT_NOT_FOUND };
+    const categories = this.ctx.storage.sql
+      .exec(`SELECT status FROM products_category WHERE category_id = ?`, product.category_id)
+      .toArray() as Array<{ status: string }>;
+    const standing = chargeCodeStanding(this.ctx.storage.sql, product.charge_code, SYSTEM_CHARGE_CODES);
+    const postable =
+      product.status === 'active' &&
+      categories[0]?.status === 'active' &&
+      standing.postable &&
+      product.default_amount_minor > 0;
+    if (!postable) return { ok: false, error: PRODUCT_NOT_POSTABLE };
+    return {
+      ok: true,
+      product: {
+        product_id: product.product_id,
+        name: product.name,
+        charge_code: product.charge_code,
+        default_amount_minor: product.default_amount_minor,
+      },
+    };
+  }
+
+  private resolvePlanInclusionsSync(inclusions: RatePlanInclusionInput[]):
+    | { ok: true; rows: RatePlanInclusion[] }
+    | {
+        ok: false;
+        error:
+          | typeof LIMIT_EXCEEDED
+          | typeof VALIDATION_ERROR
+          | typeof PRODUCT_NOT_FOUND
+          | typeof PRODUCT_NOT_POSTABLE;
+      } {
+    if (!Array.isArray(inclusions)) return { ok: false, error: VALIDATION_ERROR };
+    if (inclusions.length > RATE_PLAN_INCLUSION_MAX) return { ok: false, error: LIMIT_EXCEEDED };
+    const seen = new Set<number>();
+    const rows: RatePlanInclusion[] = [];
+    for (const raw of inclusions) {
+      if (raw == null || typeof raw !== 'object') return { ok: false, error: VALIDATION_ERROR };
+      const inclusionNo = raw.inclusionNo;
+      if (
+        !Number.isInteger(inclusionNo) ||
+        inclusionNo < 1 ||
+        inclusionNo > RATE_PLAN_INCLUSION_MAX ||
+        seen.has(inclusionNo)
+      ) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      seen.add(inclusionNo);
+      if (typeof raw.productId !== 'string' || !PRODUCT_ID_RE.test(raw.productId)) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (!Number.isInteger(raw.amountMinor) || raw.amountMinor <= 0) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (raw.basis !== 'PER_ROOM' && raw.basis !== 'PER_ADULT' && raw.basis !== 'PER_GUEST') {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (raw.priceMode !== 'INCLUDED' && raw.priceMode !== 'ADDED') {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      const loaded = this.loadPostableProductSync(raw.productId);
+      if (!loaded.ok) return loaded;
+      rows.push({
+        inclusionNo,
+        productId: loaded.product.product_id,
+        chargeCode: loaded.product.charge_code,
+        label: loaded.product.name,
+        amountMinor: raw.amountMinor,
+        basis: raw.basis,
+        priceMode: raw.priceMode,
+      });
+    }
+    return { ok: true, rows };
+  }
+
+  private inclusionSettingsSync(
+    taxRaw: string | undefined,
+    bandRaw: boolean | undefined,
+    fallbackTax: InclusionTaxMode,
+    fallbackJoin: boolean,
+  ):
+    | { ok: true; inclusionTax: InclusionTaxMode; bandJoin: 0 | 1 }
+    | { ok: false; error: typeof VALIDATION_ERROR } {
+    let inclusionTax = fallbackTax;
+    if (taxRaw !== undefined) {
+      if (taxRaw !== 'SEPARATE' && taxRaw !== 'ROOM') return { ok: false, error: VALIDATION_ERROR };
+      inclusionTax = taxRaw;
+    }
+    if (inclusionTax === 'ROOM') return { ok: true, inclusionTax, bandJoin: 1 };
+    if (bandRaw === undefined) return { ok: true, inclusionTax, bandJoin: fallbackJoin ? 1 : 0 };
+    if (typeof bandRaw !== 'boolean') return { ok: false, error: VALIDATION_ERROR };
+    return { ok: true, inclusionTax, bandJoin: bandRaw ? 1 : 0 };
+  }
+
+  private writePlanInclusionsSync(ratePlanId: string, rows: RatePlanInclusion[]): void {
+    this.ctx.storage.sql.exec(`DELETE FROM rate_plan_inclusion WHERE rate_plan_id = ?`, ratePlanId);
+    for (const row of rows) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO rate_plan_inclusion (
+           rate_plan_id, inclusion_no, product_id, charge_code, label, amount_minor, basis, price_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ratePlanId,
+        row.inclusionNo,
+        row.productId,
+        row.chargeCode,
+        row.label,
+        row.amountMinor,
+        row.basis,
+        row.priceMode,
+      );
+    }
+  }
+
+  private loadPlanInclusionsSync(ratePlanId: string): {
+    inclusionTax: InclusionTaxMode;
+    bandJoin: 0 | 1;
+    rows: RatePlanInclusion[];
+  } | null {
+    const plans = this.ctx.storage.sql
+      .exec(
+        `SELECT inclusion_tax, inclusion_band_join FROM rate_plan WHERE rate_plan_id = ?`,
+        ratePlanId,
+      )
+      .toArray() as Array<{ inclusion_tax: string; inclusion_band_join: number }>;
+    const plan = plans[0];
+    if (!plan) return null;
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT inclusion_no, product_id, charge_code, label, amount_minor, basis, price_mode
+         FROM rate_plan_inclusion WHERE rate_plan_id = ? ORDER BY inclusion_no`,
+        ratePlanId,
+      )
+      .toArray() as Array<{
+      inclusion_no: number;
+      product_id: string;
+      charge_code: string;
+      label: string;
+      amount_minor: number;
+      basis: InclusionBasis;
+      price_mode: InclusionPriceMode;
+    }>;
+    return {
+      inclusionTax: plan.inclusion_tax === 'ROOM' ? 'ROOM' : 'SEPARATE',
+      bandJoin: plan.inclusion_band_join === 1 || plan.inclusion_tax === 'ROOM' ? 1 : 0,
+      rows: rows.map((row) => ({
+        inclusionNo: row.inclusion_no,
+        productId: row.product_id,
+        chargeCode: row.charge_code,
+        label: row.label,
+        amountMinor: row.amount_minor,
+        basis: row.basis,
+        priceMode: row.price_mode,
+      })),
+    };
+  }
+
+  private snapshotInclusionNightsSync(reservationId: string, ratePlanId: string, nights: string[]): void {
+    if (nights.length === 0) return;
+    const plan = this.loadPlanInclusionsSync(ratePlanId);
+    if (!plan || plan.rows.length === 0) return;
+    for (const stayDate of nights) {
+      for (const row of plan.rows) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO reservation_inclusion_night (
+             reservation_id, stay_date, inclusion_no, product_id, charge_code, label,
+             amount_minor, basis, price_mode, inclusion_tax, band_join
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          reservationId,
+          stayDate,
+          row.inclusionNo,
+          row.productId,
+          row.chargeCode,
+          row.label,
+          row.amountMinor,
+          row.basis,
+          row.priceMode,
+          plan.inclusionTax,
+          plan.bandJoin,
+        );
+      }
+    }
+  }
+
+  private deleteInclusionNightsSync(reservationId: string, stayDate: string): void {
+    this.ctx.storage.sql.exec(
+      `DELETE FROM reservation_inclusion_night WHERE reservation_id = ? AND stay_date = ?`,
+      reservationId,
+      stayDate,
+    );
+  }
+
   private snapshotRateNightsSync(
     reservationId: string,
     roomTypeId: string,
@@ -8739,6 +9037,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         ratePlanId,
       );
     }
+    this.snapshotInclusionNightsSync(reservationId, ratePlanId, nights);
   }
 
   private rateNightAmountSync(
@@ -8868,6 +9167,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId,
         stayDate,
       );
+      this.deleteInclusionNightsSync(reservationId, stayDate);
     }
     const added = newNights.filter((d) => !oldSet.has(d));
     if (added.length > 0) {
@@ -8905,6 +9205,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reservationId,
         stayDate,
       );
+      this.deleteInclusionNightsSync(reservationId, stayDate);
     }
     if (reservable.length === 0) return;
     const promoRows = this.ctx.storage.sql
@@ -13538,7 +13839,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Create a rate plan. Implements catalog `rates.create_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code, name, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps? }`.
+   * Fingerprint allowlist: `{ ratePlanId, code, name, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps?, inclusions?, inclusionTax?, inclusionBandJoin? }`.
    */
   async tryCreateRatePlan(
     actor: ActorContext,
@@ -13553,6 +13854,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPolicyText?: string | null;
       parentRatePlanId?: string | null;
       deriveBps?: number | null;
+      inclusions?: RatePlanInclusionInput[];
+      inclusionTax?: string;
+      inclusionBandJoin?: boolean;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -13560,6 +13864,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RATE_PLAN_ID_EXISTS }
     | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
     | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND }
+    | { ok: false; error: typeof PRODUCT_NOT_POSTABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
@@ -13602,14 +13910,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (derived.parentRatePlanId) {
             this.assertDerivedParentEligibleSync(derived.parentRatePlanId, input.ratePlanId);
           }
+          const settings = this.inclusionSettingsSync(
+            input.inclusionTax,
+            input.inclusionBandJoin,
+            'SEPARATE',
+            false,
+          );
+          if (!settings.ok) return settings;
+          let rows: RatePlanInclusion[] = [];
+          if (input.inclusions !== undefined) {
+            const resolved = this.resolvePlanInclusionsSync(input.inclusions);
+            if (!resolved.ok) return resolved;
+            rows = resolved.rows;
+          }
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `INSERT INTO rate_plan (
                rate_plan_id, code, name, status, created_at, updated_at,
                cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text,
-               parent_rate_plan_id, derive_bps
+               parent_rate_plan_id, derive_bps, inclusion_tax, inclusion_band_join
              )
-             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             input.ratePlanId,
             input.code,
             input.name,
@@ -13622,7 +13943,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             policy.cancelPolicyText,
             derived.parentRatePlanId,
             derived.deriveBps,
+            settings.inclusionTax,
+            settings.bandJoin,
           );
+          if (rows.length > 0) this.writePlanInclusionsSync(input.ratePlanId, rows);
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -13672,7 +13996,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Update an active rate plan's code/name. Implements catalog `rates.update_plan`.
-   * Fingerprint allowlist: `{ ratePlanId, code?, name?, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps? }`.
+   * Fingerprint allowlist: `{ ratePlanId, code?, name?, cancelPenaltyType?, cancelGraceHours?, cancelPenaltyNights?, cancelPenaltyBps?, cancelPolicyText?, parentRatePlanId?, deriveBps?, inclusions?, inclusionTax?, inclusionBandJoin? }`.
+   * Omitting `inclusions` leaves the rows. `inclusions: []` clears them.
    */
   async tryUpdateRatePlan(
     actor: ActorContext,
@@ -13687,6 +14012,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPolicyText?: string | null;
       parentRatePlanId?: string | null;
       deriveBps?: number | null;
+      inclusions?: RatePlanInclusionInput[];
+      inclusionTax?: string;
+      inclusionBandJoin?: boolean;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -13695,6 +14023,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof RATE_PLAN_CODE_EXISTS }
     | { ok: false; error: typeof DEFAULT_RATE_PLAN_PROTECTED }
     | { ok: false; error: typeof DERIVED_RATE_PLAN_INVALID }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND }
+    | { ok: false; error: typeof PRODUCT_NOT_POSTABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
@@ -13722,7 +14054,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const rows = this.ctx.storage.sql
             .exec(
               `SELECT code, name, status, cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps, cancel_policy_text,
-                      parent_rate_plan_id, derive_bps
+                      parent_rate_plan_id, derive_bps, inclusion_tax, inclusion_band_join
                FROM rate_plan WHERE rate_plan_id = ?`,
               input.ratePlanId,
             )
@@ -13737,6 +14069,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             cancel_policy_text: string | null;
             parent_rate_plan_id: string | null;
             derive_bps: number | null;
+            inclusion_tax: string;
+            inclusion_band_join: number;
           }>;
           const existing = rows[0];
           if (!existing || existing.status !== 'active') {
@@ -13795,12 +14129,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             derived.parentRatePlanId !== existing.parent_rate_plan_id ||
             derived.deriveBps !== existing.derive_bps;
 
+          const settings = this.inclusionSettingsSync(
+            input.inclusionTax,
+            input.inclusionBandJoin,
+            existing.inclusion_tax === 'ROOM' ? 'ROOM' : 'SEPARATE',
+            existing.inclusion_band_join === 1,
+          );
+          if (!settings.ok) return settings;
+          let nextInclusions: RatePlanInclusion[] | undefined;
+          if (input.inclusions !== undefined) {
+            const resolved = this.resolvePlanInclusionsSync(input.inclusions);
+            if (!resolved.ok) return resolved;
+            nextInclusions = resolved.rows;
+          }
+
           const now = Date.now();
           this.ctx.storage.sql.exec(
             `UPDATE rate_plan SET code = ?, name = ?, updated_at = ?,
                cancel_penalty_type = ?, cancel_grace_hours = ?, cancel_penalty_nights = ?,
                cancel_penalty_bps = ?, cancel_policy_text = ?,
-               parent_rate_plan_id = ?, derive_bps = ?
+               parent_rate_plan_id = ?, derive_bps = ?,
+               inclusion_tax = ?, inclusion_band_join = ?
              WHERE rate_plan_id = ?`,
             nextCode,
             nextName,
@@ -13812,8 +14161,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             policy.cancelPolicyText,
             derived.parentRatePlanId,
             derived.deriveBps,
+            settings.inclusionTax,
+            settings.bandJoin,
             input.ratePlanId,
           );
+          if (nextInclusions !== undefined) this.writePlanInclusionsSync(input.ratePlanId, nextInclusions);
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -13964,28 +14316,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   /** Active rate plans only. */
-  async listRatePlans(): Promise<
-    Array<{
-      ratePlanId: string;
-      code: string;
-      name: string;
-      status: string;
-      cancelPenaltyType: 'none' | 'first_night' | 'nights' | 'percent' | 'full';
-      cancelGraceHours: number;
-      cancelPenaltyNights: number | null;
-      cancelPenaltyBps: number | null;
-      cancelPolicyText: string | null;
-      parentRatePlanId: string | null;
-      deriveBps: number | null;
-    }>
-  > {
+  async listRatePlans(): Promise<RatePlanListItem[]> {
     this.assertRpcAvailable();
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT rate_plan_id, code, name, status,
                 cancel_penalty_type, cancel_grace_hours, cancel_penalty_nights,
                 cancel_penalty_bps, cancel_policy_text,
-                parent_rate_plan_id, derive_bps
+                parent_rate_plan_id, derive_bps, inclusion_tax, inclusion_band_join
          FROM rate_plan
          WHERE status = 'active' ORDER BY code`,
       )
@@ -14001,7 +14339,38 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancel_policy_text: string | null;
       parent_rate_plan_id: string | null;
       derive_bps: number | null;
+      inclusion_tax: string;
+      inclusion_band_join: number;
     }>;
+    const inclusionRows = this.ctx.storage.sql
+      .exec(
+        `SELECT rate_plan_id, inclusion_no, product_id, charge_code, label, amount_minor, basis, price_mode
+         FROM rate_plan_inclusion ORDER BY rate_plan_id, inclusion_no`,
+      )
+      .toArray() as Array<{
+      rate_plan_id: string;
+      inclusion_no: number;
+      product_id: string;
+      charge_code: string;
+      label: string;
+      amount_minor: number;
+      basis: InclusionBasis;
+      price_mode: InclusionPriceMode;
+    }>;
+    const byPlan = new Map<string, RatePlanInclusion[]>();
+    for (const row of inclusionRows) {
+      const list = byPlan.get(row.rate_plan_id) ?? [];
+      list.push({
+        inclusionNo: row.inclusion_no,
+        productId: row.product_id,
+        chargeCode: row.charge_code,
+        label: row.label,
+        amountMinor: row.amount_minor,
+        basis: row.basis,
+        priceMode: row.price_mode,
+      });
+      byPlan.set(row.rate_plan_id, list);
+    }
     return rows.map((r) => ({
       ratePlanId: r.rate_plan_id,
       code: r.code,
@@ -14014,6 +14383,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       cancelPolicyText: r.cancel_policy_text,
       parentRatePlanId: r.parent_rate_plan_id,
       deriveBps: r.derive_bps,
+      inclusions: byPlan.get(r.rate_plan_id) ?? [],
+      inclusionTax: r.inclusion_tax === 'ROOM' ? 'ROOM' : 'SEPARATE',
+      inclusionBandJoin: r.inclusion_tax === 'ROOM' || r.inclusion_band_join === 1,
     }));
   }
 
@@ -16592,17 +16964,29 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
-  /** Quote materialized nightly rates for a stay (read-only). */
+  /**
+   * Quote materialized nightly rates for a stay (read-only).
+   * ADDED inclusions use the plan's current rows at `adults` / `children`
+   * (reservation defaults 1 and 0 when the caller omits them). There is no quote HTTP route.
+   */
   async quoteStay(input: {
     roomTypeId: string;
     ratePlanId?: string;
     arrivalDate: string;
     departureDate: string;
+    adults?: number;
+    children?: number;
   }): Promise<
-    | { ok: true; totalMinor: number; currency: string }
+    | { ok: true; totalMinor: number; currency: string; inclusionsMinor: number }
     | { ok: false; error: typeof RATE_MISSING; date: string }
+    | { ok: false; error: typeof VALIDATION_ERROR }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
+    const adults = input.adults ?? 1;
+    const children = input.children ?? 0;
+    if (!Number.isInteger(adults) || adults < 0 || !Number.isInteger(children) || children < 0) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
     let nights: string[];
     try {
       nights = enumerateStayDates(input.arrivalDate, input.departureDate);
@@ -16628,7 +17012,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const quoted = quoteStay(nights, amounts);
     if (!quoted.ok) return { ok: false, error: RATE_MISSING, date: quoted.missingDate };
-    return { ok: true, totalMinor: quoted.totalMinor, currency };
+    const inclusionsMinor = this.addedInclusionsMinorSync(ratePlanId, nights.length, adults, children);
+    return { ok: true, totalMinor: quoted.totalMinor + inclusionsMinor, currency, inclusionsMinor };
+  }
+
+  private addedInclusionsMinorSync(
+    ratePlanId: string,
+    nightCount: number,
+    adults: number,
+    children: number,
+  ): number {
+    const plan = this.loadPlanInclusionsSync(ratePlanId);
+    if (!plan) return 0;
+    return addedInclusionsMinor(plan.rows, nightCount, adults, children);
   }
 
   /** Test helper: sold-holding reservation count covering a ledger night. */
@@ -16994,6 +17390,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     taxOf?: string | null;
     taxRuleId?: string | null;
     taxComponent?: string;
+    taxBandBaseMinor?: number | null;
   }): void {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
@@ -17014,8 +17411,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       `INSERT INTO folio_line (
          folio_line_id, folio_window_id, reservation_id, charge_code,
          amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
-         source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id, tax_component
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id, tax_component,
+         tax_band_base_minor
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.folioLineId,
       input.folioWindowId,
       input.reservationId,
@@ -17033,6 +17431,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.taxOf ?? null,
       input.taxRuleId ?? null,
       input.taxComponent ?? '',
+      input.taxBandBaseMinor ?? null,
     );
     this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
@@ -17246,6 +17645,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         reason: RATE_MISSING,
         businessDate,
         stayDate,
+      },
+    });
+  }
+
+  private recordNightAuditInclusionExceptionSync(
+    reservationId: string,
+    businessDate: string,
+    reason: 'inclusion_exceeds_rate' | 'inclusion_charge_code_inactive',
+  ): void {
+    this.appendAuditLogSync({
+      actor: 'system:night_audit',
+      commandId: 'night_audit.run',
+      entityType: 'reservation',
+      entityId: reservationId,
+      reservationId,
+      afterJson: {
+        step: 'POST_ROOM_CHARGES',
+        reason,
+        businessDate,
       },
     });
   }
@@ -17516,36 +17934,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ n: number }>;
     if (Number(active[0]?.n ?? 0) >= 20) return { ok: false, error: LIMIT_EXCEEDED };
 
-    const products = this.ctx.storage.sql
-      .exec(
-        `SELECT product_id, category_id, name, charge_code, default_amount_minor, status
-         FROM products_item WHERE product_id = ?`,
-        input.productId,
-      )
-      .toArray() as Array<{
-      product_id: string;
-      category_id: string;
-      name: string;
-      charge_code: string;
-      default_amount_minor: number;
-      status: string;
-    }>;
-    const product = products[0];
-    if (!product) return { ok: false, error: PRODUCT_NOT_FOUND };
-    const categories = this.ctx.storage.sql
-      .exec(`SELECT status FROM products_category WHERE category_id = ?`, product.category_id)
-      .toArray() as Array<{ status: string }>;
-    const standing = chargeCodeStanding(
-      this.ctx.storage.sql,
-      product.charge_code,
-      SYSTEM_CHARGE_CODES,
-    );
-    const postable =
-      product.status === 'active' &&
-      categories[0]?.status === 'active' &&
-      standing.postable &&
-      product.default_amount_minor > 0;
-    if (!postable) return { ok: false, error: PRODUCT_NOT_POSTABLE };
+    const loaded = this.loadPostableProductSync(input.productId);
+    if (!loaded.ok) return loaded;
+    const product = loaded.product;
 
     const now = Date.now();
     const createdBy = this.auditActorSync(actor);
@@ -17679,7 +18070,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const reservations = this.ctx.storage.sql
       .exec(
-        `SELECT reservation_id, room_type_id, rate_plan_id
+        `SELECT reservation_id, room_type_id, rate_plan_id, adults, children
          FROM reservation
          WHERE ${statusPredicate}
            AND COALESCE(no_post, 0) = 0
@@ -17687,7 +18078,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         businessDate,
         businessDate,
       )
-      .toArray() as Array<{ reservation_id: string; room_type_id: string; rate_plan_id: string }>;
+      .toArray() as Array<{
+      reservation_id: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      adults: number;
+      children: number;
+    }>;
 
     this.assertChargeCodeSync('ROOM', { requireActive: true });
 
@@ -17696,34 +18093,146 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     for (const reservation of reservations) {
       try {
-        const amountMinor = this.rateNightAmountSync(
+        const rateMinor = this.rateNightAmountSync(
           reservation.reservation_id,
           reservation.room_type_id,
           reservation.rate_plan_id,
           businessDate,
         );
+        const inclusionRows = this.ctx.storage.sql
+          .exec(
+            `SELECT inclusion_no, charge_code, amount_minor, basis, price_mode, inclusion_tax, band_join
+             FROM reservation_inclusion_night
+             WHERE reservation_id = ? AND stay_date = ?
+             ORDER BY inclusion_no`,
+            reservation.reservation_id,
+            businessDate,
+          )
+          .toArray() as Array<{
+          inclusion_no: number;
+          charge_code: string;
+          amount_minor: number;
+          basis: string;
+          price_mode: string;
+          inclusion_tax: string;
+          band_join: number;
+        }>;
+        const lines: Array<{
+          folioLineId: string;
+          chargeCode: string;
+          taxChargeCode: string;
+          amountMinor: number;
+          bandJoin: boolean;
+        }> = [];
+        let includedMinor = 0;
+        for (const row of inclusionRows) {
+          const units = inclusionUnits(row.basis, reservation.adults, reservation.children);
+          if (units <= 0) continue;
+          const value = row.amount_minor * units;
+          if (row.price_mode === 'INCLUDED') includedMinor += value;
+          lines.push({
+            folioLineId: `${reservation.reservation_id}:inclusion:${row.inclusion_no}:${businessDate}`,
+            chargeCode: row.charge_code,
+            taxChargeCode: row.inclusion_tax === 'ROOM' ? 'ROOM' : row.charge_code,
+            amountMinor: value,
+            bandJoin: row.band_join === 1 || row.inclusion_tax === 'ROOM',
+          });
+        }
+        const roomAmount = rateMinor - includedMinor;
+        if (roomAmount < 0) {
+          this.recordNightAuditInclusionExceptionSync(
+            reservation.reservation_id,
+            businessDate,
+            'inclusion_exceeds_rate',
+          );
+          failedCount += 1;
+          continue;
+        }
+        const roomLine = {
+          folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
+          chargeCode: 'ROOM',
+          taxChargeCode: 'ROOM',
+          amountMinor: roomAmount,
+          bandJoin: false,
+        };
+        const postable = [roomLine, ...lines];
+        let inclusionCodeInactive = false;
+        for (const line of lines) {
+          try {
+            this.assertChargeCodeSync(line.chargeCode, { requireActive: true });
+            if (line.taxChargeCode !== line.chargeCode) {
+              this.assertChargeCodeSync(line.taxChargeCode, { requireActive: true });
+            }
+          } catch (e) {
+            if (e instanceof ChargeCodeNotFoundError) {
+              this.recordNightAuditInclusionExceptionSync(
+                reservation.reservation_id,
+                businessDate,
+                'inclusion_charge_code_inactive',
+              );
+              failedCount += 1;
+              inclusionCodeInactive = true;
+              break;
+            }
+            throw e;
+          }
+        }
+        if (inclusionCodeInactive) continue;
+        const anyBand = lines.some((line) => line.bandJoin);
+        const ownNets = new Map<string, number>();
+        if (anyBand) {
+          for (const line of postable) {
+            const prepared = this.prepareChargeTaxSync({
+              parentSource: line.folioLineId === roomLine.folioLineId ? 'NIGHT_AUDIT' : INCLUSION_LINE_SOURCE,
+              chargeCode: line.chargeCode,
+              taxChargeCode: line.taxChargeCode,
+              postingDate: businessDate,
+              posted: {
+                amountMinor: line.amountMinor,
+                txnCurrency: ledgerCurrency,
+                ledgerAmountMinor: line.amountMinor,
+                fxRate: '1',
+                fxRateAt: 0,
+              },
+            });
+            ownNets.set(line.folioLineId, prepared ? prepared.netLedgerMinor : line.amountMinor);
+          }
+        }
+        const bandBase = anyBand
+          ? [...ownNets.values()].reduce((sum, net) => sum + net, 0)
+          : undefined;
 
         this.ensureGuestFolioWindowSync(reservation.reservation_id);
         const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
         const fxRateAt = Date.now();
-        const posted: PostedLineAmount = {
-          amountMinor,
-          txnCurrency: ledgerCurrency,
-          ledgerAmountMinor: amountMinor,
-          fxRate: '1',
-          fxRateAt,
-        };
-
-        this.insertTaxableChargeSync({
-          folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
-          folioWindowId,
-          reservationId: reservation.reservation_id,
-          chargeCode: 'ROOM',
-          posted,
-          source: 'NIGHT_AUDIT',
-          businessDate,
-          postingDate: businessDate,
-        });
+        for (const line of postable) {
+          if (line.folioLineId !== roomLine.folioLineId) {
+            const already = this.ctx.storage.sql
+              .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, line.folioLineId)
+              .toArray();
+            if (already[0]) continue;
+          }
+          const ownNet = ownNets.get(line.folioLineId);
+          const storeBand = bandBase !== undefined && ownNet !== undefined && bandBase !== ownNet;
+          this.insertTaxableChargeSync({
+            folioLineId: line.folioLineId,
+            folioWindowId,
+            reservationId: reservation.reservation_id,
+            chargeCode: line.chargeCode,
+            taxChargeCode: line.taxChargeCode,
+            posted: {
+              amountMinor: line.amountMinor,
+              txnCurrency: ledgerCurrency,
+              ledgerAmountMinor: line.amountMinor,
+              fxRate: '1',
+              fxRateAt,
+            },
+            source: line.folioLineId === roomLine.folioLineId ? 'NIGHT_AUDIT' : INCLUSION_LINE_SOURCE,
+            businessDate,
+            postingDate: businessDate,
+            ...(storeBand ? { bandBaseMinor: bandBase, taxBandBaseMinor: bandBase } : {}),
+          });
+        }
         postedCount += 1;
 
         if (
@@ -22053,11 +22562,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       taxRuleId: string | null;
       taxComponent: string;
       ledgerAmountMinor: number;
+      taxBandBaseMinor: number | null;
     }>
   > {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, source, business_date, split_of, tax_of, tax_rule_id, tax_component
+        `SELECT folio_line_id, charge_code, amount_minor, ledger_amount_minor, source, business_date, split_of, tax_of, tax_rule_id, tax_component, tax_band_base_minor
          FROM folio_line WHERE reservation_id = ?`,
         reservationId,
       )
@@ -22072,6 +22582,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       tax_rule_id: string | null;
       tax_component: string | null;
       ledger_amount_minor: number;
+      tax_band_base_minor: number | null;
     }>;
     return rows.map((row) => ({
       folioLineId: row.folio_line_id,
@@ -22084,6 +22595,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       taxOf: row.tax_of,
       taxRuleId: row.tax_rule_id,
       taxComponent: row.tax_component ?? '',
+      taxBandBaseMinor: row.tax_band_base_minor,
     }));
   }
 

@@ -9,7 +9,9 @@ import {
   guestRefsOf,
   minorToDecimal,
   reportCsvFileName,
+  formatReportCell,
   reportQueryKey,
+  staffFallbackWord,
 } from './report-model.js';
 
 const arrivals = reportDefinition('front_office_arrivals')!;
@@ -123,5 +125,86 @@ describe('helpers', () => {
     expect(describeReportParams(arrivals, { from: '2026-11-20', to: '2026-11-22', status: 'confirmed' }, (d) => d)).toBe(
       '2026-11-20 to 2026-11-22 · Status: Confirmed',
     );
+  });
+});
+
+describe('Part B: reservation parameter, staff and datetime columns, negative money', () => {
+  const folio = reportDefinition('cashier_detailed_folio')!;
+  const audit = reportDefinition('cashier_audit')!;
+
+  it('a single-stay report starts empty and asks for a reservation in words', () => {
+    expect(defaultReportParams(folio, '2026-11-20')).toEqual({});
+    expect(checkReportParams(folio, {})).toEqual({ ok: false, message: 'Choose a reservation.' });
+    expect(checkReportParams(folio, { reservationId: 'res 1' })).toEqual({
+      ok: false,
+      message: 'Choose a reservation from the search results.',
+    });
+    expect(checkReportParams(folio, { reservationId: 'res_1' })).toEqual({
+      ok: true,
+      params: { reservationId: 'res_1' },
+    });
+    expect(reportQueryKey('p1', folio.id, { reservationId: 'res_1' })).toEqual([
+      'report',
+      'p1',
+      'cashier_detailed_folio',
+      { reservationId: 'res_1' },
+    ]);
+  });
+
+  it('the cashier filter starts at all cashiers and shows its name in the parameters', () => {
+    expect(defaultReportParams(audit, '2026-11-20')).toEqual({
+      from: '2026-11-20',
+      to: '2026-11-20',
+      tender: '',
+      cashier: '',
+    });
+    expect(
+      describeReportParams(audit, { from: '2026-11-20', to: '2026-11-20', tender: 'UPI', cashier: 'user_a' }, (d) => d, () => 'Ann'),
+    ).toBe('2026-11-20 · Payment type: UPI · Cashier: Ann');
+  });
+
+  it('formats staff and datetime cells, and falls back to words for staff', () => {
+    const f = {
+      money: (m: number) => `${m}`,
+      date: (d: string) => d,
+      guest: (g: string) => g,
+      dateTime: (ms: number) => `T${ms}`,
+      staff: (u: string) => (u === 'user_a' ? 'Ann' : staffFallbackWord(u)),
+    };
+    const staff = { key: 'cashier', label: 'Cashier', type: 'staff' } as const;
+    const at = { key: 'at', label: 'Time', type: 'datetime' } as const;
+    expect(formatReportCell(staff, { cashier: 'user_a' }, 'USD', f)).toBe('Ann');
+    expect(formatReportCell(staff, { cashier: 'user_x' }, 'USD', f)).toBe('Staff member');
+    expect(formatReportCell(staff, { cashier: 'system:night_audit' }, 'USD', f)).toBe('System');
+    expect(formatReportCell(at, { at: 5 }, 'USD', f)).toBe('T5');
+  });
+
+  it('CSV: negative money keeps its sign and decimals, datetimes are ISO, staff are names', () => {
+    const csv = buildReportCsv({
+      columns: [
+        { key: 'at', label: 'Time', type: 'datetime' },
+        { key: 'who', label: 'By', type: 'staff' },
+        { key: 'amount', label: 'Amount', type: 'money' },
+      ],
+      rows: [
+        { at: Date.parse('2026-11-20T09:05:00Z'), who: 'user_a', amount: -100050 },
+        { at: null, who: 'user_x', amount: -5 },
+        { at: Date.parse('2026-11-20T10:00:00Z'), who: 'user_a', amount: 0 },
+      ],
+      totals: { amount: -100055 },
+      currency: 'USD',
+      guest: (g) => g,
+      staff: (u) => (u === 'user_a' ? '=Ann' : staffFallbackWord(u)),
+    });
+    expect(csv.split('\r\n')).toEqual([
+      'Time,By,Amount,Currency',
+      "2026-11-20T09:05:00.000Z,'=Ann,-1000.50,USD",
+      ',Staff member,-0.05,USD',
+      '2026-11-20T10:00:00.000Z,\'=Ann,0.00,USD',
+      'Total,,-1000.55,USD',
+      '',
+    ]);
+    expect(minorToDecimal(-100050, 2)).toBe('-1000.50');
+    expect(minorToDecimal(-7, 0)).toBe('-7');
   });
 });

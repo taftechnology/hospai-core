@@ -26,8 +26,10 @@ export function addDaysIso(iso: string, days: number): string {
 /** Form defaults from the definition: the business date, and the default span for a range. */
 export function defaultReportParams(def: ReportDefinition, today: string): ReportParams {
   if (def.params.kind === 'date') return { date: today };
+  if (def.params.kind === 'reservation') return {};
   const params: ReportParams = { from: today, to: addDaysIso(today, def.params.defaultSpan - 1) };
   for (const f of def.params.filters ?? []) (params as Record<string, string>)[f.name] = '';
+  if (def.params.staffFilter) params.cashier = '';
   return params;
 }
 
@@ -42,6 +44,9 @@ export function checkReportParams(def: ReportDefinition, draft: ReportParams): R
     if (def.params.kind === 'date' && parsed.params.date === undefined) {
       return { ok: false, message: 'Choose a date.' };
     }
+    if (def.params.kind === 'reservation' && parsed.params.reservationId === undefined) {
+      return { ok: false, message: 'Choose a reservation.' };
+    }
     if (def.params.kind === 'range' && (parsed.params.from === undefined || parsed.params.to === undefined)) {
       return { ok: false, message: 'Choose both dates.' };
     }
@@ -52,6 +57,10 @@ export function checkReportParams(def: ReportDefinition, draft: ReportParams): R
     return { ok: false, message: `This report covers at most ${parsed.max} ${unit}. Choose a shorter range.` };
   }
   switch (parsed.detail) {
+    case 'reservation_required':
+      return { ok: false, message: 'Choose a reservation.' };
+    case 'invalid_reservation':
+      return { ok: false, message: 'Choose a reservation from the search results.' };
     case 'invalid_date_range':
       return { ok: false, message: 'The end date must be on or after the start date.' };
     case 'range_incomplete':
@@ -66,6 +75,10 @@ export type CellFormat = {
   date: (iso: string) => string;
   /** Resolved name, or a word for pending/erased/unavailable. */
   guest: (guestRef: string) => string;
+  /** Date and time of an instant (epoch milliseconds). */
+  dateTime: (ms: number) => string;
+  /** Staff name for a user id, else a word. */
+  staff: (userId: string) => string;
 };
 
 /** The words shown on screen and in print for one cell. */
@@ -82,16 +95,25 @@ export function formatReportCell(
       return f.money(Number(v), currency);
     case 'date':
       return f.date(String(v));
+    case 'datetime':
+      return f.dateTime(Number(v));
     case 'percent':
       return `${v}%`;
     case 'guest':
       return f.guest(String(v));
+    case 'staff':
+      return f.staff(String(v));
     case 'status':
       return reservationStatusWord(String(v));
     case 'integer':
     case 'text':
       return String(v);
   }
+}
+
+/** The word shown for a staff user id nobody could resolve to a name. */
+export function staffFallbackWord(userId: string): string {
+  return userId.startsWith('system:') ? 'System' : 'Staff member';
 }
 
 export const REPORT_TOTAL_LABEL = 'Total';
@@ -136,8 +158,11 @@ export function buildReportCsv(input: {
   totals: ReportRow | null;
   currency: string;
   guest: (guestRef: string) => string;
+  /** Staff name for a user id; defaults to the fallback word. */
+  staff?: (userId: string) => string;
 }): string {
   const { columns, rows, totals, currency, guest } = input;
+  const staff = input.staff ?? staffFallbackWord;
   const hasMoney = columns.some((c) => c.type === 'money');
   const digits = currencyFractionDigits(currency);
   const line = (row: ReportRow, isTotals: boolean): string => {
@@ -153,8 +178,12 @@ export function buildReportCsv(input: {
           return String(v);
         case 'date':
           return csvField(String(v));
+        case 'datetime':
+          return csvField(new Date(Number(v)).toISOString());
         case 'guest':
           return csvField(guardFormula(guest(String(v))));
+        case 'staff':
+          return csvField(guardFormula(staff(String(v))));
         case 'status':
           return csvField(reservationStatusWord(String(v)));
         case 'text':
@@ -181,6 +210,7 @@ export function describeReportParams(
   def: ReportDefinition,
   params: ReportParams,
   formatDate: (iso: string) => string,
+  staffName: (userId: string) => string = staffFallbackWord,
 ): string {
   const parts: string[] = [];
   if (params.date) parts.push(formatDate(params.date));
@@ -193,15 +223,19 @@ export function describeReportParams(
       const label = f.options.find((o) => o.value === (v ?? ''))?.label;
       if (v && label) parts.push(`${f.label}: ${label}`);
     }
+    if (def.params.staffFilter && params.cashier) {
+      parts.push(`${def.params.staffFilter.label}: ${staffName(params.cashier)}`);
+    }
   }
   return parts.join(' · ');
 }
 
-/** Guest refs in a result, in first-seen order. */
+/** Guest refs in a result (including the stay header's), in first-seen order. */
 export function guestRefsOf(result: ReportResponse | undefined): string[] {
   if (!result) return [];
   const keys = result.columns.filter((c) => c.type === 'guest').map((c) => c.key);
   const seen = new Set<string>();
+  if (result.stay?.guest) seen.add(result.stay.guest);
   for (const row of result.rows) {
     for (const k of keys) {
       const v = row[k];

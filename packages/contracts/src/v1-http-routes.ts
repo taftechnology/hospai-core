@@ -1555,6 +1555,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
+  },  {
+    id: 'get_cashier_report',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
   },
 ];
 

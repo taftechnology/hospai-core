@@ -20,6 +20,7 @@ vi.mock('../client.js', () => ({
   },
 }));
 
+import { reportDefinition } from '@hospai/contracts';
 import { ReportsCatalogScreen } from './ReportsCatalogScreen.js';
 
 function renderCatalog() {
@@ -67,17 +68,57 @@ describe('ReportsCatalogScreen', () => {
       ['Availability, detailed', '/reports/front_office_availability_detailed'],
       ['Availability, month-wise', '/reports/front_office_availability_monthly'],
     ]);
-    // Groups without a registered report (Part B and C) and with no permission are not listed.
+    // A group whose permission the user lacks (cashier needs folio:read) is not listed.
     expect(screen.queryByTestId('reports-group-cashier_financial')).toBeNull();
     await waitFor(() => expect(screen.getByText(/Lakeview Residency/)).toBeInTheDocument());
   });
 
   it('shows nothing from a group whose permission the user lacks', async () => {
-    getMe.mockResolvedValue(me(['folio:read', 'housekeeping:read']));
+    getMe.mockResolvedValue(me(['housekeeping:read']));
     renderCatalog();
     expect(await screen.findByTestId('reports-none')).toBeInTheDocument();
     expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
+    expect(screen.queryByTestId('reports-group-cashier_financial')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Arrivals' })).toBeNull();
+  });
+
+  it('lists the ten cashier and financial reports for folio:read, and only those', async () => {
+    getMe.mockResolvedValue(me(['folio:read']));
+    renderCatalog();
+    const group = await screen.findByTestId('reports-group-cashier_financial');
+    expect(within(group).getByRole('heading', { name: 'Cashier and financial' })).toBeInTheDocument();
+    expect(
+      within(group)
+        .getAllByRole('link')
+        .map((a) => [a.textContent, a.getAttribute('href')]),
+    ).toEqual([
+      ['Cashier summary', '/reports/cashier_summary'],
+      ['Cashier audit', '/reports/cashier_audit'],
+      ['Corrections and cancelled payments', '/reports/cashier_corrections'],
+      ['Deposit activity', '/reports/cashier_deposit_activity'],
+      ['Deposit ledger', '/reports/cashier_deposit_ledger'],
+      ['Detailed folio', '/reports/cashier_detailed_folio'],
+      ['Open-folio register', '/reports/cashier_open_folio_register'],
+      ['Tax report', '/reports/cashier_tax_report'],
+      ['Trial balance', '/reports/cashier_trial_balance'],
+      ['Guest trial balance', '/reports/cashier_guest_trial_balance'],
+    ]);
+    expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
+  });
+
+  it('hides a report whose extra permission the user lacks, but keeps the others in the group', async () => {
+    const summary = reportDefinition('cashier_summary')!;
+    const original = summary.extraPermissions;
+    (summary as { extraPermissions?: unknown }).extraPermissions = ['folio:adjust'];
+    try {
+      getMe.mockResolvedValue(me(['folio:read']));
+      renderCatalog();
+      const group = await screen.findByTestId('reports-group-cashier_financial');
+      expect(within(group).queryByRole('link', { name: 'Cashier summary' })).toBeNull();
+      expect(within(group).getByRole('link', { name: 'Tax report' })).toBeInTheDocument();
+    } finally {
+      (summary as { extraPermissions?: unknown }).extraPermissions = original;
+    }
   });
 
   it('tells the user when the access check fails, without listing reports', async () => {

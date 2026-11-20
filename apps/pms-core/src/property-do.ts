@@ -522,6 +522,7 @@ import {
   reportObjectKey,
 } from './event-log.js';
 import { netAdvancePaidMinor } from './folio-advance.js';
+import { readCashierReport, type CashierReportResult } from './cashier-report.js';
 import {
   readFrontOfficeReport,
   reservationConfirmation,
@@ -14858,6 +14859,40 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         hasActiveHold: (id) => this.readActiveHoldSync(id) !== null,
         availabilityRows: (from, to) => this.loadAvailabilityDayRowsSync(from, to),
         sourceNames,
+      },
+      reportId,
+      params,
+    );
+  }
+
+  /**
+   * Cashier and financial report (R4.14 Part B). A pure read: the shift and folio helpers stay
+   * private to this class and are lent to the report module as closures.
+   */
+  async readCashierReportView(
+    reportId: string,
+    params: ReportParams,
+  ): Promise<
+    | CashierReportResult
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    return readCashierReport(
+      {
+        sql: this.ctx.storage.sql,
+        businessDate,
+        currency,
+        dateOfInstant: (ms) => this.closedAtBusinessDateSync(ms),
+        guestWindowId: (id) => this.guestFolioWindowId(id),
+        windowBalanceMinor: (id) => this.windowBalanceMinorSync(id),
+        advancePaidMinor: (id) => this.advancePaidMinorSync(id),
+        shiftTenderTotals: (shiftId, status) => this.shiftTenderTotalsForReadSync(shiftId, status),
+        shiftExpectedCash: (shiftId, openingFloat) =>
+          this.computeShiftExpectedCashSync(shiftId, openingFloat),
       },
       reportId,
       params,

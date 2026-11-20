@@ -2631,3 +2631,17 @@ details.side-panel summary {
   background: var(--color-cond-unavailable);
   color: var(--color-cond-unavailable-fg);
 }
+
+/* R4.14 Part B: the stay picker of a single-stay report. */
+.report-picker {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.report-picker__hits {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

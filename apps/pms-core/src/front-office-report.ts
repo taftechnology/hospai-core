@@ -421,6 +421,7 @@ export function resolveReportParams(
   businessDate: string,
 ): ReportParams {
   if (def.params.kind === 'date') return { date: params.date ?? businessDate };
+  if (def.params.kind !== 'range') return {};
   const from = params.from ?? businessDate;
   const to = params.to ?? addDays(from, def.params.defaultSpan - 1);
   const out: ReportParams = { from, to };

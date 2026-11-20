@@ -33,7 +33,9 @@ import {
   StatusBadge,
   Toolbar,
   isReservationStatus,
+  reservationStatusWord,
 } from '@hospai/ui-kit';
+import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
@@ -48,11 +50,13 @@ import {
   guestRefsOf,
   reportCsvFileName,
   reportQueryKey,
+  staffFallbackWord,
 } from '../reports/report-model.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { usePropertyBusinessDate } from '../shell/use-business-date.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { guestLabel } from './guest-row.js';
+import { ReportReservationPicker, type PickedStay } from './report-reservation-picker.js';
 
 function isOverCap(err: unknown): boolean {
   if (!(err instanceof ClassifiedError)) return false;
@@ -68,7 +72,7 @@ function errorCopy(err: unknown): string {
 
 const NUMERIC = new Set(['integer', 'money', 'percent']);
 /** Columns set in tabular figures. */
-const TABULAR = new Set(['integer', 'money', 'percent', 'date']);
+const TABULAR = new Set(['integer', 'money', 'percent', 'date', 'datetime']);
 
 /** `/reports/:reportId` — the form, run, table, print and CSV, all driven by the definition. */
 export function ReportRunnerScreen() {
@@ -107,7 +111,37 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
   const [draft, setDraft] = useState<ReportParams | null>(null);
   const [applied, setApplied] = useState<ReportParams | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const form: ReportParams | null = draft ?? (today ? defaultReportParams(def, today) : null);
+  const [pickedStay, setPickedStay] = useState<PickedStay | null>(null);
+  const isStayReport = def.params.kind === 'reservation';
+  const form: ReportParams | null =
+    draft ?? (today || isStayReport ? defaultReportParams(def, today ?? '') : null);
+
+  // Staff names (cashiers, actors) come from the property's member list, only for a viewer who may
+  // read staff; otherwise a plain word stands in. Asked only when the report has staff in it.
+  const needsStaff =
+    def.columns.some((c) => c.type === 'staff') ||
+    (def.params.kind === 'range' && def.params.staffFilter !== undefined);
+  const meQ = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    enabled: needsStaff,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const canReadStaff = Boolean(meQ.data && hasPropertyPermission(meQ.data as PropertyMe, 'staff:read'));
+  const membersQ = useQuery({
+    queryKey: ['property-members', propertyId],
+    queryFn: () => api.listPropertyMembers(propertyId),
+    enabled: needsStaff && canReadStaff,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const members = membersQ.data?.members ?? [];
+  const memberName = (userId: string): string | null => {
+    const m = members.find((x) => x.userId === userId);
+    return m ? (m.displayName ?? m.email ?? null) : null;
+  };
+  const staffName = (userId: string) => memberName(userId) ?? staffFallbackWord(userId);
 
   const propertyQ = useQuery({
     queryKey: ['property', propertyId],
@@ -154,8 +188,9 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
     else setApplied(checked.params);
   }
 
-  const fmt = { money, date, guest: guestName };
+  const fmt = { money, date, guest: guestName, dateTime: (ms: number) => dateTime(ms), staff: staffName };
   const canOutput = Boolean(result && result.rows.length > 0);
+  const paramsText = result ? describeReportParams(def, result.params, date, staffName) : '';
 
   function downloadCsv() {
     if (!result) return;
@@ -167,6 +202,7 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
         totals: result.totals,
         currency: result.currency,
         guest: guestName,
+        staff: staffName,
       }),
     );
   }
@@ -176,11 +212,13 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
     if (c.type === 'status' && typeof raw === 'string' && isReservationStatus(raw)) {
       return <StatusBadge status={raw} />;
     }
-    return (
+    const text = (
       <span className={TABULAR.has(c.type) ? 'ui-num' : undefined}>
         {formatReportCell(c, row, result!.currency, fmt)}
       </span>
     );
+    // Subtotal rows (window totals, tax totals) read as totals.
+    return row.subtotal === 1 ? <strong>{text}</strong> : text;
   }
 
   const unit = def.params.kind === 'range' ? def.params.unit : 'days';
@@ -193,7 +231,9 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
       <EmptyState
         data-testid="report-idle"
         title="Run the report"
-        description="Choose the dates above, then press Run."
+        description={
+          isStayReport ? 'Find a stay above, then press Run.' : 'Choose the dates above, then press Run.'
+        }
       />
     );
   } else if (reportQ.isError) {
@@ -215,7 +255,11 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
         data-testid="report-empty"
         kind="nomatch"
         title="Nothing to report"
-        description="No rows match these dates. Change the dates or the filter."
+        description={
+          isStayReport
+            ? 'This stay has nothing posted to its folio yet.'
+            : 'No rows match these dates. Change the dates or the filter.'
+        }
       />
     );
   } else {
@@ -227,9 +271,22 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
       <PageHeader title={def.title} subtitle={subtitle} back={<Link to="/reports">Reports</Link>} />
       <Card>
         <Toolbar>
-          {def.params.kind === 'date' ? (
+          {def.params.kind === 'reservation' ? (
+            <ReportReservationPicker
+              picked={pickedStay}
+              onPick={(stay) => {
+                setPickedStay(stay);
+                setFormError(null);
+                setDraft({ reservationId: stay.reservationId });
+              }}
+              onClear={() => {
+                setPickedStay(null);
+                setDraft({});
+              }}
+            />
+          ) : def.params.kind === 'date' ? (
             <Field
-              label="Date"
+              label={def.params.label}
               size="sm"
               error={formError ?? undefined}
               control={
@@ -284,9 +341,33 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
                   }
                 />
               ))}
+              {def.params.staffFilter && members.length > 0 ? (
+                <Field
+                  label={def.params.staffFilter.label}
+                  size="md"
+                  control={
+                    <NativeSelect
+                      value={form?.cashier ?? ''}
+                      onChange={(e) => set({ cashier: e.target.value })}
+                    >
+                      <option value="">All cashiers</option>
+                      {members.map((m) => (
+                        <option key={m.userId} value={m.userId}>
+                          {m.displayName ?? m.email ?? staffFallbackWord(m.userId)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+              ) : null}
             </>
           )}
         </Toolbar>
+        {isStayReport && formError ? (
+          <CardContent>
+            <Alert data-testid="report-form-error">{formError}</Alert>
+          </CardContent>
+        ) : null}
         {hint ? (
           <CardContent>
             <p className="muted" data-testid="report-span-hint">
@@ -320,9 +401,28 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
               <p className="report-card__property" data-testid="report-property">
                 {propertyName ?? ''}
               </p>
-              <p className="muted" data-testid="report-params">
-                {describeReportParams(def, result!.params, date)}
-              </p>
+              {result!.stay ? (
+                <div data-testid="report-stay">
+                  <p className="report-card__property">
+                    {guestName(result!.stay.guest)} · Booking {result!.stay.confirmation}
+                  </p>
+                  <p className="muted">
+                    {[
+                      result!.stay.room ? `Room ${result!.stay.room}` : 'No room yet',
+                      result!.stay.roomType,
+                      `${date(result!.stay.arrival)} to ${date(result!.stay.departure)}`,
+                      reservationStatusWord(result!.stay.status),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+              ) : null}
+              {paramsText ? (
+                <p className="muted" data-testid="report-params">
+                  {paramsText}
+                </p>
+              ) : null}
               <p className="muted" data-testid="report-generated">
                 Generated {dateTime(Date.parse(result!.generatedAt))} · {result!.rows.length}{' '}
                 {result!.rows.length === 1 ? 'row' : 'rows'}

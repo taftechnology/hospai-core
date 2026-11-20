@@ -450,7 +450,7 @@ describe('R4.14 Part A: front-office reports', () => {
     const aForecast = await run(a, 'front_office_forecast', `from=${a.bd}&to=${a.bd}`);
     expect(aForecast.rows[0]!.physical).toBe(13);
 
-    for (const def of REPORT_DEFINITIONS) {
+    for (const def of REPORT_DEFINITIONS.filter((d) => d.routeId === 'get_front_office_report')) {
       const qs = def.params.kind === 'date' ? '' : `from=${a.bd}&to=${addCalendarDays(a.bd, 2)}`;
       const body = await run(a, def.id, qs);
       const text = JSON.stringify(body);

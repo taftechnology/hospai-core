@@ -4,8 +4,9 @@ import {
   REPORT_DEFINITIONS,
   REPORT_GROUPS,
   REPORT_GROUP_LABELS,
-  REPORT_GROUP_PERMISSION,
+  reportPermissions,
   reportsForGroup,
+  type ReportDefinition,
 } from '@hospai/contracts';
 import {
   Alert,
@@ -29,8 +30,9 @@ import { api, asClassified, tenant } from '../client.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 
 /**
- * Reports catalogue (R4.14): the named operational reports, grouped, showing only the groups whose
- * data permission the user holds. A group with no registered reports is not listed.
+ * Reports catalogue (R4.14): the named operational reports, grouped, showing only the reports whose
+ * permissions (the group's data permission, plus any extra a report names) the user holds. A group
+ * with nothing to show is not listed.
  */
 export function ReportsCatalogScreen() {
   const { subtitle } = usePropertySubtitle('Operational reports');
@@ -43,11 +45,10 @@ export function ReportsCatalogScreen() {
   const me = meQ.data as PropertyMe | undefined;
   // Fail open while authority is unknown, as the nav does; the route's own read still enforces it.
   const unknownAuthority = meQ.isError && asClassified(meQ.error).class !== 'unauthorized';
-  const groups = REPORT_GROUPS.filter(
-    (g) =>
-      REPORT_DEFINITIONS.some((d) => d.group === g) &&
-      (unknownAuthority || (me !== undefined && hasPropertyPermission(me, REPORT_GROUP_PERMISSION[g]))),
-  );
+  const allowed = (d: ReportDefinition) =>
+    unknownAuthority ||
+    (me !== undefined && reportPermissions(d).every((p) => hasPropertyPermission(me, p)));
+  const groups = REPORT_GROUPS.filter((g) => REPORT_DEFINITIONS.some((d) => d.group === g && allowed(d)));
 
   let body;
   if (meQ.isPending) {
@@ -93,7 +94,7 @@ export function ReportsCatalogScreen() {
               </DataTableRow>
             </DataTableHead>
             <DataTableBody>
-              {reportsForGroup(g).map((d) => (
+              {reportsForGroup(g).filter(allowed).map((d) => (
                 <DataTableRow key={d.id}>
                   <DataTableCell>
                     <Link to={`/reports/${encodeURIComponent(d.id)}`} data-testid={`report-link-${d.id}`}>

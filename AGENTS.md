@@ -219,12 +219,12 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.14 Part A (report framework and front-office reports, 2026-11-20; R4.31 before it) — update this table when you bump them:
+After roadmap R4.14 Part B (cashier and financial reports, 2026-11-20; Part A before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **147** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **246** routes, last id **`get_front_office_report`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **247** routes, last id **`get_cashier_report`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `AUDIT_WRITER_COMMAND_IDS` | **113** | `packages/contracts/src/register.test.ts` |
 | `PROPERTY_SCHEMA_HEAD` | **55** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |

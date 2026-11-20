@@ -983,8 +983,9 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_front_office_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_housekeeping_dashboard');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_cashier_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_front_office_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_housekeeping_dashboard');
     expect(V1_HTTP_ROUTE_AUDIT[213]?.id).toBe('get_room_ooo_history');
     expect(V1_HTTP_ROUTE_AUDIT[212]?.id).toBe('get_room_status_history');
     expect(V1_HTTP_ROUTE_AUDIT[211]?.id).toBe('get_housekeeping_tasks');
@@ -1000,7 +1001,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
     expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
     expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(246);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(247);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1281,6 +1282,14 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[245] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[246]).toMatchObject({
+      id: 'get_cashier_report',
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[246] ?? {})).toBe(false);
     expect(INSPECTION_REQUIRED).toBe('inspection_required');
     expect(AUDIT_SESSION_OPEN).toBe('audit_session_open');
     expect(isCommandError(INSPECTION_REQUIRED)).toBe(true);

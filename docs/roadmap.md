@@ -835,7 +835,13 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - **Business date found in review:** the app had no source for the real business date; the top-bar chip and the housekeeping defaults showed the property-local date. `get_property` now returns `businessDate`. `usePropertyBusinessDate()` feeds the chip, the report defaults and the housekeeping defaults.
     - **Follow-up:** other screens still default to `propertyLocalToday` as a "business date": Dashboard, Board / Tape, Booking, Reservations, Stay, Folio, Folios, Shift, Night audit, Maintenance, Rates and ShiftStrip. Some may want the calendar date. Each needs a look.
     - Pins: routes 246 (last `get_front_office_report`).
-    - **Left:** Part B (cashier and financial) and Part C (night audit and housekeeping).
+  - **Part B done (2026-11-20):** [spec](superpowers/specs/2026-11-20-reports-b-cashier-financial-design.md).
+    - **Route:** `get_cashier_report` (`folio:read`; `extraPermissions` are supported per report).
+    - **Ten reports:** cashier summary (shift-close helpers reused), cashier audit, corrections and cancelled payments, deposit activity and deposit ledger, detailed folio (reservation picker, running balance per window), open-folio register, tax report, trial balance (guest ledger plus city-ledger AR) and guest trial balance.
+    - **Trial balance:** each folio line falls in exactly one movement column (payments, taxes, transfers, adjustments, charges). Opening + movements = closing on every row, and the closing equals the guest trial balance. Checked in the browser on the demo: the 21/11 closing equals the guest trial balance total.
+    - **Approximations for past dates:** lines with no business date take the property-local date of their `created_at`. The deposit ledger shows current advances, not as of the date.
+    - Pins: routes 247 (last `get_cashier_report`).
+    - **Left:** Part C (night audit and housekeeping).
   - **Q10 answered (client, 2026-11-19):** **all the standard reports plus what BluePMS has.** This is F3's one rewrite: the list becomes the standard set plus BluePMS's report catalogue groups (research note), minus POS and distribution reports while R4.21 and R4.3 are deferred. The catalogue builder stays out.
   - **Depends:** **R1.1**, **R1.16**, **R4.11**; the POS and distribution reports land with **R4.21** and **R4.3**.
   - **Pilot checklist:** front-office reports, housekeeping reports, POS reports, distribution reports.

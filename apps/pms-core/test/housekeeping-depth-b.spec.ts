@@ -773,7 +773,8 @@ describe('housekeeping depth B: inspections, stages, guest audit [R4.11]', () =>
     expect((await write(h, 'POST', '/inspection-templates', { name: 'X', items: ITEMS })).status).toBe(503);
     await setKillSwitch(env, 'pms.core', false);
 
-    expect(V1_HTTP_ROUTE_AUDIT.slice(-10).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
+    // R4.11 Part C appends ten more routes after these.
+    expect(V1_HTTP_ROUTE_AUDIT.slice(-20, -10).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
       ['post_inspection_template', 'settings:configure'],
       ['post_housekeeping_inspection', 'housekeeping:write'],
       ['post_guest_audit', 'housekeeping:write'],

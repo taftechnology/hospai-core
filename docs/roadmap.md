@@ -716,7 +716,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a task moves through its lifecycle and an invalid transition is refused; a status change writes one history row, and a retry writes none; a release keeps its history row and frees `blocked` as today; hotel A's list shows no hotel B rows.
   - **Scope out:** auto-assign (R1.9 leftover); SLA and escalation; attendant mobile capture (**R4.10**).
 
-- [ ] **R4.11 Housekeeping depth**
+- [x] **R4.11 Housekeeping depth**
   - **Part A done (2026-11-20):** [spec](superpowers/specs/2026-11-20-housekeeping-depth-a-requests-lost-found-cases-design.md).
     - **Guest requests:** `housekeeping_request` runs open → in progress → resolved, or cancelled. Its type comes from the DOMAIN key `pms.housekeeping.request_types`, and the type sets the default department. Desk *Guest request* buttons on the folio and the stay card raise one. It is not a maintenance ticket.
     - **Lost and found:** custody in `housekeeping_lost_item` plus an append-only event table. The claimant is a `guestRef` picked through the directory search, never a typed name.
@@ -730,7 +730,17 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - **Guest-count audit:** one session per business date (`audit_session_open`). Each session snapshots front-office adults and children per occupied room. A differing count needs a reason, a re-count keeps its history, and evidence is a text note. Totals by floor and type cover counted rooms only, with "Counted n of m".
     - **SPA:** Inspections and Guest audit tabs, task Pause / Resume / Inspect / Release with a stage timeline, and a template editor in Settings.
     - Pins: catalog 141, routes 234 (last `get_guest_audit`), audit writers 107, `PROPERTY_SCHEMA_HEAD` 54.
-    - **Left:** Part C (linen, minibar through the folio, amenities).
+  - **Part C done (2026-11-20), completing R4.11:** [spec](superpowers/specs/2026-11-20-housekeeping-depth-c-linen-minibar-amenities-design.md).
+    - **Stock model:** migration 55 rebuilds the R1.9 stock tables. Categories gain `minibar` and `amenities`. Movements gain issue, return, laundry out and in, discard, adjust, minibar and amenity, plus a room and an attendant.
+    - **Linen:** linen movements report in-laundry counts.
+    - **Minibar:**
+      - Setup is the DOMAIN key `pms.housekeeping.minibar` (catalogue products linked to minibar stock items).
+      - **A pickup posts through the folio contract:** core runs the same guards as `tryAddFolioLine` (window open, the R4.23 hold rule, the charge code) and posts each line with `insertTaxableChargeSync` in one transaction with the module's pickup and stock movements. The amount is product price × quantity, snapshotted on the line, with deterministic line ids. Complimentary pickups need a reason and post nothing.
+      - **Reconciliation:** each line reads as posted, moved, missing or complimentary.
+    - **Amenities:** a master and rules (`settings:configure`), planned dispatches from a rule, and confirm with actuals. A variance needs a reason, a supervisor can optionally be recorded, and stock is taken down for linked items. A dispatch ledger lists them. Amenities never post to the folio (Q22).
+    - **SPA:** Linen, Minibar and Amenities tabs, and the Settings editors.
+    - Built by a Claude Sonnet subagent.
+    - Pins: catalog 147, routes 244 (last `get_amenity_dispatches`), audit writers 113, `PROPERTY_SCHEMA_HEAD` 55.
   - **Depends:** **R1.9**, **R4.30** (the task record). **R4.10** is no longer a dependency — the pilot needs this before the mobile app ships.
   - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
   - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted, with item, location, room and guest; missing and damaged cases with reporter, inspection detail, returned-item status and closure; guest-count audit comparing front-office occupancy with housekeeping counts by room, floor and type, in dated sessions, with count adjustment, a variance reason and saved evidence; scored inspections from checklist templates that can be activated and deactivated (weighted items, required checks, defects, remarks, room score); cleaning stages (started, paused, resumed, inspected, completed, released) on the **R4.30** task; a linen item list and movements for issue, return, laundry, discard and adjustment by room and attendant; minibar pickup **posted through the folio contract**, never inserted, with a reconciliation view of pickup, folio charge and stock.

@@ -35,6 +35,7 @@ export * from './housekeeping-inventory.js';
 export * from './housekeeping-tasks.js';
 export * from './housekeeping-requests.js';
 export * from './housekeeping-inspections.js';
+export * from './housekeeping-stock.js';
 export * from './roster-ops.js';
 export * from './maintenance.js';
 export * from './zoned-wall-clock.js';

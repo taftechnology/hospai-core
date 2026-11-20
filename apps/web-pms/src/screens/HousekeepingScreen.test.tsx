@@ -18,6 +18,10 @@ const getHousekeepingCases = vi.fn();
 const postGuestsBatch = vi.fn();
 const searchGuests = vi.fn();
 const updateLostItem = vi.fn();
+const getLinenMovements = vi.fn();
+const getMinibarReconciliation = vi.fn();
+const getAmenities = vi.fn();
+const getAmenityDispatches = vi.fn();
 
 vi.mock('../shell/PropertyFormat.js', async () => {
   const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
@@ -42,6 +46,10 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     searchGuests: (...args: unknown[]) => searchGuests(...args),
     updateLostItem: (...args: unknown[]) => updateLostItem(...args),
+    getLinenMovements: (...args: unknown[]) => getLinenMovements(...args),
+    getMinibarReconciliation: (...args: unknown[]) => getMinibarReconciliation(...args),
+    getAmenities: (...args: unknown[]) => getAmenities(...args),
+    getAmenityDispatches: (...args: unknown[]) => getAmenityDispatches(...args),
   },
   asClassified: () => ({
     class: 'server_error' as const,
@@ -119,6 +127,38 @@ describe('HousekeepingScreen', () => {
       body: { items: [{ guestId: 'guest_found', profile: { displayName: 'Found Guest' } }], nextCursor: null },
     });
     updateLostItem.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    getLinenMovements.mockResolvedValue({ ok: true, items: [], movements: [], truncated: false });
+    getMinibarReconciliation.mockResolvedValue({
+      ok: true,
+      rows: [
+        {
+          pickupId: 'mbp_1',
+          lineId: 'mbl_1',
+          businessDate: '2026-11-20',
+          roomId: 'rm_1',
+          roomCode: '101',
+          reservationId: 'res_1',
+          guestRef: null,
+          productId: 'prod_water',
+          productName: 'Water',
+          quantity: 2,
+          unitAmountMinor: 400,
+          amountMinor: 800,
+          attendantRef: null,
+          status: 'posted',
+          complimentaryReason: null,
+          stockTracked: true,
+          stockMovement: true,
+          folioState: 'posted',
+          createdAt: 1,
+        },
+      ],
+      totals: [],
+      truncated: false,
+      setup: { enabled: true, products: [{ productId: 'prod_water', name: 'Water', unitAmountMinor: 400, stockTracked: true }] },
+    });
+    getAmenities.mockResolvedValue({ ok: true, amenities: [], rules: [] });
+    getAmenityDispatches.mockResolvedValue({ ok: true, dispatches: [], truncated: false });
     listPropertyMembers.mockResolvedValue({
       ok: true,
       members: [{ userId: 'user_ana', displayName: 'Ana Front Desk', email: null }],
@@ -247,6 +287,25 @@ describe('HousekeepingScreen', () => {
     renderScreen('/housekeeping/cases');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Missing and damaged' })).toBeTruthy());
     await waitFor(() => expect(screen.getByText(/Missing and damaged items · Harbor Inn/)).toBeTruthy());
+  });
+
+  it('R4.11 C tabs: titles and subtitles match the routes, and minibar money uses the property formatter', async () => {
+    renderScreen('/housekeeping/linen');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Linen' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Linen and towel movements · Harbor Inn/)).toBeTruthy());
+    expect(screen.getByRole('link', { name: 'Linen' }).getAttribute('aria-current')).toBe('page');
+    cleanup();
+    renderScreen('/housekeeping/minibar');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Minibar' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Minibar pickups and reconciliation · Harbor Inn/)).toBeTruthy());
+    const pickups = await screen.findByTestId('hk-minibar-pickups');
+    // The test double formats in the ledger currency (INR): 800 minor units.
+    expect(within(pickups).getByText(/8\.00/)).toBeTruthy();
+    expect(pickups.textContent).toMatch(/₹|INR/);
+    cleanup();
+    renderScreen('/housekeeping/amenities');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Amenities' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Amenity dispatches and ledger · Harbor Inn/)).toBeTruthy());
   });
 
   it('R4.11: guest names come from the property-scoped batch and only with guests:read', async () => {

@@ -26,6 +26,8 @@ type MovementRow = {
   actor_ref: string;
   business_date: string;
   created_at: number;
+  room_id: string | null;
+  attendant_ref: string | null;
 };
 
 function toItemRow(r: ItemRow): HousekeepingInventoryItemRow {
@@ -49,6 +51,8 @@ function toMovementRow(r: MovementRow): HousekeepingInventoryMovementRow {
     quantity: r.quantity,
     onHandAfter: r.on_hand_after,
     note: r.note,
+    roomId: r.room_id,
+    attendantRef: r.attendant_ref,
     actorRef: r.actor_ref,
     businessDate: r.business_date,
     createdAt: r.created_at,
@@ -89,7 +93,8 @@ export function readHousekeepingInventoryMovements(
 
   const rows = sql
     .exec(
-      `SELECT movement_id, item_id, kind, quantity, on_hand_after, note, actor_ref, business_date, created_at
+      `SELECT movement_id, item_id, kind, quantity, on_hand_after, note, actor_ref, business_date, created_at,
+              room_id, attendant_ref
        FROM housekeeping_inventory_movement
        WHERE item_id = ?
        ORDER BY created_at DESC, rowid DESC

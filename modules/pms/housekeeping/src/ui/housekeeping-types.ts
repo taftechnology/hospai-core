@@ -1,5 +1,14 @@
 import type { ReactNode } from 'react';
 import type {
+  AmenityDispatchList,
+  AmenityList,
+  ConfirmAmenityDispatchInput,
+  LinenMovementInput,
+  LinenMovementList,
+  MinibarPickupInput,
+  MinibarReconciliation,
+  PlanAmenityDispatchesInput,
+  PlanAmenityDispatchesResult,
   GuestAuditCountInput,
   GuestAuditDetail,
   GuestAuditSessionList,
@@ -84,7 +93,14 @@ export type HousekeepingGuests = {
 
 /** The one in-house stay per room that the room board reports (used to link a record to a stay). */
 export type HousekeepingRoomBoard = {
-  rooms: Array<{ roomId: string; inHouse: { reservationId: string; guestRef: string } | null }>;
+  rooms: Array<{
+    roomId: string;
+    code?: string;
+    roomTypeId?: string;
+    inHouse: { reservationId: string; guestRef: string; dueOutToday?: boolean } | null;
+    /** The arrival assigned to the room today (the board reports it; used to pre-pick rooms). */
+    arrival?: { reservationId: string; guestRef: string } | null;
+  }>;
 };
 
 export type HousekeepingApi = {
@@ -300,6 +316,32 @@ export type HousekeepingApi = {
     propertyId: string,
     sessionId: string,
     input: { notes?: string | null },
+    opId: string,
+  ) => Promise<unknown>;
+  // ---- R4.11 Part C ----
+  getLinenMovements: (
+    propertyId: string,
+    query?: { from?: string; to?: string; itemId?: string; roomId?: string; attendantRef?: string; kind?: string },
+  ) => Promise<LinenMovementList>;
+  recordLinenMovement: (propertyId: string, input: LinenMovementInput, opId: string) => Promise<unknown>;
+  getMinibarReconciliation: (
+    propertyId: string,
+    query?: { from?: string; to?: string; roomId?: string; status?: string },
+  ) => Promise<MinibarReconciliation>;
+  recordMinibarPickup: (propertyId: string, input: MinibarPickupInput, opId: string) => Promise<unknown>;
+  getAmenities: (propertyId: string) => Promise<AmenityList>;
+  getAmenityDispatches: (
+    propertyId: string,
+    query?: { from?: string; to?: string; status?: string; roomId?: string },
+  ) => Promise<AmenityDispatchList>;
+  planAmenityDispatches: (
+    propertyId: string,
+    input: PlanAmenityDispatchesInput,
+    opId: string,
+  ) => Promise<{ body?: PlanAmenityDispatchesResult } | unknown>;
+  confirmAmenityDispatch: (
+    propertyId: string,
+    input: ConfirmAmenityDispatchInput,
     opId: string,
   ) => Promise<unknown>;
   /** Optional: when present (and permitted), a record can be linked to the room's in-house stay. */

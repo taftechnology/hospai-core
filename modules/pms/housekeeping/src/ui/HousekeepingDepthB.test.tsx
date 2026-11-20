@@ -13,6 +13,7 @@ import type {
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { depthCStubs } from './depth-c-stubs.fixture.js';
 
 const ADA = { staffId: 'staff_hk_ada', displayName: 'Ada Housekeeper', status: 'active', exitedAt: null, kinds: ['housekeeper'] };
 const INES = { staffId: 'staff_in_ines', displayName: 'Ines Inspector', status: 'active', exitedAt: null, kinds: ['maintenance'] };
@@ -168,6 +169,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
     ...depthBStubs(),
+    ...depthCStubs(),
     getInspectionTemplates: async () => ({ ok: true, templates: [TEMPLATE] }),
     ...over,
   };

@@ -1,3 +1,5 @@
+import type { HousekeepingStockMovementKind } from './housekeeping-stock.js';
+
 /** Operational housekeeping stock list (R1.9 B) — integer counts, no valuation. */
 
 export const HOUSEKEEPING_INVENTORY_CATEGORIES = [
@@ -7,6 +9,9 @@ export const HOUSEKEEPING_INVENTORY_CATEGORIES = [
   'chemicals',
   'equipment',
   'other',
+  // R4.11 Part C: operational stock for the minibar and for amenity dispatches.
+  'minibar',
+  'amenities',
 ] as const;
 
 export type HousekeepingInventoryCategory = (typeof HOUSEKEEPING_INVENTORY_CATEGORIES)[number];
@@ -15,6 +20,9 @@ export const HOUSEKEEPING_INVENTORY_MOVEMENT_KINDS = ['receive', 'issue', 'count
 
 export type HousekeepingInventoryMovementKind =
   (typeof HOUSEKEEPING_INVENTORY_MOVEMENT_KINDS)[number];
+
+/** Every kind a stored movement can carry (R4.11 Part C widens the desk kinds above). */
+export type { HousekeepingStockMovementKind } from './housekeeping-stock.js';
 
 export const HK_INVENTORY_NAME_MAX = 80;
 export const HK_INVENTORY_UNIT_MAX = 20;
@@ -37,10 +45,12 @@ export type HousekeepingInventoryItemRow = {
 export type HousekeepingInventoryMovementRow = {
   movementId: string;
   itemId: string;
-  kind: HousekeepingInventoryMovementKind;
+  kind: HousekeepingStockMovementKind;
   quantity: number;
   onHandAfter: number;
   note: string | null;
+  roomId: string | null;
+  attendantRef: string | null;
   actorRef: string;
   businessDate: string;
   createdAt: number;

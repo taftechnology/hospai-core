@@ -1,5 +1,11 @@
 import type {
+  AmenityDispatchStatus,
+  AmenityStockStatus,
+  AmenityWhen,
   GuestAuditStatus,
+  HousekeepingStockMovementKind,
+  MinibarFolioState,
+  MinibarPickupStatus,
   HousekeepingCaseKind,
   HousekeepingTaskStage,
   InspectionItemResult,
@@ -197,4 +203,50 @@ export const TASK_STAGE_LABEL: Record<HousekeepingTaskStage, string> = {
 export const GUEST_AUDIT_STATUS_LABEL: Record<GuestAuditStatus, string> = {
   open: 'Open',
   closed: 'Closed',
+};
+
+// ---------------------------------------------------------------------------
+// R4.11 Part C words: linen, minibar, amenities
+// ---------------------------------------------------------------------------
+
+export const LINEN_KIND_LABEL: Record<HousekeepingStockMovementKind, string> = {
+  receive: 'Received',
+  issue: 'Issued',
+  count: 'Counted',
+  return: 'Returned',
+  laundry_out: 'Sent to laundry',
+  laundry_in: 'Back from laundry',
+  discard: 'Discarded',
+  adjust: 'Adjusted',
+  minibar: 'Minibar pickup',
+  amenity: 'Amenity dispatch',
+};
+
+export const PICKUP_STATUS_LABEL: Record<MinibarPickupStatus, string> = {
+  posted: 'Charged to the guest',
+  complimentary: 'Complimentary',
+};
+
+export const MINIBAR_FOLIO_STATE_LABEL: Record<MinibarFolioState, string> = {
+  posted: 'On the guest folio',
+  moved: 'Moved to another folio window',
+  missing: 'Charge missing from the folio',
+  none: 'No charge',
+};
+
+export const AMENITY_WHEN_LABEL: Record<AmenityWhen, string> = {
+  arrival: 'Arrival',
+  stayover: 'Stayover',
+  departure: 'Departure',
+};
+
+export const DISPATCH_STATUS_LABEL: Record<AmenityDispatchStatus, string> = {
+  planned: 'Planned',
+  confirmed: 'Confirmed',
+};
+
+export const AMENITY_STOCK_STATUS_LABEL: Record<AmenityStockStatus, string> = {
+  pending: 'Not yet',
+  posted: 'Stock reduced',
+  not_linked: 'No stock item linked',
 };

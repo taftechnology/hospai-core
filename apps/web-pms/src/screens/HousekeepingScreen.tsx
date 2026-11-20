@@ -19,7 +19,7 @@ import { usePropertyActorLabel } from '../status/use-property-actor-label.js';
 
 export function HousekeepingScreen() {
   const timeZone = usePropertyTimeZone();
-  const { date, dateHeading, dateTime } = useFormat();
+  const { date, dateHeading, dateTime, money } = useFormat();
   // Empty until the property time zone is known: the views wait for it rather than guess from the browser.
   const defaultBusinessDate = timeZone ? propertyLocalToday(timeZone) : '';
   const propertyId = tenant.propertyId;
@@ -80,6 +80,9 @@ export function HousekeepingScreen() {
   const cases = path.endsWith('/cases');
   const inspections = path.endsWith('/inspections');
   const guestAudit = path.endsWith('/guest-audit');
+  const linen = path.endsWith('/linen');
+  const minibar = path.endsWith('/minibar');
+  const amenities = path.endsWith('/amenities');
   const { subtitle } = usePropertySubtitle(
     inventory
       ? 'Par levels and stock counts'
@@ -97,7 +100,13 @@ export function HousekeepingScreen() {
                   ? 'Scored room inspections'
                   : guestAudit
                     ? 'Front office against housekeeping counts'
-                    : 'Room status and assignments',
+                    : linen
+                      ? 'Linen and towel movements'
+                      : minibar
+                        ? 'Minibar pickups and reconciliation'
+                        : amenities
+                          ? 'Amenity dispatches and ledger'
+                          : 'Room status and assignments',
   );
 
   return (
@@ -112,9 +121,19 @@ export function HousekeepingScreen() {
       actorLabel={actorLabel}
       subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
-      format={{ date, dateHeading, dateTime }}
-      formatError={(err) =>
-        classifiedUserMessage(asClassified(err), {
+      format={{ date, dateHeading, dateTime, money: (minor) => money(minor) }}
+      formatError={(err) => {
+        const classified = asClassified(err);
+        // The shared invalid_request copy is about stay nights; these tabs say what they mean.
+        const body = classified.body as { error?: unknown } | null;
+        if (body?.error === 'invalid_request') {
+          if (minibar) {
+            return 'That pickup is not possible: the minibar may be off, an item may not be in its setup, or the guest may have left the room.';
+          }
+          if (linen) return 'That movement is not possible for this item.';
+          if (amenities) return 'That could not be done. Check that the rule, rooms and amounts are still valid.';
+        }
+        return classifiedUserMessage(classified, {
           fallback: inventory
             ? 'Could not load housekeeping inventory'
             : priority
@@ -131,9 +150,15 @@ export function HousekeepingScreen() {
                         ? 'Could not load inspections'
                         : guestAudit
                           ? 'Could not load the guest audit'
-                          : 'Could not load housekeeping',
-        })
-      }
+                          : linen
+                            ? 'Could not load linen'
+                            : minibar
+                              ? 'Could not load the minibar'
+                              : amenities
+                                ? 'Could not load amenities'
+                                : 'Could not load housekeeping',
+        });
+      }}
       isQueuedResult={isQueuedResult}
       queuedCopy={queuedWriteCopy()}
     />

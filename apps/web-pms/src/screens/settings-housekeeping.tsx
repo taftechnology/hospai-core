@@ -1,6 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AMENITY_WHEN,
+  DEFAULT_MINIBAR_CONFIG,
+  HK_AMENITIES_MAX,
+  HK_AMENITY_NAME_MAX,
+  HK_AMENITY_QTY_MAX,
+  HK_AMENITY_RULES_MAX,
+  HK_AMENITY_RULE_LINES_MAX,
+  HK_AMENITY_UNIT_MAX,
+  HK_MINIBAR_ITEMS_MAX,
+  MINIBAR_CONFIG_KEY,
+  MinibarConfigSchema,
+  type AmenityRow,
+  type AmenityRuleRow,
+  type AmenityWhen,
+  type MinibarConfig,
   HK_INSPECTION_DEFAULT_THRESHOLD,
   HK_INSPECTION_ITEMS_MAX,
   HK_INSPECTION_LABEL_MAX,
@@ -23,7 +38,7 @@ import {
   type InspectionTemplate,
   type InspectionTemplateItemInput,
 } from '@hospai/contracts';
-import { inspectionTemplatesKey } from '@hospai/pms-housekeeping/ui';
+import { amenitiesKey, inspectionTemplatesKey } from '@hospai/pms-housekeeping/ui';
 import {
   Alert,
   Button,
@@ -39,6 +54,7 @@ import { api, asClassified } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { AutoSaveStatusIndicator, useAutoSave } from './settings-domain-fields.js';
 
+export const MINIBAR_KEY = MINIBAR_CONFIG_KEY;
 export const TASK_TYPES_KEY = 'pms.housekeeping.task_types';
 export const REQUEST_TYPES_KEY = 'pms.housekeeping.request_types';
 
@@ -714,6 +730,689 @@ function TemplateEditorDialog({
             }
           >
             Add item
+          </Button>
+        </div>
+        {problem ? <p className="muted">{problem}</p> : null}
+      </form>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part C: minibar setup, amenity master and amenity rules
+// ---------------------------------------------------------------------------
+
+const AMENITY_WHEN_WORD: Record<AmenityWhen, string> = {
+  arrival: 'Arrival',
+  stayover: 'Stayover',
+  departure: 'Departure',
+};
+
+function parseMinibar(initial: unknown): MinibarConfig {
+  const parsed = MinibarConfigSchema.safeParse(initial);
+  return parsed.success ? parsed.data : { ...DEFAULT_MINIBAR_CONFIG, items: [] };
+}
+
+/**
+ * The minibar setup (`pms.housekeeping.minibar`, R4.11 Part C): switch it on, choose which products
+ * can be picked up, and link each to a Minibar stock item so pickups reduce stock. Prices come from
+ * the products catalogue, never from here.
+ */
+export function MinibarSettings(props: {
+  initial: unknown;
+  reason: string;
+  propertyId: string;
+  onSaved: () => void;
+}) {
+  const baseline = useMemo(() => parseMinibar(props.initial), [props.initial]);
+  const [config, setConfig] = useState<MinibarConfig>(baseline);
+  useEffect(() => setConfig(baseline), [baseline]);
+
+  const products = useQuery({
+    queryKey: ['products', props.propertyId, 'active'],
+    queryFn: () => api.listProducts(props.propertyId, { status: 'active' }),
+  });
+  const stock = useQuery({
+    queryKey: ['housekeeping-inventory', props.propertyId, { archived: false }],
+    queryFn: () => api.getHousekeepingInventory(props.propertyId, { archived: false }),
+  });
+  const productList = (products.data?.items ?? []).filter((p) => p.status === 'active');
+  const stockList = (stock.data?.items ?? []).filter((i) => i.category === 'minibar' && !i.archived);
+  const picked = new Set(config.items.map((i) => i.productId));
+  const incomplete = config.items.some((i) => !i.productId);
+  const dirty = JSON.stringify(config) !== JSON.stringify(baseline);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.putDomainConfig(props.propertyId, {
+        key: MINIBAR_CONFIG_KEY,
+        value: { enabled: config.enabled, items: config.items.filter((i) => i.productId) },
+        reason: props.reason,
+      }),
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
+  });
+  const [status, setStatus] = useAutoSave({
+    dirty: dirty && !incomplete,
+    reason: props.reason,
+    save: () => save.mutate(),
+  });
+
+  const setItem = (index: number, patch: Partial<MinibarConfig['items'][number]>) =>
+    setConfig((prev) => ({ ...prev, items: prev.items.map((it, i) => (i === index ? { ...it, ...patch } : it)) }));
+
+  return (
+    <div className="ui-stack" data-config-key={MINIBAR_CONFIG_KEY} data-testid="hk-minibar-settings">
+      <SectionLabel>Minibar</SectionLabel>
+      <p className="muted">
+        When the minibar is on, a pickup is charged to the guest folio at the product price, with tax, and takes
+        the linked stock down. Up to {HK_MINIBAR_ITEMS_MAX} products.
+      </p>
+      <Field
+        label="Minibar enabled"
+        control={
+          <Checkbox
+            aria-label="Minibar enabled"
+            checked={config.enabled}
+            onChange={(e) => setConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+          />
+        }
+      />
+      {products.isError ? (
+        <Alert intent="exception">
+          {classifiedUserMessage(asClassified(products.error), { fallback: 'Could not load the products.' })}
+        </Alert>
+      ) : null}
+      {config.items.map((item, index) => (
+        <div className="ui-row" key={index} data-testid="hk-minibar-setup-row">
+          <Field
+            label={`Minibar product ${index + 1}`}
+            control={
+              <NativeSelect
+                aria-label={`Minibar product ${index + 1}`}
+                value={item.productId}
+                onChange={(e) => setItem(index, { productId: e.target.value })}
+              >
+                <option value="">Pick a product</option>
+                {productList
+                  .filter((p) => p.productId === item.productId || !picked.has(p.productId))
+                  .map((p) => (
+                    <option key={p.productId} value={p.productId}>
+                      {p.name}
+                    </option>
+                  ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label={`Stock item for product ${index + 1}`}
+            control={
+              <NativeSelect
+                aria-label={`Stock item for product ${index + 1}`}
+                value={item.inventoryItemId ?? ''}
+                onChange={(e) => setItem(index, { inventoryItemId: e.target.value || null })}
+              >
+                <option value="">Stock not tracked</option>
+                {stockList.map((i) => (
+                  <option key={i.itemId} value={i.itemId}>
+                    {i.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`Remove minibar product ${index + 1}`}
+            onClick={() => setConfig((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+      {config.items.length === 0 ? <p className="muted">No products yet. Add the products guests can take.</p> : null}
+      <div>
+        <Button
+          type="button"
+          disabled={config.items.length >= HK_MINIBAR_ITEMS_MAX}
+          onClick={() =>
+            setConfig((prev) => ({ ...prev, items: [...prev.items, { productId: '', inventoryItemId: null }] }))
+          }
+        >
+          Add product
+        </Button>
+      </div>
+      {incomplete ? <p className="muted">Pick a product for every row to save the setup.</p> : null}
+      <AutoSaveStatusIndicator status={status} dirty={dirty && !incomplete} reason={props.reason} />
+    </div>
+  );
+}
+
+type AmenityDraft = {
+  amenityId?: string;
+  name: string;
+  unit: string;
+  standardQuantity: string;
+  inventoryItemId: string;
+  active: boolean;
+};
+
+function amenityDraftOf(a?: AmenityRow): AmenityDraft {
+  return a
+    ? {
+        amenityId: a.amenityId,
+        name: a.name,
+        unit: a.unit,
+        standardQuantity: String(a.standardQuantity),
+        inventoryItemId: a.inventoryItemId ?? '',
+        active: a.active,
+      }
+    : { name: '', unit: '', standardQuantity: '1', inventoryItemId: '', active: true };
+}
+
+type RuleDraft = {
+  ruleId?: string;
+  name: string;
+  roomTypeId: string;
+  when: AmenityWhen;
+  lines: Array<{ amenityId: string; quantity: string }>;
+  active: boolean;
+};
+
+function ruleDraftOf(r?: AmenityRuleRow): RuleDraft {
+  return r
+    ? {
+        ruleId: r.ruleId,
+        name: r.name,
+        roomTypeId: r.roomTypeId ?? '',
+        when: r.when,
+        lines: r.lines.map((l) => ({ amenityId: l.amenityId, quantity: String(l.quantity) })),
+        active: r.active,
+      }
+    : { name: '', roomTypeId: '', when: 'arrival', lines: [{ amenityId: '', quantity: '1' }], active: true };
+}
+
+const quantityOf = (text: string): number | null => {
+  if (!/^\d{1,4}$/.test(text.trim())) return null;
+  const n = Number(text.trim());
+  return n >= 1 && n <= HK_AMENITY_QTY_MAX ? n : null;
+};
+
+/**
+ * The amenity master and the rule templates (R4.11 Part C). An amenity can link to an Amenities stock
+ * item; a dispatch of a linked amenity takes that stock down. Amenities are never charged to the folio.
+ */
+export function AmenitySettings(props: { propertyId: string }) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: amenitiesKey(props.propertyId),
+    queryFn: () => api.getAmenities(props.propertyId),
+  });
+  const stock = useQuery({
+    queryKey: ['housekeeping-inventory', props.propertyId, { archived: false }],
+    queryFn: () => api.getHousekeepingInventory(props.propertyId, { archived: false }),
+  });
+  const roomTypes = useQuery({
+    queryKey: ['room-types', props.propertyId, 'active'],
+    queryFn: () => api.listRoomTypes(props.propertyId, { status: 'active' }),
+  });
+  const [amenityEditing, setAmenityEditing] = useState<AmenityDraft | null>(null);
+  const [ruleEditing, setRuleEditing] = useState<RuleDraft | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const amenities = query.data?.amenities ?? [];
+  const rules = query.data?.rules ?? [];
+  const stockList = (stock.data?.items ?? []).filter((i) => i.category === 'amenities' && !i.archived);
+  const failure = (err: unknown, fallback: string) => classifiedUserMessage(asClassified(err), { fallback });
+
+  const saveAmenity = useMutation({
+    mutationFn: (input: { draft: AmenityDraft; words: string; fromEditor: boolean }) =>
+      api.saveAmenity(
+        props.propertyId,
+        {
+          ...(input.draft.amenityId ? { amenityId: input.draft.amenityId } : {}),
+          name: input.draft.name.trim(),
+          unit: input.draft.unit.trim(),
+          standardQuantity: quantityOf(input.draft.standardQuantity) ?? 1,
+          inventoryItemId: input.draft.inventoryItemId || null,
+          active: input.draft.active,
+        },
+        crypto.randomUUID(),
+      ),
+    onSuccess: async (_r, input) => {
+      setAmenityEditing(null);
+      setDialogError(null);
+      setNotice(null);
+      setDone(`Amenity ${input.draft.name.trim()} ${input.words}.`);
+      await queryClient.invalidateQueries({ queryKey: amenitiesKey(props.propertyId) });
+    },
+    onError: (err, input) => {
+      const text = failure(err, 'Could not save the amenity. Names must be unique.');
+      if (input.fromEditor) setDialogError(text);
+      else setNotice(text);
+    },
+  });
+
+  const saveRule = useMutation({
+    mutationFn: (input: { draft: RuleDraft; words: string; fromEditor: boolean }) =>
+      api.saveAmenityRule(
+        props.propertyId,
+        {
+          ...(input.draft.ruleId ? { ruleId: input.draft.ruleId } : {}),
+          name: input.draft.name.trim(),
+          roomTypeId: input.draft.roomTypeId || null,
+          when: input.draft.when,
+          lines: input.draft.lines.map((l) => ({ amenityId: l.amenityId, quantity: quantityOf(l.quantity) ?? 1 })),
+          active: input.draft.active,
+        },
+        crypto.randomUUID(),
+      ),
+    onSuccess: async (_r, input) => {
+      setRuleEditing(null);
+      setDialogError(null);
+      setNotice(null);
+      setDone(`Rule ${input.draft.name.trim()} ${input.words}.`);
+      await queryClient.invalidateQueries({ queryKey: amenitiesKey(props.propertyId) });
+    },
+    onError: (err, input) => {
+      const text = failure(err, 'Could not save the rule. Names must be unique.');
+      if (input.fromEditor) setDialogError(text);
+      else setNotice(text);
+    },
+  });
+
+  const nameOf = (id: string) => amenities.find((a) => a.amenityId === id)?.name ?? 'An amenity';
+
+  return (
+    <div className="ui-stack" data-testid="hk-amenity-settings">
+      <SectionLabel>Amenities</SectionLabel>
+      <p className="muted">
+        What can be sent to a room, in what unit and standard quantity, up to {HK_AMENITIES_MAX}. Link an amenity
+        to an Amenities stock item to take stock down when it is dispatched. Amenities are not charged to the
+        folio. An amenity is turned off rather than deleted.
+      </p>
+      {done ? (
+        <Alert intent="settled" data-testid="hk-amenity-setting-settled">
+          {done}
+        </Alert>
+      ) : null}
+      {notice ? <Alert intent="exception">{notice}</Alert> : null}
+      {query.isLoading ? <Skeleton label="Loading amenities" /> : null}
+      {query.isError ? <Alert intent="exception">{failure(query.error, 'Could not load amenities.')}</Alert> : null}
+      {query.isSuccess && amenities.length === 0 ? <p className="muted">No amenities yet.</p> : null}
+      {amenities.map((a) => (
+        <div className="ui-row" key={a.amenityId} data-testid="hk-amenity-row">
+          <span>
+            <strong>{a.name}</strong> · {a.standardQuantity} {a.unit} · {a.inventoryItemName ?? 'Stock not linked'} ·{' '}
+            {a.active ? 'On' : 'Off'}
+          </span>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`Edit amenity ${a.name}`}
+            onClick={() => {
+              setDialogError(null);
+              setAmenityEditing(amenityDraftOf(a));
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`${a.active ? 'Turn off' : 'Turn on'} amenity ${a.name}`}
+            disabled={saveAmenity.isPending}
+            onClick={() =>
+              saveAmenity.mutate({
+                draft: { ...amenityDraftOf(a), active: !a.active },
+                words: a.active ? 'turned off' : 'turned on',
+                fromEditor: false,
+              })
+            }
+          >
+            {a.active ? 'Turn off' : 'Turn on'}
+          </Button>
+        </div>
+      ))}
+      <div>
+        <Button
+          type="button"
+          disabled={amenities.length >= HK_AMENITIES_MAX}
+          onClick={() => {
+            setDialogError(null);
+            setAmenityEditing(amenityDraftOf());
+          }}
+        >
+          Add amenity
+        </Button>
+      </div>
+
+      <SectionLabel>Amenity rules</SectionLabel>
+      <p className="muted">
+        A rule says what goes to a room on arrival, during a stay or on departure, up to {HK_AMENITY_RULES_MAX}.
+        Dispatches are planned from a rule on the Amenities tab of Housekeeping.
+      </p>
+      {rules.map((r) => (
+        <div className="ui-row" key={r.ruleId} data-testid="hk-amenity-rule-row">
+          <span>
+            <strong>{r.name}</strong> · {AMENITY_WHEN_WORD[r.when]} ·{' '}
+            {r.lines.map((l) => `${nameOf(l.amenityId)} ${l.quantity}`).join(', ')} · {r.active ? 'On' : 'Off'}
+          </span>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`Edit rule ${r.name}`}
+            onClick={() => {
+              setDialogError(null);
+              setRuleEditing(ruleDraftOf(r));
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`${r.active ? 'Turn off' : 'Turn on'} rule ${r.name}`}
+            disabled={saveRule.isPending}
+            onClick={() =>
+              saveRule.mutate({
+                draft: { ...ruleDraftOf(r), active: !r.active },
+                words: r.active ? 'turned off' : 'turned on',
+                fromEditor: false,
+              })
+            }
+          >
+            {r.active ? 'Turn off' : 'Turn on'}
+          </Button>
+        </div>
+      ))}
+      {query.isSuccess && rules.length === 0 ? <p className="muted">No rules yet.</p> : null}
+      <div>
+        <Button
+          type="button"
+          disabled={rules.length >= HK_AMENITY_RULES_MAX || amenities.filter((a) => a.active).length === 0}
+          onClick={() => {
+            setDialogError(null);
+            setRuleEditing(ruleDraftOf());
+          }}
+        >
+          Add rule
+        </Button>
+      </div>
+
+      {amenityEditing ? (
+        <Dialog
+          open
+          title={amenityEditing.amenityId ? 'Edit amenity' : 'New amenity'}
+          onClose={() => setAmenityEditing(null)}
+          footer={
+            <>
+              <Button type="button" onClick={() => setAmenityEditing(null)}>
+                Cancel
+              </Button>
+              <Button
+                intent="primary"
+                disabled={
+                  saveAmenity.isPending ||
+                  !amenityEditing.name.trim() ||
+                  !amenityEditing.unit.trim() ||
+                  quantityOf(amenityEditing.standardQuantity) === null
+                }
+                onClick={() => saveAmenity.mutate({ draft: amenityEditing, words: amenityEditing.amenityId ? 'saved' : 'added', fromEditor: true })}
+              >
+                Save amenity
+              </Button>
+            </>
+          }
+        >
+          <form className="ui-stack" data-testid="hk-amenity-form" onSubmit={(e) => e.preventDefault()}>
+            {dialogError ? <Alert intent="exception">{dialogError}</Alert> : null}
+            <div className="ui-row">
+              <Field
+                label="Amenity name"
+                control={
+                  <Input
+                    aria-label="Amenity name"
+                    value={amenityEditing.name}
+                    maxLength={HK_AMENITY_NAME_MAX}
+                    autoComplete="off"
+                    onChange={(e) => setAmenityEditing({ ...amenityEditing, name: e.target.value })}
+                  />
+                }
+              />
+              <Field
+                label="Unit"
+                control={
+                  <Input
+                    aria-label="Amenity unit"
+                    value={amenityEditing.unit}
+                    maxLength={HK_AMENITY_UNIT_MAX}
+                    autoComplete="off"
+                    onChange={(e) => setAmenityEditing({ ...amenityEditing, unit: e.target.value })}
+                  />
+                }
+              />
+              <Field
+                label="Standard quantity"
+                control={
+                  <Input
+                    aria-label="Standard quantity"
+                    value={amenityEditing.standardQuantity}
+                    onChange={(e) => setAmenityEditing({ ...amenityEditing, standardQuantity: e.target.value })}
+                  />
+                }
+              />
+              <Field
+                label="Stock item"
+                control={
+                  <NativeSelect
+                    aria-label="Amenity stock item"
+                    value={amenityEditing.inventoryItemId}
+                    onChange={(e) => setAmenityEditing({ ...amenityEditing, inventoryItemId: e.target.value })}
+                  >
+                    <option value="">Stock not tracked</option>
+                    {stockList.map((i) => (
+                      <option key={i.itemId} value={i.itemId}>
+                        {i.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Field
+                label="Active"
+                control={
+                  <Checkbox
+                    aria-label="Amenity active"
+                    checked={amenityEditing.active}
+                    onChange={(e) => setAmenityEditing({ ...amenityEditing, active: e.target.checked })}
+                  />
+                }
+              />
+            </div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {ruleEditing ? (
+        <RuleEditorDialog
+          draft={ruleEditing}
+          onChange={setRuleEditing}
+          amenities={amenities.filter((a) => a.active)}
+          roomTypes={(roomTypes.data?.roomTypes ?? []).filter((t) => t.status === 'active')}
+          busy={saveRule.isPending}
+          error={dialogError}
+          onClose={() => setRuleEditing(null)}
+          onSave={() => saveRule.mutate({ draft: ruleEditing, words: ruleEditing.ruleId ? 'saved' : 'added', fromEditor: true })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function RuleEditorDialog({
+  draft,
+  onChange,
+  amenities,
+  roomTypes,
+  busy,
+  error,
+  onClose,
+  onSave,
+}: {
+  draft: RuleDraft;
+  onChange: (next: RuleDraft) => void;
+  amenities: AmenityRow[];
+  roomTypes: Array<{ roomTypeId: string; name: string }>;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const setLine = (index: number, patch: Partial<RuleDraft['lines'][number]>) =>
+    onChange({ ...draft, lines: draft.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) });
+  const ids = draft.lines.map((l) => l.amenityId);
+  const problem = !draft.name.trim()
+    ? 'Give the rule a name.'
+    : draft.lines.length === 0
+      ? 'Add at least one amenity.'
+      : draft.lines.some((l) => !l.amenityId)
+        ? 'Pick an amenity on every line.'
+        : new Set(ids).size !== ids.length
+          ? 'Each amenity can appear once.'
+          : draft.lines.some((l) => quantityOf(l.quantity) === null)
+            ? `Quantities are whole numbers from 1 to ${HK_AMENITY_QTY_MAX}.`
+            : null;
+
+  return (
+    <Dialog
+      open
+      wide
+      title={draft.ruleId ? 'Edit amenity rule' : 'New amenity rule'}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button intent="primary" disabled={busy || problem !== null} onClick={onSave}>
+            Save rule
+          </Button>
+        </>
+      }
+    >
+      <form className="ui-stack" data-testid="hk-amenity-rule-form" onSubmit={(e) => e.preventDefault()}>
+        {error ? <Alert intent="exception">{error}</Alert> : null}
+        <div className="ui-row">
+          <Field
+            label="Rule name"
+            control={
+              <Input
+                aria-label="Rule name"
+                value={draft.name}
+                maxLength={HK_AMENITY_NAME_MAX}
+                autoComplete="off"
+                onChange={(e) => onChange({ ...draft, name: e.target.value })}
+              />
+            }
+          />
+          <Field
+            label="When"
+            control={
+              <NativeSelect
+                aria-label="Rule when"
+                value={draft.when}
+                onChange={(e) => onChange({ ...draft, when: e.target.value as AmenityWhen })}
+              >
+                {AMENITY_WHEN.map((w) => (
+                  <option key={w} value={w}>
+                    {AMENITY_WHEN_WORD[w]}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Room type"
+            control={
+              <NativeSelect
+                aria-label="Rule room type"
+                value={draft.roomTypeId}
+                onChange={(e) => onChange({ ...draft, roomTypeId: e.target.value })}
+              >
+                <option value="">Every room type</option>
+                {roomTypes.map((t) => (
+                  <option key={t.roomTypeId} value={t.roomTypeId}>
+                    {t.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Active"
+            control={
+              <Checkbox
+                aria-label="Rule active"
+                checked={draft.active}
+                onChange={(e) => onChange({ ...draft, active: e.target.checked })}
+              />
+            }
+          />
+        </div>
+        <SectionLabel>What goes to the room</SectionLabel>
+        {draft.lines.map((line, index) => (
+          <div className="ui-row" key={index} data-testid="hk-amenity-rule-line">
+            <Field
+              label={`Amenity ${index + 1}`}
+              control={
+                <NativeSelect
+                  aria-label={`Rule amenity ${index + 1}`}
+                  value={line.amenityId}
+                  onChange={(e) => setLine(index, { amenityId: e.target.value })}
+                >
+                  <option value="">Pick an amenity</option>
+                  {amenities.map((a) => (
+                    <option key={a.amenityId} value={a.amenityId}>
+                      {a.name} ({a.unit})
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            <Field
+              label={`Quantity ${index + 1}`}
+              control={
+                <Input
+                  aria-label={`Rule quantity ${index + 1}`}
+                  value={line.quantity}
+                  onChange={(e) => setLine(index, { quantity: e.target.value })}
+                />
+              }
+            />
+            <Button
+              type="button"
+              intent="ghost"
+              aria-label={`Remove rule line ${index + 1}`}
+              onClick={() => onChange({ ...draft, lines: draft.lines.filter((_, i) => i !== index) })}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button
+            type="button"
+            disabled={draft.lines.length >= HK_AMENITY_RULE_LINES_MAX}
+            onClick={() => onChange({ ...draft, lines: [...draft.lines, { amenityId: '', quantity: '1' }] })}
+          >
+            Add amenity line
           </Button>
         </div>
         {problem ? <p className="muted">{problem}</p> : null}

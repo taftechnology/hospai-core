@@ -304,22 +304,32 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE room_status_history_v54 RENAME TO room_status_history')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('INSERT INTO housekeeping_inventory_item_v55')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO housekeeping_inventory_movement_v55')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE housekeeping_inventory_movement')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE housekeeping_inventory_item')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE housekeeping_inventory_item_v55 RENAME TO housekeeping_inventory_item')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('ALTER TABLE housekeeping_inventory_movement_v55 RENAME TO housekeeping_inventory_movement')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 54', () => {
+  it('applies property migrations through version 55', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(54);
+    expect(v1).toBe(55);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(54);
-    expect(sql.schemaVersion).toHaveLength(54);
+    expect(v2).toBe(55);
+    expect(sql.schemaVersion).toHaveLength(55);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52, 53, 54,
+      49, 50, 51, 52, 53, 54, 55,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -882,13 +892,90 @@ describe('housekeeping depth B v54', () => {
     expect(has('housekeeping_guest_audit_one_open')).toBe(true);
     const ddl = (v54?.statements ?? []).join('\n');
     expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b/i);
-    expect(PROPERTY_SCHEMA_HEAD).toBe(54);
+    expect(PROPERTY_SCHEMA_HEAD).toBeGreaterThanOrEqual(54);
+  });
+});
+
+describe('housekeeping depth C v55', () => {
+  it('rebuilds the stock tables with the new categories, kinds and columns and adds the five Part C tables', () => {
+    const v55 = PROPERTY_MIGRATIONS.find((m) => m.version === 55);
+    expect(v55?.name).toBe('housekeeping_depth_c');
+    const ddl = (v55?.statements ?? []).join('\n');
+    expect(ddl).toContain("'minibar','amenities'");
+    expect(ddl).toContain("'receive','issue','count','return','laundry_out','laundry_in','discard','adjust','minibar','amenity'");
+    expect(ddl).toContain('room_id       TEXT');
+    expect(ddl).toContain('attendant_ref TEXT');
+    for (const t of [
+      'housekeeping_minibar_pickup',
+      'housekeeping_minibar_pickup_line',
+      'housekeeping_amenity',
+      'housekeeping_amenity_rule',
+      'housekeeping_amenity_dispatch',
+    ]) {
+      expect(ddl, t).toContain(`CREATE TABLE ${t} (`);
+    }
+    expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b/i);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(55);
+  });
+
+  it('copies existing stock rows into the rebuilt tables on a real SQLite database', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    const sql: SqlStorageLike = {
+      exec(query: string, ...bindings: unknown[]) {
+        const rows = db.prepare(query).all(...(bindings as never[]));
+        return { toArray: () => rows };
+      },
+    };
+    const upTo54 = PROPERTY_MIGRATIONS.filter((m) => m.version <= 54);
+    migrateSql(sql, [...upTo54]);
+    sql.exec(
+      `INSERT INTO housekeeping_inventory_item (item_id, name, category, unit, par_level, on_hand, archived_at, created_at, updated_at)
+       VALUES ('i1', 'Bath towel', 'towels', 'each', 10, 7, NULL, 1, 1), ('i2', 'Old soap', 'toiletries', 'each', 5, 0, 9, 1, 1)`,
+    );
+    sql.exec(
+      `INSERT INTO housekeeping_inventory_movement (movement_id, item_id, kind, quantity, on_hand_after, note, actor_ref, business_date, created_at)
+       VALUES ('m1', 'i1', 'receive', 7, 7, 'first', 'usr_a', '2026-11-20', 2)`,
+    );
+    const head = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
+    expect(head).toBe(55);
+    const items = sql.exec(`SELECT item_id, name, category, on_hand, archived_at FROM housekeeping_inventory_item ORDER BY item_id`).toArray();
+    expect(items).toEqual([
+      { item_id: 'i1', name: 'Bath towel', category: 'towels', on_hand: 7, archived_at: null },
+      { item_id: 'i2', name: 'Old soap', category: 'toiletries', on_hand: 0, archived_at: 9 },
+    ]);
+    const moves = sql.exec(`SELECT movement_id, kind, quantity, room_id, attendant_ref FROM housekeeping_inventory_movement`).toArray();
+    expect(moves).toEqual([{ movement_id: 'm1', kind: 'receive', quantity: 7, room_id: null, attendant_ref: null }]);
+    // New categories and kinds are accepted; the foreign key still points at the live item table.
+    sql.exec(
+      `INSERT INTO housekeeping_inventory_item (item_id, name, category, unit, par_level, on_hand, created_at, updated_at)
+       VALUES ('i3', 'Cola', 'minibar', 'can', 0, 12, 1, 1)`,
+    );
+    sql.exec(
+      `INSERT INTO housekeeping_inventory_movement (movement_id, item_id, kind, quantity, on_hand_after, actor_ref, business_date, created_at, room_id, attendant_ref)
+       VALUES ('m2', 'i3', 'minibar', 2, 10, 'usr_a', '2026-11-20', 3, 'r1', 'staff_x')`,
+    );
+    expect(() =>
+      sql.exec(
+        `INSERT INTO housekeeping_inventory_movement (movement_id, item_id, kind, quantity, on_hand_after, actor_ref, business_date, created_at)
+         VALUES ('m3', 'missing', 'issue', 1, 0, 'usr_a', '2026-11-20', 3)`,
+      ),
+    ).toThrow();
+    expect(() =>
+      sql.exec(
+        `INSERT INTO housekeeping_inventory_movement (movement_id, item_id, kind, quantity, on_hand_after, actor_ref, business_date, created_at)
+         VALUES ('m4', 'i3', 'bogus', 1, 0, 'usr_a', '2026-11-20', 3)`,
+      ),
+    ).toThrow();
+    const fks = sql.exec(`PRAGMA foreign_key_list(housekeeping_inventory_movement)`).toArray() as Array<{ table: string }>;
+    expect(fks.map((f) => f.table)).toEqual(['housekeeping_inventory_item']);
+    db.close();
   });
 });
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(54);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(55);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

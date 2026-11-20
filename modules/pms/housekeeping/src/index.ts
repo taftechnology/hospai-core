@@ -37,6 +37,31 @@ export {
   readGuestAudits,
   type StartGuestAuditInput,
 } from './application/guest-audit.js';
+export {
+  recordLinenMovement,
+  readLinenMovements,
+  type RecordLinenMovementInput,
+  type ReadLinenFilters,
+} from './application/linen.js';
+export {
+  recordMinibarPickup,
+  readMinibarReconciliation,
+  type RecordMinibarPickupInput,
+  type RecordedMinibarLine,
+  type ResolvedMinibarLine,
+  type ReadMinibarFilters,
+} from './application/minibar.js';
+export {
+  saveAmenity,
+  saveAmenityRule,
+  readAmenities,
+  planAmenityDispatches,
+  confirmAmenityDispatch,
+  readAmenityDispatches,
+  type SaveAmenityInput,
+  type SaveAmenityRuleInput,
+  type ReadDispatchFilters,
+} from './application/amenities.js';
 export { updateRoomStatus } from './application/update-room-status.js';
 export { bulkUpdateRoomStatus } from './application/bulk-update-room-status.js';
 export { assignHousekeeping } from './application/assign-housekeeping.js';

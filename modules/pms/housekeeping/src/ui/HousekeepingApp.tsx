@@ -35,8 +35,11 @@ import {
   housekeepingRequestsKey,
   requestsQueryInput,
 } from './HousekeepingRequests.js';
+import { HousekeepingAmenities } from './HousekeepingAmenities.js';
 import { HousekeepingGuestAudit } from './HousekeepingGuestAudit.js';
 import { HousekeepingInspections } from './HousekeepingInspections.js';
+import { HousekeepingLinen } from './HousekeepingLinen.js';
+import { HousekeepingMinibar } from './HousekeepingMinibar.js';
 import { HousekeepingTasks } from './HousekeepingTasks.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { blockTimes, blockTypeLabel } from './housekeeping-labels.js';
@@ -107,6 +110,8 @@ export type HousekeepingAppProps = {
     /** Compact date (dd/mm/yyyy) for list cells. Falls back to `dateHeading`. */
     date?: (iso: string) => string;
     dateTime: (ms: number) => string;
+    /** The property's currency formatter, minor units in (minibar prices). */
+    money?: (minor: number) => string;
   };
 };
 
@@ -884,6 +889,49 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         api={props.api}
         canWrite={props.canAssign}
         actorLabel={props.actorLabel}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/linen')) {
+    return (
+      <HousekeepingLinen
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/minibar')) {
+    return (
+      <HousekeepingMinibar
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        guests={props.guests}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/amenities')) {
+    return (
+      <HousekeepingAmenities
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
         subtitle={props.subtitle}
         formatError={props.formatError}
         format={props.format}

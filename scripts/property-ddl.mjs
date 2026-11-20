@@ -99,6 +99,7 @@ if (process.argv.includes('--self-test')) {
   let HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL;
   let HOUSEKEEPING_DEPTH_A_V53_SQL;
   let HOUSEKEEPING_DEPTH_B_V54_SQL;
+  let HOUSEKEEPING_DEPTH_C_V55_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -173,6 +174,7 @@ if (process.argv.includes('--self-test')) {
       HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL,
       HOUSEKEEPING_DEPTH_A_V53_SQL,
       HOUSEKEEPING_DEPTH_B_V54_SQL,
+      HOUSEKEEPING_DEPTH_C_V55_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -703,6 +705,15 @@ const doPropertyTargets = [
 
 `,
     sql: HOUSEKEEPING_DEPTH_B_V54_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0055_housekeeping_depth_c.sql'),
+    header: `-- PropertyDO linen movements, minibar pickups, amenities — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: HOUSEKEEPING_DEPTH_C_V55_SQL,
   },
 ];
 

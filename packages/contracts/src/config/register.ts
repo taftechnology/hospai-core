@@ -13,6 +13,7 @@ import {
   DEFAULT_HOUSEKEEPING_REQUEST_TYPES,
   HousekeepingRequestTypesSchema,
 } from '../housekeeping-requests.js';
+import { DEFAULT_MINIBAR_CONFIG, MinibarConfigSchema } from '../housekeeping-stock.js';
 import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
 import type { Permission } from '../permissions.js';
 
@@ -328,6 +329,14 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     schema: HousekeepingRequestTypesSchema,
     default: DEFAULT_HOUSEKEEPING_REQUEST_TYPES.map((t) => ({ ...t })),
     consumersExempt: true, // DO reads inside the request create/update transaction
+  }),
+  entry({
+    key: 'pms.housekeeping.minibar',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: MinibarConfigSchema,
+    default: { ...DEFAULT_MINIBAR_CONFIG, items: [] },
+    consumersExempt: true, // DO reads inside the minibar pickup transaction
   }),
   entry({
     key: 'pms.reservations.check_out_require_zero_balance',

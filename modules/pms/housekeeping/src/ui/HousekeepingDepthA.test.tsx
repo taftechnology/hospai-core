@@ -16,6 +16,7 @@ import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { GuestRequestDialog } from './HousekeepingRequests.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { depthCStubs } from './depth-c-stubs.fixture.js';
 import type { HousekeepingGuests } from './housekeeping-types.js';
 
 const TYPES: HousekeepingRequestType[] = [
@@ -164,6 +165,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
     ...depthBStubs(),
+    ...depthCStubs(),
     ...over,
   };
 }

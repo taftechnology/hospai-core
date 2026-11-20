@@ -11,6 +11,7 @@ import {
 } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { depthCStubs } from './depth-c-stubs.fixture.js';
 
 const ROOM = { roomId: 'rm_1', code: '101', status: 'dirty' };
 const ADA: HousekeepingRosterPerson = {
@@ -100,6 +101,7 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
     ...depthBStubs(),
+    ...depthCStubs(),
     ...overrides,
   };
 }

@@ -272,6 +272,13 @@ import {
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
   isHousekeepingRequestDepartment,
+  DEFAULT_MINIBAR_CONFIG,
+  HK_AMENITY_DISPATCH_ROOMS_MAX,
+  HK_MINIBAR_PICKUP_LINES_MAX,
+  MINIBAR_CONFIG_KEY,
+  MinibarConfigSchema,
+  type MinibarConfig,
+  type MinibarSetupView,
   STAFF_EXITED,
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
@@ -298,6 +305,8 @@ import {
   type ProvisionalExceptionRow,
 } from '@hospai/contracts';
 import type {
+  AmenityRuleLine,
+  AmenityWhen,
   HousekeepingRequestAction,
   HousekeepingRequestType,
   HousekeepingTaskAction,
@@ -313,6 +322,22 @@ import type {
 import {
   adjustInventoryItem,
   assignHousekeeping,
+  confirmAmenityDispatch as confirmHousekeepingAmenityDispatch,
+  planAmenityDispatches as planHousekeepingAmenityDispatches,
+  readAmenities as readHousekeepingAmenities,
+  readAmenityDispatches as readHousekeepingAmenityDispatches,
+  readLinenMovements as readHousekeepingLinenMovements,
+  readMinibarReconciliation as readHousekeepingMinibarReconciliation,
+  recordLinenMovement as recordHousekeepingLinenMovement,
+  recordMinibarPickup as recordHousekeepingMinibarPickup,
+  saveAmenity as saveHousekeepingAmenity,
+  saveAmenityRule as saveHousekeepingAmenityRule,
+  HousekeepingInvalidRequestError,
+  HousekeepingLimitError,
+  type ReadDispatchFilters,
+  type ReadLinenFilters,
+  type ReadMinibarFilters,
+  type ResolvedMinibarLine,
   bulkUpdateRoomStatus,
   createInventoryItem,
   createRequest as createHousekeepingRequest,
@@ -1887,6 +1912,11 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'housekeeping_guest_audit_session',
   'housekeeping_guest_audit_line',
   'housekeeping_guest_audit_line_event',
+  'housekeeping_minibar_pickup',
+  'housekeeping_minibar_pickup_line',
+  'housekeeping_amenity',
+  'housekeeping_amenity_rule',
+  'housekeeping_amenity_dispatch',
   'maintenance_task_type',
   'maintenance_ticket',
   'idempotency',
@@ -1962,6 +1992,11 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM housekeeping_guest_audit_session) +
       (SELECT COUNT(*) FROM housekeeping_guest_audit_line) +
       (SELECT COUNT(*) FROM housekeeping_guest_audit_line_event) +
+      (SELECT COUNT(*) FROM housekeeping_minibar_pickup) +
+      (SELECT COUNT(*) FROM housekeeping_minibar_pickup_line) +
+      (SELECT COUNT(*) FROM housekeeping_amenity) +
+      (SELECT COUNT(*) FROM housekeeping_amenity_rule) +
+      (SELECT COUNT(*) FROM housekeeping_amenity_dispatch) +
       (SELECT COUNT(*) FROM maintenance_task_type) +
       (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
@@ -7028,6 +7063,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           const parsed = validateConfigWrite(key, value);
+          if (key === 'pms.housekeeping.minibar') this.assertMinibarConfigWriteValidSync(parsed);
           if (
             key === 'pms.invoice.prefix' ||
             key === 'pms.invoice.suffix' ||
@@ -18101,12 +18137,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         | 'housekeeping.record_inspection'
         | 'housekeeping.start_guest_audit'
         | 'housekeeping.record_guest_audit_count'
-        | 'housekeeping.close_guest_audit';
+        | 'housekeeping.close_guest_audit'
+        | 'housekeeping.record_linen_movement'
+        | 'housekeeping.record_minibar_pickup'
+        | 'housekeeping.save_amenity'
+        | 'housekeeping.save_amenity_rule'
+        | 'housekeeping.plan_amenity_dispatches'
+        | 'housekeeping.confirm_amenity_dispatch';
       /** Permission the route needs; housekeeping:write unless the command is a setting. */
       permission?: 'housekeeping:write' | 'settings:configure';
       entityId?: string;
       /** Audit entity type; tasks by default. */
       entityType?: string;
+      /** Stay the audit row belongs to (the minibar pickup), so the folio audit trail finds it. */
+      reservationId?: string;
       /** Staff ref to verify against the roster before the transaction opens. */
       assigneeRef?: string | null;
       /** Roster kind the assignee must hold (R4.11 requests); housekeeper by default. */
@@ -18173,6 +18217,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             entityId: out.entityId,
             beforeJson: out.before,
             afterJson: out.after,
+            ...(audit.reservationId ? { reservationId: audit.reservationId } : {}),
           });
           return out.result as Sync<R>;
         }, actor),
@@ -18821,6 +18866,378 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof HousekeepingRecordNotFoundError) return { ok: false, error: NOT_FOUND };
       throw e;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // R4.11 Part C: linen movements, minibar pickups, amenities
+  // -------------------------------------------------------------------------
+
+  /** The `pms.housekeeping.minibar` setup, read inside the pickup transaction. */
+  private minibarConfigSync(): MinibarConfig {
+    const parsed = MinibarConfigSchema.safeParse(this.readConfigValueSync(MINIBAR_CONFIG_KEY));
+    return parsed.success ? parsed.data : { ...DEFAULT_MINIBAR_CONFIG, items: [] };
+  }
+
+  /**
+   * Each product in the minibar setup must be active in the products catalogue, and a linked stock
+   * item must be a live `minibar` item (R4.11 D3). Runs inside the config write transaction.
+   */
+  private assertMinibarConfigWriteValidSync(parsed: unknown): void {
+    const config = MinibarConfigSchema.parse(parsed);
+    for (const item of config.items) {
+      const product = this.ctx.storage.sql
+        .exec(`SELECT status FROM products_item WHERE product_id = ?`, item.productId)
+        .toArray() as Array<{ status: string }>;
+      if (product[0]?.status !== 'active') throw new HousekeepingInvalidRequestError();
+      if (item.inventoryItemId) {
+        const stock = this.ctx.storage.sql
+          .exec(
+            `SELECT category, archived_at FROM housekeeping_inventory_item WHERE item_id = ?`,
+            item.inventoryItemId,
+          )
+          .toArray() as Array<{ category: string; archived_at: number | null }>;
+        if (stock[0]?.category !== 'minibar' || stock[0].archived_at != null) {
+          throw new HousekeepingInvalidRequestError();
+        }
+      }
+    }
+  }
+
+  /** Implements catalog `housekeeping.record_linen_movement`. */
+  async tryRecordHousekeepingLinenMovement(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      itemId: string;
+      kind: string;
+      quantity: number;
+      roomId?: string | null;
+      attendantRef?: string | null;
+      note?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.record_linen_movement',
+        entityType: 'housekeeping_inventory_movement',
+        refGates: async (orgId, propertyId) =>
+          this.gateStaffAtProperty(orgId, propertyId, input.attendantRef),
+      },
+      (ctx, actorRef) => {
+        const result = recordHousekeepingLinenMovement(ctx, { ...input, actorRef });
+        return { result, entityId: result.movement.movementId, before: null, after: result.movement };
+      },
+    );
+  }
+
+  /**
+   * Implements catalog `housekeeping.record_minibar_pickup` (R4.11 D4) in ONE transaction:
+   * the housekeeping module records the pickup, its lines and the stock movements; then, unless the
+   * pickup is complimentary, core posts one GUEST folio charge per line through the same taxable
+   * charge path as `folio.add_item` (`tryAddFolioLine`): `assertFolioWindowOpenSync`,
+   * `assertGuestChargeAllowedSync`, `assertChargeCodeSync` and `insertTaxableChargeSync`. Any refusal
+   * throws, so nothing is written.
+   */
+  async tryRecordHousekeepingMinibarPickup(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      roomId: string;
+      reservationId: string;
+      lines: Array<{ productId: string; quantity: number }>;
+      attendantRef?: string | null;
+      complimentary?: boolean;
+      complimentaryReason?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.record_minibar_pickup',
+        entityType: 'housekeeping_minibar_pickup',
+        reservationId: input.reservationId,
+        refGates: async (orgId, propertyId) =>
+          this.gateStaffAtProperty(orgId, propertyId, input.attendantRef),
+      },
+      (ctx, actorRef) => {
+        if (input.lines.length > HK_MINIBAR_PICKUP_LINES_MAX) throw new HousekeepingLimitError();
+        const config = this.minibarConfigSync();
+        if (!config.enabled) throw new HousekeepingInvalidRequestError();
+
+        // The stay: in the room, and checked in or checked out (a checked-out stay needs a hold below).
+        const stay = this.ctx.storage.sql
+          .exec(`SELECT room_id, status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+          .toArray() as Array<{ room_id: string | null; status: string }>;
+        if (!stay[0]) throw new HousekeepingRecordNotFoundError();
+        if (stay[0].room_id !== input.roomId) throw new HousekeepingInvalidRequestError();
+        if (stay[0].status !== 'checked_in' && stay[0].status !== 'checked_out') {
+          throw new HousekeepingInvalidRequestError();
+        }
+
+        // Folio guards first, exactly the ones tryAddFolioLine runs, before anything is written.
+        const ledgerCurrency = this.readStoredLedgerCurrencySync();
+        if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
+        this.ensureGuestFolioWindowSync(input.reservationId);
+        const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+        this.assertFolioWindowOpenSync(folioWindowId);
+        this.assertGuestChargeAllowedSync(input.reservationId, folioWindowId);
+
+        // Products and prices come from the catalogue; only products in the setup may be picked up.
+        const lines: ResolvedMinibarLine[] = input.lines.map((l) => {
+          const setup = config.items.find((i) => i.productId === l.productId);
+          if (!setup) throw new HousekeepingInvalidRequestError();
+          const product = this.ctx.storage.sql
+            .exec(
+              `SELECT name, charge_code, default_amount_minor, status FROM products_item WHERE product_id = ?`,
+              l.productId,
+            )
+            .toArray() as Array<{
+            name: string;
+            charge_code: string;
+            default_amount_minor: number;
+            status: string;
+          }>;
+          if (!product[0] || product[0].status !== 'active') throw new HousekeepingInvalidRequestError();
+          if (!input.complimentary) {
+            this.assertChargeCodeSync(product[0].charge_code, { requireActive: true });
+          }
+          return {
+            productId: l.productId,
+            productName: product[0].name,
+            chargeCode: product[0].charge_code,
+            quantity: l.quantity,
+            unitAmountMinor: product[0].default_amount_minor,
+            inventoryItemId: setup.inventoryItemId,
+          };
+        });
+
+        const recorded = recordHousekeepingMinibarPickup(ctx, {
+          businessDate: input.businessDate,
+          roomId: input.roomId,
+          reservationId: input.reservationId,
+          attendantRef: input.attendantRef ?? null,
+          complimentary: input.complimentary === true,
+          complimentaryReason: input.complimentaryReason ?? null,
+          lines,
+          actorRef,
+        });
+
+        if (!input.complimentary) {
+          const postingDate = this.resolvePostingBusinessDateSync();
+          for (const line of recorded.lines) {
+            const money = this.resolveFolioLineMoney({ amountMinor: line.amountMinor }, ledgerCurrency);
+            if (!money.ok) throw new Error(money.error);
+            this.insertTaxableChargeSync({
+              folioLineId: line.folioLineId!,
+              folioWindowId,
+              reservationId: input.reservationId,
+              chargeCode: line.chargeCode,
+              posted: money.posted,
+              source: 'MINIBAR',
+              postingDate,
+            });
+          }
+        }
+
+        const pickup = {
+          pickupId: recorded.pickupId,
+          status: recorded.status,
+          reservationId: input.reservationId,
+          roomId: input.roomId,
+          lines: recorded.lines.map((l) => ({
+            lineId: l.lineId,
+            productId: l.productId,
+            quantity: l.quantity,
+            amountMinor: l.amountMinor,
+            folioLineId: l.folioLineId,
+          })),
+        };
+        return {
+          result: { ok: true as const, pickup },
+          entityId: recorded.pickupId,
+          before: null,
+          after: pickup,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.save_amenity`. */
+  async trySaveHousekeepingAmenity(
+    actor: ActorContext,
+    input: {
+      amenityId?: string;
+      name: string;
+      unit: string;
+      standardQuantity: number;
+      inventoryItemId?: string | null;
+      active?: boolean;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.save_amenity',
+        permission: 'settings:configure',
+        entityType: 'housekeeping_amenity',
+      },
+      (ctx) => {
+        const r = saveHousekeepingAmenity(ctx, input);
+        return {
+          result: { ok: true as const, amenity: r.amenity },
+          entityId: r.amenity.amenityId,
+          before: r.before,
+          after: r.amenity,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.save_amenity_rule`. */
+  async trySaveHousekeepingAmenityRule(
+    actor: ActorContext,
+    input: {
+      ruleId?: string;
+      name: string;
+      roomTypeId?: string | null;
+      when: AmenityWhen;
+      lines: AmenityRuleLine[];
+      active?: boolean;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.save_amenity_rule',
+        permission: 'settings:configure',
+        entityType: 'housekeeping_amenity_rule',
+      },
+      (ctx) => {
+        const r = saveHousekeepingAmenityRule(ctx, input);
+        return {
+          result: { ok: true as const, rule: r.rule },
+          entityId: r.rule.ruleId,
+          before: r.before,
+          after: r.rule,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.plan_amenity_dispatches`. */
+  async tryPlanHousekeepingAmenityDispatches(
+    actor: ActorContext,
+    input: { businessDate: string; ruleId: string; roomIds: string[] },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      { commandId: 'housekeeping.plan_amenity_dispatches', entityType: 'housekeeping_amenity_dispatch' },
+      (ctx, actorRef) => {
+        if (input.roomIds.length > HK_AMENITY_DISPATCH_ROOMS_MAX) throw new HousekeepingLimitError();
+        const result = planHousekeepingAmenityDispatches(ctx, { ...input, actorRef });
+        return {
+          result,
+          entityId: input.ruleId,
+          before: null,
+          after: {
+            ruleId: input.ruleId,
+            businessDate: input.businessDate,
+            created: result.created.map((d) => d.dispatchId),
+            skippedRoomIds: result.skippedRoomIds,
+          },
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.confirm_amenity_dispatch`. */
+  async tryConfirmHousekeepingAmenityDispatch(
+    actor: ActorContext,
+    input: {
+      dispatchId: string;
+      lines: Array<{ lineId: string; actualQuantity: number }>;
+      exceptionReason?: string | null;
+      supervisorRef?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.confirm_amenity_dispatch',
+        entityType: 'housekeeping_amenity_dispatch',
+        entityId: input.dispatchId,
+        refGates: async (orgId, propertyId) =>
+          this.gateStaffAtProperty(orgId, propertyId, input.supervisorRef),
+      },
+      (ctx, actorRef) => {
+        const r = confirmHousekeepingAmenityDispatch(ctx, {
+          ...input,
+          actorRef,
+          businessDate: this.historyBusinessDateSync(),
+        });
+        return {
+          result: { ok: true as const, dispatch: r.dispatch },
+          entityId: input.dispatchId,
+          before: r.before,
+          after: r.dispatch,
+        };
+      },
+    );
+  }
+
+  /** `get_linen_movements` — item totals and the filtered movement list. */
+  async readLinenMovementList(filters: ReadLinenFilters) {
+    this.assertRpcAvailable();
+    return readHousekeepingLinenMovements(this.ctx.storage.sql, filters);
+  }
+
+  /** `get_minibar_reconciliation` — one row per pickup line, with totals per product. */
+  async readMinibarReconciliationList(filters: ReadMinibarFilters) {
+    this.assertRpcAvailable();
+    const result = readHousekeepingMinibarReconciliation(this.ctx.storage.sql, filters);
+    // The pickup dialog's catalogue: the setup's live products with their prices, read here because
+    // the setup is config and the prices belong to the products module.
+    const config = this.minibarConfigSync();
+    const products: MinibarSetupView['products'] = [];
+    for (const item of config.items) {
+      const row = this.ctx.storage.sql
+        .exec(`SELECT name, default_amount_minor, status FROM products_item WHERE product_id = ?`, item.productId)
+        .toArray() as Array<{ name: string; default_amount_minor: number; status: string }>;
+      if (row[0]?.status !== 'active') continue;
+      products.push({
+        productId: item.productId,
+        name: row[0].name,
+        unitAmountMinor: row[0].default_amount_minor,
+        stockTracked: item.inventoryItemId != null,
+      });
+    }
+    products.sort((a, b) => a.name.localeCompare(b.name));
+    return { ...result, setup: { enabled: config.enabled, products } };
+  }
+
+  /** `get_amenities` — the amenity master and rule templates. */
+  async readAmenityList() {
+    this.assertRpcAvailable();
+    return readHousekeepingAmenities(this.ctx.storage.sql);
+  }
+
+  /** `get_amenity_dispatches` — the dispatch ledger. */
+  async readAmenityDispatchList(filters: ReadDispatchFilters) {
+    this.assertRpcAvailable();
+    return readHousekeepingAmenityDispatches(this.ctx.storage.sql, filters);
   }
 
   /** `get_room_status_history` — newest 100 rows for one room of this property. */

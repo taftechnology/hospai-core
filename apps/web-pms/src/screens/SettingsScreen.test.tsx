@@ -23,6 +23,12 @@ const listOperationalConfig = vi.fn();
 const getAuditLog = vi.fn();
 const getInspectionTemplates = vi.fn();
 const saveInspectionTemplate = vi.fn();
+const getAmenities = vi.fn();
+const saveAmenity = vi.fn();
+const saveAmenityRule = vi.fn();
+const listRoomTypes = vi.fn();
+const listProducts = vi.fn();
+const getHousekeepingInventory = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -48,6 +54,12 @@ vi.mock('../client.js', () => ({
     getAuditLog: (...a: unknown[]) => getAuditLog(...a),
     getInspectionTemplates: (...a: unknown[]) => getInspectionTemplates(...a),
     saveInspectionTemplate: (...a: unknown[]) => saveInspectionTemplate(...a),
+    getAmenities: (...a: unknown[]) => getAmenities(...a),
+    saveAmenity: (...a: unknown[]) => saveAmenity(...a),
+    saveAmenityRule: (...a: unknown[]) => saveAmenityRule(...a),
+    listRoomTypes: (...a: unknown[]) => listRoomTypes(...a),
+    listProducts: (...a: unknown[]) => listProducts(...a),
+    getHousekeepingInventory: (...a: unknown[]) => getHousekeepingInventory(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -140,6 +152,26 @@ describe('SettingsScreen', () => {
     vi.clearAllMocks();
     getInspectionTemplates.mockResolvedValue({ ok: true, templates: [] });
     saveInspectionTemplate.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    getAmenities.mockResolvedValue({ ok: true, amenities: [], rules: [] });
+    saveAmenity.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    saveAmenityRule.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listRoomTypes.mockResolvedValue({ ok: true, roomTypes: [{ roomTypeId: 'rt_king', name: 'King', status: 'active' }] });
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [],
+      items: [
+        { productId: 'prod_water', name: 'Water', status: 'active', defaultAmountMinor: 400 },
+        { productId: 'prod_cola', name: 'Cola', status: 'active', defaultAmountMinor: 600 },
+      ],
+    });
+    getHousekeepingInventory.mockResolvedValue({
+      ok: true,
+      items: [
+        { itemId: 'stk_water', name: 'Water bottle', category: 'minibar', archived: false },
+        { itemId: 'am_soap', name: 'Soap bar', category: 'amenities', archived: false },
+        { itemId: 'lin_1', name: 'Sheet', category: 'linens', archived: false },
+      ],
+    });
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
@@ -1100,6 +1132,113 @@ describe('SettingsScreen', () => {
       ],
     });
     expect((await screen.findByTestId('hk-template-settled')).textContent).toContain('Departure clean added');
+  });
+
+  it('R4.11 C: the minibar setup lists live products and minibar stock only, and saves the object', async () => {
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const setup = await within(card).findByTestId('hk-minibar-settings');
+    expect(within(setup).getByText('No products yet. Add the products guests can take.')).toBeTruthy();
+    fireEvent.click(within(setup).getByLabelText('Minibar enabled'));
+    fireEvent.click(within(setup).getByRole('button', { name: 'Add product' }));
+    expect(within(setup).getByText('Pick a product for every row to save the setup.')).toBeTruthy();
+    const product = (await within(setup).findByLabelText('Minibar product 1')) as HTMLSelectElement;
+    await waitFor(() => expect(within(product).getByText('Water')).toBeTruthy());
+    fireEvent.change(product, { target: { value: 'prod_water' } });
+    // Only Minibar stock is offered, never linens or amenities; no codes are shown.
+    const stock = within(setup).getByLabelText('Stock item for product 1') as HTMLSelectElement;
+    await waitFor(() => expect(within(stock).getByText('Water bottle')).toBeTruthy());
+    expect(within(stock).queryByText('Soap bar')).toBeNull();
+    expect(within(stock).queryByText('Sheet')).toBeNull();
+    fireEvent.change(stock, { target: { value: 'stk_water' } });
+    expect(setup.textContent).not.toMatch(/prod_|stk_/);
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), { target: { value: 'ops:minibar' } });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.housekeeping.minibar',
+      value: { enabled: true, items: [{ productId: 'prod_water', inventoryItemId: 'stk_water' }] },
+      reason: 'ops:minibar',
+    });
+  });
+
+  it('R4.11 C: the amenity editor saves a master row with an Amenities stock link and refreshes the list', async () => {
+    const { invalidateSpy } = renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const section = await within(card).findByTestId('hk-amenity-settings');
+    expect(await within(section).findByText('No amenities yet.')).toBeTruthy();
+    expect((within(section).getByRole('button', { name: 'Add rule' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(section).getByRole('button', { name: 'Add amenity' }));
+    const form = await screen.findByTestId('hk-amenity-form');
+    const save = screen.getByRole('button', { name: 'Save amenity' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(within(form).getByLabelText('Amenity name'), { target: { value: ' Soap ' } });
+    fireEvent.change(within(form).getByLabelText('Amenity unit'), { target: { value: 'bar' } });
+    fireEvent.change(within(form).getByLabelText('Standard quantity'), { target: { value: '2' } });
+    const link = within(form).getByLabelText('Amenity stock item') as HTMLSelectElement;
+    await waitFor(() => expect(within(link).getByText('Soap bar')).toBeTruthy());
+    expect(within(link).queryByText('Water bottle')).toBeNull();
+    fireEvent.change(link, { target: { value: 'am_soap' } });
+    fireEvent.click(save);
+    await waitFor(() => expect(saveAmenity).toHaveBeenCalledTimes(1));
+    expect(saveAmenity.mock.calls[0]![1]).toEqual({
+      name: 'Soap',
+      unit: 'bar',
+      standardQuantity: 2,
+      inventoryItemId: 'am_soap',
+      active: true,
+    });
+    expect((await screen.findByTestId('hk-amenity-setting-settled')).textContent).toContain('Amenity Soap added');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['housekeeping-amenities', 'prop_demo'] });
+  });
+
+  it('R4.11 C: a rule is built from active amenities with a quantity each, and turned off without deleting', async () => {
+    getAmenities.mockResolvedValue({
+      ok: true,
+      amenities: [
+        { amenityId: 'amen_1', name: 'Soap', unit: 'bar', standardQuantity: 2, inventoryItemId: 'am_soap', inventoryItemName: 'Soap bar', active: true },
+        { amenityId: 'amen_2', name: 'Slippers', unit: 'pair', standardQuantity: 1, inventoryItemId: null, inventoryItemName: null, active: true },
+      ],
+      rules: [
+        { ruleId: 'arule_1', name: 'Stayover kit', roomTypeId: null, when: 'stayover', lines: [{ amenityId: 'amen_1', quantity: 1 }], active: true },
+      ],
+    });
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const section = await within(card).findByTestId('hk-amenity-settings');
+    const row = await within(section).findByTestId('hk-amenity-rule-row');
+    expect(row.textContent).toContain('Stayover kit · Stayover · Soap 1 · On');
+    expect(section.textContent).not.toMatch(/amen_|arule_|am_soap/);
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Turn off rule Stayover kit' }));
+    await waitFor(() => expect(saveAmenityRule).toHaveBeenCalledTimes(1));
+    expect(saveAmenityRule.mock.calls[0]![1]).toMatchObject({ ruleId: 'arule_1', active: false });
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Add rule' }));
+    const form = await screen.findByTestId('hk-amenity-rule-form');
+    const save = screen.getByRole('button', { name: 'Save rule' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(within(form).getByLabelText('Rule name'), { target: { value: 'Arrival kit' } });
+    fireEvent.change(within(form).getByLabelText('Rule when'), { target: { value: 'arrival' } });
+    fireEvent.change(within(form).getByLabelText('Rule room type'), { target: { value: 'rt_king' } });
+    fireEvent.change(within(form).getByLabelText('Rule amenity 1'), { target: { value: 'amen_1' } });
+    fireEvent.change(within(form).getByLabelText('Rule quantity 1'), { target: { value: '2' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add amenity line' }));
+    fireEvent.change(within(form).getByLabelText('Rule amenity 2'), { target: { value: 'amen_1' } });
+    expect(within(form).getByText('Each amenity can appear once.')).toBeTruthy();
+    expect(save.disabled).toBe(true);
+    fireEvent.change(within(form).getByLabelText('Rule amenity 2'), { target: { value: 'amen_2' } });
+    fireEvent.click(save);
+    await waitFor(() => expect(saveAmenityRule).toHaveBeenCalledTimes(2));
+    expect(saveAmenityRule.mock.calls[1]![1]).toEqual({
+      name: 'Arrival kit',
+      roomTypeId: 'rt_king',
+      when: 'arrival',
+      lines: [
+        { amenityId: 'amen_1', quantity: 2 },
+        { amenityId: 'amen_2', quantity: 1 },
+      ],
+      active: true,
+    });
   });
 
   it('R4.11 B: a stored template shows in words, edits under its id, turns off without deleting, and refreshes the list', async () => {

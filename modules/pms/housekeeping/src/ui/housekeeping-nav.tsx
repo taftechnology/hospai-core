@@ -10,6 +10,9 @@ export function HousekeepingNav({ view }: { view:
     | 'lost'
     | 'cases'
     | 'priority'
+    | 'linen'
+    | 'minibar'
+    | 'amenities'
     | 'inventory' }) {
   return (
     <Tabs label="Housekeeping">
@@ -68,6 +71,27 @@ export function HousekeepingNav({ view }: { view:
         aria-current={view === 'priority' ? 'page' : undefined}
       >
         Priority
+      </Link>
+      <Link
+        className="ui-tab"
+        to="/housekeeping/linen"
+        aria-current={view === 'linen' ? 'page' : undefined}
+      >
+        Linen
+      </Link>
+      <Link
+        className="ui-tab"
+        to="/housekeeping/minibar"
+        aria-current={view === 'minibar' ? 'page' : undefined}
+      >
+        Minibar
+      </Link>
+      <Link
+        className="ui-tab"
+        to="/housekeeping/amenities"
+        aria-current={view === 'amenities' ? 'page' : undefined}
+      >
+        Amenities
       </Link>
       <Link
         className="ui-tab"

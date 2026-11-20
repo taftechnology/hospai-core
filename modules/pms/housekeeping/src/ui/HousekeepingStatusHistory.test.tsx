@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { depthCStubs } from './depth-c-stubs.fixture.js';
 
 const ROOMS = [
   { roomId: 'rm_1', code: '101', status: 'clean' },
@@ -42,6 +43,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
     ...depthBStubs(),
+    ...depthCStubs(),
     setOooRange: async () => ({ ok: true }),
     ...over,
   };

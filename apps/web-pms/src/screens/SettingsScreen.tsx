@@ -52,6 +52,9 @@ import {
   HousekeepingRequestTypesSettings,
   HousekeepingTaskTypesSettings,
   InspectionTemplatesSettings,
+  AmenitySettings,
+  MINIBAR_KEY,
+  MinibarSettings,
   REQUEST_TYPES_KEY,
   TASK_TYPES_KEY,
 } from './settings-housekeeping.js';
@@ -895,6 +898,8 @@ export function SettingsScreen({
                 {...common}
               />
               <InspectionTemplatesSettings propertyId={common.propertyId} />
+              <MinibarSettings initial={lookup(keys, MINIBAR_KEY)} {...common} />
+              <AmenitySettings propertyId={common.propertyId} />
             </CardContent>
           </Card>
 

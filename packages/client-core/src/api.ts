@@ -2,7 +2,22 @@ import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type {
   GuestDocumentList,
   GuestSettings,
+  AmenityDispatchList,
+  AmenityDispatchRow,
+  AmenityList,
+  AmenityRow,
+  AmenityRuleRow,
+  ConfirmAmenityDispatchInput,
   HousekeepingInventoryCategory,
+  LinenMovementInput,
+  LinenMovementList,
+  LinenMovementRow,
+  MinibarPickupInput,
+  MinibarReconciliation,
+  PlanAmenityDispatchesInput,
+  PlanAmenityDispatchesResult,
+  SaveAmenityInput,
+  SaveAmenityRuleInput,
   HousekeepingInventoryItemRow,
   HousekeepingInventoryMovementKind,
   HousekeepingInventoryMovementRow,
@@ -2705,6 +2720,136 @@ export function createClient(opts: {
           body: JSON.stringify(input),
         },
       ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }>;
+    },
+    // ---- R4.11 Part C: linen movements, minibar pickups, amenities ----
+    async getLinenMovements(
+      propertyId: string,
+      query?: { from?: string; to?: string; itemId?: string; roomId?: string; attendantRef?: string; kind?: string },
+    ): Promise<LinenMovementList> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'itemId', 'roomId', 'attendantRef', 'kind'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/linen-movements${q ? `?${q}` : ''}`,
+      );
+      return body as LinenMovementList;
+    },
+    async recordLinenMovement(
+      propertyId: string,
+      input: LinenMovementInput,
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; movement: LinenMovementRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/linen-movements`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; movement: LinenMovementRow } }>;
+    },
+    async getMinibarReconciliation(
+      propertyId: string,
+      query?: { from?: string; to?: string; roomId?: string; status?: string },
+    ): Promise<MinibarReconciliation> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'roomId', 'status'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/minibar-reconciliation${q ? `?${q}` : ''}`,
+      );
+      return body as MinibarReconciliation;
+    },
+    /** Lines are sorted by product id here, so the sorted array is the one hashed and run. */
+    async recordMinibarPickup(
+      propertyId: string,
+      input: MinibarPickupInput,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const lines = [...input.lines].sort((a, b) => (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0));
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/minibar-pickups`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify({ ...input, lines }),
+      });
+    },
+    async getAmenities(propertyId: string): Promise<AmenityList> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/housekeeping/amenities`);
+      return body as AmenityList;
+    },
+    async saveAmenity(
+      propertyId: string,
+      input: SaveAmenityInput,
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; amenity: AmenityRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/amenities`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; amenity: AmenityRow } }>;
+    },
+    async saveAmenityRule(
+      propertyId: string,
+      input: SaveAmenityRuleInput,
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; rule: AmenityRuleRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const lines = [...input.lines].sort((a, b) => (a.amenityId < b.amenityId ? -1 : a.amenityId > b.amenityId ? 1 : 0));
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/amenity-rules`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify({ ...input, lines }),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; rule: AmenityRuleRow } }>;
+    },
+    async getAmenityDispatches(
+      propertyId: string,
+      query?: { from?: string; to?: string; status?: string; roomId?: string },
+    ): Promise<AmenityDispatchList> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'status', 'roomId'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/amenity-dispatches${q ? `?${q}` : ''}`,
+      );
+      return body as AmenityDispatchList;
+    },
+    async planAmenityDispatches(
+      propertyId: string,
+      input: PlanAmenityDispatchesInput,
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: PlanAmenityDispatchesResult }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/amenity-dispatches/plan`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify({ ...input, roomIds: [...input.roomIds].sort() }),
+      }) as Promise<{ classified: ClassifiedResponse; body: PlanAmenityDispatchesResult }>;
+    },
+    async confirmAmenityDispatch(
+      propertyId: string,
+      input: ConfirmAmenityDispatchInput,
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; dispatch: AmenityDispatchRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const { dispatchId, ...rest } = input;
+      const lines = [...rest.lines].sort((a, b) => (a.lineId < b.lineId ? -1 : a.lineId > b.lineId ? 1 : 0));
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/amenity-dispatches/${enc(dispatchId)}/confirm`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify({ ...rest, lines }),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; dispatch: AmenityDispatchRow } }>;
     },
     async listRoster(propertyId: string, query?: { kind?: string }) {
       const qs = new URLSearchParams();

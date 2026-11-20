@@ -543,6 +543,84 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
       'Close the audit; refused while any room is uncounted or differs without a reason. Idempotency key is header x-idempotency-key.',
   },
+  {
+    id: 'housekeeping.record_linen_movement',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Linen or towel movement (issue, return, laundry out, laundry in, discard, adjust) with an optional room and attendant; stock never goes below zero (insufficient_stock); discard and adjust need a note. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.record_minibar_pickup',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Minibar pickup for the stay in a room: records the pickup and its stock movements, then posts one GUEST folio charge per line through the folio.add_item taxable path (source MINIBAR) unless complimentary; one transaction, nothing written on a refusal. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.save_amenity',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Create or edit an amenity master row (unit, standard quantity, optional linked stock item) or activate or deactivate it. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.save_amenity_rule',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Create or edit an amenity rule template (when, optional room type, lines) or activate or deactivate it. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.plan_amenity_dispatches',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Plan amenity dispatches for a date, a rule and selected rooms; expected quantities come from the rule. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.confirm_amenity_dispatch',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part C — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Confirm a dispatch with actual quantities; a difference needs an exception reason; writes an amenity stock movement for each linked line. Amenities never post to the folio. Idempotency key is header x-idempotency-key.',
+  },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
     id: 'folio.add_item',

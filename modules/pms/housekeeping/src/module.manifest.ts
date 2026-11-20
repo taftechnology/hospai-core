@@ -25,6 +25,11 @@ const manifest = {
       'housekeeping_guest_audit_session',
       'housekeeping_guest_audit_line',
       'housekeeping_guest_audit_line_event',
+      'housekeeping_minibar_pickup',
+      'housekeeping_minibar_pickup_line',
+      'housekeeping_amenity',
+      'housekeeping_amenity_rule',
+      'housekeeping_amenity_dispatch',
     ],
   },
   writes: [
@@ -46,6 +51,11 @@ const manifest = {
     'housekeeping_guest_audit_session',
     'housekeeping_guest_audit_line',
     'housekeeping_guest_audit_line_event',
+    'housekeeping_minibar_pickup',
+    'housekeeping_minibar_pickup_line',
+    'housekeeping_amenity',
+    'housekeeping_amenity_rule',
+    'housekeeping_amenity_dispatch',
   ],
   publishes: [
     'housekeeping.assigned',

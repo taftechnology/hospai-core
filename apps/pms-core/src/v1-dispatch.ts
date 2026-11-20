@@ -226,8 +226,14 @@ import {
   HK_TASK_SEARCH_MAX,
   HK_REQUEST_SEARCH_MAX,
   LOST_ITEM_SEARCH_MAX,
+  HK_AMENITY_DISPATCH_ROOMS_MAX,
+  HK_AMENITY_RULE_LINES_MAX,
   HK_AUDIT_COUNT_LINES_MAX,
   HK_INSPECTION_ITEMS_MAX,
+  HK_MINIBAR_PICKUP_LINES_MAX,
+  MINIBAR_PICKUP_STATUSES,
+  isAmenityDispatchStatus,
+  isHousekeepingStockMovementKind,
   isGuestAuditStatus,
   isInspectionResult,
   isHousekeepingCaseKind,
@@ -6454,6 +6460,407 @@ async function handleGetGuestAudits(ctx: V1DispatchContext): Promise<Response> {
 async function handleGetGuestAudit(ctx: V1DispatchContext): Promise<Response> {
   const sessionId = decodeURIComponent(ctx.match[2]!);
   return partBRead(ctx, (stub) => stub.readGuestAuditDetail(sessionId));
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part C: linen movements, minibar pickups, amenities
+// ---------------------------------------------------------------------------
+
+const LINEN_MOVEMENT_KEYS = [
+  'businessDate',
+  'itemId',
+  'kind',
+  'quantity',
+  'roomId',
+  'attendantRef',
+  'note',
+] as const;
+
+/** Reads a Part C write body once: JSON parsed through the shared helper, then an object check. */
+async function readPartCBody(ctx: V1DispatchContext): Promise<{ key: string; body: HkBody } | Response> {
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (!isHkBody(bodyParsed)) return json({ error: 'invalid_body' }, 400);
+  return { key: idempotencyKey, body: bodyParsed };
+}
+
+function isObjectList(v: unknown): v is HkBody[] {
+  return Array.isArray(v) && v.every((x) => isHkBody(x));
+}
+
+async function handlePostLinenMovement(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    typeof body.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    typeof body.itemId !== 'string' ||
+    !body.itemId ||
+    typeof body.kind !== 'string' ||
+    !Number.isInteger(body.quantity) ||
+    !isOptionalNullableString(body.roomId) ||
+    !isOptionalNullableString(body.attendantRef) ||
+    !isOptionalNullableString(body.note)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, LINEN_MOVEMENT_KEYS) } as Parameters<PropertyDO['tryRecordHousekeepingLinenMovement']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.record_linen_movement', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordHousekeepingLinenMovement']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.record_linen_movement',
+      routeId: 'post_linen_movement',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordHousekeepingLinenMovement(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostMinibarPickup(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    typeof body.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    typeof body.roomId !== 'string' ||
+    !body.roomId ||
+    typeof body.reservationId !== 'string' ||
+    !body.reservationId ||
+    !isObjectList(body.lines) ||
+    body.lines.length === 0 ||
+    !isOptionalNullableString(body.attendantRef) ||
+    !isOptionalNullableString(body.complimentaryReason) ||
+    (body.complimentary !== undefined && typeof body.complimentary !== 'boolean')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.lines.length > HK_MINIBAR_PICKUP_LINES_MAX) return limitExceeded();
+  if (body.lines.some((l) => typeof l.productId !== 'string' || !l.productId || !Number.isInteger(l.quantity))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // Lines are sorted before they are hashed, and the sorted array is what is sent.
+  const lines = (body.lines as Array<{ productId: string; quantity: number }>)
+    .map((l) => ({ productId: l.productId, quantity: l.quantity }))
+    .sort((a, b) => (a.productId < b.productId ? -1 : a.productId > b.productId ? 1 : 0));
+  const commandPayload = {
+    ...pickPresent(body, ['businessDate', 'roomId', 'reservationId', 'attendantRef', 'complimentary', 'complimentaryReason']),
+    lines,
+  } as Parameters<PropertyDO['tryRecordHousekeepingMinibarPickup']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.record_minibar_pickup', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordHousekeepingMinibarPickup']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.record_minibar_pickup',
+      routeId: 'post_minibar_pickup',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordHousekeepingMinibarPickup(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostAmenity(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    typeof body.name !== 'string' ||
+    typeof body.unit !== 'string' ||
+    !Number.isInteger(body.standardQuantity) ||
+    (body.amenityId !== undefined && typeof body.amenityId !== 'string') ||
+    !isOptionalNullableString(body.inventoryItemId) ||
+    (body.active !== undefined && typeof body.active !== 'boolean')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = {
+    ...pickPresent(body, ['amenityId', 'name', 'unit', 'standardQuantity', 'inventoryItemId', 'active']),
+  } as Parameters<PropertyDO['trySaveHousekeepingAmenity']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.save_amenity', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySaveHousekeepingAmenity']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.save_amenity',
+      routeId: 'post_amenity',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySaveHousekeepingAmenity(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostAmenityRule(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    typeof body.name !== 'string' ||
+    typeof body.when !== 'string' ||
+    !isObjectList(body.lines) ||
+    (body.ruleId !== undefined && typeof body.ruleId !== 'string') ||
+    !isOptionalNullableString(body.roomTypeId) ||
+    (body.active !== undefined && typeof body.active !== 'boolean')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.lines.length > HK_AMENITY_RULE_LINES_MAX) return limitExceeded();
+  if (body.lines.some((l) => typeof l.amenityId !== 'string' || !Number.isInteger(l.quantity))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // Lines are sorted before they are hashed, and the sorted array is what is sent.
+  const lines = (body.lines as Array<{ amenityId: string; quantity: number }>)
+    .map((l) => ({ amenityId: l.amenityId, quantity: l.quantity }))
+    .sort((a, b) => (a.amenityId < b.amenityId ? -1 : a.amenityId > b.amenityId ? 1 : 0));
+  const commandPayload = {
+    ...pickPresent(body, ['ruleId', 'name', 'roomTypeId', 'when', 'active']),
+    lines,
+  } as Parameters<PropertyDO['trySaveHousekeepingAmenityRule']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.save_amenity_rule', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySaveHousekeepingAmenityRule']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.save_amenity_rule',
+      routeId: 'post_amenity_rule',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySaveHousekeepingAmenityRule(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostAmenityDispatchPlan(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    typeof body.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    typeof body.ruleId !== 'string' ||
+    !body.ruleId ||
+    !Array.isArray(body.roomIds) ||
+    body.roomIds.length === 0 ||
+    body.roomIds.some((r) => typeof r !== 'string' || !r)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.roomIds.length > HK_AMENITY_DISPATCH_ROOMS_MAX) return limitExceeded();
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // Rooms are sorted before they are hashed, and the sorted array is what is sent.
+  const commandPayload = {
+    businessDate: body.businessDate,
+    ruleId: body.ruleId,
+    roomIds: [...(body.roomIds as string[])].sort(),
+  } as Parameters<PropertyDO['tryPlanHousekeepingAmenityDispatches']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.plan_amenity_dispatches', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPlanHousekeepingAmenityDispatches']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.plan_amenity_dispatches',
+      routeId: 'post_amenity_dispatch_plan',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryPlanHousekeepingAmenityDispatches(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostAmenityDispatchConfirm(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const dispatchId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const read = await readPartCBody(ctx);
+  if (read instanceof Response) return read;
+  const { key: idempotencyKey, body } = read;
+  if (
+    !isObjectList(body.lines) ||
+    body.lines.length === 0 ||
+    !isOptionalNullableString(body.exceptionReason) ||
+    !isOptionalNullableString(body.supervisorRef)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.lines.length > HK_AMENITY_RULE_LINES_MAX) return limitExceeded();
+  if (body.lines.some((l) => typeof l.lineId !== 'string' || !l.lineId || !Number.isInteger(l.actualQuantity))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // Lines are sorted before they are hashed, and the sorted array is what is sent.
+  const lines = (body.lines as Array<{ lineId: string; actualQuantity: number }>)
+    .map((l) => ({ lineId: l.lineId, actualQuantity: l.actualQuantity }))
+    .sort((a, b) => (a.lineId < b.lineId ? -1 : a.lineId > b.lineId ? 1 : 0));
+  const commandPayload = {
+    dispatchId,
+    lines,
+    ...pickPresent(body, ['exceptionReason', 'supervisorRef']),
+  } as Parameters<PropertyDO['tryConfirmHousekeepingAmenityDispatch']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.confirm_amenity_dispatch', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryConfirmHousekeepingAmenityDispatch']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.confirm_amenity_dispatch',
+      routeId: 'post_amenity_dispatch_confirm',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryConfirmHousekeepingAmenityDispatch(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handleGetLinenMovements(ctx: V1DispatchContext): Promise<Response> {
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, 0);
+  const kind = params.get('kind') ?? undefined;
+  if (!base || (kind !== undefined && !isHousekeepingStockMovementKind(kind))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const filters = {
+    ...base,
+    ...(kind ? { kind } : {}),
+    ...(params.get('itemId') ? { itemId: params.get('itemId')! } : {}),
+    ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+    ...(params.get('attendantRef') ? { attendantRef: params.get('attendantRef')! } : {}),
+  };
+  return partBRead(ctx, (stub) => stub.readLinenMovementList(filters));
+}
+
+async function handleGetMinibarReconciliation(ctx: V1DispatchContext): Promise<Response> {
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, 0);
+  const status = params.get('status') ?? undefined;
+  if (!base || (status !== undefined && !(MINIBAR_PICKUP_STATUSES as readonly string[]).includes(status))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const filters = {
+    ...base,
+    ...(status ? { status } : {}),
+    ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+  };
+  return partBRead(ctx, (stub) => stub.readMinibarReconciliationList(filters));
+}
+
+async function handleGetAmenities(ctx: V1DispatchContext): Promise<Response> {
+  return partBRead(ctx, (stub) => stub.readAmenityList());
+}
+
+async function handleGetAmenityDispatches(ctx: V1DispatchContext): Promise<Response> {
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, 0);
+  const status = params.get('status') ?? undefined;
+  if (!base || (status !== undefined && !isAmenityDispatchStatus(status))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const filters = {
+    ...base,
+    ...(status ? { status } : {}),
+    ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+  };
+  return partBRead(ctx, (stub) => stub.readAmenityDispatchList(filters));
 }
 
 async function handlePostMaintenanceTicket(ctx: V1DispatchContext): Promise<Response> {
@@ -13368,6 +13775,102 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetGuestAudit,
+  },
+  {
+    id: 'post_linen_movement',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/linen-movements$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.record_linen_movement',
+    entitlement: 'pms.core',
+    handler: handlePostLinenMovement,
+  },
+  {
+    id: 'post_minibar_pickup',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/minibar-pickups$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.record_minibar_pickup',
+    entitlement: 'pms.core',
+    handler: handlePostMinibarPickup,
+  },
+  {
+    id: 'post_amenity',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenities$/,
+    permission: 'settings:configure',
+    commandId: 'housekeeping.save_amenity',
+    entitlement: 'pms.core',
+    handler: handlePostAmenity,
+  },
+  {
+    id: 'post_amenity_rule',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenity-rules$/,
+    permission: 'settings:configure',
+    commandId: 'housekeeping.save_amenity_rule',
+    entitlement: 'pms.core',
+    handler: handlePostAmenityRule,
+  },
+  {
+    id: 'post_amenity_dispatch_plan',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenity-dispatches\/plan$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.plan_amenity_dispatches',
+    entitlement: 'pms.core',
+    handler: handlePostAmenityDispatchPlan,
+  },
+  {
+    id: 'post_amenity_dispatch_confirm',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenity-dispatches\/([^/]+)\/confirm$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.confirm_amenity_dispatch',
+    entitlement: 'pms.core',
+    handler: handlePostAmenityDispatchConfirm,
+  },
+  {
+    id: 'get_linen_movements',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/linen-movements$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetLinenMovements,
+  },
+  {
+    id: 'get_minibar_reconciliation',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/minibar-reconciliation$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetMinibarReconciliation,
+  },
+  {
+    id: 'get_amenities',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenities$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetAmenities,
+  },
+  {
+    id: 'get_amenity_dispatches',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/amenity-dispatches$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetAmenityDispatches,
   },
 ];
 
